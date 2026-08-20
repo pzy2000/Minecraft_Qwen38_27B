@@ -17,8 +17,59 @@ Voxel.Game = (function () {
   var fps = 0, frames = 0, fpsT = 0;
   var debug = false;
   var lastT = 0;
+  var lastErrT = 0;
+  var lastBlankCheck = 0;
 
   function setState(s) { state = s; Game.state = s; }
+
+  function showError(msg) {
+    lastErrT = performance.now();
+    var el = document.getElementById('error-banner');
+    el.textContent = '错误：' + msg;
+    el.style.display = 'block';
+  }
+
+  function updateErrorBanner() {
+    if (lastErrT && performance.now() - lastErrT > 4000) {
+      lastErrT = 0;
+      document.getElementById('error-banner').style.display = 'none';
+    }
+  }
+
+  // 画面自检：采样全屏 9 点
+  //  1) 全黑/透明 → 画布从未成功渲染（真渲染失败）
+  //  2) 相机朝下看却整屏单一颜色 → 地形网格没被 GPU 画出来（Metal 驱动问题）
+  function checkBlankCanvas() {
+    if (state !== 'playing') return;
+    var now = performance.now();
+    if (now - lastBlankCheck < 3000) return;
+    lastBlankCheck = now;
+    try {
+      var t = document.createElement('canvas');
+      t.width = 1; t.height = 1;
+      var tc = t.getContext('2d');
+      var sigs = [];
+      for (var gy = 0; gy < 3; gy++)
+        for (var gx = 0; gx < 3; gx++) {
+          var sx = ((canvas.width * (gx + 0.5)) / 3) | 0;
+          var sy = ((canvas.height * (gy + 0.5)) / 3) | 0;
+          tc.drawImage(canvas, sx, sy, 1, 1, 0, 0, 1, 1);
+          var d = tc.getImageData(0, 0, 1, 1).data;
+          sigs.push(d[0] + ',' + d[1] + ',' + d[2] + ',' + d[3]);
+        }
+      var allBlank = true, allSame = true;
+      for (var i = 0; i < sigs.length; i++) {
+        var p = sigs[i].split(',');
+        if (!(p[0] === '0' && p[1] === '0' && p[2] === '0')) allBlank = false;
+        if (sigs[i] !== sigs[0]) allSame = false;
+      }
+      if (allBlank) {
+        showError('画面空白 — 渲染可能失败。请依次尝试：1) 刷新页面 2) 浏览器设置中关闭"硬件加速"后重启 3) 换用 Chrome 打开');
+      } else if (allSame && Voxel.Controls.pitch() < -0.3) {
+        showError('朝下看却看不到地形 — 网格已生成但未被 GPU 渲染。请尝试：Edge 设置→系统和性能→关闭"使用硬件加速"后重启，或换 Chrome 打开');
+      }
+    } catch (e) { }
+  }
 
   function hideOverlays() {
     ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading'].forEach(function (id) {
@@ -32,11 +83,8 @@ Voxel.Game = (function () {
   }
 
   function tryLock() {
-    Voxel.Controls.requestLock();
-    setTimeout(function () {
-      if (state === 'playing' && !Voxel.Controls.isLocked())
-        Voxel.HUD.toast('点击画面锁定鼠标');
-    }, 500);
+    var ok = Voxel.Controls.requestLock();
+    if (!ok) Voxel.HUD.toast('浏览器不支持鼠标锁定（视角无法转动），建议换 Chrome/Edge');
   }
 
   // ---------- 世界流程 ----------
@@ -56,16 +104,21 @@ Voxel.Game = (function () {
 
   function enterWorld() {
     hideOverlays();
+    lastBlankCheck = performance.now(); // 进入后 3 秒内不做空白自检
     if (saveData) {
       if (saveData.inv && saveData.inv.length === 36) inv = saveData.inv.slice();
       heldItem = saveData.held || 0;
       Voxel.DayNight.setTime(saveData.time || 0.3);
       var p = saveData.player;
-      if (p && p.pos) {
-        var v = new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]);
-        if (v.y < 2) Voxel.Player.initAtSpawn();
-        else {
-          Voxel.Player.init(v, p.yaw, p.pitch);
+      if (p && p.pos && p.pos.length === 3) {
+        var vx = +p.pos[0], vy = +p.pos[1], vz = +p.pos[2];
+        var vyaw = +p.yaw, vpitch = +p.pitch;
+        if (!isFinite(vx) || !isFinite(vy) || !isFinite(vz) || vy < 2) {
+          Voxel.Player.initAtSpawn();
+        } else {
+          if (!isFinite(vyaw)) vyaw = 0;
+          if (!isFinite(vpitch)) vpitch = 0;
+          Voxel.Player.init(new THREE.Vector3(vx, vy, vz), vyaw, vpitch);
           Voxel.Player.setFlying(!!p.fly);
           Voxel.Player.setHp(p.hp || C.HP);
         }
@@ -73,7 +126,16 @@ Voxel.Game = (function () {
       Voxel.HUD.toast('存档已加载 · 种子 ' + saveData.seed);
     } else {
       Voxel.Player.initAtSpawn();
+      // 新世界：显式重置视角（否则沿用上次残留的偏航/俯仰，可能正朝天看）
+      Voxel.Controls.setYaw(0);
+      Voxel.Controls.setPitch(-0.1);
       Voxel.HUD.toast('欢迎来到方块世界！');
+    }
+    // 防止存档视角几乎垂直（看天/看地）导致进游戏看不见地形
+    var _pitch = Voxel.Controls.pitch();
+    if (Math.abs(_pitch) > 0.9) {
+      Voxel.Controls.setPitch(-0.2);
+      Voxel.HUD.toast('视角已复位（原视角几乎垂直朝上/下）');
     }
     Voxel.HUD.setInv(inv);
     Voxel.HUD.drawHeld(heldItem);
@@ -234,6 +296,10 @@ Voxel.Game = (function () {
     if (!locked && state === 'playing') pause();
   }
 
+  function onLockError() {
+    if (state === 'playing') Voxel.HUD.toast('鼠标锁定失败，请点击画面重试');
+  }
+
   function onKey(code) {
     if (state === 'playing') {
       if (code >= 'Digit1' && code <= 'Digit9') {
@@ -276,7 +342,20 @@ Voxel.Game = (function () {
     var dt = (now - lastT) / 1000;
     lastT = now;
     if (dt > 0.1) dt = 0.1;
+    try {
+      frameBody(dt);
+    } catch (e) {
+      console.error(e);
+      showError(String(e.message || e));
+    }
+    // 鼠标未锁定时常驻提示
+    document.getElementById('lock-hint').style.display =
+      (state === 'playing' && !Voxel.Controls.isLocked()) ? 'block' : 'none';
+    checkBlankCanvas();
+    updateErrorBanner();
+  }
 
+  function frameBody(dt) {
     frames++;
     fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
@@ -284,16 +363,29 @@ Voxel.Game = (function () {
     if (state === 'loading') {
       var wasReady = Voxel.World.isReady();
       Voxel.World.generateNext(10);
-      if (!wasReady && Voxel.World.isReady() && pendingEdits) {
-        Voxel.World.applyEdits(pendingEdits);
-        pendingEdits = null;
+      if (!wasReady && Voxel.World.isReady()) {
+        // 生成完毕：以玩家落点（存档位置或出生点）为焦点优先建网格
+        var fx, fz;
+        if (saveData && saveData.player && saveData.player.pos &&
+          isFinite(+saveData.player.pos[0]) && isFinite(+saveData.player.pos[2])) {
+          fx = +saveData.player.pos[0];
+          fz = +saveData.player.pos[2];
+        } else {
+          var sp0 = Voxel.World.spawnPoint();
+          fx = sp0.x; fz = sp0.z;
+        }
+        Voxel.World.setFocus(fx, fz);
+        if (pendingEdits) {
+          Voxel.World.applyEdits(pendingEdits);
+          pendingEdits = null;
+        }
       }
-      Voxel.World.buildMeshes(3, scene);
+      Voxel.World.buildMeshes(6, scene);
       var p = Voxel.World.progress();
       document.getElementById('loading-bar').style.width = (p * 100).toFixed(0) + '%';
       document.getElementById('loading-text').textContent =
         p < 1 ? '正在生成世界 ' + ((p * 100) | 0) + '%' : '正在构建地形...';
-      if (Voxel.World.isReady() && Voxel.World.centerMeshed()) enterWorld();
+      if (Voxel.World.isReady() && Voxel.World.focusMeshed()) enterWorld();
     }
 
     if (state === 'playing') {
@@ -339,17 +431,28 @@ Voxel.Game = (function () {
     renderer.setClearColor(sky);
     scene.fog.color.copy(sky);
 
-    if (state === 'playing') Voxel.World.buildMeshes(2, scene);
+    if (state === 'playing') {
+      Voxel.World.setFocus(Voxel.Player.pos().x, Voxel.Player.pos().z);
+      Voxel.World.buildMeshes(2, scene);
+    }
 
     if (debug && (state === 'playing' || state === 'paused' || state === 'inventory')) {
       var pp = Voxel.Player.pos();
+      var gl = renderer.getContext();
+      var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      var gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)).slice(0, 40) : '?';
       Voxel.HUD.showDebug(
         'FPS ' + fps +
+        '  状态 ' + state + (Voxel.Controls.isLocked() ? ' [鼠标已锁定]' : ' [鼠标未锁定]') +
         '  位置 ' + pp.x.toFixed(1) + ', ' + pp.y.toFixed(1) + ', ' + pp.z.toFixed(1) +
+        '  视角 偏航' + (Voxel.Controls.yaw() * 57.2958).toFixed(0) + '° 俯仰' + (Voxel.Controls.pitch() * 57.2958).toFixed(0) + '°' +
         '  ' + (Voxel.DayNight.time() * 24).toFixed(1) + '时' + (Voxel.DayNight.isNight() ? ' 夜' : ' 昼') +
         '  生物 ' + Voxel.Mobs.count() +
+        '  网格 ' + Voxel.World.meshCount() +
+        (gl.isContextLost() ? '  [上下文丢失!]' : '') +
         '  ' + (Voxel.Player.flying() ? '[飞行] ' : '') +
-        Voxel.Blocks.name(inv[sel])
+        Voxel.Blocks.name(inv[sel]) +
+        '  GPU:' + gpu
       );
     } else Voxel.HUD.showDebug('');
 
@@ -368,6 +471,7 @@ Voxel.Game = (function () {
     camera: null,
     onKey: onKey,
     onLockChange: onLockChange,
+    onLockError: onLockError,
     onPlayerDead: onPlayerDead,
     onInvClick: onInvClick,
     cycleSlot: cycleSlot
@@ -378,7 +482,7 @@ Voxel.Game = (function () {
     Voxel.HUD.init();
     Voxel.MeshBuilder.init();
 
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false });
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -414,11 +518,19 @@ Voxel.Game = (function () {
     });
     document.addEventListener('mouseup', function (e) { mouseDown[e.button] = false; });
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    // 游戏中未锁定时，点击窗口任意位置都可请求锁定
+    document.addEventListener('mousedown', function (e) {
+      if (state === 'playing' && !Voxel.Controls.isLocked() && e.target !== canvas) tryLock();
+    });
     canvas.addEventListener('click', function () {
       if (state === 'playing' && !Voxel.Controls.isLocked()) tryLock();
     });
     window.addEventListener('resize', onResize);
     window.addEventListener('beforeunload', function () { doSave(true); });
+    canvas.addEventListener('webglcontextlost', function (e) {
+      e.preventDefault();
+      showError('图形上下文丢失，请刷新页面（F5）重试');
+    });
 
     document.getElementById('btn-start').addEventListener('click', function () {
       startWorld(saveData ? saveData.seed : null, saveData);

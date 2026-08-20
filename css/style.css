@@ -58,6 +58,28 @@ html, body {
 }
 #toast.show { opacity: 1; }
 
+#lock-hint {
+  position: absolute; left: 50%; bottom: 130px;
+  transform: translateX(-50%);
+  color: #fff; font-size: 13px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 6px 16px;
+  display: none;
+  white-space: nowrap;
+}
+
+#error-banner {
+  position: absolute; top: 24px; left: 50%;
+  transform: translateX(-50%);
+  color: #fff; font-size: 13px;
+  background: rgba(170, 30, 30, 0.9);
+  border: 1px solid #f55;
+  padding: 8px 18px;
+  display: none;
+  max-width: 80vw;
+}
+
 #dmg-flash { position: absolute; inset: 0; background: rgba(255, 30, 30, 0.3); opacity: 0; }
 #dmg-flash.go { animation: dmg 0.45s ease-out; }
 @keyframes dmg { 0% { opacity: 1; } 100% { opacity: 0; } }

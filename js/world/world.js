@@ -165,6 +165,30 @@ Voxel.World = (function () {
     return true;
   }
 
+  // 建网格焦点（优先构建焦点周围的区块）
+  var focus = { x: W / 2, z: D / 2 };
+  function setFocus(x, z) {
+    if (isFinite(x)) focus.x = x;
+    if (isFinite(z)) focus.z = z;
+  }
+  function focusDist(cx, cz) {
+    var dx = cx * CS + CS / 2 - focus.x;
+    var dz = cz * CS + CS / 2 - focus.z;
+    return dx * dx + dz * dz;
+  }
+  function focusMeshed() {
+    var n = W / CS;
+    var c = (focus.x / CS) | 0, r = (focus.z / CS) | 0;
+    if (c < 0 || c >= n || r < 0 || r >= n) return true;
+    for (var dx = -1; dx <= 1; dx++)
+      for (var dz = -1; dz <= 1; dz++) {
+        var cx = c + dx, cz = r + dz;
+        if (cx < 0 || cz < 0 || cx >= n || cz >= n) continue;
+        if (!chunks[cx + ',' + cz]) return false;
+      }
+    return true;
+  }
+
   function surfaceAt(x, z) {
     if (x < 0 || x >= W || z < 0 || z >= D) return -1;
     for (var y = H - 1; y >= 0; y--)
@@ -196,7 +220,14 @@ Voxel.World = (function () {
     if (meshGroup.parent !== scene) scene.add(meshGroup);
     var built = 0;
     while (dirtyQueue.length && built < n) {
-      var key = dirtyQueue.shift();
+      // 优先构建离焦点最近的区块
+      var bi = 0, bd = Infinity;
+      for (var i = 0; i < dirtyQueue.length; i++) {
+        var qp = dirtyQueue[i].split(',');
+        var qd = focusDist(+qp[0], +qp[1]);
+        if (qd < bd) { bd = qd; bi = i; }
+      }
+      var key = dirtyQueue.splice(bi, 1)[0];
       delete dirty[key];
       var parts = key.split(',');
       var cx = +parts[0], cz = +parts[1];
@@ -240,6 +271,9 @@ Voxel.World = (function () {
     progress: progress,
     isReady: isReady,
     centerMeshed: centerMeshed,
+    setFocus: setFocus,
+    focusMeshed: focusMeshed,
+    meshCount: function () { return meshGroup ? meshGroup.children.length : 0; },
     buildMeshes: buildMeshes,
     clearMeshes: clearMeshes,
     get: get,

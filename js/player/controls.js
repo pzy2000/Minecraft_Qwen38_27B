@@ -30,8 +30,12 @@ Voxel.Controls = (function () {
     });
 
     document.addEventListener('pointerlockchange', function () {
-      locked = document.pointerLockElement === canvas;
+      locked = document.pointerLockElement === canvas ||
+        (document.webkitPointerLockElement === canvas);
       if (Voxel.Game) Voxel.Game.onLockChange(locked);
+    });
+    document.addEventListener('pointerlockerror', function () {
+      if (Voxel.Game) Voxel.Game.onLockError();
     });
 
     document.addEventListener('wheel', function (e) {
@@ -51,12 +55,18 @@ Voxel.Controls = (function () {
     isLocked: function () { return locked; },
     requestLock: function () {
       try {
-        var p = canvas.requestPointerLock();
+        var fn = canvas.requestPointerLock || canvas.webkitRequestPointerLock;
+        if (!fn) return false; // 浏览器不支持指针锁定
+        var p = fn.call(canvas);
         if (p && p.catch) p.catch(function () { });
-      } catch (e) { }
+        return true;
+      } catch (e) { return false; }
     },
     exitLock: function () {
-      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      try {
+        if (document.pointerLockElement === canvas) document.exitPointerLock();
+        else if (document.webkitPointerLockElement === canvas) document.webkitExitPointerLock();
+      } catch (e) { }
     }
   };
 })();

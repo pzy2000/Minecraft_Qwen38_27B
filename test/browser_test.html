@@ -14,6 +14,8 @@
   <canvas id="health" width="212" height="20"></canvas>
   <div id="hotbar"></div>
   <div id="toast"></div>
+  <div id="lock-hint"></div>
+  <div id="error-banner"></div>
   <div id="dmg-flash"></div>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel">
@@ -114,18 +116,29 @@
 
   function stepC() {
     check('玩家落地(重力+碰撞)', Voxel.Player.onGround());
-    Voxel.Controls.setPitch(-1.5);
-    Voxel.Controls.setYaw(0.3);
-    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
-    check('DDA 射线命中方块', !!hit && hit.type === 'block');
-    if (hit && hit.type === 'block' && hit.id !== 12) {
-      var old = Voxel.World.get(hit.x, hit.y, hit.z);
-      Voxel.World.set(hit.x, hit.y, hit.z, 0);
-      check('挖方块生效', Voxel.World.get(hit.x, hit.y, hit.z) === 0);
-      check('增量 edits 已记录', Voxel.World.getEdits()[hit.x + ',' + hit.y + ',' + hit.z] === 0);
-      Voxel.World.set(hit.x, hit.y, hit.z, old);
-    }
-    wait(1000, stepD);
+
+    // 移动测试：按住 W 键 0.7 秒，玩家应向前移动
+    Voxel.Controls.setYaw(0);
+    var z0 = Voxel.Player.pos().z;
+    Voxel.Controls.keys['KeyW'] = true;
+    wait(700, function () {
+      Voxel.Controls.keys['KeyW'] = false;
+      var moved = Math.abs(Voxel.Player.pos().z - z0);
+      check('按住W键玩家移动 (位移 ' + moved.toFixed(2) + ')', moved > 0.5);
+
+      Voxel.Controls.setPitch(-1.5);
+      Voxel.Controls.setYaw(0.3);
+      var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
+      check('DDA 射线命中方块', !!hit && hit.type === 'block');
+      if (hit && hit.type === 'block' && hit.id !== 12) {
+        var old = Voxel.World.get(hit.x, hit.y, hit.z);
+        Voxel.World.set(hit.x, hit.y, hit.z, 0);
+        check('挖方块生效', Voxel.World.get(hit.x, hit.y, hit.z) === 0);
+        check('增量 edits 已记录', Voxel.World.getEdits()[hit.x + ',' + hit.y + ',' + hit.z] === 0);
+        Voxel.World.set(hit.x, hit.y, hit.z, old);
+      }
+      wait(1000, stepD);
+    });
   }
 
   function stepD() {
