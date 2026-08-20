@@ -8,7 +8,7 @@ Voxel.Config = {
   WORLD_D: 256,        // Z 方向方块数
   CHUNK: 32,           // 区块边长（越大区块越少、draw call 越少，对 ANGLE/Edge 更友好）
   WATER_LEVEL: 27,     // 水位线
-  DAY_LENGTH: 180,     // 昼夜循环秒数
+  DAY_LENGTH: 1800,    // 昼夜循环秒数
 
   // 玩家
   PLAYER: {
