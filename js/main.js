@@ -175,11 +175,11 @@ Voxel.Game = (function () {
     if (!hit) return;
 
     if (hit.type === 'mob') {
-      if (btn === 0) Voxel.Mobs.damage(hit.mob, 2, d);
+      if (btn === 2) Voxel.Mobs.damage(hit.mob, 2, d);
       return;
     }
-    if (btn === 0) dig(hit);
-    else if (btn === 2) place(hit);
+    if (btn === 2) dig(hit);
+    else if (btn === 0) place(hit);
   }
 
   function dig(hit) {
@@ -392,8 +392,8 @@ Voxel.Game = (function () {
       var acc = dt, step = 1 / 60, n = 0;
       while (acc >= step && n < 5) {
         var nowS = performance.now() / 1000;
-        if (mouseDown[0] && nowS - lastDig > C.DIG_CD) { lastDig = nowS; doAct(0); }
-        if (mouseDown[2] && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(2); }
+        if (mouseDown[0] && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
+        if (mouseDown[2] && nowS - lastDig > C.DIG_CD) { lastDig = nowS; doAct(2); }
         Voxel.Player.update(step);
         Voxel.Mobs.update(step);
         acc -= step;
@@ -511,8 +511,8 @@ Voxel.Game = (function () {
       if (!Voxel.Controls.isLocked()) { tryLock(); return; }
       mouseDown[e.button] = true;
       var nowS = performance.now() / 1000;
-      if (e.button === 0) { lastDig = nowS - C.DIG_CD; doAct(0); }
-      else if (e.button === 2) { lastPlace = nowS - 0.3; doAct(2); }
+      if (e.button === 0) { lastPlace = nowS - 0.3; doAct(0); }
+      else if (e.button === 2) { lastDig = nowS - C.DIG_CD; doAct(2); }
       else if (e.button === 1) pickBlock();
       e.preventDefault();
     });
