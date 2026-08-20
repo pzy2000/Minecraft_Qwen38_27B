@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>VOXEL RENDER CHECK</title>
+<style>body { margin: 0; background: #222; } #out { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><div id="crosshair"></div><div id="debug"></div><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="dmg-flash"></div></div>
+<div id="inventory" class="hidden"><div class="panel"><div id="inv-grid"></div><div class="inv-held-row"><canvas id="inv-held" width="44" height="44"></canvas></div></div></div>
+<div id="overlay-start" class="overlay hidden"><div class="panel"><button id="btn-start"></button><button id="btn-new"></button><div id="start-hint"></div></div></div>
+<div id="overlay-pause" class="overlay hidden"><div class="panel"><button id="btn-resume"></button><button id="btn-save"></button><button id="btn-new2"></button></div></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel"><button id="btn-respawn"></button></div></div>
+<div id="overlay-loading" class="overlay hidden"><div class="panel"><div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div></div></div>
+<pre id="out">RUNNING</pre>
+<script src="../vendor/three.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/world/noise.js"></script>
+<script src="../js/blocks.js"></script>
+<script src="../js/world/world.js"></script>
+<script src="../js/world/mesh.js"></script>
+<script src="../js/player/physics.js"></script>
+<script src="../js/player/controls.js"></script>
+<script src="../js/player/player.js"></script>
+<script src="../js/interact/raycast.js"></script>
+<script src="../js/systems/daynight.js"></script>
+<script src="../js/systems/sound.js"></script>
+<script src="../js/systems/particles.js"></script>
+<script src="../js/entities/mobs.js"></script>
+<script src="../js/systems/save.js"></script>
+<script src="../js/ui/hud.js"></script>
+<script src="../js/main.js"></script>
+<script>
+(function () {
+  var out = [], glErr = 0;
+  var origErr = console.error;
+  console.error = function () {
+    var s = [].map.call(arguments, function (a) { return String(a); }).join(' ');
+    if (/WebGL|Shader|gl-|drawElements|buffer/.test(s) && !/Performance/.test(s)) { glErr++; if (glErr < 4) out.push('GL: ' + s.slice(0, 200)); }
+    origErr.apply(console, arguments);
+  };
+  var canvas = document.getElementById('game');
+  canvas.addEventListener('webglcontextlost', function () { out.push('GL: context lost!'); });
+  document.getElementById('btn-new').click();
+  var n = 0, playing = false, playedFrames = 0, sceneOk = false;
+  (function drive() {
+    try {
+      Voxel.Game._frame(performance.now());
+      if (Voxel.Game.state === 'playing') { playing = true; playedFrames++; }
+    } catch (e) { out.push('FRAME_ERR ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+    if (playedFrames >= 240) {
+      out.push('state=' + Voxel.Game.state + ' playedFrames=' + playedFrames + ' glErrors=' + glErr);
+      // 像素采样：验证画面里同时有天空和地形
+      var c2 = document.createElement('canvas');
+      c2.width = 320; c2.height = 200;
+      var ctx2 = c2.getContext('2d');
+      ctx2.drawImage(canvas, 0, 0, 320, 200);
+      var d = ctx2.getImageData(0, 0, 320, 200).data;
+      var counts = { sky: 0, green: 0, brown: 0, blue: 0, dark: 0, other: 0 };
+      var sumR = 0, sumG = 0, sumB = 0, n = 0;
+      for (var i = 0; i < d.length; i += 16) {
+        var r = d[i], g = d[i+1], b = d[i+2];
+        sumR += r; sumG += g; sumB += b; n++;
+        if (b > 150 && b > r + 20 && g > 100) counts.sky++;
+        else if (g > r + 15 && g > b + 15) counts.green++;
+        else if (r > b + 15 && r >= g) counts.brown++;
+        else if (r < 60 && g < 60 && b < 90) counts.dark++;
+        else if (b > r + 30 && b >= g) counts.blue++;
+        else counts.other++;
+      }
+      out.push('avg=rgb(' + (sumR/n|0) + ',' + (sumG/n|0) + ',' + (sumB/n|0) + ')');
+      out.push('pixels: sky=' + counts.sky + ' green=' + counts.green + ' brown=' + counts.brown + ' water=' + counts.blue + ' dark=' + counts.dark + ' other=' + counts.other);
+      sceneOk = counts.sky > 20 && (counts.green + counts.brown) > 20;
+      out.push(sceneOk ? 'SCENE-LOOKS-CORRECT (天空+地形均可见)' : 'SCENE-SUSPICIOUS');
+      document.getElementById('out').textContent = out.join('\n');
+      document.title = (glErr === 0 && sceneOk) ? 'RENDER-PASS' : 'RENDER-FAIL';
+      return;
+    }
+    if (n++ > 6000) { out.push('TIMEOUT state=' + Voxel.Game.state); document.getElementById('out').textContent = out.join('\n'); document.title = 'RENDER-FAIL'; return; }
+    setTimeout(drive, 16);
+  })();
+})();
+</script>
+</body>
+</html>

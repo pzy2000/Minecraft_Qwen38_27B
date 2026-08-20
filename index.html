@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方块世界 VoxelCraft</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="debug"></div>
+  <canvas id="health" width="212" height="20"></canvas>
+  <div id="hotbar"></div>
+  <div id="toast"></div>
+  <div id="dmg-flash"></div>
+</div>
+
+<!-- 背包 -->
+<div id="inventory" class="hidden">
+  <div class="panel inv-panel">
+    <div class="inv-title">背包</div>
+    <div id="inv-grid"></div>
+    <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
+    <div class="inv-tip">点击拾取 / 放置 · E 或 ESC 关闭</div>
+  </div>
+</div>
+
+<!-- 开始界面 -->
+<div id="overlay-start" class="overlay">
+  <div class="panel">
+    <h1>方块世界</h1>
+    <div class="sub">VOXELCRAFT</div>
+    <button id="btn-start" class="btn primary">继续游戏</button>
+    <button id="btn-new" class="btn">新世界</button>
+    <div id="start-hint" class="hint">检测到存档，点击"继续游戏"载入</div>
+    <div class="controls">
+      <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
+      <div><b>左键</b> 挖掘 <b>右键</b> 放置 <b>中键</b> 吸取方块</div>
+      <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 背包 <b>F</b> 飞行</div>
+      <div><b>F3</b> 调试信息 <b>P</b> 暂停菜单 <b>Esc</b> 释放鼠标</div>
+    </div>
+  </div>
+</div>
+
+<!-- 暂停菜单 -->
+<div id="overlay-pause" class="overlay hidden">
+  <div class="panel">
+    <h2>游戏暂停</h2>
+    <button id="btn-resume" class="btn primary">继续游戏</button>
+    <button id="btn-save" class="btn">立即存档</button>
+    <button id="btn-new2" class="btn">新世界</button>
+    <div class="hint">提示：游戏每 30 秒自动存档</div>
+  </div>
+</div>
+
+<!-- 死亡界面 -->
+<div id="overlay-dead" class="overlay hidden">
+  <div class="panel">
+    <h2 class="dead">你死了！</h2>
+    <button id="btn-respawn" class="btn primary">重生</button>
+  </div>
+</div>
+
+<!-- 生成进度 -->
+<div id="overlay-loading" class="overlay">
+  <div class="panel">
+    <h2>方块世界</h2>
+    <div id="loading-text">正在生成世界...</div>
+    <div class="bar"><div id="loading-bar"></div></div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/world/noise.js"></script>
+<script src="js/blocks.js"></script>
+<script src="js/world/world.js"></script>
+<script src="js/world/mesh.js"></script>
+<script src="js/player/physics.js"></script>
+<script src="js/player/controls.js"></script>
+<script src="js/player/player.js"></script>
+<script src="js/interact/raycast.js"></script>
+<script src="js/systems/daynight.js"></script>
+<script src="js/systems/sound.js"></script>
+<script src="js/systems/particles.js"></script>
+<script src="js/entities/mobs.js"></script>
+<script src="js/systems/save.js"></script>
+<script src="js/ui/hud.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

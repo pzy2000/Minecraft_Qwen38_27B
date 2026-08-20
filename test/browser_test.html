@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>VOXEL BROWSER TEST</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>body { background: #222; } #results { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
+</head>
+<body>
+<canvas id="game" width="640" height="480"></canvas>
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="debug"></div>
+  <canvas id="health" width="212" height="20"></canvas>
+  <div id="hotbar"></div>
+  <div id="toast"></div>
+  <div id="dmg-flash"></div>
+</div>
+<div id="inventory" class="hidden"><div class="panel inv-panel">
+  <div class="inv-title">背包</div><div id="inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+</div></div>
+<div id="overlay-start" class="overlay hidden"><div class="panel">
+  <h1></h1><div class="sub"></div>
+  <button id="btn-start"></button><button id="btn-new"></button>
+  <div id="start-hint" class="hint"></div>
+</div></div>
+<div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
+  <button id="btn-resume"></button><button id="btn-save"></button><button id="btn-new2"></button>
+  <div class="hint"></div>
+</div></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><button id="btn-respawn"></button></div></div>
+<div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
+  <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
+</div></div>
+<pre id="results">RUNNING...</pre>
+
+<script src="../vendor/three.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/world/noise.js"></script>
+<script src="../js/blocks.js"></script>
+<script src="../js/world/world.js"></script>
+<script src="../js/world/mesh.js"></script>
+<script src="../js/player/physics.js"></script>
+<script src="../js/player/controls.js"></script>
+<script src="../js/player/player.js"></script>
+<script src="../js/interact/raycast.js"></script>
+<script src="../js/systems/daynight.js"></script>
+<script src="../js/systems/sound.js"></script>
+<script src="../js/systems/particles.js"></script>
+<script src="../js/entities/mobs.js"></script>
+<script src="../js/systems/save.js"></script>
+<script src="../js/ui/hud.js"></script>
+<script src="../js/main.js"></script>
+<script>
+// ---- 自动化测试：驱动真实游戏主循环 ----
+(function () {
+  // 测试中跳过实际 WebGL 渲染（软件渲染过慢）；GL 路径由 render_check.html 单独验证
+  THREE.WebGLRenderer.prototype.render = function () { };
+  var doc = document;
+  var out = [];
+  var glErrors = 0;
+  var origErr = console.error;
+  console.error = function () {
+    var s = [].map.call(arguments, function (a) { return String(a); }).join(' ');
+    if (/WebGL/i.test(s) && !/Performance/i.test(s)) glErrors++;
+    origErr.apply(console, arguments);
+  };
+  function check(name, cond) { out.push((cond ? 'ok   ' : 'FAIL ') + name); }
+  function wait(ms, cb) { setTimeout(cb, ms); }
+  function report() {
+    check('WebGL 控制台无报错(' + glErrors + ' 条)', glErrors === 0);
+    check('主循环无异常帧', Object.keys(errCount).length === 0);
+    var fail = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;
+    doc.getElementById('results').textContent =
+      '=== ' + (fail === 0 ? 'ALL PASS' : fail + ' FAILED') + ' ===\n' + out.join('\n');
+    doc.title = fail === 0 ? 'TEST-PASS' : 'TEST-FAIL';
+  }
+
+  // 捕获页面级错误
+  window.addEventListener('error', function (e) {
+    out.push('PAGE_ERROR ' + e.message + ' @' + (e.lineno || '?'));
+  });
+
+  // 手动驱动游戏主循环（无头环境下 rAF 可能不推进）
+  var errCount = {};
+  setInterval(function () {
+    try { Voxel.Game._frame(performance.now()); }
+    catch (e) {
+      var k = e.message;
+      errCount[k] = (errCount[k] || 0) + 1;
+      if (errCount[k] === 1) out.push('FRAME_ERR ' + k + '\n' + (e.stack || ''));
+    }
+  }, 16);
+
+  // 1) 新世界 → 等待真实主循环进入 playing
+  doc.getElementById('btn-new').click();
+  var waitN = 0;
+  (function poll() {
+    if (Voxel.Game.state === 'playing') return stepB();
+    if (waitN === 50) out.push('SNAP@5s state=' + Voxel.Game.state + ' ready=' + Voxel.World.isReady() + ' center=' + Voxel.World.centerMeshed() + ' prog=' + Voxel.World.progress().toFixed(2));
+    if (waitN === 200) out.push('SNAP@20s state=' + Voxel.Game.state + ' ready=' + Voxel.World.isReady() + ' center=' + Voxel.World.centerMeshed() + ' prog=' + Voxel.World.progress().toFixed(2));
+    if (++waitN > 900) { check('进入 playing 超时(state=' + Voxel.Game.state + ' ready=' + Voxel.World.isReady() + ' center=' + Voxel.World.centerMeshed() + ')', false); return report(); }
+    setTimeout(poll, 100);
+  })();
+
+  function stepB() {
+    check('世界已生成', Voxel.World.isReady());
+    check('状态=playing', Voxel.Game.state === 'playing');
+    check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
+    wait(2500, stepC); // 让真实循环跑重力
+  }
+
+  function stepC() {
+    check('玩家落地(重力+碰撞)', Voxel.Player.onGround());
+    Voxel.Controls.setPitch(-1.5);
+    Voxel.Controls.setYaw(0.3);
+    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
+    check('DDA 射线命中方块', !!hit && hit.type === 'block');
+    if (hit && hit.type === 'block' && hit.id !== 12) {
+      var old = Voxel.World.get(hit.x, hit.y, hit.z);
+      Voxel.World.set(hit.x, hit.y, hit.z, 0);
+      check('挖方块生效', Voxel.World.get(hit.x, hit.y, hit.z) === 0);
+      check('增量 edits 已记录', Voxel.World.getEdits()[hit.x + ',' + hit.y + ',' + hit.z] === 0);
+      Voxel.World.set(hit.x, hit.y, hit.z, old);
+    }
+    wait(1000, stepD);
+  }
+
+  function stepD() {
+    wait(8000, stepE); // 等生物自然生成（每 2 秒尝试一次）
+  }
+
+  function stepE() {
+    check('生物已生成(数量 ' + Voxel.Mobs.count() + ')', Voxel.Mobs.count() > 0);
+    if (Voxel.Mobs.count()) {
+      var mob = Voxel.Mobs.list[0];
+      Voxel.Mobs.damage(mob, 99, new THREE.Vector3(0, 1, 0));
+      check('生物死亡被移除', Voxel.Mobs.list.indexOf(mob) === -1);
+    }
+    Voxel.DayNight.setTime(0.75); Voxel.DayNight.update(0.016);
+    check('午夜判定为夜晚', Voxel.DayNight.isNight());
+    Voxel.DayNight.setTime(0.3); Voxel.DayNight.update(0.016);
+    check('上午判定为白天', !Voxel.DayNight.isNight());
+    stepF();
+  }
+
+  function stepF() {
+    Voxel.Player.damage(3);
+    check('玩家受伤 hp=17', Voxel.Player.hp() === 17);
+    Voxel.Player.damage(100);
+    check('玩家死亡→dead', Voxel.Game.state === 'dead');
+    doc.getElementById('btn-respawn').click();
+    check('重生成功', Voxel.Game.state === 'playing' && Voxel.Player.hp() === 20);
+    wait(800, stepG);
+  }
+
+  function stepG() {
+    var sp = Voxel.World.spawnPoint();
+    var sx = Math.floor(sp.x), sy = Math.floor(sp.y + 1), sz = Math.floor(sp.z);
+    var orig = Voxel.World.get(sx, sy, sz);
+    Voxel.World.set(sx, sy, sz, 11);
+    var ok = Voxel.Save.save(Voxel.World, {
+      time: 0.42,
+      player: { pos: [sp.x, sp.y, sp.z], yaw: 1.1, pitch: -0.2, fly: false, hp: 19 },
+      inv: new Array(36).fill(0), held: 0
+    });
+    check('Save.save 成功', ok);
+    var loaded = Voxel.Save.load();
+    check('Save.load 往返一致', !!loaded && loaded.seed === Voxel.World.getSeed() && Math.abs(loaded.time - 0.42) < 1e-9);
+
+    var seed = Voxel.World.getSeed();
+    Voxel.World.clearMeshes(Voxel.Game.scene);
+    Voxel.World.init(seed);
+    while (!Voxel.World.isReady()) Voxel.World.generateNext(256);
+    check('重新生成后为原值', Voxel.World.get(sx, sy, sz) === orig);
+    Voxel.World.applyEdits(loaded.edits);
+    check('applyEdits 还原修改', Voxel.World.get(sx, sy, sz) === 11);
+    Voxel.World.set(sx, sy, sz, orig);
+    var guard = 0;
+    while (guard++ < 300 && Voxel.World.buildMeshes(16, Voxel.Game.scene) > 0) { }
+    check('区块网格可重建', Voxel.World.centerMeshed());
+    check('纹理图集 256x256', !!Voxel.Blocks.getAtlas() && Voxel.Blocks.getAtlas().width === 256);
+    wait(1500, report); // 再跑一会渲染
+  }
+
+  setTimeout(function () {
+    if (doc.title.indexOf('TEST') !== 0) { out.push('FATAL 超时未完成 state=' + Voxel.Game.state); report(); }
+  }, 40000);
+})();
+</script>
+</body>
+</html>

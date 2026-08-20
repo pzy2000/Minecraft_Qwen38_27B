@@ -1,0 +1,19 @@
+{
+  "name": "voxelcraft",
+  "version": "1.0.0",
+  "description": "类 Minecraft 的 3D 体素像素游戏（纯 HTML5/JS，零运行时依赖）",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node test/smoke.js && node test/run_browser_tests.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "puppeteer-core": "^25.8.0"
+  }
+}
