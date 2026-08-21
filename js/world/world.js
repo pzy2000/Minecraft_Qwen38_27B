@@ -5,6 +5,7 @@ Voxel.World = (function () {
   var CFG = Voxel.Config;
   var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D, CS = CFG.CHUNK;
   var WATER = CFG.WATER_LEVEL;
+  var SNOW_LEVEL = CFG.SNOW_LEVEL;
 
   var data, seed, noise, heights;
   var edits = {};        // "x,y,z" -> id（存档用）
@@ -29,12 +30,13 @@ Voxel.World = (function () {
     var h = heightAt(x, z);
     heights[x + W * z] = h;
     var beach = h <= WATER + 2;
+    var snowy = h >= SNOW_LEVEL;
     var i;
     for (var y = 0; y < H; y++) {
       i = idx(x, y, z);
       if (y === 0) data[i] = 12;                                   // 基岩
       else if (y <= h) {
-        if (y === h) data[i] = beach ? 6 : (h >= 46 ? 3 : 1);      // 表层
+        if (y === h) data[i] = beach ? 6 : (snowy ? 18 : (h >= 46 ? 3 : 1));      // 表层
         else if (y >= h - 3) data[i] = beach ? 6 : 2;              // 泥土/沙
         else {
           data[i] = 3;

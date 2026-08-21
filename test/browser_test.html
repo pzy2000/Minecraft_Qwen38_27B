@@ -142,6 +142,21 @@
     check('世界已生成', Voxel.World.isReady());
     check('状态=playing', Voxel.Game.state === 'playing');
     check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
+
+    // 音效冒烟：全部新增声音函数可调用且不抛异常（无头环境无实际出声）
+    try {
+      Voxel.Sound.step('grass'); Voxel.Sound.step('dirt'); Voxel.Sound.step('sand');
+      Voxel.Sound.step('snow'); Voxel.Sound.step('stone'); Voxel.Sound.step('wood');
+      Voxel.Sound.step('leaves'); Voxel.Sound.step('wool'); Voxel.Sound.step('glass');
+      Voxel.Sound.dig('snow'); Voxel.Sound.place('snow');
+      Voxel.Sound.splash(0.5); Voxel.Sound.bubble(); Voxel.Sound.jump(); Voxel.Sound.land(0.6);
+      Voxel.Sound.sheep(0.5); Voxel.Sound.sheepHurt(0.5); Voxel.Sound.zombie(0.5);
+      Voxel.Sound.setUnderwater(true); Voxel.Sound.setUnderwater(false);
+      var p0 = Voxel.Player.pos();
+      check('音效函数可调用 + volAt 本位=1', Voxel.Sound.volAt(p0.x, p0.z) === 1 && Voxel.Sound.volAt(p0.x + 60, p0.z) === 0);
+    } catch (e) {
+      check('音效函数无异常 (' + e.message + ')', false);
+    }
     wait(2500, stepC); // 让真实循环跑重力
   }
 

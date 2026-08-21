@@ -97,6 +97,16 @@ var h2 = [];
 for (var x4 = 0; x4 < W; x4 += 5) h2.push(V.World.surfaceAt(x4, 3));
 check('同种子地形一致', same && h1.join() === h2.join());
 
+console.log('雪地生物群系 (种子 42)');
+V.World.init(42);
+while (!V.World.isReady()) V.World.generateNext(64);
+var snow = 0;
+for (var sx = 0; sx < W; sx += 4)
+  for (var sz = 0; sz < D; sz += 4)
+    for (var sy = 40; sy < H; sy++)
+      if (V.World.get(sx, sy, sz) === 18) snow++;
+check('高山覆雪(雪块存在)', snow > 10);
+
 console.log('修改与存档还原');
 V.World.init(12345);
 while (!V.World.isReady()) V.World.generateNext(64);

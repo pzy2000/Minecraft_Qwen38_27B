@@ -6,7 +6,8 @@ Voxel.Blocks = (function () {
     GRASS_TOP: 0, GRASS_SIDE: 1, DIRT: 2, STONE: 3, LOG_SIDE: 4, LOG_TOP: 5,
     LEAVES: 6, SAND: 7, WATER: 8, COAL: 9, IRON: 10, PLANKS: 11, COBBLE: 12,
     BEDROCK: 13, GLASS: 14, GRAVEL: 15,
-    TABLE_TOP: 16, TABLE_SIDE: 17, WOOL: 18, BED_TOP: 19, BED_SIDE: 20
+    TABLE_TOP: 16, TABLE_SIDE: 17, WOOL: 18, BED_TOP: 19, BED_SIDE: 20,
+    SNOW: 21
   };
 
   var defs = [
@@ -27,7 +28,8 @@ Voxel.Blocks = (function () {
     { name: '沙砾', solid: true, opaque: true, tiles: [T.GRAVEL, T.GRAVEL, T.GRAVEL], sound: 'dirt', color: 0x857f77 },
     { name: '工作台', solid: true, opaque: true, tiles: [T.TABLE_TOP, T.TABLE_SIDE, T.TABLE_SIDE], sound: 'wood', color: 0xb08d57 },
     { name: '羊毛', solid: true, opaque: true, tiles: [T.WOOL, T.WOOL, T.WOOL], sound: 'wool', color: 0xf0f0f0 },
-    { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d }
+    { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d },
+    { name: '雪块', solid: true, opaque: true, tiles: [T.SNOW, T.SNOW, T.SNOW], sound: 'snow', color: 0xeef4f8 }
   ];
 
   var atlasCanvas = null, atlasTexture = null;
@@ -228,6 +230,12 @@ Voxel.Blocks = (function () {
       if (x >= 2 && x <= 5 && y >= 3 && y <= 7) return [236 + r() * 10, 232 + r() * 10, 226 + r() * 10]; // 枕头侧面
       if (x === 6) return [150 + v, 44 + v * 0.5, 40 + v * 0.5];
       return [202 + v, 62 + v * 0.6, 56 + v * 0.6];
+    });
+
+    drawTile(T.SNOW, function (x, y, r) {
+      if (r() < 0.10) return [222 + r() * 12, 234 + r() * 10, 250];           // 淡蓝晶点
+      var v = n(r, 0, 12);
+      return [240 + v, 246 + v * 0.5, 252];
     });
 
     ctx.putImageData(img, 0, 0);

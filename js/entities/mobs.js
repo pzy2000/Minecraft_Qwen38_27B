@@ -60,6 +60,8 @@ Voxel.Mobs = (function () {
       moveTime: 0,
       attackCd: 0,
       flash: 0,
+      bleatTimer: 3 + Math.random() * 12,
+      growlTimer: 4 + Math.random() * 10,
       dead: false
     };
     group.add(b.group);
@@ -88,6 +90,7 @@ Voxel.Mobs = (function () {
     m.vel.z += dir.z * 5;
     m.vel.y += 3;
     Voxel.Sound.hit();
+    if (m.type === 'sheep') Voxel.Sound.sheepHurt(Voxel.Sound.volAt(m.pos.x, m.pos.z));
     if (m.hp <= 0) kill(m);
   }
 
@@ -194,6 +197,24 @@ Voxel.Mobs = (function () {
       }
 
       Voxel.Physics.move(m, dt);
+
+      // 生物叫声（距离衰减，超 34 块静默）
+      var dv = Voxel.Sound.volAt(m.pos.x, m.pos.z);
+      if (alive && dv > 0) {
+        if (m.type === 'sheep') {
+          m.bleatTimer -= dt;
+          if (m.bleatTimer <= 0) {
+            m.bleatTimer = 12 + Math.random() * 18;
+            Voxel.Sound.sheep(dv * 0.8);
+          }
+        } else {
+          m.growlTimer -= dt;
+          if (m.growlTimer <= 0) {
+            m.growlTimer = (speed > 0 && night) ? 4 + Math.random() * 5 : 6 + Math.random() * 8;
+            Voxel.Sound.zombie(dv * 0.9);
+          }
+        }
+      }
 
       // 渲染
       m.group.position.set(m.pos.x, m.pos.y, m.pos.z);

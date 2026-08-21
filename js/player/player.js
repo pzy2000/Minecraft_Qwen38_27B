@@ -9,6 +9,7 @@ Voxel.Player = (function () {
   var onGround = false, flying = false, inWater = false;
   var hp = C.HP;
   var stepTimer = 0;
+  var prevInWater = false, bubbleTimer = 0;
   var ent = { w: C.W, h: C.H, onGround: false, pos: null, vel: null };
 
   function update(dt) {
@@ -27,6 +28,14 @@ Voxel.Player = (function () {
     inWater =
       Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + 0.4), Math.floor(pos.z)) === 7 ||
       Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + 1.4), Math.floor(pos.z)) === 7;
+
+    // 入水/出水溅水
+    if (inWater && !prevInWater) {
+      Voxel.Sound.splash(vel.y < -1.5 ? 0.4 + Math.min(0.6, -vel.y / 12) : 0.12);
+    } else if (!inWater && prevInWater) {
+      Voxel.Sound.splash(0.1);
+    }
+    prevInWater = inWater;
 
     var speed;
     if (flying) speed = sprint ? C.FLY_FAST : C.FLY;
@@ -48,22 +57,45 @@ Voxel.Player = (function () {
     } else {
       vel.y -= C.GRAVITY * dt;
       if (vel.y < C.MAX_FALL) vel.y = C.MAX_FALL;
-      if (K['Space'] && onGround) vel.y = C.JUMP;
+      if (K['Space'] && onGround) { vel.y = C.JUMP; Voxel.Sound.jump(); }
     }
 
     ent.pos = pos;
     ent.vel = vel;
     ent.onGround = onGround;
+    var wasOnGround = onGround, vyBefore = vel.y;
     Voxel.Physics.move(ent, dt);
     onGround = ent.onGround;
 
-    // 脚步声
+    // 落地声（随下落速度）
+    if (onGround && !wasOnGround && vyBefore < -4)
+      Voxel.Sound.land(Math.min(1, -vyBefore / 25));
+
+    // 头部浸水：闷音 + 水下环境声
+    Voxel.Sound.setUnderwater(
+      Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + C.EYE), Math.floor(pos.z)) === 7
+    );
+
+    // 游泳气泡
+    if (inWater) {
+      if (Math.abs(vel.x) + Math.abs(vel.z) > 1 || K['Space']) {
+        bubbleTimer -= dt;
+        if (bubbleTimer <= 0) {
+          bubbleTimer = 0.35 + Math.random() * 0.55;
+          Voxel.Sound.bubble();
+        }
+      }
+    } else bubbleTimer = 0;
+
+    // 脚步声（按脚下材质）
     var moving = (vel.x * vel.x + vel.z * vel.z) > 4;
-    if (onGround && moving) {
+    if (onGround && moving && !flying) {
       stepTimer -= dt * (sprint ? 1.5 : 1);
       if (stepTimer <= 0) {
         stepTimer = 0.42;
-        Voxel.Sound.step();
+        var belowId = Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y - 0.05), Math.floor(pos.z));
+        var bdef = Voxel.Blocks.defs[belowId];
+        Voxel.Sound.step(bdef && bdef.sound ? bdef.sound : 'stone');
       }
     } else stepTimer = 0;
 
@@ -88,6 +120,8 @@ Voxel.Player = (function () {
     onGround = false;
     flying = false;
     hp = C.HP;
+    prevInWater = false;
+    Voxel.Sound.setUnderwater(false);
     if (yaw !== undefined) Voxel.Controls.setYaw(yaw);
     if (pitch !== undefined) Voxel.Controls.setPitch(pitch);
   }
