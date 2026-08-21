@@ -3,6 +3,29 @@
 一个用纯 HTML5 + JavaScript + Three.js 实现的 3D 体素像素游戏（类 Minecraft）。
 零依赖、零构建 —— **双击 `index.html` 即可在浏览器中游玩**。
 
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="screenshots/day.png" alt="白天地形" />
+      <br /><sub>白天地形：沙滩、丘陵与树木</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="screenshots/dusk.png" alt="黄昏星空" />
+      <br /><sub>黄昏星空：紫顶橙霞、星辰与夕阳</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="screenshots/rain.png" alt="雨天云雾" />
+      <br /><sub>雨天云雾：流动云层、雨丝与近雾</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="screenshots/snow.png" alt="雪顶高山" />
+      <br /><sub>雪顶高山：雪线之上的覆雪山峰</sub>
+    </td>
+  </tr>
+</table>
+
 ## 运行
 
 ```bash
@@ -96,8 +119,6 @@ node test/run_browser_tests.js     # 自动查找 Chrome/Edge/Chromium，也可�
 | `test/smoke.js` | 噪声确定性、世界生成（水/树/洞/矿）、雪线高山、出生点、增量存档往返、合成配方匹配/消耗、一键合成背包计数 |
 | `test/browser_test.html` | 完整游戏栈：主循环、物理落地、DDA 射线、挖放、生物生成/死亡/掉羊毛、手册一键合成+长按连续合成、背包 2×2 开局合成（橡木→木板→工作台）、拖拽交互、工作台 3×3 合成（床）、合成手册、半高床网格+物理、昼夜、天气（雨强度/雨滴/云层变灰/闪电闪屏/雷击掉血/彩虹昼夜条件/G 键切换）、受伤/死亡/重生、存档往返、网格重建（渲染置空，纯逻辑验证）、音效函数冒烟 |
 | `test/render_check.html` | 真实 WebGL 渲染 240 帧 + 像素采样（验证画面中天空与地形均可见） |
-
-截图示例（无头软件渲染生成）：`screenshot_menu.png`、`screenshot_game.png`
 
 ## 可调参数
 
