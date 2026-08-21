@@ -75,11 +75,50 @@ Voxel.Crafting = (function () {
     for (var i = 0; i < matched.cells.length; i++) grid[matched.cells[i]] = 0;
   }
 
+  // 单次合成所需材料 {id: 数量}（忽略摆放形状，用于一键合成）
+  function needed(recipe) {
+    var m = {};
+    if (recipe.shapeless) {
+      for (var k in recipe.inputs) m[+k] = (m[+k] || 0) + recipe.inputs[k];
+    } else {
+      for (var i = 0; i < recipe.grid.length; i++)
+        if (recipe.grid[i]) m[recipe.grid[i]] = (m[recipe.grid[i]] || 0) + 1;
+    }
+    return m;
+  }
+
+  // 背包材料够合成几次（按数量，不看摆放）
+  function canCraftFromInv(inv, recipe) {
+    var need = needed(recipe), n = Infinity;
+    for (var k in need) {
+      var have = 0;
+      for (var i = 0; i < inv.length; i++) if (inv[i] === +k) have++;
+      var times = Math.floor(have / need[k]);
+      if (times < n) n = times;
+    }
+    return n === Infinity ? 0 : n;
+  }
+
+  // 从背包消耗 times 次合成的材料，成功返回 true
+  function consumeFromInv(inv, recipe, times) {
+    var need = needed(recipe);
+    for (var k in need) {
+      var left = need[k] * times;
+      for (var i = 0; i < inv.length && left > 0; i++)
+        if (inv[i] === +k) { inv[i] = 0; left--; }
+      if (left > 0) return false;
+    }
+    return true;
+  }
+
   return {
     recipes: RECIPES,
     match: match,
     matchIn: matchIn,
     consume: consume,
+    needed: needed,
+    canCraftFromInv: canCraftFromInv,
+    consumeFromInv: consumeFromInv,
     name: function (id) { return Voxel.Blocks ? Voxel.Blocks.name(id) : '?'; }
   };
 })();

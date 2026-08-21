@@ -179,5 +179,30 @@ check('2x2: 床放不下(需 3 列)不匹配', !Craft.matchIn(g4, 2));
 g4 = [4, 4, 0, 0];
 check('2x2: 2 橡木不匹配', !Craft.matchIn(g4, 2));
 
+console.log('一键合成(背包计数)测试');
+var inv = new Array(36).fill(0);
+// 木板配方：1 橡木 → 4 木板
+inv[0] = 4; inv[1] = 4;
+check('canCraftFromInv: 2 橡木可合成 2 次', Craft.canCraftFromInv(inv, Craft.recipes[0]) === 2);
+check('consumeFromInv: 消耗 1 次', Craft.consumeFromInv(inv, Craft.recipes[0], 1) === true);
+check('consumeFromInv: 剩 1 橡木', inv[0] === 0 && inv[1] === 4);
+// 工作台配方：4 木板
+inv = new Array(36).fill(0);
+inv[0] = 10; inv[1] = 10; inv[2] = 10;
+check('canCraftFromInv: 3 木板不够工作台', Craft.canCraftFromInv(inv, Craft.recipes[1]) === 0);
+inv[3] = 10;
+check('canCraftFromInv: 4 木板可合成 1 次', Craft.canCraftFromInv(inv, Craft.recipes[1]) === 1);
+check('consumeFromInv: 工作台消耗 4 木板', Craft.consumeFromInv(inv, Craft.recipes[1], 1) === true);
+check('consumeFromInv: 木板清空', inv.join() === new Array(36).fill(0).join());
+// 床配方：3 羊毛 + 3 木板
+inv = new Array(36).fill(0);
+inv[0] = 16; inv[1] = 16; inv[2] = 16; inv[3] = 10; inv[4] = 10; inv[5] = 10;
+check('canCraftFromInv: 床材料齐可合成 1 次', Craft.canCraftFromInv(inv, Craft.recipes[2]) === 1);
+check('consumeFromInv: 床消耗 3 羊毛+3 木板', Craft.consumeFromInv(inv, Craft.recipes[2], 1) === true);
+check('consumeFromInv: 床材料清空', inv.join() === new Array(36).fill(0).join());
+// needed 计数
+check('needed: 床 = 3 羊毛+3 木板', JSON.stringify(Craft.needed(Craft.recipes[2])) === JSON.stringify({ 16: 3, 10: 3 }));
+check('needed: 工作台 = 4 木板', JSON.stringify(Craft.needed(Craft.recipes[1])) === JSON.stringify({ 10: 4 }));
+
 console.log(failed === 0 ? '\n全部通过 ✓' : '\n' + failed + ' 项失败 ✗');
 process.exit(failed === 0 ? 0 : 1);

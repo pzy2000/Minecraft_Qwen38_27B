@@ -9,7 +9,9 @@ html, body {
 .hidden { display: none !important; }
 
 /* ---------- HUD ---------- */
-#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+/* #hud 不设定位：position:fixed 会无条件创建层叠上下文，困住 #hotbar 的 z-index。
+   子元素均为绝对定位，包含块为初始包含块(视口)，位置不变。 */
+#hud { pointer-events: none; }
 
 #crosshair {
   position: absolute; left: 50%; top: 50%;
@@ -39,6 +41,8 @@ html, body {
   padding: 4px;
   border: 2px solid rgba(255, 255, 255, 0.25);
 }
+#hotbar .slot { pointer-events: auto; cursor: pointer; } /* 可拖拽（仅背包打开时生效） */
+body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩上，可拖拽 */
 .slot {
   width: 52px; height: 52px;
   background: rgba(0, 0, 0, 0.45);
@@ -252,6 +256,14 @@ html, body {
 .recipe-result { display: flex; align-items: center; gap: 8px; }
 .recipe-result .icon-box { border: 2px solid #7a6a3a; }
 .recipe-name { font-size: 13px; color: #eee; }
+.craft-btn {
+  margin: 0; padding: 8px 14px; flex: none;
+  width: auto; min-width: 96px;
+  font-size: 13px; letter-spacing: 1px;
+  background: #4c8a3c;
+}
+.craft-btn:disabled { background: #4a4a4a; opacity: 0.5; cursor: default; }
+.craft-btn:disabled:hover { filter: none; }
 
 #use-hint {
   position: absolute; left: 50%; top: 58%;

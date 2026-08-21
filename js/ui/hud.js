@@ -4,6 +4,7 @@ window.Voxel = window.Voxel || {};
 Voxel.HUD = (function () {
   var atlas = null;
   var slots = [], invSlots = [], craftSlots = [], craftInvSlots = [], invCraftSlots = [];
+  var manualBtns = [];
   var healthCtx, debugEl, toastEl, heldCanvas, craftHeldCanvas, resultCanvas, invResultCanvas;
   var HEART = ['0110110', '1111111', '1111111', '0111110', '0011100', '0001000'];
 
@@ -25,7 +26,7 @@ Voxel.HUD = (function () {
     // 材料获取说明
     var ob = document.createElement('div');
     ob.className = 'manual-obtain';
-    ob.innerHTML = '<b>材料获取</b><br>· 砍伐树干获得 <b>橡木</b><br>· 攻击并击杀 <b>羊</b> 掉落 <b>羊毛</b><br>· 背包 2×2 格可合成 <b>木板</b> 和 <b>工作台</b><br>· <b>床</b> 必须在工作台中合成';
+    ob.innerHTML = '<b>材料获取</b><br>· 砍伐树干获得 <b>橡木</b><br>· 攻击并击杀 <b>羊</b> 掉落 <b>羊毛</b><br>· 下方每条配方可 <b>一键合成</b>（自动消耗背包材料，<b>长按连续合成</b>）';
     list.appendChild(ob);
 
     for (var i = 0; i < Voxel.Crafting.recipes.length; i++) {
@@ -83,7 +84,27 @@ Voxel.HUD = (function () {
       row.appendChild(res);
       drawIcon(rc, r.result);
 
+      var btn = document.createElement('button');
+      btn.className = 'btn craft-btn';
+      btn.setAttribute('data-recipe', i);
+      (function (idx) {
+        btn.addEventListener('mousedown', function (e) { e.preventDefault(); Voxel.Game.manualCraftStart(idx); });
+        btn.addEventListener('mouseup', function () { Voxel.Game.manualCraftStop(); });
+        btn.addEventListener('mouseleave', function () { Voxel.Game.manualCraftStop(); });
+      })(i);
+      row.appendChild(btn);
+      manualBtns.push(btn);
+
       list.appendChild(row);
+    }
+  }
+
+  // 刷新手册合成按钮（可合成次数 / 材料不足）
+  function refreshManual() {
+    for (var i = 0; i < manualBtns.length; i++) {
+      var n = Voxel.Game ? Voxel.Game.manualCraftable(i) : 0;
+      manualBtns[i].textContent = n > 0 ? '合成 ×' + n : '材料不足';
+      manualBtns[i].disabled = n <= 0;
     }
   }
 
@@ -97,13 +118,17 @@ Voxel.HUD = (function () {
 
     var hotbarEl = document.getElementById('hotbar');
     for (var i = 0; i < 9; i++) {
-      var d = document.createElement('div');
-      d.className = 'slot';
-      var c = document.createElement('canvas');
-      c.width = 44; c.height = 44;
-      d.appendChild(c);
-      hotbarEl.appendChild(d);
-      slots.push({ el: d, canvas: c });
+      (function (idx) {
+        var d = document.createElement('div');
+        d.className = 'slot';
+        d.setAttribute('data-slot', 'inv:' + idx); // 快捷栏可拖拽（映射背包前 9 格）
+        d.addEventListener('mousedown', function (ev) { Voxel.Game.onSlotDown(ev, 'inv', idx); });
+        var c = document.createElement('canvas');
+        c.width = 44; c.height = 44;
+        d.appendChild(c);
+        hotbarEl.appendChild(d);
+        slots.push({ el: d, canvas: c });
+      })(i);
     }
 
     var grid = document.getElementById('inv-grid');
@@ -295,6 +320,7 @@ Voxel.HUD = (function () {
     moveGhost: moveGhost,
     endGhost: endGhost,
     slotHover: slotHover,
-    clearSlotHover: clearSlotHover
+    clearSlotHover: clearSlotHover,
+    refreshManual: refreshManual
   };
 })();
