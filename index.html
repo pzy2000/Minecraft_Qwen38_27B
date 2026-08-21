@@ -16,6 +16,7 @@
   <canvas id="health" width="212" height="20"></canvas>
   <div id="hotbar"></div>
   <div id="toast"></div>
+  <div id="use-hint"></div>
   <div id="lock-hint">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
   <div id="error-banner"></div>
   <div id="dmg-flash"></div>
@@ -25,9 +26,39 @@
 <div id="inventory" class="hidden">
   <div class="panel inv-panel">
     <div class="inv-title">背包</div>
+    <div class="craft-row">
+      <div id="inv-craft-grid"></div>
+      <div class="craft-arrow">→</div>
+      <div id="inv-craft-result" class="slot result"></div>
+    </div>
     <div id="inv-grid"></div>
     <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
-    <div class="inv-tip">点击拾取 / 放置 · E 或 ESC 关闭</div>
+    <div class="inv-tip">拖拽或点击 拾取 / 放置 · 2×2 格可合成木板/工作台 · E 或 ESC 关闭 · M 合成手册</div>
+  </div>
+</div>
+
+<!-- 工作台 -->
+<div id="crafting" class="hidden">
+  <div class="panel craft-panel">
+    <div class="inv-title">工作台</div>
+    <div class="craft-row">
+      <div id="craft-grid"></div>
+      <div class="craft-arrow">→</div>
+      <div id="craft-result" class="slot result"></div>
+    </div>
+    <div id="craft-inv-grid"></div>
+    <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
+    <div class="inv-tip">拖拽或点击 拾取 / 放置材料 · 点击结果格取出物品 · E 或 ESC 关闭</div>
+    <button id="btn-manual" class="btn">查看合成手册</button>
+  </div>
+</div>
+
+<!-- 合成手册 -->
+<div id="manual" class="hidden">
+  <div class="panel manual-panel">
+    <div class="inv-title">合成手册</div>
+    <div id="manual-list"></div>
+    <div class="inv-tip">M 或 ESC 关闭</div>
   </div>
 </div>
 
@@ -42,8 +73,8 @@
     <div class="controls">
       <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
       <div><b>左键</b> 放置 <b>右键</b> 挖掘 <b>中键</b> 吸取方块</div>
-      <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 背包 <b>F</b> 飞行</div>
-      <div><b>F3</b> 调试信息 <b>P</b> 暂停菜单 <b>Esc</b> 释放鼠标</div>
+      <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 背包（含 2×2 合成）· 对准工作台按 <b>E</b> 合成 <b>F</b> 飞行</div>
+      <div><b>M</b> 合成手册 <b>F3</b> 调试信息 <b>P</b> 暂停菜单 <b>Esc</b> 释放鼠标</div>
     </div>
   </div>
 </div>
@@ -80,6 +111,7 @@
 <script src="js/config.js"></script>
 <script src="js/world/noise.js"></script>
 <script src="js/blocks.js"></script>
+<script src="js/crafting.js"></script>
 <script src="js/world/world.js"></script>
 <script src="js/world/mesh.js"></script>
 <script src="js/player/physics.js"></script>

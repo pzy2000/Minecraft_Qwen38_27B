@@ -63,7 +63,7 @@ Voxel.Sound = (function () {
     o.stop(t + dur + 0.02);
   }
 
-  var matFreq = { stone: 260, dirt: 420, wood: 320, leaves: 950, sand: 620, water: 500, glass: 1400 };
+  var matFreq = { stone: 260, dirt: 420, wood: 320, leaves: 950, sand: 620, water: 500, glass: 1400, wool: 240 };
 
   return {
     unlock: ac,

@@ -5,7 +5,8 @@ Voxel.Blocks = (function () {
   var T = {
     GRASS_TOP: 0, GRASS_SIDE: 1, DIRT: 2, STONE: 3, LOG_SIDE: 4, LOG_TOP: 5,
     LEAVES: 6, SAND: 7, WATER: 8, COAL: 9, IRON: 10, PLANKS: 11, COBBLE: 12,
-    BEDROCK: 13, GLASS: 14, GRAVEL: 15
+    BEDROCK: 13, GLASS: 14, GRAVEL: 15,
+    TABLE_TOP: 16, TABLE_SIDE: 17, WOOL: 18, BED_TOP: 19, BED_SIDE: 20
   };
 
   var defs = [
@@ -23,7 +24,10 @@ Voxel.Blocks = (function () {
     { name: '圆石', solid: true, opaque: true, tiles: [T.COBBLE, T.COBBLE, T.COBBLE], sound: 'stone', color: 0x6f6f6f },
     { name: '基岩', solid: true, opaque: true, tiles: [T.BEDROCK, T.BEDROCK, T.BEDROCK], sound: 'stone', color: 0x3c3c3c },
     { name: '玻璃', solid: true, opaque: false, tiles: [T.GLASS, T.GLASS, T.GLASS], sound: 'glass', color: 0xbfe3ee },
-    { name: '沙砾', solid: true, opaque: true, tiles: [T.GRAVEL, T.GRAVEL, T.GRAVEL], sound: 'dirt', color: 0x857f77 }
+    { name: '沙砾', solid: true, opaque: true, tiles: [T.GRAVEL, T.GRAVEL, T.GRAVEL], sound: 'dirt', color: 0x857f77 },
+    { name: '工作台', solid: true, opaque: true, tiles: [T.TABLE_TOP, T.TABLE_SIDE, T.TABLE_SIDE], sound: 'wood', color: 0xb08d57 },
+    { name: '羊毛', solid: true, opaque: true, tiles: [T.WOOL, T.WOOL, T.WOOL], sound: 'wool', color: 0xf0f0f0 },
+    { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d }
   ];
 
   var atlasCanvas = null, atlasTexture = null;
@@ -170,6 +174,62 @@ Voxel.Blocks = (function () {
       return [133 + v, 127 + v, 119 + v];
     });
 
+    // 木板底纹（工作台/床共用）
+    function plank(x, y, r) {
+      if (y % 4 === 3) return [118 + r() * 10, 92 + r() * 10, 54 + r() * 8];
+      var seam = (y < 8) ? 2 : 6;
+      if (x === seam && r() < 0.4) return [110, 88, 52];
+      var v = n(r, 0, 16);
+      return [166 + v, 134 + v, 82 + v * 0.8];
+    }
+
+    drawTile(T.TABLE_TOP, function (x, y, r) {
+      if (x === 4 || x === 11 || y === 4 || y === 11) return [74, 56, 32];
+      if (x < 3 || y < 3 || x > 12 || y > 12) return [120 + r() * 12, 94 + r() * 10, 56 + r() * 8];
+      return plank(x, y, r);
+    });
+
+    drawTile(T.TABLE_SIDE, function (x, y, r) {
+      if (y < 2) return [110, 88, 52];
+      var inBox = x >= 3 && x <= 12 && y >= 4 && y <= 11;
+      if (inBox && (x === 3 || x === 12 || y === 4 || y === 11)) return [74, 56, 32];
+      if (inBox) {
+        // 中间的"工具"图案：一把锯
+        if (x >= 5 && x <= 10 && (y === 6 || y === 7)) return [190, 190, 196];
+        if (x === 5 && y >= 5 && y <= 8) return [150, 150, 158];
+        if (x === 9 && y === 8) return [90, 70, 44];
+        return [150 + r() * 14, 120 + r() * 12, 74 + r() * 10];
+      }
+      return plank(x, y, r);
+    });
+
+    drawTile(T.WOOL, function (x, y, r) {
+      var v = n(r, 0, 22);
+      var base = 236 + v;
+      // 波浪状深色纹理
+      if (((y + (x >> 1)) % 5) === 2 && r() < 0.7) return [206 + v, 204 + v, 200 + v];
+      return [base, base - 2, base - 6];
+    });
+
+    drawTile(T.BED_TOP, function (x, y, r) {
+      // 枕头（左上）+ 红色床品
+      if (x <= 5 && y >= 2 && y <= 13 && (x === 1 || y === 2 || y === 13)) return [196, 52, 48];
+      if (x >= 2 && x <= 5 && y >= 3 && y <= 12) return [238 + r() * 10, 234 + r() * 10, 228 + r() * 10];
+      var v = n(r, 0, 26);
+      if (x === 7) return [150 + v, 44 + v * 0.5, 40 + v * 0.5];
+      return [204 + v, 64 + v * 0.6, 58 + v * 0.6];
+    });
+
+    drawTile(T.BED_SIDE, function (x, y, r) {
+      if (y >= 10) return [96 + r() * 14, 74 + r() * 10, 44 + r() * 8];        // 木质床脚
+      if (y === 9) return [70, 52, 30];
+      if (y <= 1) return [196, 52, 48];
+      var v = n(r, 0, 22);
+      if (x >= 2 && x <= 5 && y >= 3 && y <= 7) return [236 + r() * 10, 232 + r() * 10, 226 + r() * 10]; // 枕头侧面
+      if (x === 6) return [150 + v, 44 + v * 0.5, 40 + v * 0.5];
+      return [202 + v, 62 + v * 0.6, 56 + v * 0.6];
+    });
+
     ctx.putImageData(img, 0, 0);
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
@@ -197,6 +257,8 @@ Voxel.Blocks = (function () {
       var d = defs[id];
       if (!d || !d.tiles) return -1;
       if (id === 1) return T.GRASS_SIDE;
+      if (id === 15) return T.TABLE_TOP;
+      if (id === 17) return T.BED_TOP;
       return d.tiles[1];
     },
     getAtlas: function () { return atlasCanvas; },

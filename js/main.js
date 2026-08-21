@@ -10,6 +10,9 @@ Voxel.Game = (function () {
   var inv = [];
   for (var i0 = 0; i0 < 36; i0++) inv.push(0);
   var sel = 0, heldItem = 0;
+  var craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];   // 工作台 3x3
+  var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2
+  var manualOpen = false;
   var saveData = null, pendingEdits = null;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
@@ -72,7 +75,7 @@ Voxel.Game = (function () {
   }
 
   function hideOverlays() {
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'crafting', 'manual'].forEach(function (id) {
       document.getElementById(id).classList.add('hidden');
     });
   }
@@ -105,6 +108,8 @@ Voxel.Game = (function () {
   function enterWorld() {
     hideOverlays();
     lastBlankCheck = performance.now(); // 进入后 3 秒内不做空白自检
+    craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    invCraftGrid = [0, 0, 0, 0];
     if (saveData) {
       if (saveData.inv && saveData.inv.length === 36) inv = saveData.inv.slice();
       heldItem = saveData.held || 0;
@@ -147,7 +152,7 @@ Voxel.Game = (function () {
   }
 
   function doSave(silent) {
-    if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'dead') return false;
+    if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' && state !== 'dead') return false;
     var p = Voxel.Player.pos();
     var ok = Voxel.Save.save(Voxel.World, {
       time: Voxel.DayNight.time(),
@@ -197,6 +202,7 @@ Voxel.Game = (function () {
     var x = hit.x + hit.nx, y = hit.y + hit.ny, z = hit.z + hit.nz;
     var cur = Voxel.World.get(x, y, z);
     if (cur !== 0 && cur !== 7) return;
+    if (id === 17 && cur !== 0) return; // 床只能放在空气格
     var p = Voxel.Player.pos();
     var hw = C.W / 2 + 0.01;
     var overlap = x < p.x + hw && x + 1 > p.x - hw &&
@@ -225,6 +231,231 @@ Voxel.Game = (function () {
     Voxel.HUD.toast('背包已满！');
   }
 
+  // 生物掉落 → 背包
+  function onDrop(id, n) {
+    n = n || 1;
+    for (var i = 0; i < n; i++) addInv(id);
+    Voxel.HUD.toast('获得 ' + Voxel.Blocks.name(id) + (n > 1 ? ' ×' + n : ''));
+  }
+
+  // ---------- 合成 ----------
+
+  function refreshCraft() {
+    Voxel.HUD.setCraftGrid(craftGrid);
+    var r = Voxel.Crafting.match(craftGrid);
+    Voxel.HUD.drawResult(r ? r.result : 0);
+  }
+
+  function openCrafting() {
+    if (state !== 'playing') return;
+    setState('crafting');
+    document.getElementById('crafting').classList.remove('hidden');
+    Voxel.HUD.setInv(inv);
+    Voxel.HUD.drawHeld(heldItem);
+    refreshCraft();
+    Voxel.Controls.exitLock();
+  }
+
+  function closeCrafting() {
+    if (state !== 'crafting') return;
+    if (heldItem) {
+      var put = false;
+      for (var i = 0; i < 9; i++) if (!inv[i]) { inv[i] = heldItem; put = true; break; }
+      if (!put) for (var j = 9; j < 36; j++) if (!inv[j]) { inv[j] = heldItem; put = true; break; }
+      if (!put) Voxel.HUD.toast('背包已满，物品丢失了！');
+      heldItem = 0;
+    }
+    returnGridToInv(craftGrid);
+    Voxel.HUD.setInv(inv);
+    Voxel.HUD.drawHeld(0);
+    document.getElementById('crafting').classList.add('hidden');
+    setState('playing');
+    tryLock();
+  }
+
+  function onCraftClick(i) {
+    if (state !== 'crafting') return;
+    if (heldItem) {
+      var cur = craftGrid[i];
+      craftGrid[i] = heldItem;
+      heldItem = cur;
+    } else if (craftGrid[i]) {
+      heldItem = craftGrid[i];
+      craftGrid[i] = 0;
+    } else return;
+    Voxel.Sound.select();
+    Voxel.HUD.drawHeld(heldItem);
+    refreshCraft();
+  }
+
+  function onResultClick() {
+    if (state !== 'crafting') return;
+    var r = Voxel.Crafting.match(craftGrid);
+    if (!r) return;
+    var free = 0;
+    for (var i = 0; i < 36; i++) if (!inv[i]) free++;
+    if (free < r.count) { Voxel.HUD.toast('背包空间不足！'); return; }
+    Voxel.Crafting.consume(craftGrid, r);
+    for (var n = 0; n < r.count; n++) addInv(r.result);
+    Voxel.Sound.pop();
+    Voxel.HUD.toast('合成 ' + Voxel.Blocks.name(r.result) + (r.count > 1 ? ' ×' + r.count : ''));
+    Voxel.HUD.setInv(inv);
+    refreshCraft();
+  }
+
+  // ---------- 背包 2x2 合成 ----------
+
+  function refreshInvCraft() {
+    Voxel.HUD.setInvCraftGrid(invCraftGrid);
+    var r = Voxel.Crafting.matchIn(invCraftGrid, 2);
+    Voxel.HUD.drawInvResult(r ? r.result : 0);
+  }
+
+  function onInvCraftClick(i) {
+    if (state !== 'inventory') return;
+    if (heldItem) {
+      var cur = invCraftGrid[i];
+      invCraftGrid[i] = heldItem;
+      heldItem = cur;
+    } else if (invCraftGrid[i]) {
+      heldItem = invCraftGrid[i];
+      invCraftGrid[i] = 0;
+    } else return;
+    Voxel.Sound.select();
+    Voxel.HUD.drawHeld(heldItem);
+    refreshInvCraft();
+  }
+
+  function onInvResultClick() {
+    if (state !== 'inventory') return;
+    var r = Voxel.Crafting.matchIn(invCraftGrid, 2);
+    if (!r) return;
+    var free = 0;
+    for (var i = 0; i < 36; i++) if (!inv[i]) free++;
+    if (free < r.count) { Voxel.HUD.toast('背包空间不足！'); return; }
+    Voxel.Crafting.consume(invCraftGrid, r);
+    for (var n = 0; n < r.count; n++) addInv(r.result);
+    Voxel.Sound.pop();
+    Voxel.HUD.toast('合成 ' + Voxel.Blocks.name(r.result) + (r.count > 1 ? ' ×' + r.count : ''));
+    Voxel.HUD.setInv(inv);
+    refreshInvCraft();
+  }
+
+  // 关闭面板时把合成格里的物品退回背包（总物品数 ≤ 36，必有空位）
+  function returnGridToInv(grid) {
+    var changed = false;
+    for (var g = 0; g < grid.length; g++) {
+      if (!grid[g]) continue;
+      for (var i = 0; i < 36; i++) {
+        if (!inv[i]) { inv[i] = grid[g]; grid[g] = 0; changed = true; break; }
+      }
+    }
+    return changed;
+  }
+
+  // ---------- 拖拽（点击拾取仍可用：按下未移动即拾取到手持） ----------
+  var dragState = null;
+
+  function slotItem(from, idx) {
+    if (from === 'inv') return inv[idx];
+    if (from === 'icraft') return invCraftGrid[idx];
+    return craftGrid[idx];
+  }
+
+  function setSlotItem(from, idx, id) {
+    if (from === 'inv') inv[idx] = id;
+    else if (from === 'icraft') invCraftGrid[idx] = id;
+    else craftGrid[idx] = id;
+  }
+
+  function refreshPanel(from) {
+    if (from === 'inv') Voxel.HUD.setInv(inv);
+    else if (from === 'icraft') refreshInvCraft();
+    else refreshCraft();
+  }
+
+  function onSlotDown(e, from, idx) {
+    if (e.button !== 0) return;
+    if (from === 'icraft' && state !== 'inventory') return;
+    if (from === 'craft' && state !== 'crafting') return;
+    if (from === 'inv' && state !== 'inventory' && state !== 'crafting') return;
+    e.preventDefault();
+    if (heldItem) {
+      // 手持有物品：点击放置/交换（保持原行为）
+      var cur = slotItem(from, idx);
+      setSlotItem(from, idx, heldItem);
+      heldItem = cur;
+      Voxel.Sound.select();
+      Voxel.HUD.setInv(inv);
+      Voxel.HUD.drawHeld(heldItem);
+      refreshPanel(from);
+      return;
+    }
+    var id = slotItem(from, idx);
+    if (!id) return;
+    dragState = { from: from, idx: idx, id: id, sx: e.clientX, sy: e.clientY, moved: false };
+    Voxel.HUD.startGhost(id);
+    Voxel.HUD.moveGhost(e.clientX, e.clientY);
+  }
+
+  function onDragMove(e) {
+    if (!dragState) return;
+    if (!dragState.moved && Math.abs(e.clientX - dragState.sx) + Math.abs(e.clientY - dragState.sy) > 6)
+      dragState.moved = true;
+    if (dragState.moved) {
+      Voxel.HUD.moveGhost(e.clientX, e.clientY);
+      Voxel.HUD.slotHover(e);
+    }
+  }
+
+  function onDragUp(e) {
+    if (!dragState) return;
+    var d = dragState;
+    dragState = null;
+    Voxel.HUD.endGhost();
+    if (!d.moved) {
+      // 纯点击：拾取到手持
+      setSlotItem(d.from, d.idx, 0);
+      heldItem = d.id;
+      Voxel.Sound.select();
+      Voxel.HUD.setInv(inv);
+      Voxel.HUD.drawHeld(heldItem);
+      refreshPanel(d.from);
+      return;
+    }
+    // 拖放：找落点
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    var slotEl = el && el.closest ? el.closest('[data-slot]') : null;
+    if (!slotEl) return; // 丢在空白处：取消
+    var spec = slotEl.getAttribute('data-slot');
+    if (spec === 'result') { onResultClick(); return; }
+    if (spec === 'inv-result') { onInvResultClick(); return; }
+    var parts = spec.split(':');
+    var to = parts[0], tIdx = +parts[1];
+    if (to === d.from && tIdx === d.idx) return; // 丢回原格：取消
+    var targetId = slotItem(to, tIdx);
+    setSlotItem(to, tIdx, d.id);
+    setSlotItem(d.from, d.idx, targetId);
+    Voxel.Sound.select();
+    Voxel.HUD.setInv(inv);
+    refreshPanel(d.from);
+    if (to !== d.from) refreshPanel(to);
+  }
+
+  // ---------- 合成手册 ----------
+
+  function openManual() {
+    if (manualOpen) return;
+    manualOpen = true;
+    document.getElementById('manual').classList.remove('hidden');
+  }
+
+  function closeManual() {
+    if (!manualOpen) return;
+    manualOpen = false;
+    document.getElementById('manual').classList.add('hidden');
+  }
+
   function cycleSlot(d) {
     sel = (sel + d + 9) % 9;
     Voxel.HUD.setSelected(sel);
@@ -251,6 +482,7 @@ Voxel.Game = (function () {
       document.getElementById('inventory').classList.remove('hidden');
       Voxel.HUD.setInv(inv);
       Voxel.HUD.drawHeld(heldItem);
+      refreshInvCraft();
       Voxel.Controls.exitLock();
     } else if (!open && state === 'inventory') {
       if (heldItem) {
@@ -260,6 +492,7 @@ Voxel.Game = (function () {
         if (!put) Voxel.HUD.toast('背包已满，物品丢失了！');
         heldItem = 0;
       }
+      returnGridToInv(invCraftGrid);
       Voxel.HUD.setInv(inv);
       Voxel.HUD.drawHeld(0);
       document.getElementById('inventory').classList.add('hidden');
@@ -301,35 +534,61 @@ Voxel.Game = (function () {
   }
 
   function onKey(code) {
+    // 手册打开时优先：M/E/Esc 先关手册
+    if (manualOpen) {
+      if (code === 'KeyM' || code === 'Escape' || code === 'KeyE') {
+        closeManual();
+        Voxel.Sound.select();
+      }
+      return;
+    }
     if (state === 'playing') {
       if (code >= 'Digit1' && code <= 'Digit9') {
         sel = +code.charAt(5) - 1;
         Voxel.HUD.setSelected(sel);
         Voxel.Sound.select();
-      } else if (code === 'KeyE') toggleInv(true);
-      else if (code === 'KeyF') {
+      } else if (code === 'KeyE') {
+        // 准星对准工作台 → 打开合成，否则开背包
+        var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), C.REACH);
+        if (hit && hit.type === 'block' && hit.id === 15) openCrafting();
+        else toggleInv(true);
+      } else if (code === 'KeyF') {
         Voxel.Player.setFlying(!Voxel.Player.flying());
         Voxel.HUD.toast(Voxel.Player.flying() ? '飞行模式：开（空格↑ Shift↓）' : '飞行模式：关');
       } else if (code === 'F3') debug = !debug;
       else if (code === 'KeyP') pause();
+      else if (code === 'KeyM') openManual();
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape') resume();
+      else if (code === 'KeyM') openManual();
     } else if (state === 'inventory') {
       if (code === 'KeyE' || code === 'Escape') toggleInv(false);
+      else if (code === 'KeyM') openManual();
+    } else if (state === 'crafting') {
+      if (code === 'KeyE' || code === 'Escape') closeCrafting();
+      else if (code === 'KeyM') openManual();
     } else if (state === 'menu') {
       if (code === 'Enter') startWorld(saveData ? saveData.seed : null, saveData);
+      else if (code === 'KeyM') openManual();
     }
   }
 
   // ---------- 主循环 ----------
 
   function updateHighlight() {
-    if (state !== 'playing') { highlight.visible = false; return; }
+    var hitEl = document.getElementById('use-hint');
+    if (state !== 'playing') {
+      highlight.visible = false;
+      hitEl.style.display = 'none';
+      return;
+    }
     var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), C.REACH);
     if (hit && hit.type === 'block') {
       highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
       highlight.visible = true;
     } else highlight.visible = false;
+    hitEl.textContent = '按 E 打开工作台';
+    hitEl.style.display = (hit && hit.type === 'block' && hit.id === 15) ? 'block' : 'none';
   }
 
   function loop(now) {
@@ -474,7 +733,33 @@ Voxel.Game = (function () {
     onLockError: onLockError,
     onPlayerDead: onPlayerDead,
     onInvClick: onInvClick,
-    cycleSlot: cycleSlot
+    onCraftClick: onCraftClick,
+    onResultClick: onResultClick,
+    onInvCraftClick: onInvCraftClick,
+    onInvResultClick: onInvResultClick,
+    onSlotDown: onSlotDown,
+    onDrop: onDrop,
+    openManual: openManual,
+    closeManual: closeManual,
+    cycleSlot: cycleSlot,
+    // 测试钩子
+    _test: {
+      inv: function () { return inv; },
+      setInv: function (i, id) { inv[i] = id; Voxel.HUD.setInv(inv); },
+      clearInv: function () { for (var i = 0; i < 36; i++) inv[i] = 0; Voxel.HUD.setInv(inv); },
+      countInv: function (id) { var n = 0; for (var j = 0; j < 36; j++) if (inv[j] === id) n++; return n; },
+      craft: function () { return craftGrid; },
+      setCraft: function (i, id) { craftGrid[i] = id; refreshCraft(); },
+      clearCraft: function () { for (var k = 0; k < 9; k++) craftGrid[k] = 0; refreshCraft(); },
+      matchResult: function () { return Voxel.Crafting.match(craftGrid); },
+      clickResult: onResultClick,
+      openCrafting: openCrafting,
+      invCraft: function () { return invCraftGrid; },
+      setInvCraft: function (i, id) { invCraftGrid[i] = id; refreshInvCraft(); },
+      clearInvCraft: function () { for (var k2 = 0; k2 < 4; k2++) invCraftGrid[k2] = 0; refreshInvCraft(); },
+      matchInvResult: function () { return Voxel.Crafting.matchIn(invCraftGrid, 2); },
+      clickInvResult: onInvResultClick
+    }
   };
 
   function init() {
@@ -517,6 +802,8 @@ Voxel.Game = (function () {
       e.preventDefault();
     });
     document.addEventListener('mouseup', function (e) { mouseDown[e.button] = false; });
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragUp);
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     // 游戏中未锁定时，点击窗口任意位置都可请求锁定
     document.addEventListener('mousedown', function (e) {

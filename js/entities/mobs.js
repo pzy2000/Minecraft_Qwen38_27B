@@ -97,6 +97,10 @@ Voxel.Mobs = (function () {
     var p = m.pos.clone();
     p.y += m.h * 0.5;
     Voxel.Particles.burst(p, m.baseColors[0], 14);
+    // 羊掉落羊毛（方块 ID 16）
+    if (m.type === 'sheep' && Voxel.Game && Voxel.Game.onDrop) {
+      Voxel.Game.onDrop(16, C.WOOL_DROP);
+    }
     var i = list.indexOf(m);
     if (i >= 0) removeAt(i);
   }

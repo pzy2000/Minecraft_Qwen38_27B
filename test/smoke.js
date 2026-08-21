@@ -1,5 +1,5 @@
 // 无浏览器冒烟测试：node test/smoke.js
-// 验证：噪声、地形生成、确定性、树/水/矿、修改与存档还原
+// 验证：噪声、地形生成、确定性、树/水/矿、修改与存档还原、合成配方匹配
 var fs = require('fs');
 var path = require('path');
 var vm = require('vm');
@@ -32,6 +32,7 @@ function check(name, cond) {
 load('js/config.js');
 load('js/world/noise.js');
 load('js/blocks.js');
+load('js/crafting.js');
 load('js/world/world.js');
 
 var V = sandbox.window.Voxel;
@@ -111,8 +112,72 @@ check('edits 数量少(仅增量)', Object.keys(edits).length <= 10);
 V.World.init(12345);
 while (!V.World.isReady()) V.World.generateNext(64);
 check('还原前为原值', V.World.get(bx, by, bz) === before);
-V.World.applyEdits(edits);
-check('applyEdits 还原', V.World.get(bx, by, bz) === 10);
+  V.World.applyEdits(edits);
+  check('applyEdits 还原', V.World.get(bx, by, bz) === 10);
+
+console.log('合成配方测试');
+var Craft = V.Crafting;
+function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
+check('配方数量=3', Craft.recipes.length === 3);
+
+var g = g9(); g[0] = 4;
+var m = Craft.match(g);
+check('1 橡木 → 4 木板', !!m && m.result === 10 && m.count === 4);
+
+g = g9(); g[4] = 10; g[5] = 10; g[7] = 10; g[8] = 10; // 2x2 放右下角
+m = Craft.match(g);
+check('2x2 木板(右下角) → 工作台', !!m && m.result === 15 && m.count === 1);
+
+g = g9(); g[1] = 10; g[2] = 10; g[4] = 10; g[5] = 10; // 2x2 放右上
+check('2x2 木板(右上角) → 工作台', !!Craft.match(g) && Craft.match(g).result === 15);
+
+g = g9(); g[0] = 16; g[1] = 16; g[2] = 16; g[3] = 10; g[4] = 10; g[5] = 10;
+m = Craft.match(g);
+check('3 羊毛+3 木板(上排/下排) → 床', !!m && m.result === 17 && m.count === 1);
+
+g = g9(); g[0] = 10; g[1] = 10; g[2] = 10; g[3] = 16; g[4] = 16; g[5] = 16;
+check('床配方颠倒不匹配', !Craft.match(g));
+
+g = g9(); g[0] = 16; g[1] = 16; g[3] = 10; g[4] = 10; g[5] = 10;
+check('2 羊毛不匹配', !Craft.match(g));
+
+g = g9(); g[0] = 16; g[1] = 16; g[2] = 16; g[3] = 10; g[4] = 10; g[5] = 10; g[6] = 4;
+check('格子有杂物不匹配', !Craft.match(g));
+
+g = g9(); g[0] = 4;
+m = Craft.match(g);
+Craft.consume(g, m);
+check('consume 清空无序配方', g.join() === '0,0,0,0,0,0,0,0,0');
+
+g = g9(); g[0] = 16; g[1] = 16; g[2] = 16; g[3] = 10; g[4] = 10; g[5] = 10;
+m = Craft.match(g);
+Craft.consume(g, m);
+check('consume 清空有方向配方', g.join() === '0,0,0,0,0,0,0,0,0');
+
+g = g9(); g[4] = 10; g[5] = 10; g[7] = 10; g[8] = 10; // 2x2 在右下角
+m = Craft.match(g);
+check('偏移位置的配方返回 cells', !!m && m.cells.length === 4 && m.cells.join() === '4,5,7,8');
+Craft.consume(g, m);
+check('consume 清空偏移位置配方', g.join() === '0,0,0,0,0,0,0,0,0');
+
+console.log('背包 2x2 合成测试');
+var g4 = [4, 0, 0, 0];
+m = Craft.matchIn(g4, 2);
+check('2x2: 1 橡木 → 4 木板', !!m && m.result === 10 && m.count === 4 && m.cells.join() === '0');
+Craft.consume(g4, m);
+check('2x2: consume 清空', g4.join() === '0,0,0,0');
+
+g4 = [10, 10, 10, 10];
+m = Craft.matchIn(g4, 2);
+check('2x2: 4 木板 → 工作台', !!m && m.result === 15 && m.count === 1);
+Craft.consume(g4, m);
+check('2x2: consume 清空(工作台)', g4.join() === '0,0,0,0');
+
+g4 = [16, 16, 16, 10];
+check('2x2: 床放不下(需 3 列)不匹配', !Craft.matchIn(g4, 2));
+
+g4 = [4, 4, 0, 0];
+check('2x2: 2 橡木不匹配', !Craft.matchIn(g4, 2));
 
 console.log(failed === 0 ? '\n全部通过 ✓' : '\n' + failed + ' 项失败 ✗');
 process.exit(failed === 0 ? 0 : 1);

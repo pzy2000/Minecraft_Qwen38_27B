@@ -26,7 +26,8 @@ Voxel.Config = {
     DESPAWN: 52, SPAWN_MIN: 24, SPAWN_MAX: 46,
     ZOMBIE_RANGE: 18, ZOMBIE_DMG: 3,
     ZOMBIE_SPEED: 2.0, SHEEP_SPEED: 1.2,
-    HP_SHEEP: 4, HP_ZOMBIE: 10
+    HP_SHEEP: 4, HP_ZOMBIE: 10,
+    WOOL_DROP: 1              // 击杀羊掉落的羊毛数量
   },
 
   // 渲染

@@ -7,8 +7,10 @@
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="hud"><div id="crosshair"></div><div id="debug"></div><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div></div>
-<div id="inventory" class="hidden"><div class="panel"><div id="inv-grid"></div><div class="inv-held-row"><canvas id="inv-held" width="44" height="44"></canvas></div></div></div>
+<div id="hud"><div id="crosshair"></div><div id="debug"></div><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div></div>
+<div id="inventory" class="hidden"><div class="panel"><div id="inv-craft-grid"></div><div id="inv-craft-result" class="slot result"></div><div id="inv-grid"></div><div class="inv-held-row"><canvas id="inv-held" width="44" height="44"></canvas></div></div></div>
+<div id="crafting" class="hidden"><div class="panel craft-panel"><div id="craft-grid"></div><div id="craft-result" class="slot result"></div><div id="craft-inv-grid"></div><div class="inv-held-row"><canvas id="craft-held" width="44" height="44"></canvas></div><button id="btn-manual" class="btn">查看合成手册</button></div></div>
+<div id="manual" class="hidden"><div class="panel manual-panel"><div id="manual-list"></div></div></div>
 <div id="overlay-start" class="overlay hidden"><div class="panel"><button id="btn-start"></button><button id="btn-new"></button><div id="start-hint"></div></div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><button id="btn-resume"></button><button id="btn-save"></button><button id="btn-new2"></button></div></div>
 <div id="overlay-dead" class="overlay hidden"><div class="panel"><button id="btn-respawn"></button></div></div>
@@ -18,6 +20,7 @@
 <script src="../js/config.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/blocks.js"></script>
+<script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
 <script src="../js/world/mesh.js"></script>
 <script src="../js/player/physics.js"></script>

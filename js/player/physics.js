@@ -1,4 +1,4 @@
-// AABB 与方块世界的碰撞
+// AABB 与方块世界的碰撞（支持半高方块，如床）
 window.Voxel = window.Voxel || {};
 
 Voxel.Physics = (function () {
@@ -6,12 +6,17 @@ Voxel.Physics = (function () {
   var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D;
   var EPS = 0.001;
 
-  function isSolidCell(x, y, z) {
-    if (y < 0) return true;
-    if (y >= H) return false;
-    if (x < 0 || x >= W || z < 0 || z >= D) return true;
-    return Voxel.Blocks.isSolid(Voxel.World.get(x, y, z));
+  // 格子内固体高度：0=无实体，0.5=半高（床），1=整块；界外视为实心
+  function cellTop(x, y, z) {
+    if (y < 0) return 1;
+    if (y >= H) return 0;
+    if (x < 0 || x >= W || z < 0 || z >= D) return 1;
+    var id = Voxel.World.get(x, y, z);
+    if (!Voxel.Blocks.isSolid(id)) return 0;
+    return Voxel.Blocks.defs[id].half ? 0.5 : 1;
   }
+
+  function isSolidCell(x, y, z) { return cellTop(x, y, z) > 0; }
 
   function aabbCollides(px, py, pz, w, h) {
     var x0 = Math.floor(px - w / 2), x1 = Math.floor(px + w / 2);
@@ -19,8 +24,12 @@ Voxel.Physics = (function () {
     var z0 = Math.floor(pz - w / 2), z1 = Math.floor(pz + w / 2);
     for (var x = x0; x <= x1; x++)
       for (var y = y0; y <= y1; y++)
-        for (var z = z0; z <= z1; z++)
-          if (isSolidCell(x, y, z)) return true;
+        for (var z = z0; z <= z1; z++) {
+          var top = cellTop(x, y, z);
+          if (top <= 0) continue;
+          // 实体 [py, py+h) 与格子内固体 [y, y+top) 的垂直重叠
+          if (py < y + top && py + h > y) return true;
+        }
     return false;
   }
 
@@ -45,8 +54,21 @@ Voxel.Physics = (function () {
 
     var ny = p.y + v.y * dt;
     if (aabbCollides(p.x, ny, p.z, ent.w, ent.h)) {
-      if (v.y < 0) { p.y = Math.floor(ny) + 1 + EPS; ent.onGround = true; }
-      else if (v.y > 0) p.y = Math.floor(ny + ent.h) - ent.h - EPS;
+      if (v.y < 0) {
+        // 落在脚底所在行的最高固体面（整块=1，床=0.5）
+        var cy = Math.floor(ny);
+        var x0 = Math.floor(p.x - ent.w / 2), x1 = Math.floor(p.x + ent.w / 2);
+        var z0 = Math.floor(p.z - ent.w / 2), z1 = Math.floor(p.z + ent.w / 2);
+        var top = 0;
+        for (var x = x0; x <= x1; x++)
+          for (var z = z0; z <= z1; z++) {
+            var t = cellTop(x, cy, z);
+            if (t > top) top = t;
+          }
+        if (top <= 0) top = 1; // 防御：脚底行无实体则按整块落地
+        p.y = cy + top + EPS;
+        ent.onGround = true;
+      } else if (v.y > 0) p.y = Math.floor(ny + ent.h) - ent.h - EPS;
       v.y = 0;
     } else p.y = ny;
   }
@@ -58,5 +80,5 @@ Voxel.Physics = (function () {
       isSolidCell(Math.floor(x), y2, Math.floor(z));
   }
 
-  return { move: move, aabbCollides: aabbCollides, isSolidCell: isSolidCell, hasFloor: hasFloor };
+  return { move: move, aabbCollides: aabbCollides, isSolidCell: isSolidCell, cellTop: cellTop, hasFloor: hasFloor };
 })();
