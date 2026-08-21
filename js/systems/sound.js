@@ -14,6 +14,7 @@ Voxel.Sound = (function () {
       master = ctx.createGain();
       master.gain.value = 0.5;
       master.connect(ctx.destination);
+      if (rainPending > 0) rainSet(rainPending); // 解锁后补开雨声
     }
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
@@ -170,6 +171,57 @@ Voxel.Sound = (function () {
     }, 600);
   }
 
+  // 雨声：常驻滤波噪声循环，音量随雨量强度 0~1
+  var rainSrc = null, rainGain = null, rainPending = 0;
+
+  function rainSet(v) {
+    v = Math.max(0, Math.min(1, v || 0));
+    var c = ac();
+    if (!c) { rainPending = v; return; }
+    rainPending = 0;
+    if (!rainSrc) {
+      rainSrc = c.createBufferSource();
+      rainSrc.buffer = getNoise(c);
+      rainSrc.loop = true;
+      var lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 950;
+      var hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 260;
+      rainGain = c.createGain(); rainGain.gain.value = 0.0001;
+      rainSrc.connect(lp); lp.connect(hp); hp.connect(rainGain); rainGain.connect(master);
+      rainSrc.start();
+    }
+    rainGain.gain.setTargetAtTime(0.0001 + v * 0.3, c.currentTime, 0.35);
+  }
+
+  // 雷鸣：低频噪声长衰减 + 次声隆隆（vol 0~1）
+  function thunder(vol) {
+    var c = ac();
+    if (!c) return;
+    var v = Math.max(0.2, Math.min(1, vol || 0.8));
+    var t = c.currentTime;
+    var src = c.createBufferSource();
+    src.buffer = getNoise(c);
+    var lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(420, t);
+    lp.frequency.exponentialRampToValueAtTime(55, t + 2.6);
+    var g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v * 0.8, t + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8 + Math.random() * 1.6);
+    src.connect(lp); lp.connect(g); g.connect(master);
+    src.start(t); src.stop(t + 4.8);
+    var o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(52, t);
+    o.frequency.exponentialRampToValueAtTime(27, t + 2.6);
+    var g2 = c.createGain();
+    g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.exponentialRampToValueAtTime(v * 0.45, t + 0.09);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 3.0);
+    o.connect(g2); g2.connect(master);
+    o.start(t); o.stop(t + 3.2);
+  }
+
   return {
     unlock: ac,
     volAt: volAt,
@@ -255,6 +307,10 @@ Voxel.Sound = (function () {
     },
     // 头部浸水：闷音 + 水下环境声
     setUnderwater: setUnderwater,
+    // 雨天环境声（常驻循环，v=0 静音）
+    rainSet: rainSet,
+    // 雷鸣
+    thunder: thunder,
     hit: function () { tone('square', 170, 90, 0.1, 0.28); },
     pop: function () {
       tone('square', 320, 55, 0.22, 0.28);

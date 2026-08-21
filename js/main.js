@@ -22,6 +22,7 @@ Voxel.Game = (function () {
   var lastT = 0;
   var lastErrT = 0;
   var lastBlankCheck = 0;
+  var _tint = new THREE.Color(), _sky = new THREE.Color(), _skyTop = new THREE.Color();
 
   function setState(s) { state = s; Game.state = s; }
 
@@ -99,6 +100,7 @@ Voxel.Game = (function () {
     Voxel.World.clearMeshes(scene);
     Voxel.Mobs.clear();
     Voxel.Particles.clear();
+    Voxel.Weather.reset();
     Voxel.World.init(s !== null && s !== undefined ? s : ((Math.random() * 0xFFFFFFFF) >>> 0));
     setState('loading');
     showOverlay('overlay-loading');
@@ -114,6 +116,7 @@ Voxel.Game = (function () {
       if (saveData.inv && saveData.inv.length === 36) inv = saveData.inv.slice();
       heldItem = saveData.held || 0;
       Voxel.DayNight.setTime(saveData.time || 0.3);
+      Voxel.Weather.restore(saveData.weather);
       var p = saveData.player;
       if (p && p.pos && p.pos.length === 3) {
         var vx = +p.pos[0], vy = +p.pos[1], vz = +p.pos[2];
@@ -156,6 +159,7 @@ Voxel.Game = (function () {
     var p = Voxel.Player.pos();
     var ok = Voxel.Save.save(Voxel.World, {
       time: Voxel.DayNight.time(),
+      weather: Voxel.Weather.stateName(),
       player: {
         pos: [p.x, p.y, p.z],
         yaw: Voxel.Controls.yaw(),
@@ -619,6 +623,9 @@ Voxel.Game = (function () {
       } else if (code === 'KeyF') {
         Voxel.Player.setFlying(!Voxel.Player.flying());
         Voxel.HUD.toast(Voxel.Player.flying() ? '飞行模式：开（空格↑ Shift↓）' : '飞行模式：关');
+      } else if (code === 'KeyG') {
+        Voxel.Weather.next();
+        Voxel.HUD.toast('天气切换：' + Voxel.Weather.label());
       } else if (code === 'F3') debug = !debug;
       else if (code === 'KeyP') pause();
       else if (code === 'KeyM') openManual();
@@ -725,6 +732,7 @@ Voxel.Game = (function () {
       if (n === 5) acc = 0;
 
       Voxel.DayNight.update(dt);
+      Voxel.Weather.update(dt);
       Voxel.Particles.update(dt);
       updateHighlight();
 
@@ -745,14 +753,24 @@ Voxel.Game = (function () {
       }
     }
 
-    // 视觉色调（暂停时也保持）
-    var tint = Voxel.DayNight.getTint();
-    Voxel.MeshBuilder.applyTint(tint);
-    Voxel.Particles.applyTint(tint);
-    Voxel.Mobs.applyTint(tint);
-    var sky = Voxel.DayNight.getSky();
-    renderer.setClearColor(sky);
-    scene.fog.color.copy(sky);
+    // 视觉色调（暂停时也保持）：昼夜 × 天气（穹顶/背景/雾/地形同步）
+    var wF = Voxel.Weather.rainFactor();
+    var wFlash = Voxel.Weather.flash();
+    _tint.copy(Voxel.DayNight.getTint()).multiply(Voxel.Weather.getTint());
+    Voxel.MeshBuilder.applyTint(_tint);
+    Voxel.Particles.applyTint(_tint);
+    Voxel.Mobs.applyTint(_tint);
+    _skyTop.copy(Voxel.DayNight.topColor()).lerp(Voxel.Weather.getSkyTop(), wF * 0.85);
+    _sky.copy(Voxel.DayNight.horizonColor()).lerp(Voxel.Weather.getSky(), wF * 0.85);
+    if (wFlash > 0) {
+      _skyTop.r += wFlash * 0.9; _skyTop.g += wFlash * 0.92; _skyTop.b += wFlash * 0.95;
+      _sky.r += wFlash * 0.85; _sky.g += wFlash * 0.88; _sky.b += wFlash * 0.95;
+    }
+    Voxel.DayNight.applySky(_skyTop, _sky);
+    renderer.setClearColor(_sky);
+    scene.fog.color.copy(_sky);
+    scene.fog.near = CFG.FOG_NEAR + (CFG.WEATHER.FOG_NEAR_WET - CFG.FOG_NEAR) * wF;
+    scene.fog.far = CFG.FOG_FAR + (CFG.WEATHER.FOG_FAR_WET - CFG.FOG_FAR) * wF;
 
     if (state === 'playing') {
       Voxel.World.setFocus(Voxel.Player.pos().x, Voxel.Player.pos().z);
@@ -770,6 +788,7 @@ Voxel.Game = (function () {
         '  位置 ' + pp.x.toFixed(1) + ', ' + pp.y.toFixed(1) + ', ' + pp.z.toFixed(1) +
         '  视角 偏航' + (Voxel.Controls.yaw() * 57.2958).toFixed(0) + '° 俯仰' + (Voxel.Controls.pitch() * 57.2958).toFixed(0) + '°' +
         '  ' + (Voxel.DayNight.time() * 24).toFixed(1) + '时' + (Voxel.DayNight.isNight() ? ' 夜' : ' 昼') +
+        '  天气 ' + Voxel.Weather.label() + (Voxel.Weather.rainbowVisible() ? ' 彩虹' : '') +
         '  生物 ' + Voxel.Mobs.count() +
         '  网格 ' + Voxel.World.meshCount() +
         (gl.isContextLost() ? '  [上下文丢失!]' : '') +
@@ -851,6 +870,7 @@ Voxel.Game = (function () {
     highlight.visible = false;
 
     Voxel.DayNight.init(scene);
+    Voxel.Weather.init(scene);
     Voxel.Particles.init();
     Voxel.Mobs.init(scene);
     Voxel.Controls.init(canvas);

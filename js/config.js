@@ -36,6 +36,25 @@ Voxel.Config = {
   FOG_NEAR: 60, FOG_FAR: 240,
   CHUNKS_PER_FRAME: 3,
 
+  // 天气（晴→雨→雷雨自动循环，G 键手动切换）
+  WEATHER: {
+    CLEAR_MIN: 180, CLEAR_MAX: 360,          // 晴天持续(秒)
+    RAIN_MIN: 90, RAIN_MAX: 180,             // 雨天持续(秒)
+    STORM_MIN: 45, STORM_MAX: 90,            // 雷暴持续(秒)
+    TRANSITION: 8,                           // 下雨/放晴过渡(秒)
+    RAIN_DROPS: 420,                         // 雨滴数量
+    RAIN_SPEED: 22,                          // 雨滴下落速度
+    RAIN_BOX: 60,                            // 雨滴环绕盒半径
+    WIND: 3,                                 // 风速(云漂移+雨滴倾斜)
+    CLOUD_COUNT: 16,                         // 云朵数量
+    LIGHTNING_MIN: 4, LIGHTNING_MAX: 12,     // 雷暴时闪电间隔(秒)
+    STRIKE_CHANCE: 0.15,                     // 每次闪电劈中玩家的概率
+    STRIKE_RANGE: 14,                        // 落雷距玩家判定范围(格)
+    STRIKE_DMG: 6,                           // 雷击伤害
+    RAINBOW_DURATION: 25,                    // 彩虹持续(秒)
+    FOG_NEAR_WET: 25, FOG_FAR_WET: 110       // 雨天雾距
+  },
+
   SAVE_KEY: 'voxelcraft_save_v1',
   AUTOSAVE_INTERVAL: 30
 };

@@ -64,6 +64,7 @@
 <script src="../js/player/player.js"></script>
 <script src="../js/interact/raycast.js"></script>
 <script src="../js/systems/daynight.js"></script>
+<script src="../js/systems/weather.js"></script>
 <script src="../js/systems/sound.js"></script>
 <script src="../js/systems/particles.js"></script>
 <script src="../js/entities/mobs.js"></script>
@@ -475,6 +476,60 @@
       Voxel.World.set(bx, by + 3, bz, savedAbove[1]);
       for (var bld2 = 0; bld2 < 8; bld2++) Voxel.World.buildMeshes(16, Voxel.Game.scene);
       Voxel.Player.init(new THREE.Vector3(sp.x, Voxel.World.surfaceAt(Math.floor(sp.x), Math.floor(sp.z)) + 1.01, sp.z), 0, 0);
+      wait(800, stepW);
+    });
+  }
+
+  function stepW() {
+    // 5) 天气系统：雨/雷雨/闪电/雷击/彩虹/G 键切换
+    var Wt = Voxel.Weather, g;
+    check('初始天气为晴', Wt.stateName() === 'clear' && Wt.intensity() < 0.05);
+
+    // 雨：设雨→强度爬升、雨滴可见、云变灰变密
+    Wt.set('rain');
+    g = 0;
+    while (Wt.intensity() < 0.9 && g++ < 1000) Wt.update(0.1);
+    check('雨强度爬升 (' + Wt.intensity().toFixed(2) + ')', Wt.intensity() > 0.9);
+    check('雨滴可见', Wt.rainVisible());
+    check('云变灰变密 (opacity ' + Wt.cloudOpacity().toFixed(2) + ')', Wt.cloudOpacity() > 0.7);
+
+    // 雷暴 + 闪电
+    Wt.set('storm');
+    g = 0;
+    while (Wt.intensity() < 0.9 && g++ < 1000) Wt.update(0.1);
+    Wt._test.fireLightning();
+    check('闪电触发闪屏', Wt.flash() > 0.3);
+    wait(1500, function () {
+      check('闪电屏闪衰减', Wt.flash() < 0.3);
+
+      // 雷击：强制劈玩家掉血
+      Voxel.Player.setHp(20);
+      Wt._test.forceStrike();
+      check('雷击使玩家掉血 (20→' + Voxel.Player.hp() + ')', Voxel.Player.hp() === 20 - Voxel.Config.WEATHER.STRIKE_DMG);
+      Voxel.Player.heal(Voxel.Config.WEATHER.STRIKE_DMG);
+
+      // 彩虹：雨停 + 太阳当空 → 出现；夜里不出现
+      Voxel.DayNight.setTime(0.3); Voxel.DayNight.update(0.016);
+      Wt.set('clear');
+      g = 0;
+      while (Wt.intensity() > 0.05 && g++ < 1000) Wt.update(0.1);
+      Wt._test.triggerRainbow();
+      g = 0;
+      while (Wt.rainbowOpacity() < 0.25 && g++ < 200) Wt.update(0.25);
+      check('白天雨后彩虹可见 (opacity ' + Wt.rainbowOpacity().toFixed(2) + ')', Wt.rainbowVisible() && Wt.rainbowOpacity() > 0.25);
+
+      Voxel.DayNight.setTime(0.75); Voxel.DayNight.update(0.016);
+      var n2 = 0;
+      while (Wt.rainbowVisible() && n2++ < 400) Wt.update(0.25);
+      check('夜里不出现彩虹', !Wt.rainbowVisible() && Wt.rainbowOpacity() === 0);
+
+      // G 键手动切换
+      Wt.set('clear');
+      Voxel.Game.onKey('KeyG');
+      check('G 键切换为雨', Wt.stateName() === 'rain');
+      Voxel.Game.onKey('KeyG');
+      check('G 键切换为雷雨', Wt.stateName() === 'storm');
+      Wt.set('clear');
       wait(800, report);
     });
   }
