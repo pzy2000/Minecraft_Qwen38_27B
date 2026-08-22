@@ -185,41 +185,53 @@
       Voxel.Controls.keys['KeyW'] = false;
       var moved = Math.abs(Voxel.Player.pos().z - z0);
       check('按住W键玩家移动 (位移 ' + moved.toFixed(2) + ')', moved > 0.5);
-      Voxel.Player.setFlying(false); // 恢复步行（原地落下，高度不变无摔伤）
+      Voxel.Player.setFlying(false); // 关飞行
 
-      Voxel.Controls.setPitch(-1.5);
-      Voxel.Controls.setYaw(0.3);
-      var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
-      check('DDA 射线命中方块', !!hit && hit.type === 'block');
-      if (hit && hit.type === 'block' && hit.id !== 12) {
-        var old = Voxel.World.get(hit.x, hit.y, hit.z);
-        Voxel.World.set(hit.x, hit.y, hit.z, 0);
-        check('挖方块生效', Voxel.World.get(hit.x, hit.y, hit.z) === 0);
-        check('增量 edits 已记录', Voxel.World.getEdits()[hit.x + ',' + hit.y + ',' + hit.z] === 0);
-        Voxel.World.set(hit.x, hit.y, hit.z, old);
-      }
-      // 长按挖掘：裂纹覆盖层可见 + 进度推进
-      Voxel.Controls.setPitch(-1.55); Voxel.Controls.setYaw(0);
-      var mhit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
-      if (mhit && mhit.type === 'block' && mhit.id !== 12) {
-        var mold = Voxel.World.get(mhit.x, mhit.y, mhit.z);
-        Voxel.World.set(mhit.x, mhit.y, mhit.z, 3); // 换成石头：徒手 4 秒，足够观察进度
-        Voxel.Game._test.beginDig();
-        wait(700, function () {
-          var dp = Voxel.Game._test.digProgress();
-          check('长按挖掘显示裂纹', Voxel.Game._test.crackVisible());
-          // 无头软件渲染帧率低（固定步长每帧最多 5×1/60s），阈值放宽
-          check('挖掘进度推进 (' + (dp.p || 0).toFixed(2) + 's)', (dp.p || 0) > 0.05 && dp.need > 2);
-          Voxel.Game._test.endDig();
-          check('松开后裂纹消失', !Voxel.Game._test.crackVisible());
-          Voxel.World.set(mhit.x, mhit.y, mhit.z, mold);
-          wait(1000, stepD);
-        });
-      } else {
-        check('未找到可挖目标(脚下)', false);
-        wait(1000, stepD);
-      }
+      // 飞行后可能悬在低地/水面上空：放回出生点地表再测试（init 顺带重置 hp）
+      var spg = Voxel.World.spawnPoint();
+      var gy = Voxel.World.surfaceAt(Math.floor(spg.x), Math.floor(spg.z));
+      Voxel.Player.init(new THREE.Vector3(spg.x, gy + 1.02, spg.z), 0.3, -1.5);
+      wait(300, function () {
+        runDigTests();
+      });
     });
+  }
+
+  function runDigTests() {
+    var doc = document;
+    Voxel.Controls.setPitch(-1.5);
+    Voxel.Controls.setYaw(0.3);
+    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
+    check('DDA 射线命中方块', !!hit && hit.type === 'block');
+    if (hit && hit.type === 'block' && hit.id !== 12) {
+      var old = Voxel.World.get(hit.x, hit.y, hit.z);
+      Voxel.World.set(hit.x, hit.y, hit.z, 0);
+      check('挖方块生效', Voxel.World.get(hit.x, hit.y, hit.z) === 0);
+      check('增量 edits 已记录', Voxel.World.getEdits()[hit.x + ',' + hit.y + ',' + hit.z] === 0);
+      Voxel.World.set(hit.x, hit.y, hit.z, old);
+    }
+    // 长按挖掘：裂纹覆盖层可见 + 进度推进
+    Voxel.Controls.setPitch(-1.55); Voxel.Controls.setYaw(0);
+    var mhit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
+    if (mhit && mhit.type === 'block' && mhit.id !== 12) {
+      var mold = Voxel.World.get(mhit.x, mhit.y, mhit.z);
+      Voxel.World.set(mhit.x, mhit.y, mhit.z, 3); // 换成石头：徒手 4 秒，足够观察进度
+      // 站到旁边避免挖穿脚下导致坠落
+      Voxel.Game._test.beginDig();
+      wait(700, function () {
+        var dp = Voxel.Game._test.digProgress();
+        check('长按挖掘显示裂纹', Voxel.Game._test.crackVisible());
+        // 无头软件渲染帧率低（固定步长每帧最多 5×1/60s），阈值放宽
+        check('挖掘进度推进 (' + (dp.p || 0).toFixed(2) + 's)', (dp.p || 0) > 0.05 && dp.need > 2);
+        Voxel.Game._test.endDig();
+        check('松开后裂纹消失', !Voxel.Game._test.crackVisible());
+        Voxel.World.set(mhit.x, mhit.y, mhit.z, mold);
+        wait(1000, stepD);
+      });
+    } else {
+      check('未找到可挖目标(脚下)', false);
+      wait(1000, stepD);
+    }
   }
 
   function stepD() {

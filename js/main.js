@@ -1397,10 +1397,6 @@ Voxel.Game = (function () {
       Voxel.Save.clear();
       startWorld(null, null);
     });
-    document.getElementById('btn-new2').addEventListener('click', function () {
-      Voxel.Save.clear();
-      startWorld(null, null);
-    });
     document.getElementById('btn-resume').addEventListener('click', resume);
     document.getElementById('btn-save').addEventListener('click', function () { doSave(false); });
     document.getElementById('btn-respawn').addEventListener('click', resume);

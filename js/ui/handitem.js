@@ -6,7 +6,7 @@ Voxel.HandItem = (function () {
   var swingT = 0;      // 挥动倒计时
   var bobT = 0;        // 走路摆动相位
   var matBlock = null, matItem = null;
-  var BX = 0.46, BY = -0.42, BZ = -0.72;
+  var BX = 0.42, BY = -0.43, BZ = -0.8;
 
   function tileUV(t, u, v) { // u,v ∈ {0,1}
     var c = t % 16, r = (t / 16) | 0;
@@ -14,7 +14,7 @@ Voxel.HandItem = (function () {
   }
 
   function buildCube(id) {
-    var geo = new THREE.BoxGeometry(0.34, 0.34, 0.34);
+    var geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
     // BoxGeometry 面序：+x,-x,+y,-y,+z,-z；每面 4 顶点 uv：(0,1)(1,1)(0,0)(1,0)
     var uv = geo.attributes.uv;
     var cornerV = [[0, 1], [1, 1], [0, 0], [1, 0]];
@@ -34,7 +34,7 @@ Voxel.HandItem = (function () {
   function buildPlane(id) {
     var t = Voxel.Blocks.iconTile(id);
     if (t < 0) t = Voxel.Blocks.T.STICK;
-    var geo = new THREE.PlaneGeometry(0.5, 0.5);
+    var geo = new THREE.PlaneGeometry(0.4, 0.4);
     var uv = geo.attributes.uv;
     var cornerV = [[0, 1], [1, 1], [0, 0], [1, 0]];
     for (var k = 0; k < 4; k++) {
@@ -42,7 +42,7 @@ Voxel.HandItem = (function () {
       uv.setXY(k, m[0], m[1]);
     }
     uv.needsUpdate = true;
-    geo.rotateZ(-0.7);
+    geo.rotateZ(-0.85);
     return new THREE.Mesh(geo, matItem);
   }
 
