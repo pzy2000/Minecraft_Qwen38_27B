@@ -7,33 +7,47 @@ Voxel.Blocks = (function () {
     LEAVES: 6, SAND: 7, WATER: 8, COAL: 9, IRON: 10, PLANKS: 11, COBBLE: 12,
     BEDROCK: 13, GLASS: 14, GRAVEL: 15,
     TABLE_TOP: 16, TABLE_SIDE: 17, WOOL: 18, BED_TOP: 19, BED_SIDE: 20,
-    SNOW: 21
+    SNOW: 21,
+    STICK: 22, PICK_WOOD: 23, PICK_STONE: 24, PICK_IRON: 25,
+    SWORD_WOOD: 26, SWORD_STONE: 27, SWORD_IRON: 28, TORCH: 29
   };
 
+  // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
   var defs = [
     { name: '空气', solid: false, opaque: false, tiles: null, sound: null, color: 0x000000 },
-    { name: '草方块', solid: true, opaque: true, tiles: [T.GRASS_TOP, T.GRASS_SIDE, T.GRASS_SIDE], sound: 'dirt', color: 0x6fae4e },
-    { name: '泥土', solid: true, opaque: true, tiles: [T.DIRT, T.DIRT, T.DIRT], sound: 'dirt', color: 0x8a6043 },
-    { name: '石头', solid: true, opaque: true, tiles: [T.STONE, T.STONE, T.STONE], sound: 'stone', color: 0x7f7f7f },
-    { name: '橡木', solid: true, opaque: true, tiles: [T.LOG_TOP, T.LOG_SIDE, T.LOG_TOP], sound: 'wood', color: 0x7a5c38 },
-    { name: '树叶', solid: true, opaque: true, tiles: [T.LEAVES, T.LEAVES, T.LEAVES], sound: 'leaves', color: 0x3f8f2f },
-    { name: '沙子', solid: true, opaque: true, tiles: [T.SAND, T.SAND, T.SAND], sound: 'sand', color: 0xdacfa3 },
+    { name: '草方块', solid: true, opaque: true, tiles: [T.GRASS_TOP, T.GRASS_SIDE, T.GRASS_SIDE], sound: 'dirt', color: 0x6fae4e, hard: 0.55 },
+    { name: '泥土', solid: true, opaque: true, tiles: [T.DIRT, T.DIRT, T.DIRT], sound: 'dirt', color: 0x8a6043, hard: 0.45 },
+    { name: '石头', solid: true, opaque: true, tiles: [T.STONE, T.STONE, T.STONE], sound: 'stone', color: 0x7f7f7f, hard: 4, pick: true },
+    { name: '橡木', solid: true, opaque: true, tiles: [T.LOG_TOP, T.LOG_SIDE, T.LOG_TOP], sound: 'wood', color: 0x7a5c38, hard: 1.6 },
+    { name: '树叶', solid: true, opaque: true, tiles: [T.LEAVES, T.LEAVES, T.LEAVES], sound: 'leaves', color: 0x3f8f2f, hard: 0.25 },
+    { name: '沙子', solid: true, opaque: true, tiles: [T.SAND, T.SAND, T.SAND], sound: 'sand', color: 0xdacfa3, hard: 0.4 },
     { name: '水', solid: false, opaque: false, tiles: [T.WATER, T.WATER, T.WATER], sound: 'water', color: 0x3d7dd8 },
-    { name: '煤矿石', solid: true, opaque: true, tiles: [T.COAL, T.COAL, T.COAL], sound: 'stone', color: 0x3a3a3a },
-    { name: '铁矿石', solid: true, opaque: true, tiles: [T.IRON, T.IRON, T.IRON], sound: 'stone', color: 0xd8af87 },
-    { name: '木板', solid: true, opaque: true, tiles: [T.PLANKS, T.PLANKS, T.PLANKS], sound: 'wood', color: 0xa2824e },
-    { name: '圆石', solid: true, opaque: true, tiles: [T.COBBLE, T.COBBLE, T.COBBLE], sound: 'stone', color: 0x6f6f6f },
-    { name: '基岩', solid: true, opaque: true, tiles: [T.BEDROCK, T.BEDROCK, T.BEDROCK], sound: 'stone', color: 0x3c3c3c },
-    { name: '玻璃', solid: true, opaque: false, tiles: [T.GLASS, T.GLASS, T.GLASS], sound: 'glass', color: 0xbfe3ee },
-    { name: '沙砾', solid: true, opaque: true, tiles: [T.GRAVEL, T.GRAVEL, T.GRAVEL], sound: 'dirt', color: 0x857f77 },
-    { name: '工作台', solid: true, opaque: true, tiles: [T.TABLE_TOP, T.TABLE_SIDE, T.TABLE_SIDE], sound: 'wood', color: 0xb08d57 },
-    { name: '羊毛', solid: true, opaque: true, tiles: [T.WOOL, T.WOOL, T.WOOL], sound: 'wool', color: 0xf0f0f0 },
-    { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d },
-    { name: '雪块', solid: true, opaque: true, tiles: [T.SNOW, T.SNOW, T.SNOW], sound: 'snow', color: 0xeef4f8 }
+    { name: '煤矿石', solid: true, opaque: true, tiles: [T.COAL, T.COAL, T.COAL], sound: 'stone', color: 0x3a3a3a, hard: 5, pick: true, tier: 1, drop: 107 },
+    { name: '铁矿石', solid: true, opaque: true, tiles: [T.IRON, T.IRON, T.IRON], sound: 'stone', color: 0xd8af87, hard: 6, pick: true, tier: 2 },
+    { name: '木板', solid: true, opaque: true, tiles: [T.PLANKS, T.PLANKS, T.PLANKS], sound: 'wood', color: 0xa2824e, hard: 1.5 },
+    { name: '圆石', solid: true, opaque: true, tiles: [T.COBBLE, T.COBBLE, T.COBBLE], sound: 'stone', color: 0x6f6f6f, hard: 4.5, pick: true },
+    { name: '基岩', solid: true, opaque: true, tiles: [T.BEDROCK, T.BEDROCK, T.BEDROCK], sound: 'stone', color: 0x3c3c3c, hard: Infinity },
+    { name: '玻璃', solid: true, opaque: false, tiles: [T.GLASS, T.GLASS, T.GLASS], sound: 'glass', color: 0xbfe3ee, hard: 0.45 },
+    { name: '沙砾', solid: true, opaque: true, tiles: [T.GRAVEL, T.GRAVEL, T.GRAVEL], sound: 'dirt', color: 0x857f77, hard: 0.5 },
+    { name: '工作台', solid: true, opaque: true, tiles: [T.TABLE_TOP, T.TABLE_SIDE, T.TABLE_SIDE], sound: 'wood', color: 0xb08d57, hard: 1.5 },
+    { name: '羊毛', solid: true, opaque: true, tiles: [T.WOOL, T.WOOL, T.WOOL], sound: 'wool', color: 0xf0f0f0, hard: 0.7 },
+    { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d, hard: 0.8 },
+    { name: '雪块', solid: true, opaque: true, tiles: [T.SNOW, T.SNOW, T.SNOW], sound: 'snow', color: 0xeef4f8, hard: 0.35 },
+    { name: '火把', solid: false, opaque: false, cross: true, light: 14,
+      tiles: [T.TORCH, T.TORCH, T.TORCH], sound: 'wood', color: 0xffcc66, hard: 0.05, icon: T.TORCH }
   ];
 
-  var atlasCanvas = null, atlasTexture = null;
+  // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
+  defs[100] = { name: '木棍', item: true, solid: false, opaque: false, tiles: [T.STICK, T.STICK, T.STICK], sound: 'wood', color: 0x9a764a, icon: T.STICK };
+    defs[101] = { name: '木镐', item: true, solid: false, opaque: false, tiles: [T.PICK_WOOD, T.PICK_WOOD, T.PICK_WOOD], sound: 'wood', color: 0x9a764a, tool: 'pick', tier: 1, dmg: 2, icon: T.PICK_WOOD };
+    defs[102] = { name: '石镐', item: true, solid: false, opaque: false, tiles: [T.PICK_STONE, T.PICK_STONE, T.PICK_STONE], sound: 'stone', color: 0x8f8f92, tool: 'pick', tier: 2, dmg: 3, icon: T.PICK_STONE };
+    defs[103] = { name: '铁镐', item: true, solid: false, opaque: false, tiles: [T.PICK_IRON, T.PICK_IRON, T.PICK_IRON], sound: 'stone', color: 0xd8af87, tool: 'pick', tier: 3, dmg: 4, icon: T.PICK_IRON };
+    defs[104] = { name: '木剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_WOOD, T.SWORD_WOOD, T.SWORD_WOOD], sound: 'wood', color: 0x9a764a, tool: 'sword', dmg: 4, icon: T.SWORD_WOOD };
+    defs[105] = { name: '石剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_STONE, T.SWORD_STONE, T.SWORD_STONE], sound: 'stone', color: 0x8f8f92, tool: 'sword', dmg: 5, icon: T.SWORD_STONE };
+    defs[106] = { name: '铁剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_IRON, T.SWORD_IRON, T.SWORD_IRON], sound: 'stone', color: 0xd8af87, tool: 'sword', dmg: 6, icon: T.SWORD_IRON };
+    defs[107] = { name: '煤炭', item: true, solid: false, opaque: false, tiles: [T.COAL, T.COAL, T.COAL], sound: 'stone', color: 0x3a3a3a, icon: T.COAL };
 
+  var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
     var s = seed >>> 0;
     return function () {
@@ -238,6 +252,68 @@ Voxel.Blocks = (function () {
       return [240 + v, 246 + v * 0.5, 252];
     });
 
+    // ---- 工具 / 材料图标（透明背景，像素画） ----
+
+    // 斜握柄：从左下到右上
+    function handle(x, y) {
+      return (x + y >= 9 && x + y <= 11 && x >= 2 && x <= 10 && y >= 5 && y <= 13);
+    }
+    function shade(c, k) { return [c[0] * k, c[1] * k, c[2] * k]; }
+
+    drawTile(T.STICK, function (x, y, r) {
+      var d = x - (15 - y);                       // 对角线距离
+      if (d >= -1 && d <= 1 && x >= 3 && x <= 12 && y >= 3 && y <= 12)
+        return (d === 0) ? [134 + r() * 14, 102 + r() * 10, 60] : [104, 78, 44];
+    });
+
+    function pickTile(headColor) {
+      return function (x, y, r) {
+        if (handle(x, y)) return [120, 90, 52];
+        // 镐头：顶部弧形横梁 + 两侧下垂尖角
+        var head = false;
+        if (y >= 2 && y <= 4 && x >= 3 && x <= 12) head = true;
+        if ((x === 2 || x === 3) && y >= 4 && y <= 7) head = true;
+        if ((x === 12 || x === 13) && y >= 4 && y <= 7) head = true;
+        if (head) {
+          var c = headColor;
+          var edge = (y === 2 || x === 2 || x === 13) ? 1.25 : 0.8;
+          return [Math.min(255, c[0] * edge * 0.55 + c[0] * 0.45), Math.min(255, c[1] * edge), Math.min(255, c[2] * edge)];
+        }
+      };
+    }
+    drawTile(T.PICK_WOOD, pickTile([166, 134, 82]));
+    drawTile(T.PICK_STONE, pickTile([140, 140, 144]));
+    drawTile(T.PICK_IRON, pickTile([216, 175, 135]));
+
+    function swordTile(bladeColor) {
+      return function (x, y, r) {
+        // 刃：右上对角线；护手与柄在左下
+        var d = x - (15 - y);
+        if (d >= -1 && d <= 0 && x >= 6 && x <= 14 && y >= 1 && y <= 9) {
+          var c = bladeColor;
+          return (d === 0) ? shade(c, 1.15) : shade(c, 0.85);
+        }
+        if (x + y === 7 && x >= 4 && x <= 7 && y >= 4 && y <= 7) return [110, 80, 46];   // 护手
+        if (x - (6 - y) >= -1 && x - (6 - y) <= 0 && x >= 2 && x <= 5 && y >= 8 && y <= 12)
+          return [96, 70, 40];                                                            // 柄
+      };
+    }
+    drawTile(T.SWORD_WOOD, swordTile([166, 134, 82]));
+    drawTile(T.SWORD_STONE, swordTile([150, 150, 155]));
+    drawTile(T.SWORD_IRON, swordTile([220, 220, 226]));
+
+    drawTile(T.TORCH, function (x, y, r) {
+      // 木杆
+      if ((x === 7 || x === 8) && y >= 5 && y <= 15)
+        return (x === 7) ? [128 + r() * 12, 96 + r() * 10, 56] : [100, 74, 42];
+      // 火焰
+      if (x >= 6 && x <= 9 && y >= 1 && y <= 4) {
+        if (y <= 2 || x === 6 || x === 9) return [255, 168 + r() * 30, 32];
+        return [255, 232 + r() * 20, 120];
+      }
+      if ((x === 5 || x === 10) && y === 3) return [255, 140, 30, 180];
+    });
+
     ctx.putImageData(img, 0, 0);
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
@@ -251,19 +327,39 @@ Voxel.Blocks = (function () {
   return {
     defs: defs,
     T: T,
-    isSolid: function (id) { return id > 0 && defs[id].solid; },
-    isOpaque: function (id) { return id > 0 && defs[id].opaque; },
+    MAX_STACK: 64,
+    ITEM_BASE: 100,
+    isSolid: function (id) { return id > 0 && !!defs[id] && !!defs[id].solid; },
+    isOpaque: function (id) { return id > 0 && !!defs[id] && !!defs[id].opaque; },
     name: function (id) { return defs[id] ? defs[id].name : '?'; },
     tileForFace: function (id, face) {
-      var t = defs[id].tiles;
-      if (!t) return -1;
-      if (face === 2) return t[0]; // 上
-      if (face === 3) return t[2]; // 下
-      return t[1];                  // 侧
+      var d = defs[id];
+      if (!d || !d.tiles) return -1;
+      if (face === 2) return d.tiles[0]; // 上
+      if (face === 3) return d.tiles[2]; // 下
+      return d.tiles[1];                 // 侧
     },
+    // 挖掘掉落物（煤矿掉煤炭而非矿石本身）
+    dropOf: function (id) {
+      var d = defs[id];
+      return (d && d.drop) ? d.drop : id;
+    },
+    // 手持镐的等级（0=无镐，1木 2石 3铁）
+    pickTier: function (heldId) {
+      var d = defs[heldId];
+      return (d && d.tool === 'pick') ? d.tier : 0;
+    },
+    // 手持武器伤害
+    attackDmg: function (heldId) {
+      var d = defs[heldId];
+      return (d && d.dmg) ? d.dmg : 2;
+    },
+    // 镐对可加速方块的倍率
+    PICK_MULT: [1, 4, 7, 10],
     iconTile: function (id) {
       var d = defs[id];
       if (!d || !d.tiles) return -1;
+      if (d.icon !== undefined) return d.icon;
       if (id === 1) return T.GRASS_SIDE;
       if (id === 15) return T.TABLE_TOP;
       if (id === 17) return T.BED_TOP;

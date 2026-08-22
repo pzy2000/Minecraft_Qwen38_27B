@@ -135,6 +135,22 @@ Voxel.Mobs = (function () {
     if (zom < (night ? C.ZOMBIE_TARGET : 0)) trySpawn('zombie');
   }
 
+  // 僵尸眼 → 玩家眼 的视线是否无遮挡
+  function losClear(m) {
+    var p = Voxel.Player.pos();
+    var ax = m.pos.x, ay = m.pos.y + m.h * 0.85, az = m.pos.z;
+    var bx = p.x, by = p.y + P.EYE, bz = p.z;
+    var dx = bx - ax, dy = by - ay, dz = bz - az;
+    var dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    var steps = Math.ceil(dist / 0.4);
+    for (var i = 1; i < steps; i++) {
+      var t = i / steps;
+      if (Voxel.Blocks.isOpaque(Voxel.World.get(
+        Math.floor(ax + dx * t), Math.floor(ay + dy * t), Math.floor(az + dz * t)))) return false;
+    }
+    return true;
+  }
+
   function update(dt) {
     var night = Voxel.DayNight.isNight();
     var Pl = Voxel.Player;
@@ -160,11 +176,12 @@ Voxel.Mobs = (function () {
         var px = Pl.pos().x - m.pos.x;
         var pz = Pl.pos().z - m.pos.z;
         var dist = Math.sqrt(px * px + pz * pz);
-        if (dist < C.ZOMBIE_RANGE) {
+        if (dist < C.ZOMBIE_RANGE && losClear(m)) {
           m.dir = Math.atan2(-px, -pz);
           m.moveTime = 1;
           speed = dist < 8 ? C.ZOMBIE_SPEED * 1.35 : C.ZOMBIE_SPEED;
-          if (dist < 1.6 && m.attackCd <= 0) {
+          // 攻击需近距离、高度接近且视线无遮挡
+          if (dist < 1.6 && Math.abs(Pl.pos().y - m.pos.y) < 2.4 && m.attackCd <= 0) {
             m.attackCd = 1.2;
             Pl.damage(C.ZOMBIE_DMG);
           }
@@ -222,8 +239,9 @@ Voxel.Mobs = (function () {
       if (speed > 0 && m.onGround)
         m.group.children[0].position.y = (m.type === 'sheep' ? 0.62 : 1.02) + Math.sin(t * 9 + i) * 0.03;
 
-      // 白天烧僵尸
-      if (m.type === 'zombie' && Voxel.DayNight.sunlight() > 0.55) {
+      // 白天烧僵尸（需露天：天光 ≥ 12，洞穴里不烧）
+      if (m.type === 'zombie' && Voxel.DayNight.sunlight() > 0.55 &&
+        Voxel.World.getSky(Math.floor(m.pos.x), Math.floor(m.pos.y + 1.5), Math.floor(m.pos.z)) >= 12) {
         m.hp -= dt * 4;
         if (Math.random() < 0.25) {
           var bp = m.pos.clone();

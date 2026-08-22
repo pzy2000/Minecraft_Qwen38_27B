@@ -149,7 +149,7 @@
       Voxel.Sound.step('grass'); Voxel.Sound.step('dirt'); Voxel.Sound.step('sand');
       Voxel.Sound.step('snow'); Voxel.Sound.step('stone'); Voxel.Sound.step('wood');
       Voxel.Sound.step('leaves'); Voxel.Sound.step('wool'); Voxel.Sound.step('glass');
-      Voxel.Sound.dig('snow'); Voxel.Sound.place('snow');
+      Voxel.Sound.dig('snow'); Voxel.Sound.place('snow'); Voxel.Sound.digTick('stone');
       Voxel.Sound.splash(0.5); Voxel.Sound.bubble(); Voxel.Sound.jump(); Voxel.Sound.land(0.6);
       Voxel.Sound.sheep(0.5); Voxel.Sound.sheepHurt(0.5); Voxel.Sound.zombie(0.5);
       Voxel.Sound.setUnderwater(true); Voxel.Sound.setUnderwater(false);
@@ -164,14 +164,16 @@
   function stepC() {
     check('玩家落地(重力+碰撞)', Voxel.Player.onGround());
 
-    // 移动测试：按住 W 键 0.7 秒，玩家应向前移动
+    // 移动测试：飞行模式平移（随机地形下不受树木/坡度阻挡）
     Voxel.Controls.setYaw(0);
+    Voxel.Player.setFlying(true);
     var z0 = Voxel.Player.pos().z;
     Voxel.Controls.keys['KeyW'] = true;
     wait(700, function () {
       Voxel.Controls.keys['KeyW'] = false;
       var moved = Math.abs(Voxel.Player.pos().z - z0);
       check('按住W键玩家移动 (位移 ' + moved.toFixed(2) + ')', moved > 0.5);
+      Voxel.Player.setFlying(false); // 恢复步行（原地落下，高度不变无摔伤）
 
       Voxel.Controls.setPitch(-1.5);
       Voxel.Controls.setYaw(0.3);
@@ -184,7 +186,27 @@
         check('增量 edits 已记录', Voxel.World.getEdits()[hit.x + ',' + hit.y + ',' + hit.z] === 0);
         Voxel.World.set(hit.x, hit.y, hit.z, old);
       }
-      wait(1000, stepD);
+      // 长按挖掘：裂纹覆盖层可见 + 进度推进
+      Voxel.Controls.setPitch(-1.55); Voxel.Controls.setYaw(0);
+      var mhit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), 6);
+      if (mhit && mhit.type === 'block' && mhit.id !== 12) {
+        var mold = Voxel.World.get(mhit.x, mhit.y, mhit.z);
+        Voxel.World.set(mhit.x, mhit.y, mhit.z, 3); // 换成石头：徒手 4 秒，足够观察进度
+        Voxel.Game._test.beginDig();
+        wait(700, function () {
+          var dp = Voxel.Game._test.digProgress();
+          check('长按挖掘显示裂纹', Voxel.Game._test.crackVisible());
+          // 无头软件渲染帧率低（固定步长每帧最多 5×1/60s），阈值放宽
+          check('挖掘进度推进 (' + (dp.p || 0).toFixed(2) + 's)', (dp.p || 0) > 0.05 && dp.need > 2);
+          Voxel.Game._test.endDig();
+          check('松开后裂纹消失', !Voxel.Game._test.crackVisible());
+          Voxel.World.set(mhit.x, mhit.y, mhit.z, mold);
+          wait(1000, stepD);
+        });
+      } else {
+        check('未找到可挖目标(脚下)', false);
+        wait(1000, stepD);
+      }
     });
   }
 
@@ -246,8 +268,18 @@
   }
 
   function stepH() {
+    // 光照冒烟：放置火把 → 邻格有块光；移除 → 熄灭
+    // （stepG 直接调用 World.init 绕过了游戏加载流程，这里补一次初始化）
+    if (!Voxel.World.lightReady()) Voxel.World.initLight();
+    var spL = Voxel.World.spawnPoint();
+    var bxL = Math.floor(spL.x), byL = Math.floor(spL.y + 1), bzL = Math.floor(spL.z);
+    Voxel.World.set(bxL, byL, bzL, 19);
+    check('光照已初始化', Voxel.World.lightReady());
+    check('火把点亮邻格', Voxel.World.getBlk(bxL + 1, byL, bzL) > 0);
+    Voxel.World.set(bxL, byL, bzL, 0);
+
     // 合成手册
-    check('手册列出 3 条配方', document.querySelectorAll('#manual .recipe-row').length === 3);
+    check('手册列出 11 条配方', document.querySelectorAll('#manual .recipe-row').length === 11);
     check('手册含材料获取说明', !!document.querySelector('#manual .manual-obtain'));
 
     var T = Voxel.Game._test;
@@ -324,9 +356,11 @@
         check('木板 x4 进入背包', T.countInv(10) === 4);
         check('2x2 格已清空', T.invCraft().join(',') === '0,0,0,0');
 
-        for (var i = 0; i < 4; i++) { Voxel.Game.onInvClick(i); Voxel.Game.onInvCraftClick(i); }
+        // 堆叠后 4 木板在同一格：拿起一叠 → 逐格放入 2×2（验证堆叠交互）
+        Voxel.Game.onInvClick(0);
+        for (var i2 = 0; i2 < 4; i2++) Voxel.Game.onInvCraftClick(i2);
         r = T.matchInvResult();
-        check('2x2: 4 木板 → 工作台', !!r && r.result === 15);
+        check('2x2: 4 木板(单叠逐格放) → 工作台', !!r && r.result === 15);
         T.clickInvResult();
         check('工作台进入背包', T.countInv(15) === 1);
 
@@ -530,8 +564,26 @@
       Voxel.Game.onKey('KeyG');
       check('G 键切换为雷雨', Wt.stateName() === 'storm');
       Wt.set('clear');
-      wait(800, report);
+      wait(800, stepReset);
     });
+  }
+
+  // P0 回归：新世界必须清空背包/手持
+  function stepReset() {
+    var T2 = Voxel.Game._test;
+    T2.clearInv();
+    T2.addInv(3, 5); // 背包塞 5 个石头
+    doc.getElementById('btn-new').click();
+    var n2 = 0;
+    (function poll2() {
+      if (Voxel.Game.state === 'playing') {
+        check('新世界背包已清空', T2.countInv(3) === 0 && !T2.held());
+        report();
+        return;
+      }
+      if (++n2 > 600) { check('新世界重载超时', false); report(); return; }
+      setTimeout(poll2, 100);
+    })();
   }
 
   setTimeout(function () {

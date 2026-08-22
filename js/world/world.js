@@ -15,6 +15,175 @@ Voxel.World = (function () {
   var meshGroup = null;  // THREE.Group
   var genOrder = [], genCount = 0, genPhase = 1;
 
+  // ---- 光照：skyL 天光 / blkL 块光（火把），0-15 ----
+  var skyL = null, blkL = null, lightReady = false;
+  var LIGHT_RANGE = 15;  // 光最大传播距离（衰减 1/格）
+
+  function opq(id) { return Voxel.Blocks.isOpaque(id); }
+
+  // 进入该格子的光衰减代价（不透明=阻断；水衰减更快）
+  function lightCost(id) {
+    if (id === 7) return 2;
+    return opq(id) ? -1 : 1;
+  }
+
+  // 单通道泛光填充：queues[l] 存待处理下标（arr[idx]==l）
+  function bfsFill(arr, queues, x0, x1, z0, z1) {
+    for (var l = 15; l >= 1; l--) {
+      var q = queues[l];
+      if (!q) continue;
+      for (var qi = 0; qi < q.length; qi++) {
+        var i = q[qi];
+        if (arr[i] !== l) continue;
+        // idx(x,y,z)=x+W*y+W*H*z：z 步长 W*H，y 步长 W
+        var z = (i / (W * H)) | 0;
+        var rem = i - z * W * H;
+        var y = (rem / W) | 0;
+        var x = rem - y * W;
+        var nl = l - 1;
+        if (nl <= 0) continue;
+        // 六邻域
+        spread(arr, queues, x + 1, y, z, nl, x0, x1, z0, z1);
+        spread(arr, queues, x - 1, y, z, nl, x0, x1, z0, z1);
+        spread(arr, queues, x, y + 1, z, nl, x0, x1, z0, z1);
+        spread(arr, queues, x, y - 1, z, nl, x0, x1, z0, z1);
+        spread(arr, queues, x, y, z + 1, nl, x0, x1, z0, z1);
+        spread(arr, queues, x, y, z - 1, nl, x0, x1, z0, z1);
+      }
+    }
+  }
+
+  function spread(arr, queues, x, y, z, nl, x0, x1, z0, z1) {
+    if (x < x0 || x > x1 || z < z0 || z > z1 || y < 0 || y >= H) return;
+    var cost = lightCost(data[idx(x, y, z)]);
+    if (cost < 0) return;
+    var v = nl - (cost - 1);
+    if (v <= 0) return;
+    var i = idx(x, y, z);
+    if (arr[i] >= v) return;
+    arr[i] = v;
+    if (!queues[v]) queues[v] = [];
+    queues[v].push(i);
+  }
+
+  // 区域内重算光照（全高）。全图初始化时传整个世界。
+  function relightRegion(rx0, rx1, rz0, rz1) {
+    rx0 = Math.max(0, rx0); rx1 = Math.min(W - 1, rx1);
+    rz0 = Math.max(0, rz0); rz1 = Math.min(D - 1, rz1);
+    var skyQ = [], blkQ = [];
+
+    // 清空区域（idx(x,y,z)=x+W*y+W*H*z：固定 x,z 后 y 步长为 W）
+    for (var x = rx0; x <= rx1; x++)
+      for (var z = rz0; z <= rz1; z++) {
+        var base = idx(x, 0, z);
+        for (var y = 0; y < H; y++) {
+          var i = base + y * W;
+          skyL[i] = 0;
+          blkL[i] = 0;
+        }
+      }
+
+    // 天光：列扫描自顶向下
+    for (var x2 = rx0; x2 <= rx1; x2++)
+      for (var z2 = rz0; z2 <= rz1; z2++) {
+        var l = 15;
+        for (var y2 = H - 1; y2 >= 0; y2--) {
+          var id = data[idx(x2, y2, z2)];
+          if (opq(id)) l = 0;
+          else if (id === 7 && l > 0) l = Math.max(0, l - 2);
+          skyL[idx(x2, y2, z2)] = l;
+        }
+      }
+    // 天光种子：区域内所有"还能向外传播光"的亮格
+    // （直接照亮由列扫描写入；此处只挑出邻居更暗的可传播格，避免塞入全部亮格）
+    seedSky(skyQ, rx0, rx1, rz0, rz1);
+
+    // 块光种子：区域内火把 + 边界导入
+    for (var x3 = rx0; x3 <= rx1; x3++)
+      for (var z3 = rz0; z3 <= rz1; z3++)
+        for (var y3 = 0; y3 < H; y3++) {
+          var i3 = idx(x3, y3, z3);
+          if (data[i3] === 19 && Voxel.Blocks.defs[19].light) {
+            blkL[i3] = Voxel.Blocks.defs[19].light;
+            blkQ.push(i3);
+          }
+        }
+    seedBlk(blkQ, rx0, rx1, rz0, rz1);
+
+    bfsFill(skyL, bucket(skyQ, skyL), rx0, rx1, rz0, rz1);
+    bfsFill(blkL, bucket(blkQ, blkL), rx0, rx1, rz0, rz1);
+  }
+
+  // 把种子数组转成按亮度分桶的结构
+  function bucket(seeds, arr) {
+    var q = [];
+    for (var i = 0; i < seeds.length; i++) {
+      var l = arr[seeds[i]];
+      if (l > 0) { if (!q[l]) q[l] = []; q[l].push(seeds[i]); }
+    }
+    return q;
+  }
+
+  function pushSeed(q, arr, x, y, z) {
+    if (y < 0 || y >= H) return;
+    var i = idx(x, y, z);
+    if (arr[i] > 1) q.push(i);
+  }
+
+  // 挑出区域内所有可传播的天光亮格：自身 skyL>1 且存在更暗的可通行邻居
+  function seedSky(q, rx0, rx1, rz0, rz1) {
+    for (var x = rx0; x <= rx1; x++)
+      for (var z = rz0; z <= rz1; z++)
+        for (var y = 0; y < H; y++) {
+          var i = idx(x, y, z);
+          var v = skyL[i];
+          if (v <= 1) continue;
+          if (canSpread(skyL, x, y, z, v, rx0, rx1, rz0, rz1)) q.push(i);
+        }
+    // 区域外边界一格的光照导入
+    importBorder(q, skyL, rx0, rx1, rz0, rz1);
+  }
+
+  function canSpread(arr, x, y, z, v, x0, x1, z0, z1) {
+    return darkerNeighbor(arr, x + 1, y, z, v, x0, x1, z0, z1) ||
+      darkerNeighbor(arr, x - 1, y, z, v, x0, x1, z0, z1) ||
+      darkerNeighbor(arr, x, y + 1, z, v, x0, x1, z0, z1) ||
+      darkerNeighbor(arr, x, y - 1, z, v, x0, x1, z0, z1) ||
+      darkerNeighbor(arr, x, y, z + 1, v, x0, x1, z0, z1) ||
+      darkerNeighbor(arr, x, y, z - 1, v, x0, x1, z0, z1);
+  }
+
+  function darkerNeighbor(arr, x, y, z, v, x0, x1, z0, z1) {
+    if (x < x0 || x > x1 || z < z0 || z > z1 || y < 0 || y >= H) return false;
+    if (lightCost(data[idx(x, y, z)]) < 0) return false;
+    return arr[idx(x, y, z)] < v - 1;
+  }
+
+  function seedBlk(q, rx0, rx1, rz0, rz1) {
+    importBorder(q, blkL, rx0, rx1, rz0, rz1);
+  }
+
+  function importBorder(q, arr, rx0, rx1, rz0, rz1) {
+    if (rx0 === 0 && rx1 === W - 1 && rz0 === 0 && rz1 === D - 1) return;
+    for (var x = rx0 - 1; x <= rx1 + 1; x++) {
+      if (x < 0 || x >= W) continue;
+      for (var zz = rx0 - 1; zz <= rz1 + 1; zz++) {
+        if (zz < 0 || zz >= D) continue;
+        if (x >= rx0 && x <= rx1 && zz >= rz0 && zz <= rz1) continue;
+        for (var y = 0; y < H; y++) {
+          var i = idx(x, y, zz);
+          if (arr[i] > 1) q.push(i);
+        }
+      }
+    }
+  }
+
+  function initLight() {
+    if (!skyL) { skyL = new Uint8Array(W * H * D); blkL = new Uint8Array(W * H * D); }
+    lightReady = true;
+    relightRegion(0, W - 1, 0, D - 1);
+  }
+
   function idx(x, y, z) { return x + W * (y + H * z); }
 
   function heightAt(x, z) {
@@ -103,7 +272,16 @@ Voxel.World = (function () {
     if (x < 0 || x >= W || y < 0 || y >= H || z < 0 || z >= D) return;
     data[idx(x, y, z)] = id;
     edits[x + ',' + y + ',' + z] = id;
-    markDirty(x, z);
+    if (lightReady) {
+      var R = LIGHT_RANGE;
+      relightRegion(x - R, x + R, z - R, z + R);
+      // 光照影响可达 15格外：把重算区域内所有区块都标脏
+      for (var cx = (x - R) / CS | 0; cx <= (x + R) / CS | 0; cx++)
+        for (var cz = (z - R) / CS | 0; cz <= (z + R) / CS | 0; cz++)
+          markChunkDirty(cx, cz);
+    } else {
+      markDirty(x, z);
+    }
     if (x % CS === 0) markDirty(x - 1, z);
     if (x % CS === CS - 1) markDirty(x + 1, z);
     if (z % CS === 0) markDirty(x, z - 1);
@@ -126,6 +304,7 @@ Voxel.World = (function () {
     dirty = {};
     dirtyQueue = [];
     chunks = {};
+    lightReady = false;
     genCount = 0;
     genPhase = 1;
     genOrder = [];
@@ -207,12 +386,30 @@ Voxel.World = (function () {
 
   function applyEdits(ed) {
     if (!ed) return;
+    var bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity, any = false;
     for (var k in ed) {
       var p = k.split(',');
       var x = +p[0], y = +p[1], z = +p[2];
       if (x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D) {
         data[idx(x, y, z)] = ed[k];
-        markDirty(x, z);
+        any = true;
+        if (x < bx0) bx0 = x;
+        if (x > bx1) bx1 = x;
+        if (z < bz0) bz0 = z;
+        if (z > bz1) bz1 = z;
+      }
+    }
+    if (!any) return;
+    if (lightReady) {
+      var R = LIGHT_RANGE;
+      relightRegion(bx0 - R, bx1 + R, bz0 - R, bz1 + R);
+      for (var cx = Math.max(0, (bx0 - R) / CS | 0); cx <= Math.min(W / CS - 1, (bx1 + R) / CS | 0); cx++)
+        for (var cz = Math.max(0, (bz0 - R) / CS | 0); cz <= Math.min(D / CS - 1, (bz1 + R) / CS | 0); cz++)
+          markChunkDirty(cx, cz);
+    } else {
+      for (var k2 in ed) {
+        var p2 = k2.split(',');
+        markDirty(+p2[0], +p2[2]);
       }
     }
   }
@@ -283,6 +480,19 @@ Voxel.World = (function () {
     surfaceAt: surfaceAt,
     spawnPoint: spawnPoint,
     applyEdits: applyEdits,
+    // 光照接口
+    initLight: initLight,
+    lightReady: function () { return lightReady; },
+    getSky: function (x, y, z) {
+      if (y >= H) return 15;
+      if (y < 0) return 0;
+      if (!lightReady || x < 0 || x >= W || z < 0 || z >= D) return 15;
+      return skyL[idx(x, y, z)];
+    },
+    getBlk: function (x, y, z) {
+      if (!lightReady || y < 0 || y >= H || x < 0 || x >= W || z < 0 || z >= D) return 0;
+      return blkL[idx(x, y, z)];
+    },
     getEdits: function () { return edits; },
     getSeed: function () { return seed; },
     size: function () { return { w: W, h: H, d: D }; }

@@ -18,7 +18,8 @@ Voxel.Raycaster = (function () {
 
     while (t <= maxDist) {
       var id = Voxel.World.get(x, y, z);
-      if (id !== 0 && Voxel.Blocks.isSolid(id))
+      // 火把非固体但可选中（可挖）
+      if ((id !== 0 && Voxel.Blocks.isSolid(id)) || id === 19)
         return { type: 'block', x: x, y: y, z: z, nx: nx, ny: ny, nz: nz, id: id, dist: t };
       if (tmx < tmy && tmx < tmz) {
         x += stepX; t = tmx; tmx += tdx; nx = -stepX; ny = 0; nz = 0;

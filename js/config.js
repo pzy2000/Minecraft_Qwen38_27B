@@ -18,7 +18,11 @@ Voxel.Config = {
     JUMP: 8.5, GRAVITY: 28, MAX_FALL: -40,
     SWIM_GRAVITY: 6, SWIM_UP: 4.5,
     REACH: 6, DIG_CD: 0.22,
-    HP: 20
+    HP: 20,
+    FALL_SAFE: 13,      // 落地速度不超过此值不摔伤（约3格）
+    FALL_DMG: 0.9,      // 每超出 1 单位落地速度的伤害
+    AIR_MAX: 10,        // 水下憋气秒数
+    DROWN_DMG: 2        // 憋气耗尽后每秒伤害
   },
 
   // 生物

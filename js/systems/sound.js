@@ -226,6 +226,11 @@ Voxel.Sound = (function () {
     unlock: ac,
     volAt: volAt,
     dig: function (m) { noiseHit(matFreq[m] || 500, 1.2, 0.11, 0.5); },
+    // 挖掘中的周期敲击声（比破坏声更轻更短）
+    digTick: function (m) {
+      noiseHit((matFreq[m] || 500) * 1.15, 1.6, 0.05, 0.16);
+      noiseHit((matFreq[m] || 500) * 2.2, 2.5, 0.03, 0.08);
+    },
     place: function (m) {
       noiseHit((matFreq[m] || 500) * 0.7, 1.5, 0.08, 0.4);
       tone('sine', 110, 70, 0.07, 0.22);

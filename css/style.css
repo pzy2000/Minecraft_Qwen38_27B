@@ -32,6 +32,18 @@ html, body {
 }
 
 #health { position: absolute; left: 8px; bottom: 78px; }
+#oxygen { position: absolute; left: 8px; bottom: 102px; }
+
+/* 睡觉渐黑过渡 */
+#sleep-fade {
+  display: none;
+  position: fixed; inset: 0;
+  background: #000;
+  opacity: 0;
+  transition: opacity .5s ease;
+  z-index: 40;
+}
+#sleep-fade.on { display: block; opacity: 1; }
 
 #hotbar {
   position: absolute; left: 50%; bottom: 8px;

@@ -10,6 +10,8 @@ Voxel.Player = (function () {
   var hp = C.HP;
   var stepTimer = 0;
   var prevInWater = false, bubbleTimer = 0;
+  var air = C.AIR_MAX, drownT = 0;   // 憋气
+  var bedPos = null;                 // 床重生点
   var ent = { w: C.W, h: C.H, onGround: false, pos: null, vel: null };
 
   function update(dt) {
@@ -67,14 +69,30 @@ Voxel.Player = (function () {
     Voxel.Physics.move(ent, dt);
     onGround = ent.onGround;
 
-    // 落地声（随下落速度）
-    if (onGround && !wasOnGround && vyBefore < -4)
+    // 落地声 + 摔落伤害（随下落速度）
+    if (onGround && !wasOnGround && vyBefore < -4) {
       Voxel.Sound.land(Math.min(1, -vyBefore / 25));
+      if (!flying && !inWater && vyBefore < -C.FALL_SAFE) {
+        damage(Math.round((-vyBefore - C.FALL_SAFE) * C.FALL_DMG));
+      }
+    }
 
-    // 头部浸水：闷音 + 水下环境声
-    Voxel.Sound.setUnderwater(
-      Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + C.EYE), Math.floor(pos.z)) === 7
-    );
+    // 头部浸水：闷音 + 水下环境声 + 憋气/溺水
+    var headIn = Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + C.EYE), Math.floor(pos.z)) === 7;
+    Voxel.Sound.setUnderwater(headIn);
+    if (headIn) {
+      air -= dt;
+      if (air <= 0) {
+        air = 0;
+        drownT += dt;
+        if (drownT >= 1 && hp > 0) { drownT = 0; damage(C.DROWN_DMG); }
+      }
+    } else {
+      air = Math.min(C.AIR_MAX, air + dt * 2.5);
+      drownT = 0;
+    }
+    if (Voxel.HUD && Voxel.HUD.drawAir)
+      Voxel.HUD.drawAir(headIn || air < C.AIR_MAX ? air / C.AIR_MAX : 1);
 
     // 游泳气泡
     if (inWater) {
@@ -121,6 +139,8 @@ Voxel.Player = (function () {
     flying = false;
     hp = C.HP;
     prevInWater = false;
+    air = C.AIR_MAX;
+    drownT = 0;
     Voxel.Sound.setUnderwater(false);
     if (yaw !== undefined) Voxel.Controls.setYaw(yaw);
     if (pitch !== undefined) Voxel.Controls.setPitch(pitch);
@@ -130,11 +150,23 @@ Voxel.Player = (function () {
     init(Voxel.World.spawnPoint());
   }
 
+  // 床重生点：优先在床上重生（床被挖掉则回世界出生点）
+  function setBed(v) { bedPos = v || null; }
+  function getBed() { return bedPos; }
+
   function respawn() {
-    var sp = (spawn.y > 1) ? spawn.clone() : Voxel.World.spawnPoint();
+    var sp = null;
+    if (bedPos && bedPos.y > 1 &&
+      Voxel.World.get(Math.floor(bedPos.x), Math.floor(bedPos.y), Math.floor(bedPos.z)) === 17)
+      sp = bedPos.clone();
+    else if (spawn.y > 1) sp = spawn.clone();
+    else sp = Voxel.World.spawnPoint();
     pos.copy(sp);
     vel.set(0, 0, 0);
     hp = C.HP;
+    air = C.AIR_MAX;
+    drownT = 0;
+    flying = false;
     Voxel.HUD.drawHealth(hp);
   }
 
@@ -161,6 +193,9 @@ Voxel.Player = (function () {
     update: update,
     damage: damage,
     heal: heal,
+    setBed: setBed,
+    getBed: getBed,
+    air: function () { return air; },
     pos: function () { return pos; },
     eyePos: function () { return new THREE.Vector3(pos.x, pos.y + C.EYE, pos.z); },
     lookDir: function () {

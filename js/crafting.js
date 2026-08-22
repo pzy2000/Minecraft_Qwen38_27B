@@ -3,11 +3,20 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Crafting = (function () {
   // 方块 ID：4=橡木, 10=木板, 15=工作台, 16=羊毛, 17=床
+  // 物品 ID：100=木棍, 101-103=镐, 104-106=剑, 107=煤炭；19=火把(方块)
   // grid 为 3x3（行优先，0=空）；shapeless=true 时 inputs 为 {id: 数量}
   var RECIPES = [
     { name: '木板', shapeless: true, inputs: { 4: 1 }, result: 10, count: 4 },
     { name: '工作台', grid: [10, 10, 0, 10, 10, 0, 0, 0, 0], result: 15, count: 1 },
-    { name: '床', grid: [16, 16, 16, 10, 10, 10, 0, 0, 0], result: 17, count: 1 }
+    { name: '床', grid: [16, 16, 16, 10, 10, 10, 0, 0, 0], result: 17, count: 1 },
+    { name: '木棍', shapeless: true, inputs: { 10: 2 }, result: 100, count: 4 },
+    { name: '火把', shapeless: true, inputs: { 107: 1, 100: 1 }, result: 19, count: 4 },
+    { name: '木镐', grid: [10, 10, 10, 0, 100, 0, 0, 100, 0], result: 101, count: 1 },
+    { name: '石镐', grid: [3, 3, 3, 0, 100, 0, 0, 100, 0], result: 102, count: 1 },
+    { name: '铁镐', grid: [9, 9, 9, 0, 100, 0, 0, 100, 0], result: 103, count: 1 },
+    { name: '木剑', grid: [0, 10, 0, 0, 10, 0, 0, 100, 0], result: 104, count: 1 },
+    { name: '石剑', grid: [0, 3, 0, 0, 3, 0, 0, 100, 0], result: 105, count: 1 },
+    { name: '铁剑', grid: [0, 9, 0, 0, 9, 0, 0, 100, 0], result: 106, count: 1 }
   ];
 
   // 有方向配方：把配方最小包围盒平移到 size×size 内，其余格子必须为空
@@ -28,8 +37,10 @@ Voxel.Crafting = (function () {
         var ok = true;
         for (var r2 = 0; r2 < size && ok; r2++)
           for (var c2 = 0; c2 < size && ok; c2++) {
-            var inBox = r2 >= dr + minR && r2 <= dr + maxR && c2 >= dc + minC && c2 <= dc + maxC;
-            var want = inBox ? pattern[(r2 - dr + minR) * 3 + (c2 - dc + minC)] : 0;
+            // 配方格 (pr,pc) 平移到网格格 (dr+pr, dc+pc)；仅包围盒内的格子参与比对
+            var pr = r2 - dr, pc = c2 - dc;
+            var inBox = pr >= minR && pr <= maxR && pc >= minC && pc <= maxC;
+            var want = inBox ? pattern[pr * 3 + pc] : 0;
             if (grid[r2 * size + c2] !== want) ok = false;
           }
         if (ok) return true;
@@ -88,11 +99,13 @@ Voxel.Crafting = (function () {
   }
 
   // 背包材料够合成几次（按数量，不看摆放）
-  function canCraftFromInv(inv, recipe) {
+  // cnt: 与 inv 平行的数量数组（堆叠），缺省视为每格 1 个
+  function canCraftFromInv(inv, recipe, cnt) {
     var need = needed(recipe), n = Infinity;
     for (var k in need) {
       var have = 0;
-      for (var i = 0; i < inv.length; i++) if (inv[i] === +k) have++;
+      for (var i = 0; i < inv.length; i++)
+        if (inv[i] === +k) have += (cnt && cnt[i]) ? cnt[i] : 1;
       var times = Math.floor(have / need[k]);
       if (times < n) n = times;
     }
@@ -100,12 +113,19 @@ Voxel.Crafting = (function () {
   }
 
   // 从背包消耗 times 次合成的材料，成功返回 true
-  function consumeFromInv(inv, recipe, times) {
+  function consumeFromInv(inv, recipe, times, cnt) {
     var need = needed(recipe);
     for (var k in need) {
       var left = need[k] * times;
-      for (var i = 0; i < inv.length && left > 0; i++)
-        if (inv[i] === +k) { inv[i] = 0; left--; }
+      for (var i = 0; i < inv.length && left > 0; i++) {
+        if (inv[i] !== +k) continue;
+        var q = (cnt && cnt[i]) ? cnt[i] : 1;
+        var take = Math.min(q, left);
+        left -= take;
+        q -= take;
+        if (cnt) cnt[i] = q;
+        if (q <= 0) inv[i] = 0;
+      }
       if (left > 0) return false;
     }
     return true;

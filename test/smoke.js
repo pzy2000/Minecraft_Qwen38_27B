@@ -128,7 +128,7 @@ check('还原前为原值', V.World.get(bx, by, bz) === before);
 console.log('合成配方测试');
 var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
-check('配方数量=3', Craft.recipes.length === 3);
+check('配方数量=11', Craft.recipes.length === 11);
 
 var g = g9(); g[0] = 4;
 var m = Craft.match(g);
@@ -213,6 +213,59 @@ check('consumeFromInv: 床材料清空', inv.join() === new Array(36).fill(0).jo
 // needed 计数
 check('needed: 床 = 3 羊毛+3 木板', JSON.stringify(Craft.needed(Craft.recipes[2])) === JSON.stringify({ 16: 3, 10: 3 }));
 check('needed: 工作台 = 4 木板', JSON.stringify(Craft.needed(Craft.recipes[1])) === JSON.stringify({ 10: 4 }));
+
+console.log('工具与掉落');
+check('煤矿掉落煤炭', V.Blocks.dropOf(8) === 107);
+check('普通方块掉自身', V.Blocks.dropOf(1) === 1);
+check('木镐等级=1', V.Blocks.pickTier(101) === 1);
+check('石镐等级=2', V.Blocks.pickTier(102) === 2);
+check('徒手无镐', V.Blocks.pickTier(3) === 0);
+check('铁剑伤害=6', V.Blocks.attackDmg(106) === 6);
+check('徒手伤害=2', V.Blocks.attackDmg(3) === 2);
+check('工具非固体(可放置性排除)', !V.Blocks.isSolid(101));
+check('火把非固体但可挖', !V.Blocks.isSolid(19) && !!V.Blocks.defs[19].cross);
+
+g = g9(); g[0] = 10; g[1] = 10; g[2] = 10; g[4] = 100; g[7] = 100;
+m = Craft.match(g);
+check('木镐配方匹配', !!m && m.result === 101);
+g = g9(); g[1] = 10; g[4] = 10; g[7] = 100;
+m = Craft.match(g);
+check('木剑配方匹配', !!m && m.result === 104);
+g = g9(); g[0] = 3; g[1] = 3; g[2] = 3; g[4] = 100; g[7] = 100;
+m = Craft.match(g);
+check('石镐配方匹配', !!m && m.result === 102);
+var invT = new Array(36).fill(0);
+invT[0] = 107; invT[1] = 100;
+check('火把=煤+木棍 可合成', Craft.canCraftFromInv(invT, Craft.recipes[4]) === 1);
+Craft.consumeFromInv(invT, Craft.recipes[4], 1);
+check('火把合成消耗后清空', invT.join() === new Array(36).fill(0).join());
+
+console.log('光照系统');
+V.World.init(12345);
+while (!V.World.isReady()) V.World.generateNext(64);
+var tL = Date.now();
+V.World.initLight();
+console.log('  光照初始化耗时 ' + (Date.now() - tL) + 'ms');
+check('光照已就绪', V.World.lightReady());
+// 地表空气应有天光
+var skyOK = false;
+for (var lx = 8; lx < W - 8 && !skyOK; lx += 5)
+  for (var lz = 8; lz < D - 8 && !skyOK; lz += 5) {
+    var sy = V.World.surfaceAt(lx, lz);
+    if (sy > 0 && V.World.get(lx, sy + 1, lz) === 0 && V.World.getSky(lx, sy + 1, lz) >= 14) skyOK = true;
+  }
+check('地表空气有天光', skyOK);
+// 火把：放置 → 发光并衰减传播；移除 → 熄灭
+var spL = V.World.spawnPoint();
+var bxL = Math.floor(spL.x), byL = Math.floor(spL.y + 1), bzL = Math.floor(spL.z);
+V.World.set(bxL, byL, bzL, 19);
+check('火把自身发光', V.World.getBlk(bxL, byL, bzL) >= 13);
+check('火把照亮邻居', V.World.getBlk(bxL + 1, byL, bzL) >= 11);
+check('火把光随距离衰减', V.World.getBlk(bxL + 5, byL, bzL) < V.World.getBlk(bxL + 1, byL, bzL));
+check('火把光不透过实体', V.Blocks.isOpaque(V.World.get(bxL, byL - 1, bzL)) ?
+  V.World.getBlk(bxL, byL - 2, bzL) <= 12 : true);
+V.World.set(bxL, byL, bzL, 0);
+check('移除火把后块光熄灭', V.World.getBlk(bxL + 1, byL, bzL) === 0);
 
 console.log(failed === 0 ? '\n全部通过 ✓' : '\n' + failed + ' 项失败 ✗');
 process.exit(failed === 0 ? 0 : 1);

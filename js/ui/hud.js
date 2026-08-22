@@ -194,7 +194,7 @@ Voxel.HUD = (function () {
     buildManual();
   }
 
-  function drawIcon(canvas, id) {
+  function drawIcon(canvas, id, count) {
     var ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!id || !atlas) return;
@@ -204,13 +204,23 @@ Voxel.HUD = (function () {
     var ox = (t % 16) * 16, oy = ((t / 16) | 0) * 16;
     var s = canvas.width - 8;
     ctx.drawImage(atlas, ox, oy, 16, 16, 4, 4, s, s);
+    if (count > 1) {
+      ctx.font = 'bold 15px monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.strokeText(count, canvas.width - 3, canvas.height - 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(count, canvas.width - 3, canvas.height - 2);
+    }
   }
 
-  function setInv(inv) {
-    for (var i = 0; i < 9; i++) drawIcon(slots[i].canvas, inv[i]);
+  function setInv(inv, cnt) {
+    for (var i = 0; i < 9; i++) drawIcon(slots[i].canvas, inv[i], cnt && cnt[i]);
     for (var j = 0; j < 36; j++) {
-      drawIcon(invSlots[j].canvas, inv[j]);
-      drawIcon(craftInvSlots[j].canvas, inv[j]);
+      drawIcon(invSlots[j].canvas, inv[j], cnt && cnt[j]);
+      drawIcon(craftInvSlots[j].canvas, inv[j], cnt && cnt[j]);
     }
   }
 
@@ -251,6 +261,36 @@ Voxel.HUD = (function () {
   }
 
   function showDebug(txt) { debugEl.textContent = txt; }
+
+  // 氧气气泡：frac 0~1，满且不缺氧时隐藏
+  var airCtx = null;
+  function drawAir(frac) {
+    if (!airCtx) {
+      var el = document.getElementById('oxygen');
+      if (!el) return;
+      airCtx = el.getContext('2d');
+    }
+    var cv = airCtx.canvas;
+    if (frac >= 1) { airCtx.clearRect(0, 0, cv.width, cv.height); return; }
+    airCtx.clearRect(0, 0, cv.width, cv.height);
+    var full = Math.ceil(frac * 10);
+    for (var i = 0; i < 10; i++) {
+      var cx = i * 21 + 8, cy = 12;
+      airCtx.beginPath();
+      airCtx.arc(cx, cy, 5, 0, Math.PI * 2);
+      if (i < full) {
+        airCtx.fillStyle = '#bfe6ff';
+        airCtx.fill();
+        airCtx.lineWidth = 2;
+        airCtx.strokeStyle = '#2a5a7f';
+        airCtx.stroke();
+      } else {
+        airCtx.lineWidth = 1.5;
+        airCtx.strokeStyle = 'rgba(30,50,70,0.55)';
+        airCtx.stroke();
+      }
+    }
+  }
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -313,6 +353,7 @@ Voxel.HUD = (function () {
     drawHeld: drawHeld,
     setSelected: setSelected,
     drawHealth: drawHealth,
+    drawAir: drawAir,
     showDebug: showDebug,
     toast: toast,
     damageFlash: damageFlash,
