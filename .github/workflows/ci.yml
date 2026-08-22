@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke-test:
+    name: Smoke 测试 (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: 运行冒烟测试
+        run: node test/smoke.js
+
+  build-check:
+    name: 构建/静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: JS 语法与资源完整性检查
+        run: node test/build_check.js
+
+  browser-test:
+    name: 浏览器测试 (Chrome headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: 安装 Chrome stable
+        run: npx -y @puppeteer/browsers install chrome@stable --path "$HOME/chrome"
+      - name: 运行浏览器测试
+        run: |
+          CHROME_PATH=$(find "$HOME/chrome" -type f -name chrome -path '*chrome-linux*' | head -n1)
+          echo "Chrome: $CHROME_PATH"
+          test -n "$CHROME_PATH"
+          node test/run_browser_tests.js "$CHROME_PATH"

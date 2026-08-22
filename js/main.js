@@ -1132,6 +1132,7 @@ Voxel.Game = (function () {
 
       Voxel.DayNight.update(dt);
       if (Voxel.DayNight.updateCamera) Voxel.DayNight.updateCamera(camera.position);
+      Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
       Voxel.Weather.update(dt);
       Voxel.Particles.update(dt);
       updateHighlight();

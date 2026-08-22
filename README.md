@@ -79,7 +79,7 @@ python3 -m http.server 8080
 - **床的功能**：对准床按 E 设置重生点；夜晚按 E 睡觉直接跳到清晨（渐黑过渡），僵尸白天自燃
 - **战斗**：10 颗心血量、受击红屏、缓慢回血、死亡后在床重生点（若设置）或出生点复活
 - **存档**：自动存档（30 秒）+ 手动存档 + 睡觉时存档，保存种子与修改增量、背包堆叠数量、床重生点；刷新页面可继续，旧版存档自动兼容
-- **程序化美术/音效**：16×16 像素纹理全部由代码生成（含工具图标与裂纹动画），音效由 WebAudio 合成，无任何外部资源；分材质脚步声（草/沙/雪/石/木/叶…）、入水溅水、水下闷音+水声、游泳气泡、跳跃/落地声、羊叫、僵尸呻吟（均随距离衰减 + 立体声定位）
+- **程序化美术/音效**：16×16 像素纹理全部由代码生成（含工具图标与裂纹动画）；音效以开源采样为主（Kenney / OpenGameArt，base64 内嵌离线可用），WebAudio 程序化合成为兜底；分材质脚步声（草/沙/雪/石/木/叶…）、挖掘/放置/落地、入水溅水、水下闷音+水声、游泳气泡、羊叫、僵尸呻吟（均随距离衰减 + 立体声定位）、昼夜背景音乐交叉淡化、雨声与雷鸣
 - **第一人称手持物**：右下角实时显示手持方块（立方体）或工具（精灵），挖掘/攻击/放置带挥动动画，走路轻微摆动
 - **世界细节**：天空穹顶/日月星辰/云层跟随相机（地图边缘天空不再偏移）；沙子/沙砾失去支撑会下落；挖开临水的格子水会逐渐流入；生物落水会漂浮
 - **受击反馈**：被僵尸攻击有击退与挑空，屏幕边缘红色箭头指示伤害来向；死亡界面显示死因（僵尸/雷击/溺水/摔落）
@@ -107,11 +107,14 @@ js/
 ├── systems/
 │   ├── daynight.js   昼夜、渐变天空穹顶、星辰
 │   ├── weather.js    天气：晴/雨/雷雨、雨滴、云、闪电雷鸣、彩虹
-│   ├── sound.js      WebAudio 合成音效
+│   ├── sound.js      音效系统（采样优先 + WebAudio 合成兜底、BGM、雨雷）
 │   ├── particles.js  破碎粒子
 │   └── save.js       localStorage 存档
 ├── ui/hud.js         快捷栏/背包/血量/调试
+├── assets.js         音频资源（base64 内嵌，由 tools/build_audio.js 生成）
 └── main.js           状态机 + 主循环
+assets_src/           音频原始素材与处理后 mp3（见「音频致谢」）
+tools/                process_audio.sh（ffmpeg 处理）、build_audio.js（生成 assets.js）
 test/smoke.js         Node 冒烟测试（无需浏览器）
 ```
 
@@ -149,3 +152,20 @@ node test/run_browser_tests.js     # 自动查找 Chrome/Edge/Chromium，也可�
 - 光照为逐格平面光照（无平滑插值）；火把不支持贴墙姿态
 - 单进程世界（无多人联机）、无移动端触控
 - 生成整个 256×256 世界约 1-2 秒 + 光照初始化约 1 秒（进度条可见），区块网格渐进构建
+
+## 音频致谢
+
+音效与背景音乐来自以下开源资源（构建脚本：`tools/process_audio.sh` + `tools/build_audio.js`）：
+
+| 文件 | 来源 | 许可 |
+|---|---|---|
+| 脚步声（草/雪/石/木/羊毛）、挖掘/放置、落地、UI | [Kenney "Impact Sounds"](https://kenney.nl/assets/impact-sounds) | CC0 1.0 |
+| 泥土脚步（草脚步降调变体） | Kenney "Impact Sounds"（处理） | CC0 1.0 |
+| 沙砾/树叶脚步 | ["Different steps..." by kdd @ OpenGameArt](https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud) | CC0 1.0 |
+| 沙地/水中脚步、羊叫（含受击）、大水花 | [Yo Frankie! 游戏素材 @ OpenGameArt](https://opengameart.org/content/sheep-sound-bleats-yo-frankie) | CC-BY 3.0（Blender 基金会） |
+| 僵尸呻吟 | ["Zombie Sound" @ OpenGameArt](https://opengameart.org/content/zombie-sound) | CC0 1.0 |
+| 白天 BGM | ["Calm Ambient 3 - Lifewave 2k" by The Cynic Project / Pixelsphere](https://opengameart.org/content/calm-ambient-3-lifewave-2k) | CC0 1.0 |
+| 夜晚 BGM | ["Calm Piano 1 - Vaporware" by The Cynic Project / Pixelsphere](https://opengameart.org/content/cc0-calm-relaxing-music) | CC0 1.0 |
+
+游泳气泡、跳跃、玩家受伤、雨声、雷鸣、水下环境音为 WebAudio 程序化合成，无外部来源。
+所有采样经裁剪静音、响度归一后转为 MP3 内嵌于 `js/assets.js`；若解码失败自动退回程序化合成音效。

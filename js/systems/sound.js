@@ -1,20 +1,23 @@
-// WebAudio 程序化音效（无音频文件）
+// WebAudio 音效系统：内嵌采样（js/assets.js）优先，程序化合成为兜底
 window.Voxel = window.Voxel || {};
 
 Voxel.Sound = (function () {
   var ctx = null, master = null, noiseBuffer = null;
   var MAX_SOUND_DIST = 34;
   var uwActive = false, muffle = null, uwSrc = null, uwLoopGain = null;
-  var baseVol = (Voxel.Settings ? Voxel.Settings.get('volume') : 0.5);
 
-  // 音量设置（0~1）
-  function setVolume(v) {
-    baseVol = Math.max(0, Math.min(1, v || 0));
-    if (!ctx) return;
-    var t = ctx.currentTime;
-    var target = uwActive ? baseVol * 1.2 : baseVol;
-    master.gain.setTargetAtTime(Math.max(0.0001, target), t, 0.05);
-  }
+  // ---- 采样层 ----
+  var buffers = {};          // name -> AudioBuffer
+  var decodeStarted = false;
+  var musicGain = null;      // BGM 独立增益（走 master，水下闷音自然生效）
+  var musicMode = 'off';     // off | day | night（当前目标模式）
+  var musicName = '';        // 当前实际在放的曲目
+  var musicStopTimer = null;
+  var MUSIC_VOL = 0.32;
+  var userVol = 0.5;         // 用户音量（设置菜单）
+
+  // 雨声循环（程序化滤波噪声）
+  var rainSrc = null, rainGain = null;
 
   function ac() {
     if (!ctx) {
@@ -22,13 +25,89 @@ Voxel.Sound = (function () {
       if (!AC) return null;
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = Math.max(0.0001, baseVol);
+      master.gain.value = userVol;
       master.connect(ctx.destination);
-      if (rainPending > 0) rainSet(rainPending); // 解锁后补开雨声
+      musicGain = ctx.createGain();
+      musicGain.gain.value = 0;
+      musicGain.connect(master);
     }
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
   }
+
+  // 用户音量（0~1）
+  function setVolume(v) {
+    v = Math.max(0, Math.min(1, v));
+    userVol = v * 0.75;
+    var c = ac();
+    if (!c) return;
+    master.gain.setTargetAtTime(uwActive ? Math.min(1, userVol * 1.2) : userVol, c.currentTime, 0.05);
+  }
+
+  // base64 dataURI -> ArrayBuffer（不经过 fetch，file:// 下也可用）
+  function dataURIToArrayBuffer(uri) {
+    var b64 = uri.split(',')[1];
+    var bin = atob(b64);
+    var len = bin.length;
+    var bytes = new Uint8Array(len);
+    for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function decodeAll(c) {
+    if (decodeStarted || !Voxel.Assets || !Voxel.Assets.audio) return;
+    decodeStarted = true;
+    var names = Object.keys(Voxel.Assets.audio);
+    names.forEach(function (name) {
+      try {
+        c.decodeAudioData(dataURIToArrayBuffer(Voxel.Assets.audio[name]), function (buf) {
+          buffers[name] = buf;
+        }, function () { });
+      } catch (e) { }
+    });
+  }
+
+  // 播放采样；返回是否成功（失败则调用方退回合成）。pan -1(左)~1(右)
+  function play(name, vol, rate, pan) {
+    var c = ac();
+    if (!c || !buffers[name]) return false;
+    var src = c.createBufferSource();
+    src.buffer = buffers[name];
+    var r = rate || 1;
+    src.playbackRate.value = r * (0.95 + Math.random() * 0.1); // ±5% 随机变速，消除重复感
+    var g = c.createGain();
+    g.gain.value = Math.max(0, Math.min(1.5, vol === undefined ? 1 : vol));
+    src.connect(g);
+    var tail = g;
+    if (pan && c.createStereoPanner) {
+      var p = c.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan));
+      tail.connect(p);
+      tail = p;
+    }
+    tail.connect(master);
+    src.start();
+    return true;
+  }
+
+  function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
+
+  // 材质 -> 采样池
+  var STEP_POOL = {
+    grass: ['step_grass_0', 'step_grass_1', 'step_grass_2'],
+    dirt: ['step_dirt_0', 'step_dirt_1'],
+    stone: ['step_stone_0', 'step_stone_1', 'step_stone_2'],
+    wood: ['step_wood_0', 'step_wood_1', 'step_wood_2'],
+    leaves: ['step_leaves_0', 'step_leaves_1'],
+    sand: ['step_sand_0', 'step_sand_1'],
+    snow: ['step_snow_0', 'step_snow_1', 'step_snow_2'],
+    wool: ['step_wool_0', 'step_wool_1', 'step_wool_2']
+  };
+  var DIG_POOL = {
+    stone: ['dig_0', 'dig_1', 'dig_2'],
+    wood: ['dig_wood_0', 'dig_wood_1', 'dig_wood_2'],
+    glass: ['dig_glass_0', 'dig_glass_1', 'dig_glass_2']
+  };
 
   function getNoise(c) {
     if (noiseBuffer) return noiseBuffer;
@@ -39,7 +118,7 @@ Voxel.Sound = (function () {
     return noiseBuffer;
   }
 
-  function noiseHit(freq, q, dur, vol, pan) {
+  function noiseHit(freq, q, dur, vol) {
     var c = ac();
     if (!c) return;
     var src = c.createBufferSource();
@@ -54,14 +133,12 @@ Voxel.Sound = (function () {
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(f);
     f.connect(g);
-    var pn = makePan(c, pan);
-    if (pn) { g.connect(pn); pn.connect(master); }
-    else g.connect(master);
+    g.connect(master);
     src.start(t);
     src.stop(t + dur + 0.02);
   }
 
-  function tone(type, f0, f1, dur, vol, pan) {
+  function tone(type, f0, f1, dur, vol) {
     var c = ac();
     if (!c) return;
     var o = c.createOscillator();
@@ -73,15 +150,13 @@ Voxel.Sound = (function () {
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g);
-    var pn = makePan(c, pan);
-    if (pn) { g.connect(pn); pn.connect(master); }
-    else g.connect(master);
+    g.connect(master);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
 
-  // 带颤音（LFO 调频）的振荡器，用于羊叫/僵尸呻吟
-  function toneVib(type, f0, f1, dur, vol, vibFreq, vibDepth, lowpass, pan) {
+  // 带颤音（LFO 调频）的振荡器，用于羊叫/僵尸呻吟兜底
+  function toneVib(type, f0, f1, dur, vol, vibFreq, vibDepth, lowpass) {
     var c = ac();
     if (!c) return;
     var o = c.createOscillator();
@@ -110,9 +185,7 @@ Voxel.Sound = (function () {
       tail = f;
     }
     tail.connect(g);
-    var pn = makePan(c, pan);
-    if (pn) { g.connect(pn); pn.connect(master); }
-    else g.connect(master);
+    g.connect(master);
     o.start(t);
     o.stop(t + dur + 0.02);
     lfo.start(t);
@@ -123,36 +196,22 @@ Voxel.Sound = (function () {
 
   // 距离衰减：超过 MAX_SOUND_DIST 返回 0
   function volAt(x, z) {
-    if (!Voxel.Player) return 0;
-    var p = Voxel.Player.pos();
-    var dx = x - p.x, dz = z - p.z;
-    var d = Math.sqrt(dx * dx + dz * dz);
-    if (d > MAX_SOUND_DIST) return 0;
-    return 1 - d / MAX_SOUND_DIST;
+    return spatial(x, z).vol;
   }
 
-  // 立体声空间定位：返回 {vol 距离衰减, pan 声像 -1左~1右}
+  // 距离衰减 + 立体声定位
   function spatial(x, z) {
+    if (!Voxel.Player) return { vol: 0, pan: 0 };
     var p = Voxel.Player.pos();
     var dx = x - p.x, dz = z - p.z;
     var d = Math.sqrt(dx * dx + dz * dz);
-    var vol = d > MAX_SOUND_DIST ? 0 : 1 - d / MAX_SOUND_DIST;
-    var pan = 0;
-    if (d > 0.01 && Voxel.Controls) {
-      // 玩家朝向的右向量：(cos(yaw), -sin(yaw))
-      var yaw = Voxel.Controls.yaw();
-      var rx = Math.cos(yaw), rz = -Math.sin(yaw);
-      pan = Math.max(-1, Math.min(1, (dx * rx + dz * rz) / d * 0.85));
-    }
-    return { vol: vol, pan: pan };
-  }
-
-  // 可选立体声节点：pan 为 0 时省略
-  function makePan(c, pan) {
-    if (!pan || !c.createStereoPanner) return null;
-    var p = c.createStereoPanner();
-    p.pan.value = Math.max(-1, Math.min(1, pan));
-    return p;
+    if (d > MAX_SOUND_DIST) return { vol: 0, pan: 0 };
+    // 以玩家朝向为参照做左右定位
+    var yaw = (Voxel.Controls && Voxel.Controls.yaw()) || 0;
+    var sin = Math.sin(yaw), cos = Math.cos(yaw);
+    var right = dx * cos - dz * sin;   // 玩家右手方向分量
+    var pan = Math.max(-1, Math.min(1, right / 10));
+    return { vol: 1 - d / MAX_SOUND_DIST, pan: pan };
   }
 
   // 水下：master 串入低通闷音 + 持续低频水声
@@ -170,7 +229,7 @@ Voxel.Sound = (function () {
       try { master.disconnect(); } catch (e) { }
       master.connect(muffle);
       muffle.connect(c.destination);
-      master.gain.setTargetAtTime(Math.max(0.0001, baseVol * 1.2), c.currentTime, 0.05);
+      master.gain.setTargetAtTime(Math.min(1, userVol * 1.2), c.currentTime, 0.05);
       startUwLoop(c);
     } else {
       if (muffle) {
@@ -178,7 +237,7 @@ Voxel.Sound = (function () {
       }
       try { master.disconnect(); } catch (e) { }
       master.connect(c.destination);
-      master.gain.setTargetAtTime(Math.max(0.0001, baseVol), c.currentTime, 0.05);
+      master.gain.setTargetAtTime(userVol, c.currentTime, 0.05);
       stopUwLoop(c);
     }
   }
@@ -211,74 +270,141 @@ Voxel.Sound = (function () {
     }, 600);
   }
 
-  // 雨声：常驻滤波噪声循环，音量随雨量强度 0~1
-  var rainSrc = null, rainGain = null, rainPending = 0;
-
-  function rainSet(v) {
-    v = Math.max(0, Math.min(1, v || 0));
+  // ---- 雨声（程序化滤波噪声循环，intensity 0~1）----
+  function rainSet(intensity) {
     var c = ac();
-    if (!c) { rainPending = v; return; }
-    rainPending = 0;
-    if (!rainSrc) {
+    if (!c) return;
+    var v = Math.max(0, Math.min(1, intensity || 0));
+    if (v > 0 && !rainSrc) {
       rainSrc = c.createBufferSource();
       rainSrc.buffer = getNoise(c);
       rainSrc.loop = true;
-      var lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 950;
-      var hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 260;
-      rainGain = c.createGain(); rainGain.gain.value = 0.0001;
-      rainSrc.connect(lp); lp.connect(hp); hp.connect(rainGain); rainGain.connect(master);
+      var f = c.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 1400;
+      f.Q.value = 0.35;
+      rainGain = c.createGain();
+      rainGain.gain.value = 0.0001;
+      rainSrc.connect(f);
+      f.connect(rainGain);
+      rainGain.connect(master);
       rainSrc.start();
     }
-    rainGain.gain.setTargetAtTime(0.0001 + v * 0.3, c.currentTime, 0.35);
+    if (rainGain) {
+      rainGain.gain.setTargetAtTime(v * 0.28, c.currentTime, 0.8);
+      if (v <= 0 && rainSrc) {
+        var s = rainSrc;
+        rainSrc = null;
+        setTimeout(function () {
+          try { s.stop(); s.disconnect(); } catch (e) { }
+        }, 2500);
+      }
+    }
   }
 
-  // 雷鸣：低频噪声长衰减 + 次声隆隆（vol 0~1）
+  // 雷声：低频轰鸣（程序化）
   function thunder(vol) {
     var c = ac();
     if (!c) return;
-    var v = Math.max(0.2, Math.min(1, vol || 0.8));
-    var t = c.currentTime;
+    var v = Math.max(0.1, Math.min(1, vol || 0.7));
     var src = c.createBufferSource();
     src.buffer = getNoise(c);
-    var lp = c.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(420, t);
-    lp.frequency.exponentialRampToValueAtTime(55, t + 2.6);
+    src.playbackRate.value = 0.3 + Math.random() * 0.15;
+    var f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 220 + Math.random() * 120;
     var g = c.createGain();
+    var t = c.currentTime;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(v * 0.8, t + 0.06);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8 + Math.random() * 1.6);
-    src.connect(lp); lp.connect(g); g.connect(master);
-    src.start(t); src.stop(t + 4.8);
-    var o = c.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(52, t);
-    o.frequency.exponentialRampToValueAtTime(27, t + 2.6);
-    var g2 = c.createGain();
-    g2.gain.setValueAtTime(0.0001, t);
-    g2.gain.exponentialRampToValueAtTime(v * 0.45, t + 0.09);
-    g2.gain.exponentialRampToValueAtTime(0.0001, t + 3.0);
-    o.connect(g2); g2.connect(master);
-    o.start(t); o.stop(t + 3.2);
+    g.gain.linearRampToValueAtTime(0.9 * v, t + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.6 + Math.random() * 0.8);
+    src.connect(f);
+    f.connect(g);
+    g.connect(master);
+    src.start(t);
+    src.stop(t + 2.6);
+    tone('sine', 60, 32, 1.2, 0.3 * v);
+  }
+
+  // ---- 背景音乐：昼夜交叉淡化 ----
+  function setMusic(mode) {
+    if (mode !== 'day' && mode !== 'night' && mode !== 'off') mode = 'off';
+    if (mode === musicMode) return;
+    musicMode = mode;
+    var c = ac();
+    if (!c) return;
+    if (musicStopTimer) { clearTimeout(musicStopTimer); musicStopTimer = null; }
+    var want = mode === 'off' ? '' : 'music_' + mode;
+    if (want === musicName) {
+      musicGain.gain.setTargetAtTime(MUSIC_VOL, c.currentTime, 1.0);
+      return;
+    }
+    var prevName = musicName;
+    musicName = want;
+    // 旧曲淡出
+    if (prevName && buffers[prevName]) {
+      musicGain.gain.setTargetAtTime(0.0001, c.currentTime, 0.8);
+      musicStopTimer = setTimeout(function () {
+        try { musicSrc.stop(); } catch (e) { }
+        musicStopTimer = null;
+      }, 3500);
+    }
+    // 新曲淡入
+    if (want && buffers[want]) startMusicTrack(c, want);
+  }
+
+  var musicSrc = null;
+  function startMusicTrack(c, name) {
+    if (musicSrc) { try { musicSrc.stop(); } catch (e) { } }
+    musicSrc = c.createBufferSource();
+    musicSrc.buffer = buffers[name];
+    musicSrc.loop = true;
+    musicSrc.connect(musicGain);
+    musicSrc.start();
+    musicGain.gain.cancelScheduledValues(c.currentTime);
+    musicGain.gain.setValueAtTime(Math.max(0.0001, musicGain.gain.value), c.currentTime);
+    musicGain.gain.setTargetAtTime(MUSIC_VOL, c.currentTime, 1.5);
   }
 
   return {
-    unlock: ac,
+    unlock: function () {
+      var c = ac();
+      if (c) decodeAll(c);
+      return c;
+    },
     volAt: volAt,
     spatial: spatial,
+    // BGM：main.js 按昼夜切换
+    setMusic: setMusic,
+    matFreq: matFreq,
+    decodedCount: function () { var n = 0; for (var k in buffers) n++; return n; },
     setVolume: setVolume,
-    dig: function (m) { noiseHit(matFreq[m] || 500, 1.2, 0.11, 0.5); },
-    // 挖掘中的周期敲击声（比破坏声更轻更短）
+    rainSet: rainSet,
+    thunder: thunder,
+    dig: function (m) {
+      var pool = DIG_POOL[m];
+      if (pool && play(pick(pool), 0.55)) return;
+      if (!pool && m && STEP_POOL[m] && play(pick(STEP_POOL[m]), 1.15, 0.85)) return;
+      noiseHit(matFreq[m] || 500, 1.2, 0.11, 0.5);
+    },
+    // 挖掘进行中的周期性敲击（比 dig 轻、短）
     digTick: function (m) {
-      noiseHit((matFreq[m] || 500) * 1.15, 1.6, 0.05, 0.16);
-      noiseHit((matFreq[m] || 500) * 2.2, 2.5, 0.03, 0.08);
+      var pool = DIG_POOL[m];
+      if (pool && play(pick(pool), 0.28, 1.2)) return;
+      if (!pool && m && STEP_POOL[m] && play(pick(STEP_POOL[m]), 0.6, 1.05)) return;
+      noiseHit(matFreq[m] || 500, 1.4, 0.06, 0.28);
     },
     place: function (m) {
+      var pool = DIG_POOL[m];
+      if (pool && play(pick(pool), 0.45, 0.8)) return;
+      if (!pool && m && STEP_POOL[m] && play(pick(STEP_POOL[m]), 1.0, 0.75)) return;
       noiseHit((matFreq[m] || 500) * 0.7, 1.5, 0.08, 0.4);
       tone('sine', 110, 70, 0.07, 0.22);
     },
     // 材质化脚步声
     step: function (mat) {
+      var pool = STEP_POOL[mat];
+      if (pool && play(pick(pool), 0.5)) return;
       var r = Math.random();
       switch (mat) {
         case 'grass':
@@ -317,11 +443,13 @@ Voxel.Sound = (function () {
     // 溅水：power 0~1
     splash: function (power) {
       var p = Math.max(0.05, Math.min(1, power || 0.3));
+      if (p > 0.35) { if (play('splash_0', 0.3 + p * 0.4)) return; }
+      else if (play(pick(['splash_step_0', 'splash_step_1']), 0.35 + p * 0.5)) return;
       noiseHit(500 + Math.random() * 300, 0.7, 0.15 + p * 0.25, 0.25 + p * 0.35);
       noiseHit(150 + Math.random() * 100, 0.8, 0.2 + p * 0.2, 0.2 + p * 0.3);
       tone('sine', 160 + Math.random() * 60, 50, 0.25 + p * 0.2, 0.2 + p * 0.25);
     },
-    // 游泳气泡
+    // 游泳气泡（保持合成：短促轻量）
     bubble: function () {
       tone('sine', 250 + Math.random() * 150, 700 + Math.random() * 400, 0.09, 0.12);
     },
@@ -331,39 +459,46 @@ Voxel.Sound = (function () {
     // 落地：hard 0~1 随下落速度
     land: function (hard) {
       var h = Math.max(0, Math.min(1, hard || 0.3));
+      if (play(pick(['land_0', 'land_1', 'land_2']), 0.25 + h * 0.5, 0.85 + h * 0.25)) return;
       noiseHit(250 + Math.random() * 80, 0.9, 0.08, 0.1 + h * 0.3);
       tone('sine', 95 - h * 20, 40, 0.09 + h * 0.08, 0.12 + h * 0.35);
     },
-    // 羊叫：vol 0~1（已含距离衰减），pan 声像
+    // 羊叫：vol 0~1（已含距离衰减），pan -1~1
     sheep: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02) return;
-      toneVib('sawtooth', 330, 270, 0.5, v * 0.32, 7, 35, 1200, pan);
-      toneVib('sine', 165, 135, 0.5, v * 0.25, 7, 18, 0, pan);
+      if (play(pick(['sheep_0', 'sheep_1', 'sheep_2']), v * 0.75, 0.92 + Math.random() * 0.16, pan)) return;
+      toneVib('sawtooth', 330, 270, 0.5, v * 0.32, 7, 35, 1200);
+      toneVib('sine', 165, 135, 0.5, v * 0.25, 7, 18, 0);
     },
     sheepHurt: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02) return;
-      toneVib('sawtooth', 420, 330, 0.28, v * 0.3, 9, 40, 1400, pan);
+      if (play('sheep_hurt', v * 0.8, undefined, pan)) return;
+      toneVib('sawtooth', 420, 330, 0.28, v * 0.3, 9, 40, 1400);
     },
-    // 僵尸呻吟：vol 0~1，pan 声像
+    // 僵尸呻吟：vol 0~1（同一采样以变速做变体）
     zombie: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02) return;
-      toneVib('sawtooth', 85 + Math.random() * 15, 60, 0.6 + Math.random() * 0.3, v * 0.3, 3.5, 18, 350, pan);
+      if (play('zombie_0', v * 0.65, 0.82 + Math.random() * 0.36, pan)) return;
+      toneVib('sawtooth', 85 + Math.random() * 15, 60, 0.6 + Math.random() * 0.3, v * 0.3, 3.5, 18, 350);
     },
     // 头部浸水：闷音 + 水下环境声
     setUnderwater: setUnderwater,
-    // 雨天环境声（常驻循环，v=0 静音）
-    rainSet: rainSet,
-    // 雷鸣
-    thunder: thunder,
-    hit: function () { tone('square', 170, 90, 0.1, 0.28); },
+    hit: function () {
+      if (play(pick(['land_0', 'land_1']), 0.5, 1.5)) return;
+      tone('square', 170, 90, 0.1, 0.28);
+    },
     pop: function () {
+      if (play('ui_0', 0.6, 0.6)) return;
       tone('square', 320, 55, 0.22, 0.28);
       noiseHit(900, 1, 0.15, 0.18);
     },
     hurt: function () { tone('sine', 75, 45, 0.25, 0.5); },
-    select: function () { tone('square', 750, 700, 0.045, 0.12); }
+    select: function () {
+      if (play('ui_0', 0.3)) return;
+      tone('square', 750, 700, 0.045, 0.12);
+    }
   };
 })();

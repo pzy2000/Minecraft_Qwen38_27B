@@ -64,6 +64,7 @@
 
 <script src="../vendor/three.min.js"></script>
 <script src="../js/config.js"></script>
+<script src="../js/assets.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/blocks.js"></script>
 <script src="../js/crafting.js"></script>
@@ -249,6 +250,15 @@
     check('午夜判定为夜晚', Voxel.DayNight.isNight());
     Voxel.DayNight.setTime(0.3); Voxel.DayNight.update(0.016);
     check('上午判定为白天', !Voxel.DayNight.isNight());
+
+    // 音频采样解码验证（unlock 时异步解码，此时应已完成）
+    var dec = Voxel.Sound.decodedCount ? Voxel.Sound.decodedCount() : -1;
+    check('音频采样已解码 (' + dec + ' 个)', dec >= 40);
+    Voxel.Sound.setMusic('day'); Voxel.Sound.setMusic('night'); Voxel.Sound.setMusic('off');
+    if (Voxel.Sound.spatial) {
+      var sp = Voxel.Sound.spatial(Voxel.Player.pos().x + 5, Voxel.Player.pos().z);
+      check('spatial 返回 vol/pan', typeof sp.vol === 'number' && sp.vol > 0 && sp.vol <= 1 && Math.abs(sp.pan) <= 1);
+    }
     stepF();
   }
 
