@@ -72,6 +72,7 @@
     <div class="sub">VOXELCRAFT</div>
     <button id="btn-start" class="btn primary">继续游戏</button>
     <button id="btn-new" class="btn">新世界</button>
+    <button id="btn-featured" class="btn">精选世界</button>
     <button id="btn-settings-menu" class="btn">设置</button>
     <div id="start-hint" class="hint">检测到存档，点击"继续游戏"载入</div>
     <div class="controls">
@@ -81,6 +82,16 @@
       <div><b>M</b> 合成手册（一键合成） <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
       <div style="margin-top:6px;color:#9ab">提示：先砍树合成木板→木棍，再合成木镐开采石头与煤；煤+木棍可合成火把照亮洞穴。</div>
     </div>
+  </div>
+</div>
+
+<!-- 精选世界 -->
+<div id="overlay-featured" class="overlay hidden">
+  <div class="panel featured-panel">
+    <h2>精选世界</h2>
+    <div id="featured-grid"></div>
+    <div class="hint">点击卡片以固定种子创建对应世界并直接进入（会覆盖当前存档）</div>
+    <button id="btn-featured-back" class="btn">返回</button>
   </div>
 </div>
 
@@ -154,6 +165,7 @@
 <script src="js/entities/mobs.js"></script>
 <script src="js/systems/save.js"></script>
 <script src="js/ui/handitem.js"></script>
+<script src="js/ui/featured.js"></script>
 <script src="js/ui/hud.js"></script>
 <script src="js/main.js"></script>
 </body>

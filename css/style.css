@@ -335,3 +335,36 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 }
 #loading-bar { height: 100%; width: 0; background: #7ec850; }
 #loading-text { font-size: 13px; color: #ccc; margin-top: 10px; }
+
+/* ---------- 精选世界 ---------- */
+.featured-panel { max-width: 780px; }
+.featured-panel h2 { margin-bottom: 14px; }
+#featured-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.featured-card {
+  cursor: pointer;
+  border: 2px solid #555;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 6px;
+  transition: transform .1s ease;
+}
+.featured-card:hover {
+  border-color: #fff;
+  filter: brightness(1.15);
+  transform: translateY(-2px);
+}
+.featured-card img {
+  display: block; width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #111;
+}
+.featured-name {
+  margin-top: 6px;
+  font-size: 14px; letter-spacing: 2px;
+  color: #eee;
+}
+.featured-desc { font-size: 11px; color: #999; margin-top: 2px; }

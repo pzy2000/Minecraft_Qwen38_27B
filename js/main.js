@@ -14,7 +14,7 @@ Voxel.Game = (function () {
   var craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];   // 工作台 3x3（每格 1 个）
   var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2（每格 1 个）
   var manualOpen = false;
-  var saveData = null, pendingEdits = null;
+  var saveData = null, pendingEdits = null, featuredPending = null;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
@@ -83,7 +83,7 @@ Voxel.Game = (function () {
   }
 
   function hideOverlays() {
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'crafting', 'manual'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'crafting', 'manual'].forEach(function (id) {
       document.getElementById(id).classList.add('hidden');
     });
   }
@@ -100,8 +100,9 @@ Voxel.Game = (function () {
 
   // ---------- 世界流程 ----------
 
-  function startWorld(s, sd) {
+  function startWorld(s, sd, featured) {
     Voxel.Sound.unlock();
+    featuredPending = featured || null;
     saveData = sd || null;
     pendingEdits = saveData ? saveData.edits : null;
     Voxel.World.clearMeshes(scene);
@@ -117,6 +118,39 @@ Voxel.Game = (function () {
     setState('loading');
     showOverlay('overlay-loading');
     tryLock();
+  }
+
+  // 精选世界：生成完成后把玩家放到目标群系（种子含全部 8 群系，按邻域同群系占比选点）
+  function applyFeaturedSpawn(w) {
+    var spot = null;
+    if (w.overview || !w.biome || Voxel.Biomes.B[w.biome] === undefined) {
+      spot = { x: 128, z: 128 };
+    } else {
+      var want = Voxel.Biomes.B[w.biome];
+      var bestScore = -1;
+      for (var x = 20; x < 236; x += 4) {
+        for (var z = 20; z < 236; z += 4) {
+          if (Voxel.World.biomeAt(x, z) !== want) continue;
+          var same = 0, total = 0;
+          for (var dx = -16; dx <= 16; dx += 8)
+            for (var dz = -16; dz <= 16; dz += 8) {
+              total++;
+              if (Voxel.World.biomeAt(x + dx, z + dz) === want) same++;
+            }
+          if (same / total > bestScore) { bestScore = same / total; spot = { x: x, z: z }; }
+        }
+      }
+    }
+    if (!spot) spot = { x: 128, z: 128 };
+    var sy = Voxel.World.surfaceAt(spot.x, spot.z);
+    var pitch = w.overview ? -0.8 : -0.15;
+    var py = w.overview ? Math.max(sy + 1.2, 90) : sy + 1.2;
+    if (!(sy > 0) && !w.overview) py = 33.2;
+    Voxel.Player.init(new THREE.Vector3(spot.x + 0.5, py, spot.z + 0.5), 0.75, pitch);
+    if (w.overview) Voxel.Player.setFlying(true);
+    Voxel.Controls.setYaw(0.75);
+    Voxel.Controls.setPitch(pitch);
+    Voxel.HUD.toast('已进入精选世界：' + w.name + ' · 种子 ' + w.seed);
   }
 
   function enterWorld() {
@@ -161,7 +195,8 @@ Voxel.Game = (function () {
       // 新世界：显式重置视角（否则沿用上次残留的偏航/俯仰，可能正朝天看）
       Voxel.Controls.setYaw(0);
       Voxel.Controls.setPitch(-0.1);
-      Voxel.HUD.toast('欢迎来到方块世界！');
+      if (featuredPending) applyFeaturedSpawn(featuredPending);
+      else Voxel.HUD.toast('欢迎来到方块世界！');
     }
     // 防止存档视角几乎垂直（看天/看地）导致进游戏看不见地形
     var _pitch = Voxel.Controls.pitch();
@@ -841,6 +876,14 @@ Voxel.Game = (function () {
     setState('menu');
   }
 
+  // 精选世界：清空存档并以固定种子创建（进入后自动传送到对应群系）
+  function startFeatured(idx) {
+    var w = Voxel.Featured && Voxel.Featured.WORLDS[idx];
+    if (!w) return;
+    Voxel.Save.clear();
+    startWorld(w.seed, null, w);
+  }
+
   function onPlayerDead() {
     setState('dead');
     if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(Voxel.Player.lastDamageCause());
@@ -1242,6 +1285,7 @@ Voxel.Game = (function () {
     onInvResultClick: onInvResultClick,
     onSlotDown: onSlotDown,
     onDrop: onDrop,
+    startFeatured: startFeatured,
     openManual: openManual,
     closeManual: closeManual,
     manualCraftable: manualCraftable,
@@ -1398,6 +1442,10 @@ Voxel.Game = (function () {
     document.getElementById('btn-new').addEventListener('click', function () {
       Voxel.Save.clear();
       startWorld(null, null);
+    });
+    document.getElementById('btn-featured').addEventListener('click', function () {
+      document.getElementById('overlay-start').classList.add('hidden');
+      document.getElementById('overlay-featured').classList.remove('hidden');
     });
     document.getElementById('btn-resume').addEventListener('click', resume);
     document.getElementById('btn-save').addEventListener('click', function () { doSave(false); });
