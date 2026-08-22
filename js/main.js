@@ -84,7 +84,8 @@ Voxel.Game = (function () {
 
   function hideOverlays() {
     ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'crafting', 'manual'].forEach(function (id) {
-      document.getElementById(id).classList.add('hidden');
+      var el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
     });
   }
 
@@ -114,7 +115,7 @@ Voxel.Game = (function () {
     }
     fallers.length = 0;
     waterQ.length = 0;
-    Voxel.World.init(s !== null && s !== undefined ? s : ((Math.random() * 0xFFFFFFFF) >>> 0));
+    Voxel.World.init(s !== null && s !== undefined ? s : Voxel.SeedUtil.random());
     setState('loading');
     showOverlay('overlay-loading');
     tryLock();
@@ -196,7 +197,7 @@ Voxel.Game = (function () {
       Voxel.Controls.setYaw(0);
       Voxel.Controls.setPitch(-0.1);
       if (featuredPending) applyFeaturedSpawn(featuredPending);
-      else Voxel.HUD.toast('欢迎来到方块世界！');
+      else       Voxel.HUD.toast('欢迎来到方块世界！种子 ' + Voxel.World.getSeed());
     }
     // 防止存档视角几乎垂直（看天/看地）导致进游戏看不见地形
     var _pitch = Voxel.Controls.pitch();
@@ -970,7 +971,7 @@ Voxel.Game = (function () {
     var yy = y + 1;
     while (yy < CFG.WORLD_H) {
       var id = Voxel.World.get(x, yy, z);
-      if (id !== 6 && id !== 14) break;
+      if (id !== 6 && id !== 14 && id !== 28) break;
       Voxel.World.set(x, yy, z, 0);
       if (fallMat && scene) {
         var mesh = makeFallMesh(id, x, yy, z);
@@ -1439,9 +1440,16 @@ Voxel.Game = (function () {
     document.getElementById('btn-start').addEventListener('click', function () {
       startWorld(saveData ? saveData.seed : null, saveData);
     });
+    var seedInput = document.getElementById('seed-input');
+    if (document.getElementById('btn-seed-random') && seedInput) {
+      document.getElementById('btn-seed-random').addEventListener('click', function () {
+        seedInput.value = Voxel.SeedUtil.toString(Voxel.SeedUtil.random());
+      });
+    }
     document.getElementById('btn-new').addEventListener('click', function () {
       Voxel.Save.clear();
-      startWorld(null, null);
+      var sv = seedInput ? seedInput.value.trim() : '';
+      startWorld(sv === '' ? null : Voxel.SeedUtil.parse(sv), null);
     });
     if (document.getElementById('btn-featured')) {
       document.getElementById('btn-featured').addEventListener('click', function () {

@@ -61,6 +61,6 @@ Voxel.Config = {
     FOG_NEAR_WET: 25, FOG_FAR_WET: 110       // 雨天雾距
   },
 
-  SAVE_KEY: 'voxelcraft_save_v2',   // v2：生物群系生成算法（v1 旧地形不兼容）
+  SAVE_KEY: 'voxelcraft_save_v3',   // v3：MultiNoise 群系 + 3D 密度场 + 64 位种子（v2 旧地形不兼容）
   AUTOSAVE_INTERVAL: 30
 };

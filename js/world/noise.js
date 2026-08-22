@@ -1,4 +1,5 @@
-// 值噪声（value noise）+ fBm，带种子
+// Improved Perlin 梯度噪声 + Octave 叠加，经 SeedUtil 盐化播种（对齐 Minecraft PerlinNoiseSampler）
+// 纯逻辑无 DOM，可在 Node 冒烟测试中加载
 window.Voxel = window.Voxel || {};
 
 Voxel.Noise = (function () {
@@ -12,8 +13,7 @@ Voxel.Noise = (function () {
     };
   }
 
-  function makePerm(seed) {
-    var rnd = mulberry32(seed);
+  function makePerm(rnd) {
     var p = new Uint8Array(512);
     var base = new Uint8Array(256);
     for (var i = 0; i < 256; i++) base[i] = i;
@@ -28,73 +28,110 @@ Voxel.Noise = (function () {
   function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
   function lerp(a, b, t) { return a + (b - a) * t; }
 
-  // 2D 哈希 -> [0,1)
-  function hash2(p, x, y) {
-    var h = (x & 255) + (y & 255) * 256;
-    h = p[h & 511] + ((x * 7 + y * 13) & 255);
-    return p[h & 511] / 255;
+  // 12 向梯度集（Perlin 参考实现的位运算选择）
+  function grad(h, x, y, z) {
+    h &= 15;
+    var u = h < 8 ? x : y;
+    var v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
   }
 
-  // 3D 哈希 -> [0,1)
-  function hash3(p, x, y, z) {
-    var h = (x & 255) + (y & 255) * 256;
-    h = p[h & 511] + (z & 255) * 256;
-    h = p[h & 511] + ((x * 7 + y * 13 + z * 19) & 255);
-    return p[h & 511] / 255;
-  }
-
-  function vnoise2(p, x, y) {
-    var xi = Math.floor(x), yi = Math.floor(y);
-    var xf = x - xi, yf = y - yi;
-    var u = fade(xf), v = fade(yf);
-    var a = hash2(p, xi, yi), b = hash2(p, xi + 1, yi);
-    var c = hash2(p, xi, yi + 1), d = hash2(p, xi + 1, yi + 1);
-    return lerp(lerp(a, b, u), lerp(c, d, u), v);
-  }
-
-  function vnoise3(p, x, y, z) {
-    var xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
-    var xf = x - xi, yf = y - yi, zf = z - zi;
-    var u = fade(xf), v = fade(yf), w = fade(zf);
-    function h(xx, yy, zz) { return hash3(p, xx, yy, zz); }
-    var c000 = h(xi, yi, zi), c100 = h(xi + 1, yi, zi);
-    var c010 = h(xi, yi + 1, zi), c110 = h(xi + 1, yi + 1, zi);
-    var c001 = h(xi, yi, zi + 1), c101 = h(xi + 1, yi, zi + 1);
-    var c011 = h(xi, yi + 1, zi + 1), c111 = h(xi + 1, yi + 1, zi + 1);
+  // 单层 Improved Perlin，输出约 [-1,1]
+  function perlin3(p, x, y, z) {
+    var fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z);
+    var X = fx & 255, Y = fy & 255, Z = fz & 255;
+    x -= fx; y -= fy; z -= fz;
+    var u = fade(x), v = fade(y), w = fade(z);
+    var A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+    var Bk = p[X + 1] + Y, BA = p[Bk] + Z, BB = p[Bk + 1] + Z;
     return lerp(
-      lerp(lerp(c000, c100, u), lerp(c010, c110, u), v),
-      lerp(lerp(c001, c101, u), lerp(c011, c111, u), v),
-      w
-    );
+      lerp(lerp(grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z), u),
+        lerp(grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z), u), v),
+      lerp(lerp(grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1), u),
+        lerp(grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1), u), v),
+      w);
   }
 
-  // 分形噪声 [0,1)
-  function fbm2(p, x, y, octaves) {
-    var sum = 0, amp = 1, freq = 1, norm = 0;
-    for (var i = 0; i < octaves; i++) {
-      sum += vnoise2(p, x * freq, y * freq) * amp;
-      norm += amp; amp *= 0.5; freq *= 2;
+  // OctavePerlin：每层独立置换表与偏移（去相关，对应 MC OctavePerlinNoiseSampler）
+  function makeOctaves(streamVals, n) {
+    var layers = [], norm = 0, amp = 1;
+    for (var i = 0; i < n; i++) {
+      var r = mulberry32(streamVals[i]);
+      layers.push({
+        p: makePerm(r),
+        ox: r() * 1024, oy: r() * 1024, oz: r() * 1024,
+        freq: Math.pow(2, i), amp: amp
+      });
+      norm += amp; amp *= 0.5;
     }
-    return sum / norm;
-  }
-
-  function create(seed) {
-    var p = makePerm(seed);
-    var p2 = makePerm((seed * 7 + 12345) >>> 0);
-    var p3 = makePerm((seed * 13 + 47531) >>> 0);
-    var p4 = makePerm((seed * 17 + 81943) >>> 0);
     return {
-      n2: function (x, y) { return vnoise2(p, x, y); },
-      fbm2: function (x, y, o) { return fbm2(p, x, y, o); },
-      fbm2b: function (x, y, o) { return fbm2(p2, x, y, o); },
-      // 气候通道：温度 / 湿度（生物群系选择用）
-      tempAt: function (x, y, o) { return fbm2(p3, x, y, o || 3); },
-      moistAt: function (x, y, o) { return fbm2(p4, x, y, o || 3); },
-      n3: function (x, y, z) { return vnoise3(p, x, y, z); },
-      hash2: function (x, y) { return hash2(p, x * 7 + 31, y * 13 + 17); },
-      hash3: function (x, y, z) { return hash3(p2, x * 7, y * 13, z * 19); }
+      at3: function (x, y, z) {
+        var s = 0;
+        for (var i = 0; i < layers.length; i++) {
+          var L = layers[i];
+          s += perlin3(L.p, (x + L.ox) * L.freq, (y + L.oy) * L.freq, (z + L.oz) * L.freq) * L.amp;
+        }
+        return s / norm;
+      },
+      at2: function (x, z) {
+        var s = 0;
+        for (var i = 0; i < layers.length; i++) {
+          var L = layers[i];
+          s += perlin3(L.p, (x + L.ox) * L.freq, L.oy * 0.618 + 37.7, (z + L.oz) * L.freq) * L.amp;
+        }
+        return s / norm;
+      }
     };
   }
 
-  return { create: create };
+  // 盐值常量表：各噪声实例专属（模仿 MC noise router 的独立 salt）
+  var SALT = {
+    TEMP: 0x51ED, HUMID: 0x270B, CONT: 0x1B31, EROSION: 0x7A11, WEIRD: 0x3C4F,
+    TERRAIN: 0xA11CE, TERRAIN3D: 0xB0B57, JAGGED: 0xC0FFEE,
+    CAVE_A: 0xD00DAD, CAVE_B: 0xE66E55, CHEESE: 0xF00D5,
+    ORE: 0x0DD5A, TREE: 0x7EE5, LEGACY: 0x1999
+  };
+
+  function create(seed) {
+    var S = Voxel.SeedUtil;
+    var big = S.toBigInt(seed);
+    var cache = {};
+
+    // 取盐化噪声通道（[-1,1]），按 (盐值, octave 数) 缓存
+    function channel(salt, oct) {
+      var key = salt + ':' + oct;
+      if (!cache[key]) cache[key] = makeOctaves(S.deriveStream(big, salt, oct), oct);
+      return cache[key];
+    }
+
+    // 整数坐标哈希 [0,1)：盐化常量混入，矿石/植被放置用
+    var hk = S.deriveStream(big, SALT.ORE, 3);
+    function hash2(x, y) {
+      var h = (Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ hk[0]) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    }
+    function hash3(x, y, z) {
+      var h = (Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 2246822519) ^
+        Math.imul(z | 0, 3266489917) ^ hk[1]) | 0;
+      h = Math.imul(h ^ (h >>> 15), 2654435761);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    }
+
+    // 兼容旧 API：值噪声风格输出 [0,1)
+    var legacy = channel(SALT.LEGACY, 3);
+    function clamp01(v) { return v < 0 ? 0 : (v >= 1 ? 0.999999 : v); }
+
+    return {
+      channel: channel,
+      hash2: hash2,
+      hash3: hash3,
+      fbm2: function (x, y, o) { return clamp01((legacy.at2(x, y) + 1) / 2); },
+      n3: function (x, y, z) { return clamp01((legacy.at3(x, y, z) + 1) / 2); },
+      tempAt: function (x, y) { return clamp01((channel(SALT.TEMP, 3).at2(x, y) + 1) / 2); },
+      moistAt: function (x, y) { return clamp01((channel(SALT.HUMID, 3).at2(x, y) + 1) / 2); }
+    };
+  }
+
+  return { create: create, SALT: SALT, perlin3: perlin3, makePerm: makePerm, mulberry32: mulberry32 };
 })();

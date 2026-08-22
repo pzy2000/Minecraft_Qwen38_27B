@@ -11,7 +11,7 @@
 <div id="inventory" class="hidden"><div class="panel"><div id="inv-craft-grid"></div><div id="inv-craft-result" class="slot result"></div><div id="inv-grid"></div><div class="inv-held-row"><canvas id="inv-held" width="44" height="44"></canvas></div></div></div>
 <div id="crafting" class="hidden"><div class="panel craft-panel"><div id="craft-grid"></div><div id="craft-result" class="slot result"></div><div id="craft-inv-grid"></div><div class="inv-held-row"><canvas id="craft-held" width="44" height="44"></canvas></div><button id="btn-manual" class="btn">查看合成手册</button></div></div>
 <div id="manual" class="hidden"><div class="panel manual-panel"><div id="manual-list"></div></div></div>
-<div id="overlay-start" class="overlay hidden"><div class="panel"><button id="btn-start"></button><button id="btn-new"></button><button id="btn-settings-menu" class="btn"></button><div id="start-hint"></div></div></div>
+<div id="overlay-start" class="overlay hidden"><div class="panel"><button id="btn-start"></button><button id="btn-new"></button><div class="seed-row"><input id="seed-input" type="text" maxlength="32" placeholder=""></div><button id="btn-settings-menu" class="btn"></button><div id="start-hint"></div></div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><button id="btn-resume"></button><button id="btn-save"></button><button id="btn-settings" class="btn"></button><button id="btn-menu" class="btn"></button></div></div>
 <div id="overlay-dead" class="overlay hidden"><div class="panel"><button id="btn-respawn"></button><div id="death-cause"></div></div></div>
 <div id="overlay-settings" class="overlay hidden"><div class="panel">
@@ -26,8 +26,10 @@
 <script src="../vendor/three.min.js"></script>
 <script src="../js/config.js"></script>
 <script src="../js/assets.js"></script>
+<script src="../js/world/seed.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/world/biomes.js"></script>
+<script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
 <script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
@@ -57,6 +59,9 @@
   };
   var canvas = document.getElementById('game');
   canvas.addEventListener('webglcontextlost', function () { out.push('GL: context lost!'); });
+  // 固定种子：随机种子可能出生在海面/雪原，像素抽样会误判场景
+  var siEl = document.getElementById('seed-input');
+  if (siEl) siEl.value = '12345';
   document.getElementById('btn-new').click();
   var n = 0, playing = false, playedFrames = 0, sceneOk = false;
   (function drive() {

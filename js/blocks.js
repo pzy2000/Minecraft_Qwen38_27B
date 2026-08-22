@@ -14,7 +14,11 @@ Voxel.Blocks = (function () {
     JUNGLE_LOG_SIDE: 33, JUNGLE_LOG_TOP: 34, JUNGLE_LEAVES: 35,
     PODZOL_TOP: 36, PODZOL_SIDE: 37, MOSSY_COBBLE: 38,
     CACTUS_SIDE: 39, CACTUS_TOP: 40,
-    SANDSTONE_SIDE: 41, SANDSTONE_TOP: 42
+    SANDSTONE_SIDE: 41, SANDSTONE_TOP: 42,
+    TERRACOTTA: 43, TERRACOTTA_YELLOW: 44, TERRACOTTA_BROWN: 45,
+    RED_SAND: 46, ICE: 47,
+    ACACIA_LOG_SIDE: 48, ACACIA_LOG_TOP: 49, ACACIA_LEAVES: 50,
+    BIRCH_LOG_SIDE: 51, BIRCH_LOG_TOP: 52, BIRCH_LEAVES: 53
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -47,7 +51,18 @@ Voxel.Blocks = (function () {
     { name: '灰化土', solid: true, opaque: true, tiles: [T.PODZOL_TOP, T.PODZOL_SIDE, T.DIRT], sound: 'dirt', color: 0x7a5a34, hard: 0.65 },
     { name: '苔石', solid: true, opaque: true, tiles: [T.MOSSY_COBBLE, T.MOSSY_COBBLE, T.MOSSY_COBBLE], sound: 'stone', color: 0x6d7d5f, hard: 4.5, pick: true },
     { name: '仙人掌', solid: true, opaque: true, tiles: [T.CACTUS_TOP, T.CACTUS_SIDE, T.CACTUS_TOP], sound: 'wool', color: 0x4a7f28, hard: 0.5 },
-    { name: '砂岩', solid: true, opaque: true, tiles: [T.SANDSTONE_TOP, T.SANDSTONE_SIDE, T.SANDSTONE_TOP], sound: 'stone', color: 0xd6cb9c, hard: 3, pick: true }
+    { name: '砂岩', solid: true, opaque: true, tiles: [T.SANDSTONE_TOP, T.SANDSTONE_SIDE, T.SANDSTONE_TOP], sound: 'stone', color: 0xd6cb9c, hard: 3, pick: true },
+
+    // ---- MultiNoise 地质群系新方块 ----
+    { name: '红沙', solid: true, opaque: true, tiles: [T.RED_SAND, T.RED_SAND, T.RED_SAND], sound: 'sand', color: 0xc67f51, hard: 0.6 },
+    { name: '陶瓦', solid: true, opaque: true, tiles: [T.TERRACOTTA, T.TERRACOTTA, T.TERRACOTTA], sound: 'stone', color: 0xa15c3e, hard: 3, pick: true },
+    { name: '黄陶瓦', solid: true, opaque: true, tiles: [T.TERRACOTTA_YELLOW, T.TERRACOTTA_YELLOW, T.TERRACOTTA_YELLOW], sound: 'stone', color: 0xbf8a3b, hard: 3, pick: true },
+    { name: '棕陶瓦', solid: true, opaque: true, tiles: [T.TERRACOTTA_BROWN, T.TERRACOTTA_BROWN, T.TERRACOTTA_BROWN], sound: 'stone', color: 0x714d2e, hard: 3, pick: true },
+    { name: '浮冰', solid: true, opaque: true, tiles: [T.ICE, T.ICE, T.ICE], sound: 'glass', color: 0x9fc4ee, hard: 1.5, pick: true },
+    { name: '白桦木', solid: true, opaque: true, tiles: [T.BIRCH_LOG_TOP, T.BIRCH_LOG_SIDE, T.BIRCH_LOG_TOP], sound: 'wood', color: 0xd7cdb4, hard: 1.6 },
+    { name: '白桦树叶', solid: true, opaque: true, tiles: [T.BIRCH_LEAVES, T.BIRCH_LEAVES, T.BIRCH_LEAVES], sound: 'leaves', color: 0x74a644, hard: 0.35 },
+    { name: '金合欢木', solid: true, opaque: true, tiles: [T.ACACIA_LOG_TOP, T.ACACIA_LOG_SIDE, T.ACACIA_LOG_TOP], sound: 'wood', color: 0x9a5b38, hard: 1.6 },
+    { name: '金合欢树叶', solid: true, opaque: true, tiles: [T.ACACIA_LEAVES, T.ACACIA_LEAVES, T.ACACIA_LEAVES], sound: 'leaves', color: 0x5f9426, hard: 0.35 }
   ];
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
@@ -358,6 +373,44 @@ Voxel.Blocks = (function () {
       if ((y > 5 && y < 11 && x > 3 && x < 12 && r() < 0.2)) return [204 + v, 190 + v, 140 + v];
       return [218 + v, 205 + v, 156 + v];
     });
+
+    // ---- 地质群系方块纹理（恶地/山峰/白桦/金合欢） ----
+    function terracottaTile(base) {
+      return function (x, y, r) {
+        var v = n(r, 0, 18);
+        if (r() < 0.08) return [base[0] * 0.88 + v, base[1] * 0.88 + v, base[2] * 0.88 + v];
+        return [base[0] + v, base[1] + v, base[2] + v];
+      };
+    }
+    drawTile(T.TERRACOTTA, terracottaTile([162, 92, 62]));
+    drawTile(T.TERRACOTTA_YELLOW, terracottaTile([186, 133, 56]));
+    drawTile(T.TERRACOTTA_BROWN, terracottaTile([102, 70, 44]));
+
+    drawTile(T.RED_SAND, function (x, y, r) {
+      var v = n(r, 0, 18);
+      if (r() < 0.06) return [176 + v, 96 + v, 58 + v];
+      return [198 + v, 127 + v, 81 + v];
+    });
+
+    drawTile(T.ICE, function (x, y, r) {
+      // 冰裂纹理：对角亮线
+      var dcrack = Math.abs((x + y * 1.5) % 7 - 3);
+      var v = n(r, 0, 10);
+      if (dcrack < 0.6) return [200 + v, 232, 255];
+      return [150 + v, 196 + v, 240 + v * 0.6];
+    });
+
+    drawTile(T.ACACIA_LOG_SIDE, logSideTile([104, 60, 36], [140, 84, 50]));
+    drawTile(T.ACACIA_LOG_TOP, logTopTile([172, 118, 72], [120, 74, 44]));
+    drawTile(T.ACACIA_LEAVES, leavesTile([86, 138, 40], [52, 96, 24]));
+
+    drawTile(T.BIRCH_LOG_SIDE, function (x, y, r) {
+      var v = n(r, 0, 12);
+      if ((y === 3 && x % 5 < 3) || (y === 10 && x % 4 === 1)) return [52 + v, 48 + v, 42 + v];   // 黑色横纹
+      return [216 + v, 210 + v, 194 + v];
+    });
+    drawTile(T.BIRCH_LOG_TOP, logTopTile([206, 192, 158], [168, 152, 118]));
+    drawTile(T.BIRCH_LEAVES, leavesTile([110, 160, 66], [66, 108, 38]));
 
     // ---- 工具 / 材料图标（透明背景，像素画） ----
 

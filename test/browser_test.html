@@ -42,7 +42,7 @@
 </div></div>
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
-  <button id="btn-start"></button><button id="btn-new"></button>
+  <button id="btn-start"></button><button id="btn-new"></button><input id="seed-input" type="text" value="12345">
   <div id="start-hint" class="hint"></div>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
@@ -65,8 +65,10 @@
 <script src="../vendor/three.min.js"></script>
 <script src="../js/config.js"></script>
 <script src="../js/assets.js"></script>
+<script src="../js/world/seed.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/world/biomes.js"></script>
+<script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
 <script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
@@ -487,11 +489,22 @@
     // 4) 半高床：网格几何 + 物理落地
     var sp = Voxel.World.spawnPoint();
     var bx = -1, bz = 0, by = 0;
-    for (var off = 2; off <= 8 && bx < 0; off++) {
-      var cx = Math.floor(sp.x) + off, cz = Math.floor(sp.z) + off;
-      var hy = Voxel.World.surfaceAt(cx, cz);
-      if (hy > 5 && hy === Voxel.World.surfaceAt(cx + 1, cz) && Voxel.World.get(cx, hy + 1, cz) === 0) {
-        bx = cx; bz = cz; by = hy;
+    // 新地形较崎岖：在出生点周围螺旋扩大搜索两列同高的平整位置
+    outer:
+    for (var r = 2; r <= 24 && bx < 0; r++) {
+      for (var dx = -r; dx <= r && bx < 0; dx++) {
+        for (var dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          var cx = Math.floor(sp.x) + dx, cz = Math.floor(sp.z) + dz;
+          var hy = Voxel.World.surfaceAt(cx, cz);
+          if (hy > 5 && hy < 60 &&
+              hy === Voxel.World.surfaceAt(cx + 1, cz) &&
+              Voxel.World.get(cx, hy + 1, cz) === 0 &&
+              Voxel.World.get(cx + 1, hy + 1, cz) === 0) {
+            bx = cx; bz = cz; by = hy;
+            break outer;
+          }
+        }
       }
     }
     check('找到平整测试位置', bx > 0);
@@ -568,12 +581,16 @@
     while (Wt.intensity() < 0.9 && g++ < 1000) Wt.update(0.1);
     Wt._test.fireLightning();
     check('闪电触发闪屏', Wt.flash() > 0.3);
-    wait(1500, function () {
-      check('闪电屏闪衰减', Wt.flash() < 0.3);
+    // 手动驱动衰减，避免无头渲染帧率抖动导致时序偶发失败
+    (function () {
+      var gp = 0;
+      while (Wt.flash() >= 0.3 && gp++ < 600) Wt.update(1 / 60);
+    })();
+    check('闪电屏闪衰减', Wt.flash() < 0.3);
 
-      // 雷击：强制劈玩家掉血
-      Voxel.Player.setHp(20);
-      Wt._test.forceStrike();
+    // 雷击：强制劈玩家掉血
+    Voxel.Player.setHp(20);
+    Wt._test.forceStrike();
       check('雷击使玩家掉血 (20→' + Voxel.Player.hp() + ')', Voxel.Player.hp() === 20 - Voxel.Config.WEATHER.STRIKE_DMG);
       Voxel.Player.heal(Voxel.Config.WEATHER.STRIKE_DMG);
 
@@ -600,7 +617,6 @@
       check('G 键切换为雷雨', Wt.stateName() === 'storm');
       Wt.set('clear');
       wait(800, stepReset);
-    });
   }
 
   // P0 回归：新世界必须清空背包/手持

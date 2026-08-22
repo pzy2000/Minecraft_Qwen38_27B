@@ -72,7 +72,10 @@
     <div class="sub">VOXELCRAFT</div>
     <button id="btn-start" class="btn primary">继续游戏</button>
     <button id="btn-new" class="btn">新世界</button>
-    <button id="btn-featured" class="btn">精选世界</button>
+    <div class="seed-row">
+      <input id="seed-input" type="text" maxlength="32" placeholder="世界种子（留空随机）" spellcheck="false">
+      <button id="btn-seed-random" class="btn small">随机</button>
+    </div>
     <button id="btn-settings-menu" class="btn">设置</button>
     <div id="start-hint" class="hint">检测到存档，点击"继续游戏"载入</div>
     <div class="controls">
@@ -147,8 +150,10 @@
 <script src="vendor/three.min.js"></script>
 <script src="js/config.js?v=20260823"></script>
 <script src="js/assets.js?v=20260823"></script>
+<script src="js/world/seed.js?v=20260823"></script>
 <script src="js/world/noise.js?v=20260823"></script>
 <script src="js/world/biomes.js?v=20260823"></script>
+<script src="js/world/shaper.js?v=20260823"></script>
 <script src="js/blocks.js?v=20260823"></script>
 <script src="js/crafting.js?v=20260823"></script>
 <script src="js/world/world.js?v=20260823"></script>

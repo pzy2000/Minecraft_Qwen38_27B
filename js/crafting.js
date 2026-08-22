@@ -7,7 +7,7 @@ Voxel.Crafting = (function () {
   // grid 为 3x3（行优先，0=空）；shapeless=true 时 inputs 为 {id: 数量}
   // shapeless 配方可用 alts 提供多组可替代材料（如任意原木合成木板）
   var RECIPES = [
-    { name: '木板', shapeless: true, alts: [{ 4: 1 }, { 20: 1 }, { 22: 1 }], result: 10, count: 4 },
+    { name: '木板', shapeless: true, alts: [{ 4: 1 }, { 20: 1 }, { 22: 1 }, { 33: 1 }, { 35: 1 }], result: 10, count: 4 },
     { name: '工作台', grid: [10, 10, 0, 10, 10, 0, 0, 0, 0], result: 15, count: 1 },
     { name: '床', grid: [16, 16, 16, 10, 10, 10, 0, 0, 0], result: 17, count: 1 },
     { name: '木棍', shapeless: true, inputs: { 10: 2 }, result: 100, count: 4 },

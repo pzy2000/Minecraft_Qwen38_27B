@@ -9,6 +9,8 @@ Voxel.World = (function () {
 
   var data, seed, noise, heights;
   var biomes;            // Uint8Array(W*D) 每列群系 ID
+  var shaper = null;     // 地形塑造器（样条 + 密度场）
+  var climateAt = null;  // 气候采样器（MultiNoise 五维参数）
   var edits = {};        // "x,y,z" -> id（存档用）
   var dirty = {};        // "cx,cz" -> true
   var dirtyQueue = [];
@@ -187,49 +189,101 @@ Voxel.World = (function () {
 
   function idx(x, y, z) { return x + W * (y + H * z); }
 
-  function heightAt(x, z) {
-    var c = noise.fbm2(x * 0.0045, z * 0.0045, 3);
-    var d = noise.fbm2b(x * 0.021 + 57.3, z * 0.021 + 91.7, 3);
-    var h = Math.floor(15 + c * 32 + d * 11);
-    if (h < 4) h = 4;
-    if (h > H - 8) h = H - 8;
-    return h;
+  // ---- 地形生成：3D 密度场（样条塑造 + 插值单元） ----
+
+  // 仅当目标格为石/矿时覆写，避免填掉洞穴空气
+  function setIfStoneW(x, y, z, id) {
+    var i = idx(x, y, z);
+    var c = data[i];
+    if (c === 3 || c === 8 || c === 9) data[i] = id;
   }
 
-  function generateColumn(x, z) {
-    var h = heightAt(x, z);
-    heights[x + W * z] = h;
-    var b = Voxel.Biomes.select(x, z, h, noise);
-    biomes[x + W * z] = b;
-    var bd = Voxel.Biomes.def(b);
-    var beach = h <= WATER + 2;
-    var snowy = h >= SNOW_LEVEL && bd.surface !== 6;   // 雪帽（沙漠除外）
-    var surf = beach ? 6 : (snowy ? 18 : bd.surface);  // 表层
-    var fill = beach ? 6 : bd.filler;                  // 填充层
-    var i;
-    for (var y = 0; y < H; y++) {
-      i = idx(x, y, z);
-      if (y === 0) data[i] = 12;                                   // 基岩
-      else if (y <= h) {
-        if (y === h) data[i] = surf;
-        else if (y >= h - 3) data[i] = fill;                       // 泥土/沙
-        else if (b === Voxel.Biomes.B.DESERT && y >= h - 8) data[i] = 27; // 砂岩层
-        else {
-          data[i] = 3;
-          var r = noise.hash3(x, y, z);
-          if (y < 50 && r < 0.007) data[i] = 8;                    // 煤
-          else if (y < 34 && r > 0.994) data[i] = 9;               // 铁
-        }
-      } else if (y <= WATER) data[i] = 7;                          // 水
-      else data[i] = 0;
+  // 表层规则：按群系与地形上下文决定表层/填充层
+  function applySurface(x, z, ts, b, bd) {
+    var BI = Voxel.Biomes.B, BL = Voxel.Biomes.BLK;
+    if (ts < 3) return;
+    var patch = noise.hash2((x >> 3) * 31 + 7, (z >> 3) * 17 + 5);   // 粗粒度斑块
+    var surf = bd.surface, fill = bd.filler;
+
+    // 水下海床：沙/砂砾/泥土混合
+    if (ts <= WATER) {
+      surf = patch < 0.45 ? BL.SAND : (patch < 0.75 ? BL.GRAVEL : BL.DIRT);
+      data[idx(x, ts, z)] = surf;
+      for (var d0 = 1; d0 <= 3 && ts - d0 > 1; d0++)
+        setIfStoneW(x, ts - d0, z, surf === BL.DIRT ? BL.DIRT : BL.SAND);
+      return;
     }
-    // 洞穴
-    for (var y2 = 1; y2 < h - 1; y2++) {
-      if (noise.n3(x * 0.075, y2 * 0.09, z * 0.075) > 0.72) {
-        i = idx(x, y2, z);
-        if (data[i] !== 12) data[i] = (y2 <= WATER ? 7 : 0);
+
+    // 沙滩化：近水位的普通群系表层铺沙
+    if (ts <= WATER + 2 && b !== BI.STONY_SHORE &&
+        b !== BI.JAGGED_PEAKS && b !== BI.FROZEN_PEAKS && b !== BI.STONY_PEAKS &&
+        !bd.badlandsBands) {
+      surf = BL.SAND; fill = BL.SAND;
+    }
+    // 风袭丘陵：砾石斑块
+    if (bd.gravelPatches && patch < 0.22) { surf = BL.GRAVEL; fill = BL.STONE; }
+
+    data[idx(x, ts, z)] = surf;
+    for (var d = 1; d <= 3; d++) {
+      if (ts - d <= 1) break;
+      setIfStoneW(x, ts - d, z, fill);
+    }
+    // 沙漠：砂岩垫层
+    if (b === BI.DESERT)
+      for (var yd = Math.max(2, ts - 8); yd <= ts - 4; yd++) setIfStoneW(x, yd, z, 27);
+    // 恶地：陶瓦层理（绝对 y 分层 + 列间抖动）
+    if (bd.badlandsBands) {
+      var dith = (noise.hash2(x * 13 + 1, z * 7 + 9) * 3) | 0;
+      var bands = [BL.TERRACOTTA, BL.TERRACOTTA, 30, BL.TERRACOTTA, 31, 30];
+      for (var yb = Math.max(2, ts - 16); yb <= ts - 4; yb++) {
+        var bandIdx = (((yb + dith) / 3) | 0) % bands.length;
+        if (bandIdx < 0) bandIdx += bands.length;
+        setIfStoneW(x, yb, z, bands[bandIdx]);
       }
     }
+    // 雪帽（山峰雪线更低；恶地/沙漠除外）
+    var snowLine = (b === BI.JAGGED_PEAKS || b === BI.FROZEN_PEAKS) ? 40 : SNOW_LEVEL;
+    if (b !== BI.DESERT && b !== BI.BADLANDS && ts >= snowLine)
+      data[idx(x, ts, z)] = 18;
+  }
+
+  function generateColumn(x, z, lx, lz, lat) {
+    var ci = x + W * z;
+    var cl = shaper.sampleClim(lat, lx, lz);
+    var b = Voxel.Biomes.pick(cl);
+    biomes[ci] = b;
+    var bd = Voxel.Biomes.def(b);
+    var th = shaper.sampleTh(lat, lx, lz);
+
+    var topSolid = -1, i;
+    for (var y = 0; y < H; y++) {
+      i = idx(x, y, z);
+      // 基岩层（带随机起伏）
+      if (y === 0 || (y === 1 && noise.hash3(x, y, z) < 0.55) ||
+          (y === 2 && noise.hash3(x + 31, y, z) < 0.25)) {
+        data[i] = 12; topSolid = y; continue;
+      }
+      var d = shaper.sampleLat(lat.dens, lat, lx, y, lz);
+      var solid = d > 0;
+      // 洞穴挖掘（水下柱体不挖，防海床塌陷成水洞）
+      if (solid && th > WATER + 1 && y > 2 &&
+          shaper.isCave(
+            shaper.sampleLat(lat.cavA, lat, lx, y, lz),
+            shaper.sampleLat(lat.cavB, lat, lx, y, lz),
+            shaper.sampleLat(lat.chee, lat, lx, y, lz),
+            y, th)) solid = false;
+      if (solid) {
+        data[i] = 3;                                   // 石身
+        var r = noise.hash3(x, y, z);
+        if (y < 50 && r < 0.007) data[i] = 8;          // 煤
+        else if (y < 34 && r > 0.994) data[i] = 9;     // 铁
+        topSolid = y;
+      } else {
+        data[i] = y <= WATER ? 7 : 0;
+      }
+    }
+    heights[ci] = topSolid < 0 ? WATER : topSolid;
+    applySurface(x, z, topSolid, b, bd);
   }
 
   // ---- 树木/植被放置 ----
@@ -341,6 +395,32 @@ Voxel.World = (function () {
     for (var y = 1; y <= ch; y++) setIfAir(x, h + y, z, 26);
   }
 
+  // 白桦树：细高树干 + 圆柱树冠
+  function birchTree(x, h, z, r) {
+    var th = 5 + ((r * 100000) | 0) % 3;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 33;
+    for (var ly = th - 2; ly <= th + 1; ly++) {
+      var rad = ly === th + 1 ? 1 : 2;
+      for (var dx = -rad; dx <= rad; dx++)
+        for (var dz = -rad; dz <= rad; dz++) {
+          if (dx === 0 && dz === 0 && ly <= th) continue;
+          if (rad === 2 && ly >= th && Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+          setIfAir(x + dx, h + ly, z + dz, 34);
+        }
+    }
+    setIfAir(x, h + th + 2, z, 34);
+  }
+
+  // 金合欢树：斜干简化为直干 + 扁平伞状树冠
+  function acaciaTree(x, h, z, r) {
+    var th = 4 + ((r * 100000) | 0) % 2;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 35;
+    ring(x, h + th, z, 2, 36);
+    data[idx(x, h + th, z)] = 35;
+    ring(x, h + th + 1, z, 1, 36);
+    setIfAir(x, h + th + 2, z, 36);
+  }
+
   // 原始针叶林：苔石巨砾
   function boulder(x, h, z) {
     for (var dy = -1; dy <= 2; dy++)
@@ -370,6 +450,8 @@ Voxel.World = (function () {
           case 'oak': oakTree(x, h, z, r); break;
           case 'spruce': spruceTree(x, h, z, r); break;
           case 'cactus': cactus(x, h, z, r); break;
+          case 'birch': birchTree(x, h, z, r); break;
+          case 'acacia': acaciaTree(x, h, z, r); break;
           case 'jungle':
             var rg = noise.hash2(x * 5 + 3, z * 7 + 97);
             if (!(rg < bd.giantChance && giantJungle(x, h, z, rg))) jungleTree(x, h, z, r);
@@ -420,15 +502,19 @@ Voxel.World = (function () {
   }
 
   function generateChunkData(cx, cz) {
+    var lat = shaper.computeChunkLattice(cx, cz, climateAt);
+    var x0 = cx * CS, z0 = cz * CS;
     for (var lx = 0; lx < CS; lx++)
       for (var lz = 0; lz < CS; lz++)
-        generateColumn(cx * CS + lx, cz * CS + lz);
+        generateColumn(x0 + lx, z0 + lz, lx, lz, lat);
     markChunkDirty(cx, cz);
   }
 
   function init(s) {
-    seed = s >>> 0;
+    seed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(s)); // 规范化为带符号十进制串
     noise = Voxel.Noise.create(seed);
+    climateAt = Voxel.Biomes.makeClimate(noise);
+    shaper = Voxel.Shaper.create(noise);
     data = new Uint8Array(W * H * D);
     heights = new Int16Array(W * D);
     biomes = new Uint8Array(W * D);

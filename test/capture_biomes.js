@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const SEED = 3585153365;   // 含全部 8 种群系的种子
+const SEED = 12345;   // 含全部 18 种群系的种子
 const VIEW_W = 960;
 const VIEW_H = 540;
 
@@ -68,20 +68,20 @@ async function waitPlaying(page) {
 
   const url = 'file://' + path.join(root, 'index.html');
   await page.goto(url, { waitUntil: 'load' });
-  // 写入 v2 存档键（config.SAVE_KEY），固定种子与空白背包
-  await page.evaluate((seed, key) => {
+  // 写入当前版本存档键（config.SAVE_KEY），固定种子与空白背包
+  await page.evaluate((seed) => {
     var inv = [];
     for (var i = 0; i < 36; i++) inv.push(0);
-    localStorage.setItem(key, JSON.stringify({
+    localStorage.setItem(window.Voxel.Config.SAVE_KEY, JSON.stringify({
       v: 1,
-      seed: seed,
+      seed: String(seed),
       time: 0.27,
       player: { pos: [128.5, 40, 128.5], yaw: 0.75, pitch: -0.22, fly: true, hp: 20 },
       inv: inv,
       held: 0,
       edits: {}
     }));
-  }, SEED, 'voxelcraft_save_v2');
+  }, SEED);
   await page.reload({ waitUntil: 'load' });
 
   await page.addStyleTag({
@@ -165,11 +165,11 @@ async function waitPlaying(page) {
     { name: 'plains',     opts: { biome: 'PLAINS', height: 11 } },
     { name: 'forest',     opts: { biome: 'FOREST', height: 13 } },
     { name: 'desert',     opts: { biome: 'DESERT', preferSurf: 6, height: 12 } },
-    { name: 'snowy',      opts: { biome: 'SNOWY', fixed: { x: 192, z: 38, yaw: 3.9269908169872414 }, height: 5, pitch: -0.1 } },
-    { name: 'taiga',      opts: { biome: 'TAIGA', height: 14 } },
-    { name: 'mega-taiga', opts: { biome: 'MEGA_TAIGA', preferSurf: 24, height: 17 } },
     { name: 'jungle',     opts: { biome: 'JUNGLE', height: 20, pitch: -0.2 } },
-    { name: 'mountains',  opts: { biome: 'MOUNTAINS', height: 15 } },
+    { name: 'savanna',    opts: { biome: 'SAVANNA', height: 13 } },
+    { name: 'mega-taiga', opts: { biome: 'MEGA_TAIGA', preferSurf: 24, height: 17 } },
+    { name: 'badlands',   opts: { biome: 'BADLANDS', preferSurf: 28, height: 14, pitch: -0.22 } },
+    { name: 'peaks',      opts: { biome: 'JAGGED_PEAKS', height: 16, pitch: -0.15 } },
     { name: 'overview',   opts: { overview: true, fixed: { x: 192, z: 62 } } }
   ];
 
