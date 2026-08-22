@@ -174,9 +174,20 @@ var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
 check('配方数量=11', Craft.recipes.length === 11);
 
-var g = g9(); g[0] = 4;
+g = g9(); g[0] = 4;
 var m = Craft.match(g);
 check('1 橡木 → 4 木板', !!m && m.result === 10 && m.count === 4);
+
+g = g9(); g[3] = 20;
+m = Craft.match(g);
+check('1 云杉木 → 4 木板', !!m && m.result === 10 && m.count === 4);
+
+g = g9(); g[8] = 22;
+m = Craft.match(g);
+check('1 丛林木 → 4 木板', !!m && m.result === 10 && m.count === 4);
+
+g = g9(); g[0] = 20; g[1] = 22;
+check('2 不同原木不匹配', !Craft.match(g));
 
 g = g9(); g[4] = 10; g[5] = 10; g[7] = 10; g[8] = 10; // 2x2 放右下角
 m = Craft.match(g);
@@ -240,6 +251,12 @@ inv[0] = 4; inv[1] = 4;
 check('canCraftFromInv: 2 橡木可合成 2 次', Craft.canCraftFromInv(inv, Craft.recipes[0]) === 2);
 check('consumeFromInv: 消耗 1 次', Craft.consumeFromInv(inv, Craft.recipes[0], 1) === true);
 check('consumeFromInv: 剩 1 橡木', inv[0] === 0 && inv[1] === 4);
+// 木板配方：1 云杉木 → 4 木板（alts 替代材料）
+inv = new Array(36).fill(0);
+inv[0] = 20; inv[1] = 22;
+check('canCraftFromInv: 云杉/丛林木可合成 2 次', Craft.canCraftFromInv(inv, Craft.recipes[0]) === 2);
+check('consumeFromInv: 消耗 1 次云杉木', Craft.consumeFromInv(inv, Craft.recipes[0], 1) === true);
+check('consumeFromInv: 剩 1 丛林木', inv[0] === 0 && inv[1] === 22);
 // 工作台配方：4 木板
 inv = new Array(36).fill(0);
 inv[0] = 10; inv[1] = 10; inv[2] = 10;

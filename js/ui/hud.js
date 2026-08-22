@@ -26,7 +26,7 @@ Voxel.HUD = (function () {
     // 材料获取说明
     var ob = document.createElement('div');
     ob.className = 'manual-obtain';
-    ob.innerHTML = '<b>材料获取</b><br>· 砍伐树干获得 <b>橡木</b><br>· 攻击并击杀 <b>羊</b> 掉落 <b>羊毛</b><br>· 下方每条配方可 <b>一键合成</b>（自动消耗背包材料，<b>长按连续合成</b>）';
+    ob.innerHTML = '<b>材料获取</b><br>· 砍伐树干获得 <b>任意原木</b>（橡木/云杉木/丛林木均可合成木板）<br>· 攻击并击杀 <b>羊</b> 掉落 <b>羊毛</b><br>· 下方每条配方可 <b>一键合成</b>（自动消耗背包材料，<b>长按连续合成</b>）';
     list.appendChild(ob);
 
     for (var i = 0; i < Voxel.Crafting.recipes.length; i++) {
@@ -47,7 +47,7 @@ Voxel.HUD = (function () {
         note.className = 'recipe-note';
         note.textContent = '任意位置';
         left.appendChild(note);
-        (function (cv, id) { drawIcon(cv, id); })(ic, firstInput(r.inputs));
+        (function (cv, id) { drawIcon(cv, id); })(ic, firstInput(r.alts ? r.alts[0] : r.inputs));
       } else {
         left.className = 'recipe-grid';
         for (var k = 0; k < 9; k++) {

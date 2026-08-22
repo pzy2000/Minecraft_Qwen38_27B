@@ -2,11 +2,12 @@
 window.Voxel = window.Voxel || {};
 
 Voxel.Crafting = (function () {
-  // 方块 ID：4=橡木, 10=木板, 15=工作台, 16=羊毛, 17=床
+  // 方块 ID：4=橡木, 20=云杉木, 22=丛林木, 10=木板, 15=工作台, 16=羊毛, 17=床
   // 物品 ID：100=木棍, 101-103=镐, 104-106=剑, 107=煤炭；19=火把(方块)
   // grid 为 3x3（行优先，0=空）；shapeless=true 时 inputs 为 {id: 数量}
+  // shapeless 配方可用 alts 提供多组可替代材料（如任意原木合成木板）
   var RECIPES = [
-    { name: '木板', shapeless: true, inputs: { 4: 1 }, result: 10, count: 4 },
+    { name: '木板', shapeless: true, alts: [{ 4: 1 }, { 20: 1 }, { 22: 1 }], result: 10, count: 4 },
     { name: '工作台', grid: [10, 10, 0, 10, 10, 0, 0, 0, 0], result: 15, count: 1 },
     { name: '床', grid: [16, 16, 16, 10, 10, 10, 0, 0, 0], result: 17, count: 1 },
     { name: '木棍', shapeless: true, inputs: { 10: 2 }, result: 100, count: 4 },
@@ -64,11 +65,29 @@ Voxel.Crafting = (function () {
     return true;
   }
 
+  // shapeless 配方的候选材料组（有 alts 用 alts，否则只有 inputs 一组）
+  function inputMaps(r) {
+    return r.alts || [r.inputs];
+  }
+
+  // 单组材料的 {id: 数量}
+  function neededMap(inputs) {
+    var m = {};
+    for (var k in inputs) m[+k] = (m[+k] || 0) + inputs[k];
+    return m;
+  }
+
   // 在 size×size 网格中匹配，返回 {name, result, count, shapeless, cells(需消耗的格子下标)} 或 null
   function matchIn(grid, size) {
     for (var i = 0; i < RECIPES.length; i++) {
       var r = RECIPES[i];
-      var ok = r.shapeless ? shapelessMatch(grid, r.inputs) : shapedMatch(grid, r.grid, size);
+      var ok = false;
+      if (r.shapeless) {
+        var maps = inputMaps(r);
+        for (var v = 0; v < maps.length && !ok; v++) ok = shapelessMatch(grid, maps[v]);
+      } else {
+        ok = shapedMatch(grid, r.grid, size);
+      }
       if (!ok) continue;
       // 匹配成功时，格内所有非空格恰好就是配方的物品
       var cells = [];
@@ -87,21 +106,30 @@ Voxel.Crafting = (function () {
   }
 
   // 单次合成所需材料 {id: 数量}（忽略摆放形状，用于一键合成）
-  function needed(recipe) {
-    var m = {};
-    if (recipe.shapeless) {
-      for (var k in recipe.inputs) m[+k] = (m[+k] || 0) + recipe.inputs[k];
-    } else {
+  // 有 alts 的配方：传入 inv/cnt 时选可合成次数最多的一组，否则取第一组
+  function needed(recipe, inv, cnt) {
+    if (!recipe.shapeless) {
+      var m = {};
       for (var i = 0; i < recipe.grid.length; i++)
         if (recipe.grid[i]) m[recipe.grid[i]] = (m[recipe.grid[i]] || 0) + 1;
+      return m;
     }
-    return m;
+    var maps = inputMaps(recipe);
+    var best = neededMap(maps[0]), bestN = -1;
+    for (var v = 0; v < maps.length; v++) {
+      var need = neededMap(maps[v]);
+      if (inv) {
+        var n = canFromNeed(inv, need, cnt);
+        if (n > bestN) { bestN = n; best = need; }
+      }
+    }
+    return best;
   }
 
-  // 背包材料够合成几次（按数量，不看摆放）
+  // 背包材料够按 need 合成几次（按数量，不看摆放）
   // cnt: 与 inv 平行的数量数组（堆叠），缺省视为每格 1 个
-  function canCraftFromInv(inv, recipe, cnt) {
-    var need = needed(recipe), n = Infinity;
+  function canFromNeed(inv, need, cnt) {
+    var n = Infinity;
     for (var k in need) {
       var have = 0;
       for (var i = 0; i < inv.length; i++)
@@ -112,9 +140,21 @@ Voxel.Crafting = (function () {
     return n === Infinity ? 0 : n;
   }
 
-  // 从背包消耗 times 次合成的材料，成功返回 true
+  function canCraftFromInv(inv, recipe, cnt) {
+    if (!recipe.shapeless) return canFromNeed(inv, needed(recipe), cnt);
+    // 每次合成只消耗一组替代材料，总次数为各组可合成次数之和
+    var maps = inputMaps(recipe), n = 0;
+    for (var v = 0; v < maps.length; v++)
+      n += canFromNeed(inv, neededMap(maps[v]), cnt);
+    return n;
+  }
+
+  // 从背包消耗 times 次合成的材料（alts 配方自动选用可合成的那组），成功返回 true
   function consumeFromInv(inv, recipe, times, cnt) {
-    var need = needed(recipe);
+    return consumeMap(inv, needed(recipe, inv, cnt), times, cnt);
+  }
+
+  function consumeMap(inv, need, times, cnt) {
     for (var k in need) {
       var left = need[k] * times;
       for (var i = 0; i < inv.length && left > 0; i++) {

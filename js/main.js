@@ -730,7 +730,7 @@ Voxel.Game = (function () {
     if (Voxel.Crafting.canCraftFromInv(inv, r, cnt) < 1) return false;
     // 空间检查：现有空间 + 整格被清空的材料格腾出的空间 ≥ 产物数量
     var free = freeFor(r.result);
-    var need = Voxel.Crafting.needed(r), drained = 0;
+    var need = Voxel.Crafting.needed(r, inv, cnt), drained = 0;
     for (var k in need) {
       var left = need[k];
       for (var s = 0; s < 36 && left > 0; s++) {
