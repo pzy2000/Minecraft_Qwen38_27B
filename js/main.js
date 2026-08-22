@@ -327,11 +327,12 @@ Voxel.Game = (function () {
           digT.z + 0.5 + (Math.random() - 0.5) * 0.8), def.color, 1);
     }
 
-    // 裂纹覆盖层
+    // 裂纹覆盖层（档位前移：早期就显示明显裂纹，快挖的方块也能看清）
     if (crackMesh && crackTex.length) {
       crackMesh.visible = true;
       crackMesh.position.set(digT.x + 0.5, digT.y + 0.5, digT.z + 0.5);
-      var stage = Math.min(crackTex.length - 1, ((digProg / digNeed) * crackTex.length) | 0);
+      var frac = Math.min(1, digProg / digNeed);
+      var stage = Math.min(crackTex.length - 1, (Math.pow(frac, 0.55) * crackTex.length) | 0);
       crackMesh.material.map = crackTex[stage];
       crackMesh.material.needsUpdate = true;
     }
@@ -1133,29 +1134,31 @@ Voxel.Game = (function () {
     }
   };
 
-  // 裂纹纹理：从中心向外放射的黑色裂纹，密度随 stage 递增
+  // 裂纹纹理：从中心向外放射的黑色裂纹，密度与深度随 stage 递增
   function makeCrackCanvas(stage) {
     var cv = document.createElement('canvas');
     cv.width = 16; cv.height = 16;
     var c2 = cv.getContext('2d');
-    var lines = 3 + stage * 3;
+    var lines = 5 + stage * 3;
     for (var li = 0; li < lines; li++) {
       var ang = (li / lines) * Math.PI * 2 + stage * 0.7;
       var dx = Math.cos(ang), dy = Math.sin(ang);
       var px = 8, py = 8;
-      var len = 3 + ((li * 5 + stage * 2) % 5);
+      var len = 4 + ((li * 5 + stage * 2) % 6);
       for (var s = 0; s < len; s++) {
-        c2.fillStyle = 'rgba(15,15,15,' + (0.55 + stage * 0.08) + ')';
-        c2.fillRect(Math.round(px), Math.round(py), 1, 1);
-        px += dx + (((li + s) % 3) - 1) * 0.4;
-        py += dy + (((li * 2 + s) % 3) - 1) * 0.4;
+        c2.fillStyle = 'rgba(12,12,12,' + Math.min(0.85, 0.7 + stage * 0.05) + ')';
+        var ix = Math.round(px), iy = Math.round(py);
+        c2.fillRect(ix, iy, 1, 1);
+        // 加粗：随机补一个邻接像素
+        if ((li + s) % 2 === 0) c2.fillRect(ix + ((li % 2) ? 1 : -1), iy, 1, 1);
+        px += dx + (((li + s) % 3) - 1) * 0.5;
+        py += dy + (((li * 2 + s) % 3) - 1) * 0.5;
       }
     }
-    if (stage >= 3) { // 后期碎裂点
-      for (var d = 0; d < stage * 4; d++) {
-        c2.fillStyle = 'rgba(10,10,10,0.6)';
-        c2.fillRect((d * 7 + 3) % 16, (d * 11 + 6) % 16, 1, 1);
-      }
+    // 后期碎裂点
+    for (var d = 0; d < stage * 6; d++) {
+      c2.fillStyle = 'rgba(10,10,10,' + (0.45 + stage * 0.07) + ')';
+      c2.fillRect((d * 7 + 3) % 16, (d * 11 + 6) % 16, 1, 1);
     }
     return cv;
   }
