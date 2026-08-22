@@ -280,14 +280,26 @@
     var sx = Math.floor(sp.x), sy = Math.floor(sp.y + 1), sz = Math.floor(sp.z);
     var orig = Voxel.World.get(sx, sy, sz);
     Voxel.World.set(sx, sy, sz, 11);
+    var invT = new Array(36).fill(0), cntT = new Array(36).fill(0);
+    invT[0] = 10; cntT[0] = 64; invT[5] = 19; cntT[5] = 3;
     var ok = Voxel.Save.save(Voxel.World, {
       time: 0.42,
+      weather: 'rain',
       player: { pos: [sp.x, sp.y, sp.z], yaw: 1.1, pitch: -0.2, fly: false, hp: 19 },
-      inv: new Array(36).fill(0), held: 0
+      inv: invT,
+      cnt: cntT,
+      held: 10,
+      heldCnt: 64,
+      bed: [sx, sy, sz]
     });
     check('Save.save 成功', ok);
     var loaded = Voxel.Save.load();
     check('Save.load 往返一致', !!loaded && loaded.seed === Voxel.World.getSeed() && Math.abs(loaded.time - 0.42) < 1e-9);
+    check('Save.load 完整字段往返',
+      !!loaded && loaded.weather === 'rain' &&
+      !!loaded.cnt && loaded.cnt[0] === 64 && loaded.cnt[5] === 3 && loaded.inv[5] === 19 &&
+      loaded.held === 10 && loaded.heldCnt === 64 &&
+      !!loaded.bed && loaded.bed[0] === sx && loaded.bed[1] === sy && loaded.bed[2] === sz);
 
     var seed = Voxel.World.getSeed();
     Voxel.World.clearMeshes(Voxel.Game.scene);

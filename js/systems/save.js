@@ -10,8 +10,13 @@ Voxel.Save = (function () {
         v: 1,
         seed: world.getSeed(),
         time: extra.time,
+        weather: extra.weather,
         player: extra.player,
         inv: extra.inv,
+        cnt: extra.cnt,
+        held: extra.held,
+        heldCnt: extra.heldCnt,
+        bed: extra.bed,
         edits: world.getEdits()
       };
       localStorage.setItem(KEY, JSON.stringify(obj));

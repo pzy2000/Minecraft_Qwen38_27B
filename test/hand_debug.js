@@ -33,7 +33,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   await page.goto('file://' + path.join(root, 'index.html'), { waitUntil: 'load' });
   await page.evaluate(() => {
     var inv = []; for (var i = 0; i < 36; i++) inv.push(0);
-    localStorage.setItem('voxelcraft_save_v1', JSON.stringify({
+    localStorage.setItem(window.Voxel.Config.SAVE_KEY, JSON.stringify({
       v: 1, seed: 3, time: 0.3,
       player: { pos: [128.5, 40, 128.5], yaw: 0, pitch: -0.25, fly: true, hp: 20 },
       inv: inv, held: 0, edits: {}

@@ -1,6 +1,6 @@
 // 无浏览器冒烟测试：node test/smoke.js
 // 验证：64位种子、Perlin 噪声、样条塑造、3D 密度场地形生成、确定性、
-//       群系多样性与特征方块、修改还原、合成配方匹配、光照
+//       群系多样性与特征方块、修改还原、存档序列化往返（含堆叠/床/天气字段）、合成配方匹配、光照
 var fs = require('fs');
 var path = require('path');
 var vm = require('vm');
@@ -25,6 +25,14 @@ var sandbox = {
   }
 };
 sandbox.window = sandbox;
+
+// localStorage mock（供 systems/save.js 使用）
+var _store = {};
+sandbox.localStorage = {
+  setItem: function (k, v) { _store[k] = String(v); },
+  getItem: function (k) { return Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null; },
+  removeItem: function (k) { delete _store[k]; }
+};
 vm.createContext(sandbox);
 
 var failed = 0;
@@ -41,6 +49,7 @@ load('js/world/shaper.js');
 load('js/blocks.js');
 load('js/crafting.js');
 load('js/world/world.js');
+load('js/systems/save.js');
 
 var V = sandbox.window.Voxel;
 var W = V.Config.WORLD_W, H = V.Config.WORLD_H, D = V.Config.WORLD_D;
@@ -248,6 +257,40 @@ while (!V.World.isReady()) V.World.generateNext(64);
 check('还原前为原值', V.World.get(bx, by, bz) === before);
 V.World.applyEdits(edits);
 check('applyEdits 还原', V.World.get(bx, by, bz) === 10);
+
+console.log('存档序列化往返');
+(function () {
+  // applyEdits 只回放不记日志（见 world.js），先 set 一次确保增量日志有记录
+  V.World.set(bx, by, bz, 10);
+  var inv = []; var cnt = [];
+  for (var i = 0; i < 36; i++) { inv.push(0); cnt.push(0); }
+  inv[0] = 10; cnt[0] = 64;   // 一组 64 木板
+  inv[5] = 19; cnt[5] = 3;    // 3 个火把
+  var extra = {
+    time: 0.42,
+    weather: 'rain',
+    player: { pos: [1.5, 2.5, 3.5], yaw: 1.25, pitch: -0.3, fly: true, hp: 17 },
+    inv: inv,
+    cnt: cnt,
+    held: 10,
+    heldCnt: 64,
+    bed: [12, 34, 56]
+  };
+  check('Save.save 成功', V.Save.save(V.World, extra));
+  var loaded = V.Save.load();
+  check('Save.load 返回数据', !!loaded);
+  check('seed 往返', !!loaded && loaded.seed === V.World.getSeed());
+  check('time 往返', !!loaded && loaded.time === 0.42);
+  check('weather 往返', !!loaded && loaded.weather === 'rain');
+  check('inv 往返', !!loaded && !!loaded.inv && loaded.inv[0] === 10 && loaded.inv[5] === 19);
+  check('cnt 往返(堆叠数量不丢失)', !!loaded && !!loaded.cnt && loaded.cnt.length === 36 &&
+    loaded.cnt[0] === 64 && loaded.cnt[5] === 3);
+  check('held/heldCnt 往返', !!loaded && loaded.held === 10 && loaded.heldCnt === 64);
+  check('bed 往返', !!loaded && !!loaded.bed && loaded.bed[0] === 12 && loaded.bed[1] === 34 && loaded.bed[2] === 56);
+  check('player 往返', !!loaded && !!loaded.player && loaded.player.hp === 17 &&
+    loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9);
+  check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
+})();
 
 console.log('合成配方测试');
 var Craft = V.Crafting;

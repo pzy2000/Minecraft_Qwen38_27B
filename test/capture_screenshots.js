@@ -72,7 +72,7 @@ async function waitPlaying(page) {
   await page.evaluate((seed) => {
     var inv = [];
     for (var i = 0; i < 36; i++) inv.push(0);
-    localStorage.setItem('voxelcraft_save_v1', JSON.stringify({
+    localStorage.setItem(window.Voxel.Config.SAVE_KEY, JSON.stringify({
       v: 1,
       seed: seed,
       time: 0.25,
