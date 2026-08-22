@@ -7,45 +7,75 @@
 
 <table>
   <tr>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
+      <img src="screenshots/biomes/overview.png" alt="全景俯瞰" />
+      <br /><sub>俯瞰：多种群系自然过渡交界</sub>
+    </td>
+    <td align="center" width="25%">
       <img src="screenshots/biomes/plains.png" alt="平原" />
       <br /><sub>平原：草地丘陵、橡树与羊群</sub>
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="screenshots/biomes/forest.png" alt="森林" />
       <br /><sub>森林：密集橡树林</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="screenshots/biomes/desert.png" alt="沙漠" />
-      <br /><sub>沙漠：沙丘、仙人掌与砂岩层</sub>
+    <td align="center" width="25%">
+      <img src="screenshots/biomes/birch-forest.png" alt="白桦森林" />
+      <br /><sub>白桦森林：银白树干的桦木林</sub>
     </td>
   </tr>
   <tr>
+    <td align="center">
+      <img src="screenshots/biomes/desert.png" alt="沙漠" />
+      <br /><sub>沙漠：沙丘、仙人掌与砂岩层</sub>
+    </td>
     <td align="center">
       <img src="screenshots/biomes/jungle.png" alt="丛林" />
       <br /><sub>丛林：高耸入云的巨型丛林树</sub>
     </td>
     <td align="center">
       <img src="screenshots/biomes/savanna.png" alt="热带草原" />
-      <br /><sub>热带草原：金合欢稀树</sub>
+      <br /><sub>热带草原：金合欢稀树草原</sub>
     </td>
     <td align="center">
-      <img src="screenshots/biomes/mega-taiga.png" alt="原始针叶林" />
-      <br /><sub>原始针叶林：灰化土与巨型云杉</sub>
+      <img src="screenshots/biomes/taiga.png" alt="针叶林" />
+      <br /><sub>针叶林：成片云杉林</sub>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="screenshots/biomes/badlands.png" alt="恶地" />
-      <br /><sub>恶地：红沙顶与陶瓦层理条纹</sub>
+      <img src="screenshots/biomes/mega-taiga.png" alt="原始针叶林" />
+      <br /><sub>原始针叶林：灰化土与巨型云杉</sub>
+    </td>
+    <td align="center">
+      <img src="screenshots/biomes/snowy.png" alt="雪原" />
+      <br /><sub>雪原：积雪地表、云杉与冰峰</sub>
+    </td>
+    <td align="center">
+      <img src="screenshots/biomes/windswept-hills.png" alt="风袭丘陵" />
+      <br /><sub>风袭丘陵：砾石斑驳的梯状山地</sub>
     </td>
     <td align="center">
       <img src="screenshots/biomes/peaks.png" alt="尖峭山峰" />
       <br /><sub>尖峭山峰：雪帽石峰与峭壁悬垂</sub>
     </td>
+  </tr>
+  <tr>
     <td align="center">
-      <img src="screenshots/biomes/overview.png" alt="全景俯瞰" />
-      <br /><sub>俯瞰：多种群系自然过渡交界</sub>
+      <img src="screenshots/biomes/frozen-peaks.png" alt="冰封山峰" />
+      <br /><sub>冰封山峰：浮冰与积雪的极寒之巅</sub>
+    </td>
+    <td align="center">
+      <img src="screenshots/biomes/badlands.png" alt="恶地" />
+      <br /><sub>恶地：红沙顶与陶瓦层理条纹</sub>
+    </td>
+    <td align="center">
+      <img src="screenshots/biomes/beach.png" alt="海滩" />
+      <br /><sub>海滩：碧海金沙的水岸线</sub>
+    </td>
+    <td align="center">
+      <img src="screenshots/biomes/ocean.png" alt="海洋" />
+      <br /><sub>海洋：蔚蓝水域与海岸丛林</sub>
     </td>
   </tr>
 </table>
@@ -163,7 +193,7 @@ node test/run_browser_tests.js     # 自动查找 Chrome/Edge/Chromium，也可�
 | `test/browser_test.html` | 完整游戏栈：主循环、物理落地、DDA 射线、挖放、生物生成/死亡/掉羊毛、手册一键合成+长按连续合成、背包 2×2 开局合成（橡木→木板→工作台）、堆叠逐格放置、拖拽交互、工作台 3×3 合成（床）、合成手册、半高床网格+物理、昼夜、天气（雨强度/雨滴/云层变灰/闪电闪屏/雷击掉血/彩虹昼夜条件/G 键切换）、受伤/死亡/重生、存档往返、网格重建（渲染置空，纯逻辑验证）、光照初始化与火把点亮、新世界清空背包回归、音效函数冒烟 |
 | `test/render_check.html` | 真实 WebGL 渲染 240 帧 + 像素采样（验证画面中天空与地形均可见） |
 | `test/capture_screenshots.js` | 生成 README 场景截图（白天/黄昏/雨天/雪山） |
-| `test/capture_biomes.js` | 生成 README 九宫格生物群系截图（8 大群系 + 全景俯瞰，固定种子） |
+| `test/capture_biomes.js` | 生成群系截图（18 群系 + 全景俯瞰，固定种子；README 十六宫格与精选世界缩略图共用） |
 
 ## 可调参数
 
