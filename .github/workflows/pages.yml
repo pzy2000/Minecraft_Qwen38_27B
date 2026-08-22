@@ -32,7 +32,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/site"
           cp index.html "$RUNNER_TEMP/site/"
-          cp -R css js vendor "$RUNNER_TEMP/site/"
+          cp -R css js vendor screenshots "$RUNNER_TEMP/site/"
 
       - name: 上传站点产物
         uses: actions/upload-pages-artifact@v3

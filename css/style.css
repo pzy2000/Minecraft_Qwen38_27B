@@ -357,11 +357,18 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
   transform: translateY(-2px);
 }
 .featured-card img {
-  display: block; width: 100%;
-  aspect-ratio: 16 / 9;
+  display: block; width: 100%; height: 100%;
   object-fit: cover;
+  position: absolute; left: 0; top: 0;
+}
+.featured-thumb {
+  position: relative;
+  width: 100%; height: 0;
+  padding-bottom: 56.25%;   /* 16:9（兼容不支持 aspect-ratio 的旧 Safari） */
+  overflow: hidden;
   background: #111;
 }
+.featured-ph { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .featured-name {
   margin-top: 6px;
   font-size: 14px; letter-spacing: 2px;

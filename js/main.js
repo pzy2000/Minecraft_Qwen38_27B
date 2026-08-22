@@ -1443,10 +1443,14 @@ Voxel.Game = (function () {
       Voxel.Save.clear();
       startWorld(null, null);
     });
-    document.getElementById('btn-featured').addEventListener('click', function () {
-      document.getElementById('overlay-start').classList.add('hidden');
-      document.getElementById('overlay-featured').classList.remove('hidden');
-    });
+    if (document.getElementById('btn-featured')) {
+      document.getElementById('btn-featured').addEventListener('click', function () {
+        if (Voxel.Featured && Voxel.Featured.show) Voxel.Featured.show();
+      });
+      document.getElementById('btn-featured-back').addEventListener('click', function () {
+        if (Voxel.Featured && Voxel.Featured.hide) Voxel.Featured.hide();
+      });
+    }
     document.getElementById('btn-resume').addEventListener('click', resume);
     document.getElementById('btn-save').addEventListener('click', function () { doSave(false); });
     document.getElementById('btn-respawn').addEventListener('click', resume);
