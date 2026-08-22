@@ -160,17 +160,28 @@ async function waitPlaying(page) {
     };
   });
 
-  // 九宫格拍摄清单（8 群系 + 1 全景俯瞰）
+  // 拍摄清单：README 九宫格（8 群系 + 全景俯瞰）+ 精选世界所需其余群系
   const shots = [
-    { name: 'plains',     opts: { biome: 'PLAINS', height: 11 } },
-    { name: 'forest',     opts: { biome: 'FOREST', height: 13 } },
-    { name: 'desert',     opts: { biome: 'DESERT', preferSurf: 6, height: 12 } },
-    { name: 'jungle',     opts: { biome: 'JUNGLE', height: 20, pitch: -0.2 } },
-    { name: 'savanna',    opts: { biome: 'SAVANNA', height: 13 } },
-    { name: 'mega-taiga', opts: { biome: 'MEGA_TAIGA', preferSurf: 24, height: 17 } },
-    { name: 'badlands',   opts: { biome: 'BADLANDS', preferSurf: 28, height: 14, pitch: -0.22 } },
-    { name: 'peaks',      opts: { biome: 'JAGGED_PEAKS', height: 16, pitch: -0.15 } },
-    { name: 'overview',   opts: { overview: true, fixed: { x: 192, z: 62 } } }
+    { name: 'plains',          opts: { biome: 'PLAINS', height: 11 } },
+    { name: 'forest',          opts: { biome: 'FOREST', height: 13 } },
+    { name: 'desert',          opts: { biome: 'DESERT', preferSurf: 6, height: 12 } },
+    { name: 'jungle',          opts: { biome: 'JUNGLE', height: 20, pitch: -0.2 } },
+    { name: 'savanna',         opts: { biome: 'SAVANNA', height: 13 } },
+    { name: 'mega-taiga',      opts: { biome: 'MEGA_TAIGA', preferSurf: 24, height: 17 } },
+    { name: 'badlands',        opts: { biome: 'BADLANDS', preferSurf: 28, height: 14, pitch: -0.22 } },
+    { name: 'peaks',           opts: { biome: 'JAGGED_PEAKS', height: 16, pitch: -0.15 } },
+    { name: 'overview',        opts: { overview: true, fixed: { x: 192, z: 62 } } },
+    // ---- 其余群系（精选世界缩略图用） ----
+    { name: 'birch-forest',    opts: { biome: 'BIRCH_FOREST', height: 13 } },
+    { name: 'sparse-jungle',   opts: { biome: 'SPARSE_JUNGLE', height: 16, pitch: -0.2 } },
+    { name: 'taiga',           opts: { biome: 'TAIGA', height: 14 } },
+    { name: 'snowy',           opts: { biome: 'SNOWY', height: 11 } },
+    { name: 'windswept-hills', opts: { biome: 'WINDSWEPT_HILLS', height: 15 } },
+    { name: 'frozen-peaks',    opts: { biome: 'FROZEN_PEAKS', height: 16, pitch: -0.15 } },
+    { name: 'stony-peaks',     opts: { biome: 'STONY_PEAKS', height: 15 } },
+    { name: 'beach',           opts: { biome: 'BEACH', preferSurf: 6, height: 12, pitch: -0.3 } },
+    { name: 'stony-shore',     opts: { biome: 'STONY_SHORE', height: 13, pitch: -0.28 } },
+    { name: 'ocean',           opts: { biome: 'OCEAN', height: 26, pitch: -0.4 } }
   ];
 
   // 可传名称过滤：node test/capture_biomes.js [chrome路径] [shot名...]

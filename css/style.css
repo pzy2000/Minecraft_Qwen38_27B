@@ -346,7 +346,7 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 #loading-text { font-size: 13px; color: #ccc; margin-top: 10px; }
 
 /* ---------- 精选世界 ---------- */
-.featured-panel { max-width: 780px; }
+.featured-panel { max-width: 780px; max-height: 88vh; overflow-y: auto; }
 .featured-panel h2 { margin-bottom: 14px; }
 #featured-grid {
   display: grid;
