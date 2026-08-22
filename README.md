@@ -1,5 +1,7 @@
 # 方块世界 VoxelCraft
 
+**语言：** [中文](README.md) · [English](README.en.md)
+
 一个用纯 HTML5 + JavaScript + Three.js 实现的 3D 体素像素游戏（类 Minecraft）。
 零依赖、零构建 —— **双击 `index.html` 即可在浏览器中游玩**。
 
