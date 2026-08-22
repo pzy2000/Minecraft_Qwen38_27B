@@ -31,6 +31,7 @@ function check(name, cond) {
 
 load('js/config.js');
 load('js/world/noise.js');
+load('js/world/biomes.js');
 load('js/blocks.js');
 load('js/crafting.js');
 load('js/world/world.js');
@@ -106,6 +107,49 @@ for (var sx = 0; sx < W; sx += 4)
     for (var sy = 40; sy < H; sy++)
       if (V.World.get(sx, sy, sz) === 18) snow++;
 check('高山覆雪(雪块存在)', snow > 10);
+
+console.log('生物群系多样性 (种子 12345)');
+var biomeSeen = {}, biomeCols = 0;
+for (var bx2 = 0; bx2 < W; bx2 += 2)
+  for (var bz2 = 0; bz2 < D; bz2 += 2) {
+    var bid = V.World.biomeAt(bx2, bz2);
+    if (bid >= 0) { biomeSeen[bid] = (biomeSeen[bid] || 0) + 1; biomeCols++; }
+  }
+check('biomeAt 覆盖所有采样列', biomeCols === (W / 2) * (D / 2));
+var kinds = Object.keys(biomeSeen).length;
+console.log('  出现群系数: ' + kinds + ' -> ' +
+  Object.keys(biomeSeen).map(function (k) { return V.Biomes.name(+k) + '×' + biomeSeen[k]; }).join(', '));
+check('至少出现 4 种群系', kinds >= 4);
+check('群系 ID 均在注册表内', Object.keys(biomeSeen).every(function (k) { return +k >= 0 && +k < V.Biomes.count; }));
+
+// 多种子扫描：验证沙漠/丛林/原始针叶林特征方块都能出现
+var featureFound = { sand: false, cactus: false, jungleLog: false, giantJungle: false, podzol: false, mossy: false, spruceLog: false };
+var seedsToScan = [12345, 42, 999, 7777, 31415];
+for (var si = 0; si < seedsToScan.length; si++) {
+  V.World.init(seedsToScan[si]);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  for (var fx = 0; fx < W; fx += 3)
+    for (var fz = 0; fz < D; fz += 3)
+      for (var fy = 1; fy < H; fy++) {
+        var fid = V.World.get(fx, fy, fz);
+        if (fid === 26 && !featureFound.cactus) {
+          // 仙人掌下方应为沙子（沙漠地貌）
+          if (V.World.get(fx, fy - 1, fz) === 6) featureFound.cactus = true;
+        }
+        else if (fid === 22) { featureFound.jungleLog = true; if (fy > 40) featureFound.giantJungle = true; }
+        else if (fid === 24) featureFound.podzol = true;
+        else if (fid === 25) featureFound.mossy = true;
+        else if (fid === 20) featureFound.spruceLog = true;
+        else if (fid === 27) featureFound.foundSandstone = true;
+      }
+}
+check('沙漠有仙人掌', featureFound.cactus);
+check('有丛林木(含巨型)', featureFound.jungleLog);
+check('有高耸巨型丛林树', featureFound.giantJungle);
+check('原始针叶林有灰化土', featureFound.podzol);
+check('原始针叶林有苔石巨砾', featureFound.mossy);
+check('雪原/针叶林有云杉木', featureFound.spruceLog);
+check('沙漠地下有砂岩层', featureFound.foundSandstone);
 
 console.log('修改与存档还原');
 V.World.init(12345);

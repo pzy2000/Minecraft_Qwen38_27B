@@ -81,10 +81,15 @@ Voxel.Noise = (function () {
   function create(seed) {
     var p = makePerm(seed);
     var p2 = makePerm((seed * 7 + 12345) >>> 0);
+    var p3 = makePerm((seed * 13 + 47531) >>> 0);
+    var p4 = makePerm((seed * 17 + 81943) >>> 0);
     return {
       n2: function (x, y) { return vnoise2(p, x, y); },
       fbm2: function (x, y, o) { return fbm2(p, x, y, o); },
       fbm2b: function (x, y, o) { return fbm2(p2, x, y, o); },
+      // 气候通道：温度 / 湿度（生物群系选择用）
+      tempAt: function (x, y, o) { return fbm2(p3, x, y, o || 3); },
+      moistAt: function (x, y, o) { return fbm2(p4, x, y, o || 3); },
       n3: function (x, y, z) { return vnoise3(p, x, y, z); },
       hash2: function (x, y) { return hash2(p, x * 7 + 31, y * 13 + 17); },
       hash3: function (x, y, z) { return hash3(p2, x * 7, y * 13, z * 19); }

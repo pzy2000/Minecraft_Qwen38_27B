@@ -9,7 +9,12 @@ Voxel.Blocks = (function () {
     TABLE_TOP: 16, TABLE_SIDE: 17, WOOL: 18, BED_TOP: 19, BED_SIDE: 20,
     SNOW: 21,
     STICK: 22, PICK_WOOD: 23, PICK_STONE: 24, PICK_IRON: 25,
-    SWORD_WOOD: 26, SWORD_STONE: 27, SWORD_IRON: 28, TORCH: 29
+    SWORD_WOOD: 26, SWORD_STONE: 27, SWORD_IRON: 28, TORCH: 29,
+    SPRUCE_LOG_SIDE: 30, SPRUCE_LOG_TOP: 31, SPRUCE_LEAVES: 32,
+    JUNGLE_LOG_SIDE: 33, JUNGLE_LOG_TOP: 34, JUNGLE_LEAVES: 35,
+    PODZOL_TOP: 36, PODZOL_SIDE: 37, MOSSY_COBBLE: 38,
+    CACTUS_SIDE: 39, CACTUS_TOP: 40,
+    SANDSTONE_SIDE: 41, SANDSTONE_TOP: 42
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -34,7 +39,15 @@ Voxel.Blocks = (function () {
     { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d, hard: 0.8 },
     { name: '雪块', solid: true, opaque: true, tiles: [T.SNOW, T.SNOW, T.SNOW], sound: 'snow', color: 0xeef4f8, hard: 0.35 },
     { name: '火把', solid: false, opaque: false, cross: true, light: 14,
-      tiles: [T.TORCH, T.TORCH, T.TORCH], sound: 'wood', color: 0xffcc66, hard: 0.05, icon: T.TORCH }
+      tiles: [T.TORCH, T.TORCH, T.TORCH], sound: 'wood', color: 0xffcc66, hard: 0.05, icon: T.TORCH },
+    { name: '云杉木', solid: true, opaque: true, tiles: [T.SPRUCE_LOG_TOP, T.SPRUCE_LOG_SIDE, T.SPRUCE_LOG_TOP], sound: 'wood', color: 0x5a4428, hard: 1.6 },
+    { name: '云杉树叶', solid: true, opaque: true, tiles: [T.SPRUCE_LEAVES, T.SPRUCE_LEAVES, T.SPRUCE_LEAVES], sound: 'leaves', color: 0x2e6154, hard: 0.35 },
+    { name: '丛林木', solid: true, opaque: true, tiles: [T.JUNGLE_LOG_TOP, T.JUNGLE_LOG_SIDE, T.JUNGLE_LOG_TOP], sound: 'wood', color: 0x8a6b3c, hard: 1.6 },
+    { name: '丛林树叶', solid: true, opaque: true, tiles: [T.JUNGLE_LEAVES, T.JUNGLE_LEAVES, T.JUNGLE_LEAVES], sound: 'leaves', color: 0x3da02f, hard: 0.35 },
+    { name: '灰化土', solid: true, opaque: true, tiles: [T.PODZOL_TOP, T.PODZOL_SIDE, T.DIRT], sound: 'dirt', color: 0x7a5a34, hard: 0.65 },
+    { name: '苔石', solid: true, opaque: true, tiles: [T.MOSSY_COBBLE, T.MOSSY_COBBLE, T.MOSSY_COBBLE], sound: 'stone', color: 0x6d7d5f, hard: 4.5, pick: true },
+    { name: '仙人掌', solid: true, opaque: true, tiles: [T.CACTUS_TOP, T.CACTUS_SIDE, T.CACTUS_TOP], sound: 'wool', color: 0x4a7f28, hard: 0.5 },
+    { name: '砂岩', solid: true, opaque: true, tiles: [T.SANDSTONE_TOP, T.SANDSTONE_SIDE, T.SANDSTONE_TOP], sound: 'stone', color: 0xd6cb9c, hard: 3, pick: true }
   ];
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
@@ -250,6 +263,100 @@ Voxel.Blocks = (function () {
       if (r() < 0.10) return [222 + r() * 12, 234 + r() * 10, 250];           // 淡蓝晶点
       var v = n(r, 0, 12);
       return [240 + v, 246 + v * 0.5, 252];
+    });
+
+    // ---- 新生物群系方块纹理 ----
+    function logSideTile(a, b) {
+      return function (x, y, r) {
+        var stripe = (x % 4 < 2);
+        var v = n(r, 0, 14);
+        var c = stripe ? a : b;
+        return [c[0] + v, c[1] + v, c[2] + v];
+      };
+    }
+    function logTopTile(light, dark) {
+      return function (x, y, r) {
+        var dx = x - 7.5, dy = y - 7.5;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var ring = ((dist * 1.4) | 0) % 2 === 0;
+        var c = ring ? light : dark;
+        var v = n(r, 0, 10);
+        return [c[0] + v, c[1] + v, c[2] + v];
+      };
+    }
+    function leavesTile(base, spot) {
+      return function (x, y, r) {
+        if (r() < 0.16) return [spot[0] + r() * 10, spot[1] + r() * 12, spot[2] + r() * 8];
+        var v = n(r, 0, 36);
+        return [base[0] + v, base[1] + v * 0.85, base[2] + v * 0.6];
+      };
+    }
+
+    drawTile(T.SPRUCE_LOG_SIDE, logSideTile([64, 46, 28], [88, 66, 40]));
+    drawTile(T.SPRUCE_LOG_TOP, logTopTile([118, 90, 54], [80, 58, 34]));
+    drawTile(T.SPRUCE_LEAVES, leavesTile([44, 94, 82], [26, 58, 48]));
+
+    drawTile(T.JUNGLE_LOG_SIDE, function (x, y, r) {
+      var stripe = (x % 5 < 2);
+      var v = n(r, 0, 16);
+      // 藓斑
+      if (!stripe && r() < 0.18) return [92 + v, 108 + v, 56 + v * 0.6];
+      var c = stripe ? [96, 74, 42] : [128, 100, 58];
+      return [c[0] + v, c[1] + v, c[2] + v * 0.8];
+    });
+    drawTile(T.JUNGLE_LOG_TOP, logTopTile([178, 144, 90], [132, 104, 62]));
+    drawTile(T.JUNGLE_LEAVES, leavesTile([56, 136, 40], [28, 84, 20]));
+
+    drawTile(T.PODZOL_TOP, function (x, y, r) {
+      var v = n(r, 0, 26);
+      if (r() < 0.12) return [104 + v, 72 + v * 0.7, 38 + v * 0.5];            // 深色腐殖斑
+      return [146 + v, 106 + v * 0.9, 56 + v * 0.6];
+    });
+    drawTile(T.PODZOL_SIDE, function (x, y, r) {
+      var band = 3 + ((x * 5 + 2) % 3);
+      if (y < band || (y === band && r() < 0.5)) {
+        var vp = n(r, 0, 22);
+        return [140 + vp, 102 + vp * 0.9, 54 + vp * 0.6];
+      }
+      var v = n(r, 0, 24);
+      return [134 + v, 96 + v, 67 + v * 0.8];                                   // 泥土
+    });
+
+    drawTile(T.MOSSY_COBBLE, function (x, y, r) {
+      var cl = [];
+      for (var i = 0; i < 6; i++) cl.push([r() * 16, r() * 16, 1.6 + r() * 1.6]);
+      for (var j = 0; j < 6; j++) {
+        var ddx = x - cl[j][0], ddy = y - cl[j][1];
+        if (ddx * ddx + ddy * ddy < cl[j][2] * cl[j][2]) return [92 + r() * 18, 92 + r() * 18, 95 + r() * 18];
+      }
+      var v = n(r, 0, 26);
+      if (r() < 0.35) return [92 + v, 118 + v, 74 + v];                         // 苔藓
+      return [124 + v, 124 + v, 126 + v];
+    });
+
+    drawTile(T.CACTUS_SIDE, function (x, y, r) {
+      if (r() < 0.05) return [216, 228, 190];                                   // 刺
+      var ridge = (x % 4 === 0);
+      var v = n(r, 0, 14);
+      return ridge ? [40 + v, 88 + v, 30 + v] : [56 + v, 114 + v, 42 + v];
+    });
+    drawTile(T.CACTUS_TOP, function (x, y, r) {
+      if (x === 0 || y === 0 || x === 15 || y === 15) return [40, 86, 30];
+      if (r() < 0.06) return [200 + r() * 30, 220, 170];
+      var v = n(r, 0, 14);
+      return [64 + v, 124 + v, 48 + v];
+    });
+
+    drawTile(T.SANDSTONE_TOP, function (x, y, r) {
+      var v = n(r, 0, 12);
+      if (r() < 0.08) return [196 + v, 182 + v, 132 + v];                       // 颗粒杂点
+      return [222 + v, 210 + v, 162 + v];
+    });
+    drawTile(T.SANDSTONE_SIDE, function (x, y, r) {
+      var v = n(r, 0, 10);
+      if (y % 5 === 4) return [188 + v, 174 + v, 126 + v];                      // 沉积层理
+      if ((y > 5 && y < 11 && x > 3 && x < 12 && r() < 0.2)) return [204 + v, 190 + v, 140 + v];
+      return [218 + v, 205 + v, 156 + v];
     });
 
     // ---- 工具 / 材料图标（透明背景，像素画） ----

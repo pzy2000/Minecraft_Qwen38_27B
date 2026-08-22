@@ -8,6 +8,7 @@ Voxel.World = (function () {
   var SNOW_LEVEL = CFG.SNOW_LEVEL;
 
   var data, seed, noise, heights;
+  var biomes;            // Uint8Array(W*D) 每列群系 ID
   var edits = {};        // "x,y,z" -> id（存档用）
   var dirty = {};        // "cx,cz" -> true
   var dirtyQueue = [];
@@ -198,15 +199,21 @@ Voxel.World = (function () {
   function generateColumn(x, z) {
     var h = heightAt(x, z);
     heights[x + W * z] = h;
+    var b = Voxel.Biomes.select(x, z, h, noise);
+    biomes[x + W * z] = b;
+    var bd = Voxel.Biomes.def(b);
     var beach = h <= WATER + 2;
-    var snowy = h >= SNOW_LEVEL;
+    var snowy = h >= SNOW_LEVEL && bd.surface !== 6;   // 雪帽（沙漠除外）
+    var surf = beach ? 6 : (snowy ? 18 : bd.surface);  // 表层
+    var fill = beach ? 6 : bd.filler;                  // 填充层
     var i;
     for (var y = 0; y < H; y++) {
       i = idx(x, y, z);
       if (y === 0) data[i] = 12;                                   // 基岩
       else if (y <= h) {
-        if (y === h) data[i] = beach ? 6 : (snowy ? 18 : (h >= 46 ? 3 : 1));      // 表层
-        else if (y >= h - 3) data[i] = beach ? 6 : 2;              // 泥土/沙
+        if (y === h) data[i] = surf;
+        else if (y >= h - 3) data[i] = fill;                       // 泥土/沙
+        else if (b === Voxel.Biomes.B.DESERT && y >= h - 8) data[i] = 27; // 砂岩层
         else {
           data[i] = 3;
           var r = noise.hash3(x, y, z);
@@ -225,28 +232,152 @@ Voxel.World = (function () {
     }
   }
 
-  function placeTrees() {
-    for (var x = 2; x < W - 2; x++)
-      for (var z = 2; z < D - 2; z++) {
-        var h = heights[x + W * z];
-        if (data[idx(x, h, z)] !== 1) continue;
-        if (h <= WATER + 1 || h >= 44) continue;
-        var r = noise.hash2(x * 3 + 11, z * 5 + 29);
-        if (r < 0.997) continue;
-        var th = 4 + ((r * 100000) | 0) % 3;
-        for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
-        for (var ly = th - 2; ly <= th + 1; ly++) {
-          var rad = ly === th + 1 ? 1 : 2;
-          for (var dx = -rad; dx <= rad; dx++)
-            for (var dz = -rad; dz <= rad; dz++) {
-              if (dx === 0 && dz === 0 && ly <= th) continue;
-              if (rad === 2 && ly >= th && Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
-              var i = idx(x + dx, h + ly, z + dz);
-              if (data[i] === 0) data[i] = 5;
-            }
+  // ---- 树木/植被放置 ----
+
+  function setIfAir(x, y, z, id) {
+    if (y <= 0 || y >= H) return;
+    var i = idx(x, y, z);
+    if (data[i] === 0) data[i] = id;
+  }
+
+  // 圆形树叶环（半径>1 时削角）
+  function ring(cx, cy, cz, rad, id) {
+    for (var dx = -rad; dx <= rad; dx++)
+      for (var dz = -rad; dz <= rad; dz++) {
+        if (rad > 1 && Math.abs(dx) === rad && Math.abs(dz) === rad) continue;
+        setIfAir(cx + dx, cy, cz + dz, id);
+      }
+  }
+
+  function oakTree(x, h, z, r) {
+    var th = 4 + ((r * 100000) | 0) % 3;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
+    for (var ly = th - 2; ly <= th + 1; ly++) {
+      var rad = ly === th + 1 ? 1 : 2;
+      for (var dx = -rad; dx <= rad; dx++)
+        for (var dz = -rad; dz <= rad; dz++) {
+          if (dx === 0 && dz === 0 && ly <= th) continue;
+          if (rad === 2 && ly >= th && Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+          setIfAir(x + dx, h + ly, z + dz, 5);
         }
-        var it = idx(x, h + th + 2, z);
-        if (it < data.length && data[it] === 0) data[it] = 5;
+    }
+    setIfAir(x, h + th + 2, z, 5);
+  }
+
+  function spruceTree(x, h, z, r) {
+    var th = 6 + ((r * 100000) | 0) % 4;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 20;
+    for (var ly = 2; ly <= th + 1; ly++) {
+      var rad = ly > th ? 0 : (ly === th ? 1 : (((th - ly) % 2 === 0) ? 1 : 2));
+      if (rad === 0) { setIfAir(x, h + ly, z, 21); continue; }
+      ring(x, h + ly, z, rad, 21);
+      if (rad === 2) setIfAir(x, h + ly, z, 20);
+    }
+  }
+
+  // 原始针叶林：2x2 粗壮巨型云杉
+  function megaSpruce(x, h, z, r) {
+    // 需要四列地基同高且可种植，避免悬空粗树干
+    var ci = x + W * z;
+    if (heights[ci + 1] !== h || heights[ci + W] !== h || heights[ci + W + 1] !== h) return false;
+    var th = 12 + ((r * 100000) | 0) % 6;
+    if (h + th + 3 >= H) th = H - 4 - h;
+    if (th < 10) return false;
+    for (var y = 1; y <= th; y++)
+      for (var dx = 0; dx <= 1; dx++)
+        for (var dz = 0; dz <= 1; dz++)
+          data[idx(x + dx, h + y, z + dz)] = 20;
+    for (var ly = 5; ly <= th + 2; ly++) {
+      var rem = th + 2 - ly;
+      var rad = rem <= 0 ? 1 : (rem % 2 === 0 ? 2 : 3);
+      ring(x, h + ly, z, rad, 21);
+      if (rad >= 2)
+        for (var bx = 0; bx <= 1; bx++)
+          for (var bz = 0; bz <= 1; bz++) {
+            var ii = idx(x + bx, h + ly, z + bz);
+            if (data[ii] === 21) data[ii] = 20;
+          }
+    }
+    setIfAir(x, h + th + 3, z, 21);
+    return true;
+  }
+
+  function jungleTree(x, h, z, r) {
+    var th = 6 + ((r * 100000) | 0) % 6;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 22;
+    ring(x, h + th - 1, z, 2, 23);
+    data[idx(x, h + th - 1, z)] = 22;
+    ring(x, h + th, z, 2, 23);
+    data[idx(x, h + th, z)] = 22;
+    ring(x, h + th + 1, z, 1, 23);
+    setIfAir(x, h + th + 2, z, 23);
+  }
+
+  // 丛林：2x2 高耸巨型丛林树（30+ 格，受世界高度截断）
+  function giantJungle(x, h, z, r) {
+    var ci = x + W * z;
+    if (heights[ci + 1] !== h || heights[ci + W] !== h || heights[ci + W + 1] !== h) return false;
+    var th = 24 + ((r * 100000) | 0) % 8;
+    if (h + th + 4 >= H) th = H - 5 - h;
+    if (th < 14) return false;
+    for (var y = 1; y <= th; y++)
+      for (var dx = 0; dx <= 1; dx++)
+        for (var dz = 0; dz <= 1; dz++)
+          data[idx(x + dx, h + y, z + dz)] = 22;
+    ring(x, h + th - 1, z, 3, 23);
+    ring(x, h + th, z, 3, 23);
+    ring(x, h + th + 1, z, 2, 23);
+    ring(x, h + th + 2, z, 1, 23);
+    setIfAir(x, h + th + 3, z, 23);
+    // 树冠内树干保留
+    for (var ty = th - 1; ty <= th; ty++)
+      for (var tx = 0; tx <= 1; tx++)
+        for (var tz = 0; tz <= 1; tz++) data[idx(x + tx, h + ty, z + tz)] = 22;
+    return true;
+  }
+
+  function cactus(x, h, z, r) {
+    var ch = 1 + ((r * 100000) | 0) % 3;
+    for (var y = 1; y <= ch; y++) setIfAir(x, h + y, z, 26);
+  }
+
+  // 原始针叶林：苔石巨砾
+  function boulder(x, h, z) {
+    for (var dy = -1; dy <= 2; dy++)
+      for (var dx = -2; dx <= 2; dx++)
+        for (var dz = -2; dz <= 2; dz++) {
+          if (dx * dx + dz * dz + dy * dy * 1.6 > 3.4) continue;
+          var i = idx(x + dx, h + dy, z + dz);
+          if (data[i] !== 12 && data[i] !== 7) data[i] = 25;
+        }
+  }
+
+  function placeTrees() {
+    var defs = Voxel.Biomes.defs;
+    for (var x = 2; x < W - 3; x++)
+      for (var z = 2; z < D - 3; z++) {
+        var ci = x + W * z;
+        var h = heights[ci];
+        if (h <= WATER + 1 || h > SNOW_LEVEL - 2) continue;
+        var bd = defs[biomes[ci]];
+        if (!bd || !bd.treeType) continue;
+        var surfId = data[idx(x, h, z)];
+        if (bd.plantOn.indexOf(surfId) < 0) continue;
+        if (bd.boulders && noise.hash2(x * 7 + 61, z * 7 + 83) < 0.0025) { boulder(x, h, z); continue; }
+        var r = noise.hash2(x * 3 + 11, z * 5 + 29);
+        if (r >= bd.treeChance) continue;
+        switch (bd.treeType) {
+          case 'oak': oakTree(x, h, z, r); break;
+          case 'spruce': spruceTree(x, h, z, r); break;
+          case 'cactus': cactus(x, h, z, r); break;
+          case 'jungle':
+            var rg = noise.hash2(x * 5 + 3, z * 7 + 97);
+            if (!(rg < bd.giantChance && giantJungle(x, h, z, rg))) jungleTree(x, h, z, r);
+            break;
+          case 'mega_spruce':
+            if (!megaSpruce(x, h, z, r)) spruceTree(x, h, z, r);
+            break;
+        }
       }
   }
 
@@ -300,6 +431,7 @@ Voxel.World = (function () {
     noise = Voxel.Noise.create(seed);
     data = new Uint8Array(W * H * D);
     heights = new Int16Array(W * D);
+    biomes = new Uint8Array(W * D);
     edits = {};
     dirty = {};
     dirtyQueue = [];
@@ -478,6 +610,10 @@ Voxel.World = (function () {
     get: get,
     set: set,
     surfaceAt: surfaceAt,
+    biomeAt: function (x, z) {
+      if (x < 0 || x >= W || z < 0 || z >= D) return -1;
+      return biomes ? biomes[x + W * z] : 0;
+    },
     spawnPoint: spawnPoint,
     applyEdits: applyEdits,
     // 光照接口

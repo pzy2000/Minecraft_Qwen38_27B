@@ -40,20 +40,84 @@ Voxel.Mobs = (function () {
     g.add(box(0.14, 0.55, 0.14, mSkin, 0.32, 1.05, 0.3));
     g.add(box(0.16, 0.55, 0.16, mPants, -0.11, 0.28, 0));
     g.add(box(0.16, 0.55, 0.16, mPants, 0.11, 0.28, 0));
-    return { group: g, mats: [mSkin, mShirt, mPants], w: 0.6, h: 1.8 };
+    return { group: g, mats: [mSkin, mShirt, mPants], w: 0.6, h: 1.8, bodyY: 1.02 };
   }
 
+  function makePig() {
+    var g = new THREE.Group();
+    var mBody = new THREE.MeshBasicMaterial({ color: 0xf0a0a0 });
+    var mSkin = new THREE.MeshBasicMaterial({ color: 0xe08888 });
+    g.add(box(0.85, 0.55, 1.15, mBody, 0, 0.58, -0.05));
+    g.add(box(0.55, 0.5, 0.45, mSkin, 0, 0.72, 0.68));
+    g.add(box(0.24, 0.16, 0.08, mSkin, 0, 0.66, 0.94));                       // 鼻
+    var legs = [[-0.26, 0.38], [0.26, 0.38], [-0.26, -0.44], [0.26, -0.44]];
+    for (var i = 0; i < 4; i++)
+      g.add(box(0.18, 0.32, 0.18, mSkin, legs[i][0], 0.16, legs[i][1]));
+    return { group: g, mats: [mBody, mSkin], w: 0.8, h: 1.0, bodyY: 0.58 };
+  }
+
+  function makeChicken() {
+    var g = new THREE.Group();
+    var mBody = new THREE.MeshBasicMaterial({ color: 0xf2f2f2 });
+    var mBeak = new THREE.MeshBasicMaterial({ color: 0xe8b23a });
+    var mWattle = new THREE.MeshBasicMaterial({ color: 0xc03a3a });
+    g.add(box(0.45, 0.45, 0.62, mBody, 0, 0.52, -0.05));
+    g.add(box(0.28, 0.36, 0.26, mBody, 0, 0.92, 0.28));                        // 头
+    g.add(box(0.14, 0.09, 0.12, mBeak, 0, 0.9, 0.46));                         // 喙
+    g.add(box(0.1, 0.12, 0.06, mWattle, 0, 0.76, 0.42));                       // 肉垂
+    g.add(box(0.08, 0.3, 0.4, mBody, -0.27, 0.56, 0));                         // 翅膀
+    g.add(box(0.08, 0.3, 0.4, mBody, 0.27, 0.56, 0));
+    g.add(box(0.07, 0.3, 0.07, mBeak, -0.1, 0.15, 0));                         // 腿
+    g.add(box(0.07, 0.3, 0.07, mBeak, 0.1, 0.15, 0));
+    return { group: g, mats: [mBody, mBeak, mWattle], w: 0.45, h: 1.05, bodyY: 0.52 };
+  }
+
+  function makeRabbit() {
+    var g = new THREE.Group();
+    var fur = [0x9a7a52, 0xbfa07a, 0xd8d2c8][(Math.random() * 3) | 0];
+    var mFur = new THREE.MeshBasicMaterial({ color: fur });
+    var mDark = new THREE.MeshBasicMaterial({ color: 0x6e563a });
+    var mTail = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    g.add(box(0.38, 0.34, 0.58, mFur, 0, 0.3, -0.05));
+    g.add(box(0.28, 0.28, 0.28, mFur, 0, 0.52, 0.32));                         // 头
+    g.add(box(0.08, 0.3, 0.06, mDark, -0.09, 0.82, 0.3));                      // 耳朵
+    g.add(box(0.08, 0.3, 0.06, mDark, 0.09, 0.82, 0.3));
+    g.add(box(0.12, 0.12, 0.08, mTail, 0, 0.34, -0.36));                       // 尾巴
+    g.add(box(0.1, 0.16, 0.1, mFur, -0.13, 0.08, 0.22));                       // 腿
+    g.add(box(0.1, 0.16, 0.1, mFur, 0.13, 0.08, 0.22));
+    return { group: g, mats: [mFur, mDark, mTail], w: 0.4, h: 0.95, bodyY: 0.3 };
+  }
+
+  // 各类型构建器与属性
+  var BUILDERS = {
+    sheep: { make: makeSheep, hp: function () { return C.HP_SHEEP; }, speedMul: 1 },
+    pig: { make: makePig, hp: function () { return C.HP_PIG; }, speedMul: 0.95 },
+    chicken: { make: makeChicken, hp: function () { return C.HP_CHICKEN; }, speedMul: 0.75 },
+    rabbit: { make: makeRabbit, hp: function () { return C.HP_RABBIT; }, speedMul: 1.35 },
+    zombie: { make: makeZombie, hp: function () { return C.HP_ZOMBIE; }, speedMul: 1 }
+  };
+
+  // 各被动生物可生成的地表方块 + 是否允许出现在该群系（biomes.js 的 mobs 表）
+  var PASSIVE_SURFACES = {
+    sheep: [1, 18, 24],
+    pig: [1, 2, 24],
+    chicken: [1, 2, 24],
+    rabbit: [1, 2, 6, 18, 24]
+  };
+
   function spawn(type, pos) {
-    var b = type === 'sheep' ? makeSheep() : makeZombie();
+    var b = BUILDERS[type].make();
     var m = {
       type: type,
       pos: pos.clone(),
       vel: new THREE.Vector3(),
       w: b.w, h: b.h,
+      bodyY: b.bodyY !== undefined ? b.bodyY : (type === 'sheep' ? 0.62 : 1.02),
+      speedMul: BUILDERS[type].speedMul,
       group: b.group,
       mats: b.mats,
       baseColors: b.mats.map(function (mt) { return mt.color.getHex(); }),
-      hp: type === 'sheep' ? C.HP_SHEEP : C.HP_ZOMBIE,
+      hp: BUILDERS[type].hp(),
       onGround: false,
       dir: Math.random() * Math.PI * 2,
       aiTimer: 0.5,
@@ -113,6 +177,7 @@ Voxel.Mobs = (function () {
 
   function trySpawn(type) {
     var Pp = Voxel.Player.pos();
+    var surfaces = PASSIVE_SURFACES[type];
     for (var a = 0; a < 12; a++) {
       var ang = Math.random() * Math.PI * 2;
       var dist = C.SPAWN_MIN + Math.random() * (C.SPAWN_MAX - C.SPAWN_MIN);
@@ -121,7 +186,12 @@ Voxel.Mobs = (function () {
       if (x < 2 || z < 2 || x >= W - 2 || z >= D - 2) continue;
       var y = Voxel.World.surfaceAt(x, z);
       if (y < 3 || y >= H - 4) continue;
-      if (type === 'sheep' && Voxel.World.get(x, y, z) !== 1) continue;
+      // 地表方块匹配 + 群系允许该生物
+      if (surfaces && surfaces.indexOf(Voxel.World.get(x, y, z)) < 0) continue;
+      if (type !== 'zombie') {
+        var bd = Voxel.Biomes.def(Voxel.World.biomeAt(x, z));
+        if (!bd.mobs || bd.mobs.indexOf(type) < 0) continue;
+      }
       if (Voxel.World.get(x, y + 1, z) !== 0 || Voxel.World.get(x, y + 2, z) !== 0) continue;
       return spawn(type, new THREE.Vector3(x + 0.5, y + 1.02, z + 0.5));
     }
@@ -129,13 +199,15 @@ Voxel.Mobs = (function () {
   }
 
   function manage(night) {
-    var sheep = 0, zom = 0;
+    var counts = {};
     for (var i = 0; i < list.length; i++) {
-      if (list[i].type === 'sheep') sheep++;
-      else zom++;
+      counts[list[i].type] = (counts[list[i].type] || 0) + 1;
     }
-    if (sheep < C.SHEEP_TARGET) trySpawn('sheep');
-    if (zom < (night ? C.ZOMBIE_TARGET : 0)) trySpawn('zombie');
+    if ((counts.sheep || 0) < C.SHEEP_TARGET) trySpawn('sheep');
+    if ((counts.pig || 0) < C.PIG_TARGET) trySpawn('pig');
+    if ((counts.chicken || 0) < C.CHICKEN_TARGET) trySpawn('chicken');
+    if ((counts.rabbit || 0) < C.RABBIT_TARGET) trySpawn('rabbit');
+    if ((counts.zombie || 0) < (night ? C.ZOMBIE_TARGET : 0)) trySpawn('zombie');
   }
 
   // 僵尸眼 → 玩家眼 的视线是否无遮挡
@@ -200,7 +272,7 @@ Voxel.Mobs = (function () {
           if (Math.random() < 0.3) { m.moveTime = 0; }
           else { m.dir = Math.random() * Math.PI * 2; m.moveTime = 1.5 + Math.random() * 2; }
         }
-        if (m.moveTime > 0) speed = m.type === 'zombie' ? C.ZOMBIE_SPEED * 0.7 : C.SHEEP_SPEED;
+        if (m.moveTime > 0) speed = (m.type === 'zombie' ? C.ZOMBIE_SPEED * 0.7 : C.SHEEP_SPEED) * m.speedMul;
       }
 
       var sin = Math.sin(m.dir), cos = Math.cos(m.dir);
@@ -219,7 +291,7 @@ Voxel.Mobs = (function () {
       if (speed > 0 && m.onGround) {
         var aheadX = Math.floor(m.pos.x - sin * 0.9);
         var aheadZ = Math.floor(m.pos.z - cos * 0.9);
-        var bodyY = Math.floor(m.pos.y + (m.type === 'sheep' ? 0.5 : 1.2));
+        var bodyY = Math.floor(m.pos.y + m.h * 0.55);
         var blocked = Voxel.Physics.isSolidCell(aheadX, bodyY, aheadZ);
         var floorAhead = Voxel.Physics.isSolidCell(aheadX, Math.floor(m.pos.y) - 1, aheadZ);
         if (blocked) m.vel.y = 7.5;
@@ -238,7 +310,7 @@ Voxel.Mobs = (function () {
             m.bleatTimer = 12 + Math.random() * 18;
             Voxel.Sound.sheep(sp.vol * 0.8, sp.pan);
           }
-        } else {
+        } else if (m.type === 'zombie') {
           m.growlTimer -= dt;
           if (m.growlTimer <= 0) {
             m.growlTimer = (speed > 0 && night) ? 4 + Math.random() * 5 : 6 + Math.random() * 8;
@@ -251,7 +323,7 @@ Voxel.Mobs = (function () {
       m.group.position.set(m.pos.x, m.pos.y, m.pos.z);
       m.group.rotation.y = m.dir + Math.PI;
       if (speed > 0 && m.onGround)
-        m.group.children[0].position.y = (m.type === 'sheep' ? 0.62 : 1.02) + Math.sin(t * 9 + i) * 0.03;
+        m.group.children[0].position.y = m.bodyY + Math.sin(t * 9 + i) * 0.03;
 
       // 白天烧僵尸（需露天：天光 ≥ 12，洞穴里不烧）
       if (m.type === 'zombie' && Voxel.DayNight.sunlight() > 0.55 &&
