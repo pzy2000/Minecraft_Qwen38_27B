@@ -1101,9 +1101,10 @@ Voxel.Game = (function () {
           pendingEdits = null;
         }
       }
-      // 地形就绪后先算光照（一次性），再渐进建网格
+      // 世界完全生成后先算光照（一次性），再开始渐进建网格
+      // （不能边生成边建：placeTrees 在全部地形生成完后才种树，提前建网格会导致树丢失）
       if (Voxel.World.isReady() && !Voxel.World.lightReady()) Voxel.World.initLight();
-      Voxel.World.buildMeshes(6, scene);
+      if (Voxel.World.isReady()) Voxel.World.buildMeshes(6, scene);
       var p = Voxel.World.progress();
       document.getElementById('loading-bar').style.width = (p * 100).toFixed(0) + '%';
       document.getElementById('loading-text').textContent =
