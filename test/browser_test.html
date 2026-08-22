@@ -11,6 +11,7 @@
 <div id="hud">
   <div id="crosshair"></div>
   <div id="debug"></div>
+  <canvas id="oxygen" width="212" height="20"></canvas>
   <canvas id="health" width="212" height="20"></canvas>
   <div id="hotbar"></div>
   <div id="toast"></div>
@@ -18,6 +19,8 @@
   <div id="lock-hint"></div>
   <div id="error-banner"></div>
   <div id="dmg-flash"></div>
+  <div id="dmg-dir"><i></i></div>
+  <div id="sleep-fade"></div>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel">
   <div class="inv-title">背包</div>
@@ -43,10 +46,17 @@
   <div id="start-hint" class="hint"></div>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
-  <button id="btn-resume"></button><button id="btn-save"></button><button id="btn-new2"></button>
+  <button id="btn-resume"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
   <div class="hint"></div>
 </div></div>
-<div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><button id="btn-respawn"></button></div></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
+<div id="overlay-settings" class="overlay hidden"><div class="panel"><h2></h2>
+  <input id="set-sens" type="range"><span id="set-sens-v"></span>
+  <input id="set-volume" type="range"><span id="set-volume-v"></span>
+  <input id="set-fov" type="range"><span id="set-fov-v"></span>
+  <input id="set-fog" type="range"><span id="set-fog-v"></span>
+  <button id="btn-set-close" class="btn"></button>
+</div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
   <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
 </div></div>
@@ -63,12 +73,14 @@
 <script src="../js/player/controls.js"></script>
 <script src="../js/player/player.js"></script>
 <script src="../js/interact/raycast.js"></script>
+<script src="../js/systems/settings.js"></script>
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
 <script src="../js/systems/sound.js"></script>
 <script src="../js/systems/particles.js"></script>
 <script src="../js/entities/mobs.js"></script>
 <script src="../js/systems/save.js"></script>
+<script src="../js/ui/handitem.js"></script>
 <script src="../js/ui/hud.js"></script>
 <script src="../js/main.js"></script>
 <script>

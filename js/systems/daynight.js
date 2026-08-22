@@ -3,7 +3,8 @@ window.Voxel = window.Voxel || {};
 
 Voxel.DayNight = (function () {
   var time = 0.3;
-  var sun, moon, stars, domeMat;
+  var sun, moon, stars, domeMat, dome;
+  var camY = 0;
   var skyColor = new THREE.Color(0xbfe3f2);
   var tint = new THREE.Color(1, 1, 1);
   var sunlight = 1;
@@ -36,14 +37,16 @@ Voxel.DayNight = (function () {
         topColor: { value: new THREE.Color(0x5aa0e0) },
         horizonColor: { value: new THREE.Color(0xbfe3f2) },
         exponent: { value: 0.72 },
-        radius: { value: DOME_R }
+        radius: { value: DOME_R },
+        uCamY: { value: 0 }
       },
       vertexShader:
         'uniform float radius;' +
+        'uniform float uCamY;' +
         'varying float vH;' +
         'void main() {' +
         '  vec4 wp = modelMatrix * vec4(position, 1.0);' +
-        '  vH = wp.y;' +
+        '  vH = wp.y - uCamY;' +
         '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);' +
         '}',
       fragmentShader:
@@ -57,10 +60,9 @@ Voxel.DayNight = (function () {
         '  gl_FragColor = vec4(mix(horizonColor, topColor, pow(h, exponent)), 1.0);' +
         '}'
     });
-    var dome = new THREE.Mesh(new THREE.SphereGeometry(DOME_R, 24, 14), domeMat);
+    dome = new THREE.Mesh(new THREE.SphereGeometry(DOME_R, 24, 14), domeMat);
     dome.renderOrder = -10;
     scene.add(dome);
-
     sun = new THREE.Mesh(
       new THREE.PlaneGeometry(54, 54),
       new THREE.MeshBasicMaterial({ color: 0xffdd77, fog: false, transparent: true })
@@ -113,21 +115,34 @@ Voxel.DayNight = (function () {
     if (dusk > 0) { tint.r += dusk * 0.10; tint.g += dusk * 0.03; } // 黄昏暖光
 
     var ang = time * Math.PI * 2;
-    sun.position.set(Math.cos(ang) * 480, Math.sin(ang) * 480, 140);
-    moon.position.set(-Math.cos(ang) * 480, -Math.sin(ang) * 480, -140);
-    sun.lookAt(0, 0, 0);
-    moon.lookAt(0, 0, 0);
     sun.visible = el > -0.12;
     moon.visible = el < 0.12;
     // 太阳接近地平线时染成红橙色
     var sd = Math.max(0, 1 - Math.abs(el - 0.1) / 0.35);
     sun.material.color.copy(C_SUN_DAY).lerp(C_SUN_DUSK, sd * 0.85);
     stars.material.opacity = Math.pow(1 - sunlight, 2) * 0.9;
+    updateCamera(lastCam);
+  }
+
+  // 天空体每帧跟随相机（否则地图边缘玩时天空明显偏移）
+  var lastCam = { x: 128, y: 30, z: 128 };
+  function updateCamera(p) {
+    if (!p || !dome) return;
+    lastCam.x = p.x; lastCam.y = p.y; lastCam.z = p.z;
+    dome.position.set(p.x, p.y, p.z);
+    stars.position.set(p.x, p.y, p.z);
+    domeMat.uniforms.uCamY.value = p.y;
+    var ang = time * Math.PI * 2;
+    sun.position.set(p.x + Math.cos(ang) * 480, Math.sin(ang) * 480, p.z + 140);
+    moon.position.set(p.x - Math.cos(ang) * 480, -Math.sin(ang) * 480, p.z - 140);
+    sun.lookAt(p.x, p.y, p.z);
+    moon.lookAt(p.x, p.y, p.z);
   }
 
   return {
     init: init,
     update: update,
+    updateCamera: updateCamera,
     time: function () { return time; },
     setTime: function (t) { time = ((t % 1) + 1) % 1; },
     isNight: function () { return sunlight < 0.4; },

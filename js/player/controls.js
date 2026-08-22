@@ -1,15 +1,17 @@
-// 键盘 + 指针锁定鼠标
+// 键盘 + 指针锁定鼠标（灵敏度可在设置中调节）
 window.Voxel = window.Voxel || {};
 
 Voxel.Controls = (function () {
   var keys = {};
   var yaw = 0, pitch = 0;
   var locked = false;
-  var SENS = 0.0023;
+  var SENS_BASE = 0.0023;
+  var sensMul = 1.0;
   var canvas = null;
 
   function init(c) {
     canvas = c;
+    if (Voxel.Settings) sensMul = Voxel.Settings.get('sens');
     document.addEventListener('keydown', function (e) {
       keys[e.code] = true;
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0) e.preventDefault();
@@ -22,8 +24,9 @@ Voxel.Controls = (function () {
 
     document.addEventListener('mousemove', function (e) {
       if (!locked) return;
-      yaw -= e.movementX * SENS;
-      pitch -= e.movementY * SENS;
+      var s = SENS_BASE * sensMul;
+      yaw -= e.movementX * s;
+      pitch -= e.movementY * s;
       var lim = Math.PI / 2 - 0.01;
       if (pitch > lim) pitch = lim;
       if (pitch < -lim) pitch = -lim;
@@ -45,8 +48,11 @@ Voxel.Controls = (function () {
     });
   }
 
+  function setSens(m) { sensMul = m || 1; }
+
   return {
     init: init,
+    setSens: setSens,
     keys: keys,
     yaw: function () { return yaw; },
     setYaw: function (v) { yaw = v; },

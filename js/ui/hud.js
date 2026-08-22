@@ -306,6 +306,33 @@ Voxel.HUD = (function () {
     el.classList.add('go');
   }
 
+  // 受击方向指示：箭头绕屏幕中心指向伤害来源（rel 为相对玩家朝向的弧度）
+  var dirTimer = null;
+  function damageDir(rel) {
+    var el = document.getElementById('dmg-dir');
+    if (!el) return;
+    var arrow = el.firstElementChild;
+    arrow.style.transform = 'translate(-50%,-50%) rotate(' + (rel * 57.2958) + 'deg) translateY(-130px)';
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(dirTimer);
+    dirTimer = setTimeout(function () { el.classList.remove('show'); }, 700);
+  }
+
+  function setDeathCause(cause) {
+    var el = document.getElementById('death-cause');
+    if (!el) return;
+    var names = {
+      zombie: '被僵尸抓住了',
+      lightning: '被雷劈死了',
+      drown: '溺水窒息了',
+      fall: '摔死了',
+      generic: '牺牲了'
+    };
+    el.textContent = '（' + (names[cause] || names.generic) + '）';
+  }
+
   // ---------- 拖拽幽灵图标 + 悬停高亮 ----------
   var ghostEl = null, hoverEl = null;
 
@@ -357,6 +384,8 @@ Voxel.HUD = (function () {
     showDebug: showDebug,
     toast: toast,
     damageFlash: damageFlash,
+    damageDir: damageDir,
+    setDeathCause: setDeathCause,
     startGhost: startGhost,
     moveGhost: moveGhost,
     endGhost: endGhost,

@@ -90,7 +90,10 @@ Voxel.Mobs = (function () {
     m.vel.z += dir.z * 5;
     m.vel.y += 3;
     Voxel.Sound.hit();
-    if (m.type === 'sheep') Voxel.Sound.sheepHurt(Voxel.Sound.volAt(m.pos.x, m.pos.z));
+    if (m.type === 'sheep') {
+      var shp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z) : { vol: 1, pan: 0 };
+      Voxel.Sound.sheepHurt(shp.vol, shp.pan);
+    }
     if (m.hp <= 0) kill(m);
   }
 
@@ -180,10 +183,14 @@ Voxel.Mobs = (function () {
           m.dir = Math.atan2(-px, -pz);
           m.moveTime = 1;
           speed = dist < 8 ? C.ZOMBIE_SPEED * 1.35 : C.ZOMBIE_SPEED;
-          // 攻击需近距离、高度接近且视线无遮挡
+          // 攻击需近距离、高度接近且视线无遮挡；命中带方向指示与击退
           if (dist < 1.6 && Math.abs(Pl.pos().y - m.pos.y) < 2.4 && m.attackCd <= 0) {
             m.attackCd = 1.2;
-            Pl.damage(C.ZOMBIE_DMG);
+            Pl.damage(C.ZOMBIE_DMG, 'zombie', m.pos.x, m.pos.z);
+            if (Pl.knockback) {
+              var klen = Math.sqrt(px * px + pz * pz) || 1;
+              Pl.knockback(px / klen, pz / klen, 8);
+            }
           }
         }
       }
@@ -199,8 +206,14 @@ Voxel.Mobs = (function () {
       var sin = Math.sin(m.dir), cos = Math.cos(m.dir);
       m.vel.x = -sin * speed;
       m.vel.z = -cos * speed;
-      m.vel.y -= P.GRAVITY * dt;
-      if (m.vel.y < -40) m.vel.y = -40;
+      // 水中漂浮：浮力把生物顶向水面，不再沉底
+      var inWater = Voxel.World.get(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.3), Math.floor(m.pos.z)) === 7;
+      if (inWater) {
+        m.vel.y += (2.6 - m.vel.y) * Math.min(1, dt * 4);
+      } else {
+        m.vel.y -= P.GRAVITY * dt;
+        if (m.vel.y < -40) m.vel.y = -40;
+      }
 
       // 障碍处理：撞墙跳，悬崖转弯
       if (speed > 0 && m.onGround) {
@@ -215,20 +228,21 @@ Voxel.Mobs = (function () {
 
       Voxel.Physics.move(m, dt);
 
-      // 生物叫声（距离衰减，超 34 块静默）
-      var dv = Voxel.Sound.volAt(m.pos.x, m.pos.z);
-      if (alive && dv > 0) {
+      // 生物叫声（距离衰减 + 立体声定位，超 34 块静默）
+      var sp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z)
+        : { vol: Voxel.Sound.volAt(m.pos.x, m.pos.z), pan: 0 };
+      if (alive && sp.vol > 0) {
         if (m.type === 'sheep') {
           m.bleatTimer -= dt;
           if (m.bleatTimer <= 0) {
             m.bleatTimer = 12 + Math.random() * 18;
-            Voxel.Sound.sheep(dv * 0.8);
+            Voxel.Sound.sheep(sp.vol * 0.8, sp.pan);
           }
         } else {
           m.growlTimer -= dt;
           if (m.growlTimer <= 0) {
             m.growlTimer = (speed > 0 && night) ? 4 + Math.random() * 5 : 6 + Math.random() * 8;
-            Voxel.Sound.zombie(dv * 0.9);
+            Voxel.Sound.zombie(sp.vol * 0.9, sp.pan);
           }
         }
       }

@@ -7,13 +7,20 @@
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="hud"><div id="crosshair"></div><div id="debug"></div><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div></div>
+<div id="hud"><div id="crosshair"></div><div id="debug"></div><canvas id="oxygen" width="212" height="20"></canvas><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div><div id="dmg-dir"><i></i></div></div>
 <div id="inventory" class="hidden"><div class="panel"><div id="inv-craft-grid"></div><div id="inv-craft-result" class="slot result"></div><div id="inv-grid"></div><div class="inv-held-row"><canvas id="inv-held" width="44" height="44"></canvas></div></div></div>
 <div id="crafting" class="hidden"><div class="panel craft-panel"><div id="craft-grid"></div><div id="craft-result" class="slot result"></div><div id="craft-inv-grid"></div><div class="inv-held-row"><canvas id="craft-held" width="44" height="44"></canvas></div><button id="btn-manual" class="btn">查看合成手册</button></div></div>
 <div id="manual" class="hidden"><div class="panel manual-panel"><div id="manual-list"></div></div></div>
-<div id="overlay-start" class="overlay hidden"><div class="panel"><button id="btn-start"></button><button id="btn-new"></button><div id="start-hint"></div></div></div>
-<div id="overlay-pause" class="overlay hidden"><div class="panel"><button id="btn-resume"></button><button id="btn-save"></button><button id="btn-new2"></button></div></div>
-<div id="overlay-dead" class="overlay hidden"><div class="panel"><button id="btn-respawn"></button></div></div>
+<div id="overlay-start" class="overlay hidden"><div class="panel"><button id="btn-start"></button><button id="btn-new"></button><button id="btn-settings-menu" class="btn"></button><div id="start-hint"></div></div></div>
+<div id="overlay-pause" class="overlay hidden"><div class="panel"><button id="btn-resume"></button><button id="btn-save"></button><button id="btn-settings" class="btn"></button><button id="btn-menu" class="btn"></button></div></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel"><button id="btn-respawn"></button><div id="death-cause"></div></div></div>
+<div id="overlay-settings" class="overlay hidden"><div class="panel">
+  <input id="set-sens" type="range"><span id="set-sens-v"></span>
+  <input id="set-volume" type="range"><span id="set-volume-v"></span>
+  <input id="set-fov" type="range"><span id="set-fov-v"></span>
+  <input id="set-fog" type="range"><span id="set-fog-v"></span>
+  <button id="btn-set-close" class="btn"></button>
+</div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div></div></div>
 <pre id="out">RUNNING</pre>
 <script src="../vendor/three.min.js"></script>
@@ -27,12 +34,14 @@
 <script src="../js/player/controls.js"></script>
 <script src="../js/player/player.js"></script>
 <script src="../js/interact/raycast.js"></script>
+<script src="../js/systems/settings.js"></script>
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
 <script src="../js/systems/sound.js"></script>
 <script src="../js/systems/particles.js"></script>
 <script src="../js/entities/mobs.js"></script>
 <script src="../js/systems/save.js"></script>
+<script src="../js/ui/handitem.js"></script>
 <script src="../js/ui/hud.js"></script>
 <script src="../js/main.js"></script>
 <script>

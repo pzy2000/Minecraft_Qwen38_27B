@@ -21,6 +21,7 @@
   <div id="lock-hint">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
   <div id="error-banner"></div>
   <div id="dmg-flash"></div>
+  <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
 </div>
 
@@ -71,6 +72,7 @@
     <div class="sub">VOXELCRAFT</div>
     <button id="btn-start" class="btn primary">继续游戏</button>
     <button id="btn-new" class="btn">新世界</button>
+    <button id="btn-settings-menu" class="btn">设置</button>
     <div id="start-hint" class="hint">检测到存档，点击"继续游戏"载入</div>
     <div class="controls">
       <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
@@ -88,8 +90,15 @@
     <h2>游戏暂停</h2>
     <button id="btn-resume" class="btn primary">继续游戏</button>
     <button id="btn-save" class="btn">立即存档</button>
-    <button id="btn-new2" class="btn">新世界</button>
+    <button id="btn-settings" class="btn">设置</button>
+    <button id="btn-menu" class="btn">存档并回主菜单</button>
     <div class="hint">提示：游戏每 30 秒自动存档</div>
+    <div class="controls">
+      <div><b>WASD</b> 移动 · <b>空格</b> 跳/上浮 · <b>Shift</b> 疾跑/下降</div>
+      <div><b>左键</b> 放置 · <b>右键长按</b> 挖掘/攻击 · <b>中键</b> 吸取</div>
+      <div><b>E</b> 背包 / 工作台 / 床 · <b>F</b> 飞行 · <b>G</b> 天气</div>
+      <div><b>M</b> 合成手册 · <b>F3</b> 调试 · <b>P/Esc</b> 暂停</div>
+    </div>
   </div>
 </div>
 
@@ -97,7 +106,21 @@
 <div id="overlay-dead" class="overlay hidden">
   <div class="panel">
     <h2 class="dead">你死了！</h2>
+    <div id="death-cause" class="hint"></div>
     <button id="btn-respawn" class="btn primary">重生</button>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div id="overlay-settings" class="overlay hidden">
+  <div class="panel">
+    <h2>设置</h2>
+    <div class="set-row"><label>鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05"><span id="set-sens-v"></span></div>
+    <div class="set-row"><label>音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05"><span id="set-volume-v"></span></div>
+    <div class="set-row"><label>视场角 (FOV)</label><input id="set-fov" type="range" min="60" max="100" step="1"><span id="set-fov-v"></span></div>
+    <div class="set-row"><label>雾距（视野远近）</label><input id="set-fog" type="range" min="0.5" max="2" step="0.05"><span id="set-fog-v"></span></div>
+    <div class="hint">设置立即生效并自动保存（本浏览器）</div>
+    <button id="btn-set-close" class="btn primary">返回</button>
   </div>
 </div>
 
@@ -121,12 +144,14 @@
 <script src="js/player/controls.js"></script>
 <script src="js/player/player.js"></script>
 <script src="js/interact/raycast.js"></script>
+<script src="js/systems/settings.js"></script>
 <script src="js/systems/daynight.js"></script>
 <script src="js/systems/weather.js"></script>
 <script src="js/systems/sound.js"></script>
 <script src="js/systems/particles.js"></script>
 <script src="js/entities/mobs.js"></script>
 <script src="js/systems/save.js"></script>
+<script src="js/ui/handitem.js"></script>
 <script src="js/ui/hud.js"></script>
 <script src="js/main.js"></script>
 </body>

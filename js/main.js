@@ -21,6 +21,9 @@ Voxel.Game = (function () {
   // 长按挖掘进度
   var digT = null, digProg = 0, digNeed = 0, digHintT = 0, digSndT = 0;
   var crackMesh = null, crackTex = [];
+  // 重力方块（沙/砾下落）与水的简化流动
+  var fallers = [], fallMat = null;
+  var waterQ = [], waterT = 0;
   var fps = 0, frames = 0, fpsT = 0;
   var debug = false;
   var lastT = 0;
@@ -105,6 +108,11 @@ Voxel.Game = (function () {
     Voxel.Mobs.clear();
     Voxel.Particles.clear();
     Voxel.Weather.reset();
+    for (var fi = 0; fi < fallers.length; fi++) {
+      if (fallers[fi].mesh) { scene.remove(fallers[fi].mesh); fallers[fi].mesh.geometry.dispose(); }
+    }
+    fallers.length = 0;
+    waterQ.length = 0;
     Voxel.World.init(s !== null && s !== undefined ? s : ((Math.random() * 0xFFFFFFFF) >>> 0));
     setState('loading');
     showOverlay('overlay-loading');
@@ -261,6 +269,7 @@ Voxel.Game = (function () {
     if (nowS - lastDig < 0.35) return;
     lastDig = nowS;
     Voxel.Mobs.damage(mob, Voxel.Blocks.attackDmg(inv[sel]), d);
+    if (Voxel.HandItem) Voxel.HandItem.swing();
   }
 
   // ---- 长按挖掘（工具加速 / 矿石等级门槛 / 裂纹动画） ----
@@ -315,11 +324,12 @@ Voxel.Game = (function () {
 
     digProg += dt;
 
-    // 周期性敲击声 + 碎屑粒子（挖掘进行中）
+    // 周期性敲击声 + 碎屑粒子 + 挥动（挖掘进行中）
     digSndT -= dt;
     if (digSndT <= 0) {
       digSndT = 0.22;
       Voxel.Sound.digTick(def.sound);
+      if (Voxel.HandItem) Voxel.HandItem.swing();
       if (Math.random() < 0.6)
         Voxel.Particles.burst(new THREE.Vector3(
           digT.x + 0.5 + (Math.random() - 0.5) * 0.8,
@@ -353,6 +363,9 @@ Voxel.Game = (function () {
     addInv(dropId, 1);
     Voxel.Sound.dig(def.sound);
     Voxel.Particles.burst(new THREE.Vector3(t.x + 0.5, t.y + 0.5, t.z + 0.5), def.color, 10);
+    spawnFallersAbove(t.x, t.y, t.z);   // 上方沙/砾失去支撑 → 下落
+    enqueueWaterAround(t.x, t.y, t.z);  // 临水 → 水流入
+    if (Voxel.HandItem) Voxel.HandItem.swing();
   }
 
   function place(hit) {
@@ -382,6 +395,7 @@ Voxel.Game = (function () {
     Voxel.World.set(x, y, z, id);
     decSel();
     Voxel.Sound.place(def.sound);
+    if (Voxel.HandItem) Voxel.HandItem.swing();
   }
 
   function pickBlock() {
@@ -808,8 +822,28 @@ Voxel.Game = (function () {
     tryLock();
   }
 
+  // 存档并回到主菜单
+  function gotoMenu() {
+    if (state !== 'paused') return;
+    doSave(true);
+    stopDig();
+    manualCraftStop();
+    saveData = Voxel.Save.load();
+    document.getElementById('overlay-pause').classList.add('hidden');
+    var hint = document.getElementById('start-hint');
+    if (saveData) {
+      hint.textContent = '检测到存档 · 种子 ' + saveData.seed;
+      document.getElementById('btn-start').textContent = '继续游戏';
+    } else {
+      hint.textContent = '将生成一个全新的随机世界';
+    }
+    showOverlay('overlay-start');
+    setState('menu');
+  }
+
   function onPlayerDead() {
     setState('dead');
+    if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(Voxel.Player.lastDamageCause());
     document.getElementById('overlay-dead').classList.remove('hidden');
     Voxel.Controls.exitLock();
     doSave(true);
@@ -864,6 +898,103 @@ Voxel.Game = (function () {
     } else if (state === 'menu') {
       if (code === 'Enter') startWorld(saveData ? saveData.seed : null, saveData);
       else if (code === 'KeyM') openManual();
+    }
+  }
+
+  // ---------- 重力方块（沙/砾）与水的简化流动 ----------
+
+  function makeFallMesh(id, x, y, z) {
+    var geo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
+    var uv = geo.attributes.uv;
+    var cornerV = [[0, 1], [1, 1], [0, 0], [1, 0]];
+    for (var f = 0; f < 6; f++) {
+      var t = Voxel.Blocks.tileForFace(id, f);
+      var c = t % 16, r = (t / 16) | 0;
+      for (var k = 0; k < 4; k++) {
+        uv.setXY(f * 4 + k,
+          (c * 16 + 0.5 + cornerV[k][0] * 15) / 256,
+          1 - (r * 16 + 0.5 + (1 - cornerV[k][1]) * 15) / 256);
+      }
+    }
+    uv.needsUpdate = true;
+    var m = new THREE.Mesh(geo, fallMat);
+    m.position.set(x + 0.5, y + 0.5, z + 0.5);
+    return m;
+  }
+
+  // 挖掉支撑后，让上方连续的沙/砾变成下落实体
+  function spawnFallersAbove(x, y, z) {
+    var yy = y + 1;
+    while (yy < CFG.WORLD_H) {
+      var id = Voxel.World.get(x, yy, z);
+      if (id !== 6 && id !== 14) break;
+      Voxel.World.set(x, yy, z, 0);
+      if (fallMat && scene) {
+        var mesh = makeFallMesh(id, x, yy, z);
+        scene.add(mesh);
+        fallers.push({ x: x, y: yy, z: z, id: id, vy: -0.4, mesh: mesh });
+      }
+      yy++;
+    }
+  }
+
+  function updateFallers(dt) {
+    for (var i = fallers.length - 1; i >= 0; i--) {
+      var fb = fallers[i];
+      fb.vy -= 24 * dt;
+      if (fb.vy < -28) fb.vy = -28;
+      var ny = fb.y + fb.vy * dt;
+      var cy = Math.floor(ny);
+      if (cy < 0 || Voxel.Blocks.isSolid(Voxel.World.get(fb.x, cy, fb.z))) {
+        // 落地：从落点向上找第一个可占用格（空气/水/火把）
+        var landY = cy + 1;
+        var cur = Voxel.World.get(fb.x, landY, fb.z);
+        while (landY < CFG.WORLD_H - 1 &&
+          !(cur === 0 || cur === 7 || cur === 19)) {
+          landY++;
+          cur = Voxel.World.get(fb.x, landY, fb.z);
+        }
+        if (!Voxel.Blocks.isSolid(cur)) Voxel.World.set(fb.x, landY, fb.z, fb.id);
+        scene.remove(fb.mesh);
+        fb.mesh.geometry.dispose();
+        fallers.splice(i, 1);
+        continue;
+      }
+      fb.y = ny;
+      fb.mesh.position.set(fb.x + 0.5, fb.y + 0.5, fb.z + 0.5);
+    }
+  }
+
+  // 水的简化流动：挖开临水的格子后，水逐渐填入（上方或水平相邻有水）
+  function enqueueWaterAround(x, y, z) {
+    var dirs = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
+    for (var d = 0; d < dirs.length; d++) {
+      var nx = x + dirs[d][0], ny = y + dirs[d][1], nz = z + dirs[d][2];
+      if (nx < 0 || nx >= CFG.WORLD_W || ny < 0 || ny >= CFG.WORLD_H || nz < 0 || nz >= CFG.WORLD_D) continue;
+      if (waterQ.length > 1500) return;
+      waterQ.push([nx, ny, nz]);
+    }
+  }
+
+  function processWater(dt) {
+    waterT -= dt;
+    if (waterT > 0 || !waterQ.length) return;
+    waterT = 0.15;
+    var budget = 2;
+    while (budget-- > 0 && waterQ.length) {
+      var p = waterQ.shift();
+      if (Voxel.World.get(p[0], p[1], p[2]) !== 0) continue;
+      // 上方或水平相邻有水 → 填充
+      var filled = false;
+      if (Voxel.World.get(p[0], p[1] + 1, p[2]) === 7 ||
+        Voxel.World.get(p[0] + 1, p[1], p[2]) === 7 ||
+        Voxel.World.get(p[0] - 1, p[1], p[2]) === 7 ||
+        Voxel.World.get(p[0], p[1], p[2] + 1) === 7 ||
+        Voxel.World.get(p[0], p[1], p[2] - 1) === 7) {
+        Voxel.World.set(p[0], p[1], p[2], 7);
+        filled = true;
+      }
+      if (filled) enqueueWaterAround(p[0], p[1], p[2]);
     }
   }
 
@@ -989,16 +1120,28 @@ Voxel.Game = (function () {
         else if (digT || digProg) stopDig();
         Voxel.Player.update(step);
         Voxel.Mobs.update(step);
+        updateFallers(step);
         acc -= step;
         n++;
       }
       if (n === 5) acc = 0;
       if (!mouseDown[2] && (digT || digProg)) stopDig();
 
+      // 水的简化流动（节流处理）
+      processWater(dt);
+
       Voxel.DayNight.update(dt);
+      if (Voxel.DayNight.updateCamera) Voxel.DayNight.updateCamera(camera.position);
       Voxel.Weather.update(dt);
       Voxel.Particles.update(dt);
       updateHighlight();
+
+      // 第一人称手持物
+      if (Voxel.HandItem) {
+        var pv = Voxel.Player.vel();
+        Voxel.HandItem.setId(inv[sel]);
+        Voxel.HandItem.update(dt, Math.abs(pv.x) + Math.abs(pv.z) > 0.5);
+      }
 
       // 受伤检测（回血计时）
       var hp = Voxel.Player.hp();
@@ -1024,6 +1167,8 @@ Voxel.Game = (function () {
     Voxel.MeshBuilder.applyTint(_tint);
     Voxel.Particles.applyTint(_tint);
     Voxel.Mobs.applyTint(_tint);
+    if (Voxel.HandItem) Voxel.HandItem.applyTint(_tint);
+    if (fallMat) fallMat.color.copy(_tint);
     _skyTop.copy(Voxel.DayNight.topColor()).lerp(Voxel.Weather.getSkyTop(), wF * 0.85);
     _sky.copy(Voxel.DayNight.horizonColor()).lerp(Voxel.Weather.getSky(), wF * 0.85);
     if (wFlash > 0) {
@@ -1033,8 +1178,9 @@ Voxel.Game = (function () {
     Voxel.DayNight.applySky(_skyTop, _sky);
     renderer.setClearColor(_sky);
     scene.fog.color.copy(_sky);
-    var fogNear = CFG.FOG_NEAR + (CFG.WEATHER.FOG_NEAR_WET - CFG.FOG_NEAR) * wF;
-    var fogFar = CFG.FOG_FAR + (CFG.WEATHER.FOG_FAR_WET - CFG.FOG_FAR) * wF;
+    var fogScale = Voxel.Settings ? Voxel.Settings.get('fog') : 1;
+    var fogNear = (CFG.FOG_NEAR + (CFG.WEATHER.FOG_NEAR_WET - CFG.FOG_NEAR) * wF) * fogScale;
+    var fogFar = (CFG.FOG_FAR + (CFG.WEATHER.FOG_FAR_WET - CFG.FOG_FAR) * wF) * fogScale;
     scene.fog.near = fogNear;
     scene.fog.far = fogFar;
 
@@ -1207,8 +1353,11 @@ Voxel.Game = (function () {
 
     Game.scene = scene;
     Game.camera = camera;
+    scene.add(camera); // 相机入场景：手持物等子对象才能渲染
     scene.add(highlight);
     scene.add(crackMesh);
+    if (Voxel.HandItem) Voxel.HandItem.init(camera);
+    fallMat = new THREE.MeshBasicMaterial({ map: Voxel.Blocks.getTexture() });
 
     canvas.addEventListener('mousedown', function (e) {
       if (state !== 'playing') return;
@@ -1255,6 +1404,46 @@ Voxel.Game = (function () {
     document.getElementById('btn-resume').addEventListener('click', resume);
     document.getElementById('btn-save').addEventListener('click', function () { doSave(false); });
     document.getElementById('btn-respawn').addEventListener('click', resume);
+    document.getElementById('btn-menu').addEventListener('click', gotoMenu);
+
+    // ---- 设置面板 ----
+    var setReturn = 'menu';
+    function openSettings(from) {
+      setReturn = from;
+      document.getElementById('overlay-start').classList.add('hidden');
+      document.getElementById('overlay-pause').classList.add('hidden');
+      document.getElementById('overlay-settings').classList.remove('hidden');
+    }
+    function closeSettings() {
+      document.getElementById('overlay-settings').classList.add('hidden');
+      if (setReturn === 'paused') document.getElementById('overlay-pause').classList.remove('hidden');
+      else document.getElementById('overlay-start').classList.remove('hidden');
+    }
+    function bindSlider(key) {
+      var input = document.getElementById('set-' + key);
+      var label = document.getElementById('set-' + key + '-v');
+      if (!input || !Voxel.Settings) return;
+      var v = Voxel.Settings.get(key);
+      input.value = v;
+      if (label) label.textContent = (key === 'fov' ? v : v.toFixed(2));
+      input.addEventListener('input', function () {
+        Voxel.Settings.set(key, +input.value);
+        if (label) label.textContent = (key === 'fov' ? input.value : (+input.value).toFixed(2));
+      });
+    }
+    bindSlider('sens'); bindSlider('volume'); bindSlider('fov'); bindSlider('fog');
+    document.getElementById('btn-set-close').addEventListener('click', closeSettings);
+    document.getElementById('btn-settings').addEventListener('click', function () { openSettings('paused'); });
+    document.getElementById('btn-settings-menu').addEventListener('click', function () { openSettings('menu'); });
+
+    // 设置应用：灵敏度/音量即时生效；FOV 与雾距在主循环中读取
+    if (Voxel.Settings) {
+      Voxel.Settings.onChange(function (k, v) {
+        if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
+        else if (k === 'volume' && Voxel.Sound.setVolume) Voxel.Sound.setVolume(v);
+      });
+      Voxel.Settings.applyAll();
+    }
 
     var sd = Voxel.Save.load();
     if (sd) {

@@ -5,6 +5,16 @@ Voxel.Sound = (function () {
   var ctx = null, master = null, noiseBuffer = null;
   var MAX_SOUND_DIST = 34;
   var uwActive = false, muffle = null, uwSrc = null, uwLoopGain = null;
+  var baseVol = (Voxel.Settings ? Voxel.Settings.get('volume') : 0.5);
+
+  // 音量设置（0~1）
+  function setVolume(v) {
+    baseVol = Math.max(0, Math.min(1, v || 0));
+    if (!ctx) return;
+    var t = ctx.currentTime;
+    var target = uwActive ? baseVol * 1.2 : baseVol;
+    master.gain.setTargetAtTime(Math.max(0.0001, target), t, 0.05);
+  }
 
   function ac() {
     if (!ctx) {
@@ -12,7 +22,7 @@ Voxel.Sound = (function () {
       if (!AC) return null;
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = 0.5;
+      master.gain.value = Math.max(0.0001, baseVol);
       master.connect(ctx.destination);
       if (rainPending > 0) rainSet(rainPending); // 解锁后补开雨声
     }
@@ -29,7 +39,7 @@ Voxel.Sound = (function () {
     return noiseBuffer;
   }
 
-  function noiseHit(freq, q, dur, vol) {
+  function noiseHit(freq, q, dur, vol, pan) {
     var c = ac();
     if (!c) return;
     var src = c.createBufferSource();
@@ -44,12 +54,14 @@ Voxel.Sound = (function () {
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(f);
     f.connect(g);
-    g.connect(master);
+    var pn = makePan(c, pan);
+    if (pn) { g.connect(pn); pn.connect(master); }
+    else g.connect(master);
     src.start(t);
     src.stop(t + dur + 0.02);
   }
 
-  function tone(type, f0, f1, dur, vol) {
+  function tone(type, f0, f1, dur, vol, pan) {
     var c = ac();
     if (!c) return;
     var o = c.createOscillator();
@@ -61,13 +73,15 @@ Voxel.Sound = (function () {
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g);
-    g.connect(master);
+    var pn = makePan(c, pan);
+    if (pn) { g.connect(pn); pn.connect(master); }
+    else g.connect(master);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
 
   // 带颤音（LFO 调频）的振荡器，用于羊叫/僵尸呻吟
-  function toneVib(type, f0, f1, dur, vol, vibFreq, vibDepth, lowpass) {
+  function toneVib(type, f0, f1, dur, vol, vibFreq, vibDepth, lowpass, pan) {
     var c = ac();
     if (!c) return;
     var o = c.createOscillator();
@@ -96,7 +110,9 @@ Voxel.Sound = (function () {
       tail = f;
     }
     tail.connect(g);
-    g.connect(master);
+    var pn = makePan(c, pan);
+    if (pn) { g.connect(pn); pn.connect(master); }
+    else g.connect(master);
     o.start(t);
     o.stop(t + dur + 0.02);
     lfo.start(t);
@@ -115,6 +131,30 @@ Voxel.Sound = (function () {
     return 1 - d / MAX_SOUND_DIST;
   }
 
+  // 立体声空间定位：返回 {vol 距离衰减, pan 声像 -1左~1右}
+  function spatial(x, z) {
+    var p = Voxel.Player.pos();
+    var dx = x - p.x, dz = z - p.z;
+    var d = Math.sqrt(dx * dx + dz * dz);
+    var vol = d > MAX_SOUND_DIST ? 0 : 1 - d / MAX_SOUND_DIST;
+    var pan = 0;
+    if (d > 0.01 && Voxel.Controls) {
+      // 玩家朝向的右向量：(cos(yaw), -sin(yaw))
+      var yaw = Voxel.Controls.yaw();
+      var rx = Math.cos(yaw), rz = -Math.sin(yaw);
+      pan = Math.max(-1, Math.min(1, (dx * rx + dz * rz) / d * 0.85));
+    }
+    return { vol: vol, pan: pan };
+  }
+
+  // 可选立体声节点：pan 为 0 时省略
+  function makePan(c, pan) {
+    if (!pan || !c.createStereoPanner) return null;
+    var p = c.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    return p;
+  }
+
   // 水下：master 串入低通闷音 + 持续低频水声
   function setUnderwater(on) {
     if (!!on === uwActive) return;
@@ -130,7 +170,7 @@ Voxel.Sound = (function () {
       try { master.disconnect(); } catch (e) { }
       master.connect(muffle);
       muffle.connect(c.destination);
-      master.gain.setTargetAtTime(0.6, c.currentTime, 0.05);
+      master.gain.setTargetAtTime(Math.max(0.0001, baseVol * 1.2), c.currentTime, 0.05);
       startUwLoop(c);
     } else {
       if (muffle) {
@@ -138,7 +178,7 @@ Voxel.Sound = (function () {
       }
       try { master.disconnect(); } catch (e) { }
       master.connect(c.destination);
-      master.gain.setTargetAtTime(0.5, c.currentTime, 0.05);
+      master.gain.setTargetAtTime(Math.max(0.0001, baseVol), c.currentTime, 0.05);
       stopUwLoop(c);
     }
   }
@@ -225,6 +265,8 @@ Voxel.Sound = (function () {
   return {
     unlock: ac,
     volAt: volAt,
+    spatial: spatial,
+    setVolume: setVolume,
     dig: function (m) { noiseHit(matFreq[m] || 500, 1.2, 0.11, 0.5); },
     // 挖掘中的周期敲击声（比破坏声更轻更短）
     digTick: function (m) {
@@ -292,23 +334,23 @@ Voxel.Sound = (function () {
       noiseHit(250 + Math.random() * 80, 0.9, 0.08, 0.1 + h * 0.3);
       tone('sine', 95 - h * 20, 40, 0.09 + h * 0.08, 0.12 + h * 0.35);
     },
-    // 羊叫：vol 0~1（已含距离衰减）
-    sheep: function (vol) {
+    // 羊叫：vol 0~1（已含距离衰减），pan 声像
+    sheep: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02) return;
-      toneVib('sawtooth', 330, 270, 0.5, v * 0.32, 7, 35, 1200);
-      toneVib('sine', 165, 135, 0.5, v * 0.25, 7, 18, 0);
+      toneVib('sawtooth', 330, 270, 0.5, v * 0.32, 7, 35, 1200, pan);
+      toneVib('sine', 165, 135, 0.5, v * 0.25, 7, 18, 0, pan);
     },
-    sheepHurt: function (vol) {
+    sheepHurt: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02) return;
-      toneVib('sawtooth', 420, 330, 0.28, v * 0.3, 9, 40, 1400);
+      toneVib('sawtooth', 420, 330, 0.28, v * 0.3, 9, 40, 1400, pan);
     },
-    // 僵尸呻吟：vol 0~1
-    zombie: function (vol) {
+    // 僵尸呻吟：vol 0~1，pan 声像
+    zombie: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02) return;
-      toneVib('sawtooth', 85 + Math.random() * 15, 60, 0.6 + Math.random() * 0.3, v * 0.3, 3.5, 18, 350);
+      toneVib('sawtooth', 85 + Math.random() * 15, 60, 0.6 + Math.random() * 0.3, v * 0.3, 3.5, 18, 350, pan);
     },
     // 头部浸水：闷音 + 水下环境声
     setUnderwater: setUnderwater,

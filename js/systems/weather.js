@@ -193,7 +193,7 @@ Voxel.Weather = (function () {
     thunderT = 0.35 + Math.random() * 1.3;
     setBolt(sx, sy0, sz);
     if (strike && p) {
-      Voxel.Player.damage(W.STRIKE_DMG);
+      Voxel.Player.damage(W.STRIKE_DMG, "lightning", p ? p.x + 0.01 : undefined, p ? p.z : undefined);
       if (Voxel.HUD) Voxel.HUD.toast('你被雷劈了！(-' + W.STRIKE_DMG + ')');
     }
   }
@@ -251,15 +251,17 @@ Voxel.Weather = (function () {
       rain.geometry.attributes.position.needsUpdate = true;
     }
 
-    // 云层：漂移 + 雨天变灰变密
+    // 云层：漂移 + 雨天变灰变密（环绕范围相对相机，地图边缘也有云）
     for (var c = 0; c < clouds.length; c++) {
       var cl = clouds[c], m = cl.m;
       m.position.x += wx * dt * 0.45;
       m.position.z += wz * dt * 0.45;
-      if (m.position.x > 340) m.position.x = -340;
-      else if (m.position.x < -340) m.position.x = 340;
-      if (m.position.z > 340) m.position.z = -340;
-      else if (m.position.z < -340) m.position.z = 340;
+      var rx = m.position.x - cam.position.x;
+      if (rx > 340) m.position.x -= 680;
+      else if (rx < -340) m.position.x += 680;
+      var rz = m.position.z - cam.position.z;
+      if (rz > 340) m.position.z -= 680;
+      else if (rz < -340) m.position.z += 680;
       m.material.opacity = cl.baseOp + (0.85 - cl.baseOp) * intensity;
       m.material.color.copy(C_WHITE).lerp(C_CLOUD_GRAY, intensity);
     }
@@ -389,7 +391,7 @@ Voxel.Weather = (function () {
         flash = 1; flash2 = 0.07; boltT = 0.13;
         thunderT = 0.3;
         setBolt(p.x, p.y, p.z);
-        Voxel.Player.damage(W.STRIKE_DMG);
+        Voxel.Player.damage(W.STRIKE_DMG, "lightning", p ? p.x + 0.01 : undefined, p ? p.z : undefined);
         if (Voxel.HUD) Voxel.HUD.toast('你被雷劈了！(-' + W.STRIKE_DMG + ')');
       },
       triggerRainbow: function () { rainbowT = 0; rainFadeT = 90; }

@@ -12,6 +12,8 @@ Voxel.Player = (function () {
   var prevInWater = false, bubbleTimer = 0;
   var air = C.AIR_MAX, drownT = 0;   // 憋气
   var bedPos = null;                 // 床重生点
+  var kbx = 0, kbz = 0, kbT = 0;     // 受击击退
+  var lastCause = '';                // 最近一次受伤原因
   var ent = { w: C.W, h: C.H, onGround: false, pos: null, vel: null };
 
   function update(dt) {
@@ -47,6 +49,15 @@ Voxel.Player = (function () {
     vel.x = dx * speed;
     vel.z = dz * speed;
 
+    // 受击击退：短时间叠加外力并衰减
+    if (kbT > 0) {
+      kbT -= dt;
+      var k = Math.max(0, kbT / 0.4);
+      vel.x += kbx * k;
+      vel.z += kbz * k;
+      if (kbT <= 0) { kbx = 0; kbz = 0; }
+    }
+
     if (flying) {
       var vy = 0;
       if (K['Space']) vy += 1;
@@ -73,7 +84,7 @@ Voxel.Player = (function () {
     if (onGround && !wasOnGround && vyBefore < -4) {
       Voxel.Sound.land(Math.min(1, -vyBefore / 25));
       if (!flying && !inWater && vyBefore < -C.FALL_SAFE) {
-        damage(Math.round((-vyBefore - C.FALL_SAFE) * C.FALL_DMG));
+        damage(Math.round((-vyBefore - C.FALL_SAFE) * C.FALL_DMG), 'fall');
       }
     }
 
@@ -85,7 +96,7 @@ Voxel.Player = (function () {
       if (air <= 0) {
         air = 0;
         drownT += dt;
-        if (drownT >= 1 && hp > 0) { drownT = 0; damage(C.DROWN_DMG); }
+        if (drownT >= 1 && hp > 0) { drownT = 0; damage(C.DROWN_DMG, 'drown'); }
       }
     } else {
       air = Math.min(C.AIR_MAX, air + dt * 2.5);
@@ -123,7 +134,8 @@ Voxel.Player = (function () {
       cam.position.set(pos.x, pos.y + C.EYE, pos.z);
       cam.rotation.x = Voxel.Controls.pitch();
       cam.rotation.y = yaw;
-      var wantFov = (sprint && moving && !flying && !inWater) ? 82 : 75;
+      var baseFov = (Voxel.Settings ? Voxel.Settings.get('fov') : 75) || 75;
+      var wantFov = (sprint && moving && !flying && !inWater) ? baseFov + 7 : baseFov;
       if (Math.abs(cam.fov - wantFov) > 0.05) {
         cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 8);
         cam.updateProjectionMatrix();
@@ -170,14 +182,30 @@ Voxel.Player = (function () {
     Voxel.HUD.drawHealth(hp);
   }
 
-  function damage(n) {
+  function damage(n, cause, sx, sz) {
     if (hp <= 0) return;
     hp -= n;
     if (hp < 0) hp = 0;
+    lastCause = cause || 'generic';
     Voxel.Sound.hurt();
     Voxel.HUD.damageFlash();
+    // 受击方向指示（屏幕箭头指向伤害来源）
+    if (sx !== undefined && sz !== undefined && Voxel.HUD.damageDir) {
+      var a = Math.atan2(-(sx - pos.x), -(sz - pos.z));
+      Voxel.HUD.damageDir(a - Voxel.Controls.yaw());
+    }
     Voxel.HUD.drawHealth(hp);
     if (hp <= 0 && Voxel.Game) Voxel.Game.onPlayerDead();
+  }
+
+  // 外部击退冲量（方向单位向量 × 强度）
+  function knockback(dx, dz, power) {
+    var len = Math.sqrt(dx * dx + dz * dz);
+    if (len < 0.001) return;
+    kbx = dx / len * power;
+    kbz = dz / len * power;
+    kbT = 0.4;
+    if (onGround) vel.y = Math.max(vel.y, 3.5); // 轻微挑空
   }
 
   function heal(n) {
@@ -192,11 +220,14 @@ Voxel.Player = (function () {
     respawn: respawn,
     update: update,
     damage: damage,
+    knockback: knockback,
+    lastDamageCause: function () { return lastCause; },
     heal: heal,
     setBed: setBed,
     getBed: getBed,
     air: function () { return air; },
     pos: function () { return pos; },
+    vel: function () { return vel; },
     eyePos: function () { return new THREE.Vector3(pos.x, pos.y + C.EYE, pos.z); },
     lookDir: function () {
       var p = Voxel.Controls.pitch(), y = Voxel.Controls.yaw();
