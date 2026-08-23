@@ -4,8 +4,13 @@ html, body {
   overflow: hidden;
   background: #000;
   font-family: 'Courier New', 'PingFang SC', monospace;
+  /* 移动端：抑制双击缩放/长按呼出菜单/文本选择/下拉刷新 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
 }
-#game { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+#game { display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
 .hidden { display: none !important; }
 
 /* ---------- HUD ---------- */
@@ -360,6 +365,121 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
   background: rgba(0, 0, 0, 0.4);
   border: 2px solid #555;
   width: 44px; height: 44px;
+}
+
+/* ---------- 触控（移动端） ---------- */
+/* 手势捕获层：位于画面之上、面板/快捷栏之下；触控模式下才显示 */
+.touch-capture {
+  position: fixed; inset: 0;
+  z-index: 7;
+  touch-action: none;
+}
+/* 王者荣耀式浮动摇杆 */
+.touch-stick-base {
+  display: none;
+  position: fixed;
+  width: 132px; height: 132px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: radial-gradient(circle, rgba(255,255,255,0.10) 40%, rgba(0,0,0,0.22) 100%);
+  box-shadow: inset 0 0 18px rgba(0,0,0,0.35);
+  pointer-events: none;
+  z-index: 8;
+}
+.touch-stick-base.active {
+  border-color: rgba(255, 255, 255, 0.75);
+  background: radial-gradient(circle, rgba(255,255,255,0.16) 40%, rgba(0,0,0,0.26) 100%);
+}
+.touch-stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 56px; height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.92), rgba(190,190,200,0.55));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  transition: transform 0.04s linear;
+}
+/* 动作按钮（右下簇 + 右上系统键） */
+.touch-btn {
+  position: fixed;
+  display: none;
+  align-items: center; justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 #000;
+  background: radial-gradient(circle, rgba(20,20,28,0.42) 55%, rgba(0,0,0,0.5) 100%);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 8;
+}
+.touch-btn.pressing { border-color: #ffd75e; color: #ffe9a8; }
+.touch-btn-main {
+  right: calc(30px + env(safe-area-inset-right));
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  width: 72px; height: 72px;
+  font-size: 24px;
+}
+.touch-btn-sub {
+  width: 54px; height: 54px;
+  font-size: 17px;
+  background: radial-gradient(circle, rgba(20,20,28,0.34) 55%, rgba(0,0,0,0.44) 100%);
+}
+.touch-btn-sub.descend {
+  right: calc(118px + env(safe-area-inset-right));
+  bottom: calc(88px + env(safe-area-inset-bottom));
+}
+.touch-btn-sub.fly {
+  right: calc(36px + env(safe-area-inset-right));
+  bottom: calc(186px + env(safe-area-inset-bottom));
+}
+.touch-btn-top {
+  width: 46px; height: 46px;
+  font-size: 15px;
+  top: calc(10px + env(safe-area-inset-top));
+  background: rgba(20,20,28,0.4);
+}
+.touch-btn-top.pause { right: calc(64px + env(safe-area-inset-right)); }
+.touch-btn-top.bag { right: calc(12px + env(safe-area-inset-right)); }
+
+/* 竖屏提示遮罩 */
+#rotate-hint {
+  position: fixed; inset: 0;
+  z-index: 60;
+  background: rgba(6, 10, 16, 0.92);
+  display: flex; align-items: center; justify-content: center;
+}
+#rotate-hint.dismissed { display: none; }
+.rh-box { text-align: center; color: #dfe7f0; }
+.rh-icon { font-size: 64px; line-height: 1; animation: rh-spin 2.2s ease-in-out infinite; }
+@keyframes rh-spin {
+  0%, 55% { transform: rotate(0deg); }
+  75%, 100% { transform: rotate(90deg); }
+}
+.rh-text { margin: 14px 0 18px; font-size: 15px; line-height: 1.7; }
+
+/* 小屏适配：槽位与面板收缩，保证竖屏也可操作 */
+@media (max-width: 900px) {
+  .slot { width: 40px !important; height: 40px !important; }
+  .slot canvas { width: 34px; height: 34px; }
+  #hotbar .slot { width: 38px; height: 38px; }
+  #hotbar .slot canvas { width: 32px; height: 32px; }
+  #inv-grid, #craft-inv-grid, #fur-inv-grid, #chest-grid, #chest-inv-grid {
+    grid-template-columns: repeat(9, 40px) !important;
+    gap: 3px !important;
+  }
+  #craft-grid { grid-template-columns: repeat(3, 40px) !important; gap: 3px !important; }
+  #inv-craft-grid { grid-template-columns: repeat(2, 40px) !important; gap: 3px !important; }
+  #fur-in, #fur-fuel { width: 40px !important; height: 40px !important; }
+  #fur-out { width: 46px !important; height: 46px !important; }
+  .panel { max-width: 94vw; padding: 12px 14px !important; }
+  .panel h1 { font-size: 30px; }
+  .controls div { font-size: 11px; }
+  .seed-row input { width: 150px; }
 }
 
 /* ---------- 合成手册 ---------- */

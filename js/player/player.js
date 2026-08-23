@@ -23,14 +23,26 @@ Voxel.Player = (function () {
     var K = Voxel.Controls.keys;
     var f = (K['KeyW'] || K['ArrowUp'] ? 1 : 0) - (K['KeyS'] || K['ArrowDown'] ? 1 : 0);
     var s = (K['KeyD'] || K['ArrowRight'] ? 1 : 0) - (K['KeyA'] || K['ArrowLeft'] ? 1 : 0);
+
+    // 触摸摇杆：屏幕系向量并入前后/左右轴（保留模拟量，小幅推动=慢走）
+    var tSprint = false;
+    if (Voxel.Touch && Voxel.Touch.active && Voxel.Touch.active()) {
+      var mv = Voxel.Touch.moveVec();
+      f += -mv.y;
+      s += mv.x;
+      tSprint = Voxel.Touch.sprint();
+    }
+
     var yaw = Voxel.Controls.yaw();
     var sin = Math.sin(yaw), cos = Math.cos(yaw);
     var dx = -sin * f + cos * s;
     var dz = -cos * f - sin * s;
     var len = Math.sqrt(dx * dx + dz * dz);
-    if (len > 0) { dx /= len; dz /= len; }
+    // 超过 1 归一（键盘全速）；摇杆小幅推动保留模拟量实现慢走
+    if (len > 1) { dx /= len; dz /= len; }
 
-    var sprint = K['ShiftLeft'] || K['ShiftRight'];
+    var descend = K['ShiftLeft'] || K['ShiftRight'];
+    var sprint = descend || tSprint;
 
     inWater =
       Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + 0.4), Math.floor(pos.z)) === 7 ||
@@ -64,7 +76,8 @@ Voxel.Player = (function () {
     if (flying) {
       var vy = 0;
       if (K['Space']) vy += 1;
-      if (sprint) vy -= 1;
+      // 触控摇杆外圈只控制水平快速飞行；下降必须来自独立的 Shift/“降”按钮。
+      if (descend) vy -= 1;
       vel.y = vy * C.FLY;
     } else if (inWater) {
       vel.y -= C.SWIM_GRAVITY * dt;

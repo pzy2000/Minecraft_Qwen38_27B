@@ -132,17 +132,18 @@
   function dragTo(r1, r2) {
     function fire(type, x, y) {
       var el = document.elementFromPoint(x, y) || document;
-      el.dispatchEvent(new MouseEvent(type, {
+      el.dispatchEvent(new PointerEvent(type, {
         bubbles: true, cancelable: true, button: 0,
+        pointerId: 7, pointerType: 'mouse', isPrimary: true,
         clientX: x, clientY: y, view: window
       }));
     }
     var sx = r1.left + r1.width / 2, sy = r1.top + r1.height / 2;
     var dx = r2.left + r2.width / 2, dy = r2.top + r2.height / 2;
-    fire('mousedown', sx, sy);
-    fire('mousemove', sx + (dx - sx) * 0.5, sy + (dy - sy) * 0.5);
-    fire('mousemove', dx, dy);
-    fire('mouseup', dx, dy);
+    fire('pointerdown', sx, sy);
+    fire('pointermove', sx + (dx - sx) * 0.5, sy + (dy - sy) * 0.5);
+    fire('pointermove', dx, dy);
+    fire('pointerup', dx, dy);
   }
   function report() {
     check('WebGL 控制台无报错(' + glErrors + ' 条)', glErrors === 0);
@@ -507,8 +508,8 @@
     var btn0 = document.querySelector('.craft-btn[data-recipe="0"]');
     check('合成按钮显示可合成次数 ×2', btn0.textContent === '合成 ×2' && btn0.disabled === false);
     check('工作台按钮材料不足(禁用)', document.querySelector('.craft-btn[data-recipe="1"]').disabled === true);
-    btn0.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-    btn0.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    btn0.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 8 }));
+    btn0.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 8 }));
     check('一键合成: 1 橡木 → 4 木板', T.countInv(10) === 4 && T.countInv(4) === 1);
     check('合成按钮次数更新 ×1', document.querySelector('.craft-btn[data-recipe="0"]').textContent === '合成 ×1');
 

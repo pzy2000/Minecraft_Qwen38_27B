@@ -411,6 +411,51 @@ Voxel.Game = (function () {
     heldItem = 0; heldCnt = 0; heldDur = null;
   }
 
+  // ---------- 触控瞄准（MCPE 手势流）：射线来自屏幕触点或准星 ----------
+
+  var touchAim = null;   // {nx,ny} 0~1 屏幕归一化坐标；null=准星
+
+  function setTouchAim(nx, ny) {
+    touchAim = nx === null ? null : { nx: nx, ny: ny };
+  }
+
+  function aimDir() {
+    if (touchAim && camera) {
+      var v = new THREE.Vector3(touchAim.nx * 2 - 1, -(touchAim.ny * 2 - 1), 0.5);
+      v.unproject(camera);
+      v.sub(camera.position).normalize();
+      return v;
+    }
+    return Voxel.Player.lookDir();
+  }
+
+  // 对功能方块执行 E 类交互；命中返回 true
+  function interactWith(hit) {
+    if (!hit || hit.type !== 'block') return false;
+    if (hit.id === 15) { openCrafting(); return true; }
+    if (hit.id === 17) { useBed(hit); return true; }
+    if (hit.id === 37) { openFurnace(hit); return true; }
+    if (hit.id === 38) { openChest(hit); return true; }
+    return false;
+  }
+
+  // 轻点（触屏）：攻击生物 / 打开功能方块 / 放置手持方块
+  function touchTap(nx, ny) {
+    if (state !== 'playing') return;
+    setTouchAim(nx, ny);
+    var o = Voxel.Player.eyePos();
+    var d = aimDir();
+    var hit = Voxel.Raycaster.cast(o, d, C.REACH);
+    if (hit && hit.type === 'mob') attack(hit.mob, d);
+    else if (hit && hit.type === 'block' && !interactWith(hit)) place(hit);
+  }
+
+  // 长按挖掘开关（触屏手势）
+  function setDigHold(on) {
+    mouseDown[2] = !!on;
+    if (!on) stopDig();
+  }
+
   // ---------- 交互 ----------
 
   function doAct(btn) {
@@ -462,7 +507,7 @@ Voxel.Game = (function () {
 
   function tickDig(dt) {
     if (state !== 'playing') { stopDig(); return; }
-    var d = Voxel.Player.lookDir();
+    var d = aimDir();
     var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), d, C.REACH);
     if (hit && hit.type === 'mob') { stopDig(); attack(hit.mob, d); return; }
     if (!hit || hit.type !== 'block' || hit.id === 12) { stopDig(); return; }
@@ -1357,11 +1402,8 @@ Voxel.Game = (function () {
         Voxel.Sound.select();
       } else if (code === 'KeyE') {
         // 准星对准功能方块交互；否则开背包
-        var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), C.REACH);
-        if (hit && hit.type === 'block' && hit.id === 15) openCrafting();
-        else if (hit && hit.type === 'block' && hit.id === 17) useBed(hit);
-        else if (hit && hit.type === 'block' && hit.id === 37) openFurnace(hit);
-        else if (hit && hit.type === 'block' && hit.id === 38) openChest(hit);
+        var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
+        if (interactWith(hit)) { }
         else toggleInv(true);
       } else if (code === 'KeyF') {
         Voxel.Player.setFlying(!Voxel.Player.flying());
@@ -1503,22 +1545,25 @@ Voxel.Game = (function () {
       hitEl.style.display = 'none';
       return;
     }
-    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), C.REACH);
+    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
     if (hit && hit.type === 'block') {
       highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
       highlight.visible = true;
     } else highlight.visible = false;
+    var isTouch = Voxel.Controls.touchMode();
     if (hit && hit.type === 'block' && hit.id === 15) {
-      hitEl.textContent = '按 E 打开工作台';
+      hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 17) {
-      hitEl.textContent = Voxel.DayNight.isNight() ? '按 E 睡觉（并设置重生点）' : '按 E 设置重生点';
+      hitEl.textContent = Voxel.DayNight.isNight()
+        ? (isTouch ? '轻点睡觉（并设置重生点）' : '按 E 睡觉（并设置重生点）')
+        : (isTouch ? '轻点设置重生点' : '按 E 设置重生点');
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 37) {
-      hitEl.textContent = '按 E 打开熔炉';
+      hitEl.textContent = isTouch ? '轻点打开熔炉' : '按 E 打开熔炉';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 38) {
-      hitEl.textContent = '按 E 打开箱子';
+      hitEl.textContent = isTouch ? '轻点打开箱子' : '按 E 打开箱子';
       hitEl.style.display = 'block';
     } else {
       hitEl.style.display = 'none';
@@ -1582,6 +1627,9 @@ Voxel.Game = (function () {
     frames++;
     fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+
+    // 触控 UI 状态同步（显隐/复位）
+    if (Voxel.Touch && Voxel.Touch.onFrame) Voxel.Touch.onFrame(state);
 
     if (state === 'loading') {
       var wasReady = Voxel.World.isReady();
@@ -1765,6 +1813,10 @@ Voxel.Game = (function () {
     onSlotDown: onSlotDown,
     onDrop: onDrop,
     pickupDrop: pickupDrop,
+    // 触控接口（ui/touch.js 调用）
+    setTouchAim: setTouchAim,
+    setDigHold: setDigHold,
+    touchTap: touchTap,
     startFeatured: startFeatured,
     openManual: openManual,
     closeManual: closeManual,
@@ -1801,6 +1853,7 @@ Voxel.Game = (function () {
       // 挖掘测试钩子
       beginDig: function () { mouseDown[2] = true; },
       endDig: function () { mouseDown[2] = false; stopDig(); },
+      digHeld: function () { return !!mouseDown[2]; },
       crackVisible: function () { return !!(crackMesh && crackMesh.visible); },
       digProgress: function () { return { t: digT, p: digProg, need: digNeed }; },
       // 掉落物 / 背包交互测试钩子
@@ -1865,8 +1918,14 @@ Voxel.Game = (function () {
     Voxel.MeshBuilder.init();
 
     renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, preserveDrawingBuffer: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    // 渲染分辨率：基础 DPR（≤2）× 用户缩放（设置滑条，移动端可降载）
+    var baseDPR = Math.min(window.devicePixelRatio || 1, 2);
+    function applyRes() {
+      var r = Voxel.Settings ? Voxel.Settings.get('res') : 1;
+      renderer.setPixelRatio(baseDPR * (r || 1));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    applyRes();
 
     scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x87ceeb, CFG.FOG_NEAR, CFG.FOG_FAR);
@@ -1901,6 +1960,7 @@ Voxel.Game = (function () {
     Voxel.Mobs.init(scene);
     Voxel.Drops.init(scene);
     Voxel.Controls.init(canvas);
+    if (Voxel.Touch && Voxel.Touch.init) Voxel.Touch.init();
 
     Game.scene = scene;
     Game.camera = camera;
@@ -1910,7 +1970,7 @@ Voxel.Game = (function () {
     if (Voxel.HandItem) Voxel.HandItem.init(camera);
     fallMat = new THREE.MeshBasicMaterial({ map: Voxel.Blocks.getTexture() });
 
-    canvas.addEventListener('mousedown', function (e) {
+    canvas.addEventListener('pointerdown', function (e) {
       if (state !== 'playing') return;
       if (!Voxel.Controls.isLocked()) { tryLock(); return; }
       mouseDown[e.button] = true;
@@ -1920,15 +1980,23 @@ Voxel.Game = (function () {
       else if (e.button === 1) pickBlock();
       e.preventDefault();
     });
-    document.addEventListener('mouseup', function (e) { mouseDown[e.button] = false; });
-    document.addEventListener('mousemove', onDragMove);
-    document.addEventListener('mouseup', onDragUp);
+    document.addEventListener('pointerup', function (e) {
+      mouseDown[e.button] = false;
+    });
+    document.addEventListener('pointercancel', function () {
+      mouseDown[0] = mouseDown[1] = mouseDown[2] = false;
+    });
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', onDragUp);
+    document.addEventListener('pointercancel', function () {
+      if (dragState) { dragState = null; Voxel.HUD.endGhost(); }
+    });
     window.addEventListener('blur', function () {
       if (dragState) { dragState = null; Voxel.HUD.endGhost(); } // 窗口外松开：取消拖拽
     });
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-    // 游戏中未锁定时，点击窗口任意位置都可请求锁定
-    document.addEventListener('mousedown', function (e) {
+    // 游戏中未锁定时，点击窗口任意位置都可请求锁定（触控模式恒锁定，自动跳过）
+    document.addEventListener('pointerdown', function (e) {
       if (state === 'playing' && !Voxel.Controls.isLocked() && e.target !== canvas) tryLock();
     });
     canvas.addEventListener('click', function () {
@@ -1994,6 +2062,12 @@ Voxel.Game = (function () {
       });
     }
     bindSlider('sens'); bindSlider('volume'); bindSlider('fov'); bindSlider('fog');
+    bindSlider('tsens'); bindSlider('res');
+    // 触摸灵敏度滑条仅触控设备显示
+    if (!Voxel.Controls.touchMode()) {
+      var tr = document.getElementById('set-tsens-row');
+      if (tr) tr.style.display = 'none';
+    }
     document.getElementById('btn-set-close').addEventListener('click', closeSettings);
     document.getElementById('btn-settings').addEventListener('click', function () { openSettings('paused'); });
     document.getElementById('btn-settings-menu').addEventListener('click', function () { openSettings('menu'); });
@@ -2003,6 +2077,7 @@ Voxel.Game = (function () {
       Voxel.Settings.onChange(function (k, v) {
         if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
         else if (k === 'volume' && Voxel.Sound.setVolume) Voxel.Sound.setVolume(v);
+        else if (k === 'res') applyRes();
       });
       Voxel.Settings.applyAll();
     }

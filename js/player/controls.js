@@ -1,4 +1,4 @@
-// 键盘 + 指针锁定鼠标（灵敏度可在设置中调节）
+// 键盘 + 指针锁定鼠标（灵敏度可在设置中调节）；触控模式下豁免指针锁定
 window.Voxel = window.Voxel || {};
 
 Voxel.Controls = (function () {
@@ -8,6 +8,20 @@ Voxel.Controls = (function () {
   var SENS_BASE = 0.0023;
   var sensMul = 1.0;
   var canvas = null;
+
+  // 触控模式：无指针锁定，isLocked 恒真（隐藏锁定提示、跳过 tryLock/pause-on-unlock）
+  function touchMode() {
+    return !!(Voxel.Touch && Voxel.Touch.enabled);
+  }
+
+  function applyLook(dx, dy, sensScale) {
+    var s = SENS_BASE * sensMul * (sensScale || 1);
+    yaw -= dx * s;
+    pitch -= dy * s;
+    var lim = Math.PI / 2 - 0.01;
+    if (pitch > lim) pitch = lim;
+    if (pitch < -lim) pitch = -lim;
+  }
 
   function init(c) {
     canvas = c;
@@ -53,13 +67,16 @@ Voxel.Controls = (function () {
   return {
     init: init,
     setSens: setSens,
+    applyLook: applyLook,
+    touchMode: touchMode,
     keys: keys,
     yaw: function () { return yaw; },
     setYaw: function (v) { yaw = v; },
     pitch: function () { return pitch; },
     setPitch: function (v) { pitch = v; },
-    isLocked: function () { return locked; },
+    isLocked: function () { return locked || touchMode(); },
     requestLock: function () {
+      if (touchMode()) return true;
       try {
         var fn = canvas.requestPointerLock || canvas.webkitRequestPointerLock;
         if (!fn) return false; // 浏览器不支持指针锁定
@@ -69,6 +86,7 @@ Voxel.Controls = (function () {
       } catch (e) { return false; }
     },
     exitLock: function () {
+      if (touchMode()) return;
       try {
         if (document.pointerLockElement === canvas) document.exitPointerLock();
         else if (document.webkitPointerLockElement === canvas) document.webkitExitPointerLock();

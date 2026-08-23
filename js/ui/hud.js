@@ -28,7 +28,7 @@ Voxel.HUD = (function () {
     d.appendChild(c);
     if (slotType) {
       d.setAttribute('data-slot', slotType + ':' + idx);
-      d.addEventListener('mousedown', function (e) { Voxel.Game.onSlotDown(e, slotType, idx); });
+      d.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, slotType, idx); });
     }
     return { el: d, canvas: c };
   }
@@ -100,8 +100,9 @@ Voxel.HUD = (function () {
       btn.className = 'btn craft-btn';
       btn.setAttribute('data-recipe', i);
       (function (idx) {
-        btn.addEventListener('mousedown', function (e) { e.preventDefault(); Voxel.Game.manualCraftStart(idx); });
-        btn.addEventListener('mouseup', function () { Voxel.Game.manualCraftStop(); });
+        btn.addEventListener('pointerdown', function (e) { e.preventDefault(); Voxel.Game.manualCraftStart(idx); });
+        btn.addEventListener('pointerup', function () { Voxel.Game.manualCraftStop(); });
+        btn.addEventListener('pointercancel', function () { Voxel.Game.manualCraftStop(); });
         btn.addEventListener('mouseleave', function () { Voxel.Game.manualCraftStop(); });
       })(i);
       row.appendChild(btn);
@@ -176,7 +177,7 @@ Voxel.HUD = (function () {
         var d = document.createElement('div');
         d.className = 'slot';
         d.setAttribute('data-slot', 'inv:' + idx); // 快捷栏可拖拽（映射背包前 9 格）
-        d.addEventListener('mousedown', function (ev) { Voxel.Game.onSlotDown(ev, 'inv', idx); });
+        d.addEventListener('pointerdown', function (ev) { Voxel.Game.onSlotDown(ev, 'inv', idx); });
         var c = document.createElement('canvas');
         c.width = 44; c.height = 44;
         d.appendChild(c);
@@ -239,7 +240,7 @@ Voxel.HUD = (function () {
     var fin = document.getElementById('fur-in');
     if (fin) {
       fin.setAttribute('data-slot', 'fin:0');
-      fin.addEventListener('mousedown', function (e) { Voxel.Game.onSlotDown(e, 'fin', 0); });
+      fin.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, 'fin', 0); });
       var fc = document.createElement('canvas');
       fc.width = 44; fc.height = 44;
       fin.appendChild(fc);
@@ -248,7 +249,7 @@ Voxel.HUD = (function () {
     var ffuel = document.getElementById('fur-fuel');
     if (ffuel) {
       ffuel.setAttribute('data-slot', 'ffuel:0');
-      ffuel.addEventListener('mousedown', function (e) { Voxel.Game.onSlotDown(e, 'ffuel', 0); });
+      ffuel.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, 'ffuel', 0); });
       var fc2 = document.createElement('canvas');
       fc2.width = 44; fc2.height = 44;
       ffuel.appendChild(fc2);
@@ -257,7 +258,7 @@ Voxel.HUD = (function () {
     var fout = document.getElementById('fur-out');
     if (fout) {
       fout.setAttribute('data-slot', 'fout:0');
-      fout.addEventListener('mousedown', function (e) { Voxel.Game.onSlotDown(e, 'fout', 0); });
+      fout.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, 'fout', 0); });
       var fc3 = document.createElement('canvas');
       fc3.width = 44; fc3.height = 44;
       fout.appendChild(fc3);

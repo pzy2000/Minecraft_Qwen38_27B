@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>方块世界 VoxelCraft</title>
-<link rel="stylesheet" href="css/style.css?v=20260823c">
+<link rel="stylesheet" href="css/style.css?v=20260823d">
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -166,8 +166,19 @@
     <div class="set-row"><label>音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05"><span id="set-volume-v"></span></div>
     <div class="set-row"><label>视场角 (FOV)</label><input id="set-fov" type="range" min="60" max="100" step="1"><span id="set-fov-v"></span></div>
     <div class="set-row"><label>雾距（视野远近）</label><input id="set-fog" type="range" min="0.5" max="2" step="0.05"><span id="set-fog-v"></span></div>
+    <div class="set-row" id="set-tsens-row"><label>触摸灵敏度</label><input id="set-tsens" type="range" min="0.4" max="3" step="0.05"><span id="set-tsens-v"></span></div>
+    <div class="set-row"><label>渲染分辨率</label><input id="set-res" type="range" min="0.5" max="1" step="0.05"><span id="set-res-v"></span></div>
     <div class="hint">设置立即生效并自动保存（本浏览器）</div>
     <button id="btn-set-close" class="btn primary">返回</button>
+  </div>
+</div>
+
+<!-- 竖屏提示（移动端，可关闭） -->
+<div id="rotate-hint" class="hidden">
+  <div class="rh-box">
+    <div class="rh-icon">⟳</div>
+    <div class="rh-text">建议横屏游玩<br>体验更佳</div>
+    <button id="btn-rotate-ok" class="btn primary">仍要继续</button>
   </div>
 </div>
 
@@ -181,32 +192,33 @@
 </div>
 
 <script src="vendor/three.min.js"></script>
-<script src="js/config.js?v=20260823c"></script>
-<script src="js/assets.js?v=20260823c"></script>
-<script src="js/world/seed.js?v=20260823c"></script>
-<script src="js/world/noise.js?v=20260823c"></script>
-<script src="js/world/biomes.js?v=20260823c"></script>
-<script src="js/world/shaper.js?v=20260823c"></script>
-<script src="js/blocks.js?v=20260823c"></script>
-<script src="js/crafting.js?v=20260823c"></script>
-<script src="js/world/world.js?v=20260823c"></script>
-<script src="js/world/mesh.js?v=20260823c"></script>
-<script src="js/player/physics.js?v=20260823c"></script>
-<script src="js/player/controls.js?v=20260823c"></script>
-<script src="js/player/player.js?v=20260823c"></script>
-<script src="js/interact/raycast.js?v=20260823c"></script>
-<script src="js/systems/settings.js?v=20260823c"></script>
-<script src="js/systems/daynight.js?v=20260823c"></script>
-<script src="js/systems/weather.js?v=20260823c"></script>
-<script src="js/systems/sound.js?v=20260823c"></script>
-<script src="js/systems/furnace.js?v=20260823c"></script>
-<script src="js/systems/particles.js?v=20260823c"></script>
-<script src="js/entities/mobs.js?v=20260823c"></script>
-<script src="js/entities/drops.js?v=20260823c"></script>
-<script src="js/systems/save.js?v=20260823c"></script>
-<script src="js/ui/handitem.js?v=20260823c"></script>
-<script src="js/ui/featured.js?v=20260823c"></script>
-<script src="js/ui/hud.js?v=20260823c"></script>
-<script src="js/main.js?v=20260823c"></script>
+<script src="js/config.js?v=20260823d"></script>
+<script src="js/assets.js?v=20260823d"></script>
+<script src="js/world/seed.js?v=20260823d"></script>
+<script src="js/world/noise.js?v=20260823d"></script>
+<script src="js/world/biomes.js?v=20260823d"></script>
+<script src="js/world/shaper.js?v=20260823d"></script>
+<script src="js/blocks.js?v=20260823d"></script>
+<script src="js/crafting.js?v=20260823d"></script>
+<script src="js/world/world.js?v=20260823d"></script>
+<script src="js/world/mesh.js?v=20260823d"></script>
+<script src="js/player/physics.js?v=20260823d"></script>
+<script src="js/player/controls.js?v=20260823d"></script>
+<script src="js/player/player.js?v=20260823d"></script>
+<script src="js/interact/raycast.js?v=20260823d"></script>
+<script src="js/systems/settings.js?v=20260823d"></script>
+<script src="js/systems/daynight.js?v=20260823d"></script>
+<script src="js/systems/weather.js?v=20260823d"></script>
+<script src="js/systems/sound.js?v=20260823d"></script>
+<script src="js/systems/furnace.js?v=20260823d"></script>
+<script src="js/systems/particles.js?v=20260823d"></script>
+<script src="js/entities/mobs.js?v=20260823d"></script>
+<script src="js/entities/drops.js?v=20260823d"></script>
+<script src="js/systems/save.js?v=20260823d"></script>
+<script src="js/ui/handitem.js?v=20260823d"></script>
+<script src="js/ui/featured.js?v=20260823d"></script>
+<script src="js/ui/touch.js?v=20260823d"></script>
+<script src="js/ui/hud.js?v=20260823d"></script>
+<script src="js/main.js?v=20260823d"></script>
 </body>
 </html>

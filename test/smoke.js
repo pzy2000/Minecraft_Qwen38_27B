@@ -480,8 +480,29 @@ check('火把=煤+木棍 可合成', Craft.canCraftFromInv(invT, Craft.recipes[4
 Craft.consumeFromInv(invT, Craft.recipes[4], 1);
 check('火把合成消耗后清空', invT.join() === new Array(36).fill(0).join());
 
-console.log('光照系统');
-var tL0 = Date.now();
+console.log('触控摇杆数学');
+load('js/ui/touch.js');
+var TU = V.TouchUtil;
+var a0 = TU.axes(0, 0, 66);
+check('零输入归零', a0.x === 0 && a0.y === 0 && a0.mag === 0 && !a0.sprint);
+var dzv = TU.axes(3, -4, 66);   // 长度 5 < 死区 7.92
+check('死区内无输出', dzv.x === 0 && dzv.y === 0 && dzv.mag === 0 && !dzv.sprint);
+var mid = TU.axes(0, -33, 66);  // 向前推半程
+check('半程推动 mag=0.5 且不疾跑', Math.abs(mid.mag - 0.5) < 1e-9 &&
+  Math.abs(mid.y - (-0.5)) < 1e-9 && Math.abs(mid.x) < 1e-9 && !mid.sprint);
+var full = TU.axes(0, -200, 66); // 超出半径 → 限幅
+check('超半径限幅为 1 并触发疾跑', full.y === -1 && full.mag === 1 && full.sprint);
+var edge = TU.axes(66 * 0.93, 0, 66);
+check('外圈阈值触发疾跑', edge.sprint && Math.abs(edge.x - 0.93) < 1e-9);
+var justIn = TU.axes(66 * 0.90, 0, 66);
+check('疾跑阈值内不误触', !justIn.sprint && Math.abs(justIn.x - 0.90) < 1e-9);
+var diag = TU.axes(30, -40, 50); // 长度=半径：方向保持 (0.6,-0.8)
+check('斜推方向保持', Math.abs(diag.x - 0.6) < 1e-9 &&
+  Math.abs(diag.y + 0.8) < 1e-9 && diag.mag === 1 && diag.sprint);
+var tiny = TU.axes(1, 1, 0);     // 半径非法防御
+check('非法半径安全归零', tiny.mag === 0);
+
+console.log('光照系统');var tL0 = Date.now();
 V.World.initLight();
 console.log('  光照初始化耗时 ' + (Date.now() - tL0) + 'ms');
 check('光照已就绪', V.World.lightReady());

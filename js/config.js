@@ -77,5 +77,17 @@ Voxel.Config = {
   },
 
   SAVE_KEY: 'voxelcraft_save_v4',   // v4：+方块实例元数据（熔炉/箱子）· 载入时自动迁移 v3 存档
-  AUTOSAVE_INTERVAL: 30
+  AUTOSAVE_INTERVAL: 30,
+
+  // 触控（移动端虚拟摇杆 + MCPE 式手势）
+  TOUCH: {
+    LOOK_SENS_BASE: 0.0042,  // 触摸转视角基准灵敏度（rad/px，×tsens 设置）
+    STICK_DEADZONE: 0.12,    // 摇杆死区（半径比例）
+    STICK_SPRINT: 0.92,      // 推到外圈此比例触发疾跑
+    TAP_MS: 220,             // 轻点判定：按下时长上限
+    TAP_DIST: 8,             // 轻点判定：累计位移上限 px
+    LONGPRESS_MS: 250,       // 长按挖掘触发时长
+    LONGPRESS_DIST: 12,      // 长按触发时允许的位移
+    LEFT_ZONE_FRAC: 0.45     // 屏幕左侧此比例内为摇杆区，其余为视角/手势区
+  }
 };

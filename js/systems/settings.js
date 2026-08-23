@@ -3,12 +3,14 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Settings = (function () {
   var KEY = 'voxelcraft_settings_v1';
-  var DEFAULTS = { sens: 1.0, volume: 0.5, fov: 75, fog: 1.0 };
+  var DEFAULTS = { sens: 1.0, volume: 0.5, fov: 75, fog: 1.0, tsens: 1.0, res: 1.0 };
   var LIMITS = {
     sens: [0.3, 3.0],
     volume: [0, 1],
     fov: [60, 100],
-    fog: [0.5, 2.0]
+    fog: [0.5, 2.0],
+    tsens: [0.4, 3.0],
+    res: [0.5, 1.0]
   };
   var vals = {};
   var listeners = [];

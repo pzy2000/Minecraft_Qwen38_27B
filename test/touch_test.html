@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>VOXEL TOUCH TEST</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>body { background: #222; } #results { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
+</head>
+<body>
+<canvas id="game" width="640" height="480"></canvas>
+<div id="hud">
+  <div id="crosshair"></div><div id="debug"></div>
+  <canvas id="oxygen" width="212" height="20"></canvas>
+  <canvas id="hunger" width="212" height="20"></canvas>
+  <canvas id="health" width="212" height="20"></canvas>
+  <div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div>
+  <div id="lock-hint"></div><div id="error-banner"></div>
+  <div id="dmg-flash"></div><div id="uw-overlay"></div>
+  <div id="dmg-dir"><i></i></div><div id="sleep-fade"></div>
+</div>
+<div id="inventory" class="hidden"><div class="panel inv-panel">
+  <div class="inv-title">背包</div>
+  <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
+  <div id="inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+</div></div>
+<div id="crafting" class="hidden"><div class="panel craft-panel">
+  <div class="inv-title">工作台</div>
+  <div class="craft-row"><div id="craft-grid"></div><div class="craft-arrow">→</div><div id="craft-result" class="slot result"></div></div>
+  <div id="craft-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
+  <button id="btn-manual" class="btn">查看合成手册</button>
+</div></div>
+<div id="furnace" class="hidden"><div class="panel furnace-panel">
+  <div class="inv-title">熔炉</div>
+  <div class="furnace-row">
+    <div class="furnace-col"><div id="fur-in" class="slot"></div><div id="fur-flame"><i></i></div><div id="fur-fuel" class="slot"></div></div>
+    <div class="furnace-arrow"><span>➜</span><div class="fur-track"><i id="fur-prog"></i></div></div>
+    <div id="fur-out" class="slot result"></div>
+  </div>
+  <div id="fur-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
+</div></div>
+<div id="chest" class="hidden"><div class="panel chest-panel">
+  <div class="inv-title">箱子</div>
+  <div id="chest-grid"></div><div id="chest-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
+</div></div>
+<div id="manual" class="hidden"><div class="panel manual-panel">
+  <div class="inv-title">合成手册</div><div id="manual-list"></div><div class="inv-tip"></div>
+</div></div>
+<div id="overlay-start" class="overlay hidden"><div class="panel">
+  <h1></h1><div class="sub"></div>
+  <button id="btn-start"></button><button id="btn-new"></button>
+  <button id="btn-settings-menu" class="btn"></button>
+  <input id="seed-input" type="text" value="12345">
+  <div id="start-hint" class="hint"></div>
+</div></div>
+<div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
+  <button id="btn-resume"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
+</div></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
+<div id="overlay-settings" class="overlay hidden"><div class="panel"><h2></h2>
+  <input id="set-sens" type="range"><span id="set-sens-v"></span>
+  <input id="set-volume" type="range"><span id="set-volume-v"></span>
+  <input id="set-fov" type="range"><span id="set-fov-v"></span>
+  <input id="set-fog" type="range"><span id="set-fog-v"></span>
+  <input id="set-tsens" type="range"><span id="set-tsens-v"></span>
+  <input id="set-res" type="range"><span id="set-res-v"></span>
+  <button id="btn-set-close" class="btn"></button>
+</div></div>
+<div id="rotate-hint" class="hidden"><div class="rh-box"><div class="rh-icon">⟳</div><div class="rh-text"></div><button id="btn-rotate-ok" class="btn primary"></button></div></div>
+<div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
+  <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
+</div></div>
+<div id="results"></div>
+
+<script src="../vendor/three.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/assets.js"></script>
+<script src="../js/world/seed.js"></script>
+<script src="../js/world/noise.js"></script>
+<script src="../js/world/biomes.js"></script>
+<script src="../js/world/shaper.js"></script>
+<script src="../js/blocks.js"></script>
+<script src="../js/crafting.js"></script>
+<script src="../js/world/world.js"></script>
+<script src="../js/world/mesh.js"></script>
+<script src="../js/player/physics.js"></script>
+<script src="../js/player/controls.js"></script>
+<script src="../js/player/player.js"></script>
+<script src="../js/interact/raycast.js"></script>
+<script src="../js/systems/settings.js"></script>
+<script src="../js/systems/daynight.js"></script>
+<script src="../js/systems/weather.js"></script>
+<script src="../js/systems/sound.js"></script>
+<script src="../js/systems/furnace.js"></script>
+<script src="../js/systems/particles.js"></script>
+<script src="../js/entities/mobs.js"></script>
+<script src="../js/entities/drops.js"></script>
+<script src="../js/systems/save.js"></script>
+<script src="../js/ui/handitem.js"></script>
+<script src="../js/ui/featured.js"></script>
+<script src="../js/ui/touch.js"></script>
+<script src="../js/ui/hud.js"></script>
+<script src="../js/main.js"></script>
+<script>
+  // 触控专项测试：runner 通过 evaluateOnNewDocument 注入 __FORCE_TOUCH__，
+  // 用合成 PointerEvent 驱动摇杆/手势/按钮。直接打开本页（无注入）时跳过。
+  window.Voxel = window.Voxel || {};
+  (function () {
+    if (!window.__FORCE_TOUCH__) {
+      document.title = 'TOUCH-SKIP';
+      return;
+    }
+  // 无头渲染桩
+  THREE.WebGLRenderer.prototype.render = function () { };
+  var doc = document;
+  var out = [];
+  var errCount = {};
+  function check(name, cond) { out.push((cond ? 'ok   ' : 'FAIL ') + name); }
+  function wait(ms, cb) { setTimeout(cb, ms); }
+  function report() {
+    var fail = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;
+    doc.getElementById('results').textContent =
+      '=== ' + (fail === 0 ? 'TOUCH ALL PASS' : fail + ' FAILED') + ' ===\n' + out.join('\n');
+    doc.title = fail === 0 ? 'TOUCH-PASS' : 'TOUCH-FAIL';
+  }
+  window.addEventListener('error', function (e) {
+    out.push('PAGE_ERROR ' + e.message + ' @' + (e.lineno || '?'));
+  });
+  setInterval(function () {
+    try { Voxel.Game._frame(performance.now()); }
+    catch (e) {
+      var k = e.message;
+      errCount[k] = (errCount[k] || 0) + 1;
+      if (errCount[k] === 1) out.push('FRAME_ERR ' + k);
+    }
+  }, 16);
+
+  // 合成 PointerEvent（冒泡到 document 的 move/up 监听；down 绑在捕获层元素上）
+  function pev(type, id, x, y, target) {
+    var el = target || document.elementFromPoint(x, y) || doc.body;
+    el.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true,
+      pointerId: id, pointerType: 'touch', isPrimary: true,
+      clientX: x, clientY: y, button: 0,
+      buttons: (type === 'pointerup' || type === 'pointercancel') ? 0 : 1
+    }));
+  }
+  // 世界坐标 → 屏幕像素（用于把手指放到指定方块上）
+  function proj(wx, wy, wz) {
+    var v = new THREE.Vector3(wx, wy, wz).project(Voxel.Game.camera);
+    return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight };
+  }
+
+  check('触控模式已启用(?touch=1)', Voxel.Touch.enabled === true);
+
+  // 1) 进入世界
+  doc.getElementById('btn-new').click();
+  var n = 0;
+  (function poll() {
+    if (Voxel.Game.state === 'playing') return stepA();
+    if (++n > 900) { check('进入 playing 超时', false); return report(); }
+    setTimeout(poll, 100);
+  })();
+
+  function stepA() {
+    wait(400, function () {
+      var cap = doc.querySelector('.touch-capture');
+      check('捕获层已显示', !!cap && cap.style.display !== 'none' && cap.style.display !== '');
+      var jb = doc.querySelector('.touch-btn-main');
+      check('跳跃按钮已显示', !!jb && jb.style.display === 'flex');
+      check('暂停/背包/飞行按钮存在',
+        !!doc.querySelector('.touch-btn-top.pause') && !!doc.querySelector('.touch-btn-top.bag') &&
+        !!doc.querySelector('.touch-btn-sub.fly'));
+      stepB();
+    });
+  }
+
+  // 2) 摇杆移动：左屏按下向右推 → 玩家 +x 位移；推满触发疾跑标志
+  function stepB() {
+    Voxel.Controls.setYaw(0);          // yaw=0 时摇杆右推 = 世界 +x
+    Voxel.Controls.setPitch(-0.1);
+    var p0 = Voxel.Player.pos().clone();
+    var H = innerHeight;
+    pev('pointerdown', 11, 90, H - 240);
+    wait(60, function () {
+      pev('pointermove', 11, 90 + 66 * 0.97, H - 240);   // 推满外圈 → 疾跑
+      check('摇杆满推动量与疾跑标志', (function () {
+        var sv = Voxel.Touch._test.stickVec();
+        return sv.mag >= 0.9 && sv.sprint && Math.abs(sv.x - sv.mag) < 1e-6 && Math.abs(sv.y) < 1e-6;
+      })());
+      wait(700, function () {
+        pev('pointerup', 11, 90 + 66, H - 240);
+        wait(120, function () {
+          var dx = Voxel.Player.pos().x - p0.x;
+          var dz = Math.abs(Voxel.Player.pos().z - p0.z);
+          check('摇杆右推玩家 +x 位移 (' + dx.toFixed(2) + ')', dx > 0.5);
+          check('横移无串扰 (|Δz|=' + dz.toFixed(2) + ')', dz < 0.5);
+          check('松手归零', Voxel.Touch.active() === false &&
+            Voxel.Touch._test.stickVec().mag === 0);
+          stepC();
+        });
+      });
+    });
+  }
+
+  // 3) 右屏滑动转视角
+  function stepC() {
+    var pitch0 = Voxel.Controls.pitch();
+    var W = innerWidth, H = innerHeight;
+    pev('pointerdown', 12, W - 80, H / 2);
+    var steps = 4;
+    for (var i = 1; i <= steps; i++)
+      pev('pointermove', 12, W - 80, H / 2 - i * 15);   // 上滑 60px → 抬头
+    pev('pointerup', 12, W - 80, H / 2 - steps * 15);
+    check('上滑抬头 (Δpitch=' + ((Voxel.Controls.pitch() - pitch0)).toFixed(3) + ')',
+      Voxel.Controls.pitch() - pitch0 > 0.05);
+    // 快速轻点不转视角（位移小于阈值）
+    var pitch1 = Voxel.Controls.pitch();
+    pev('pointerdown', 13, W - 60, H / 2);
+    pev('pointerup', 13, W - 60, H / 2);
+    check('轻点几乎不动视角', Math.abs(Voxel.Controls.pitch() - pitch1) < 0.01);
+    stepD();
+  }
+
+  // 状态复位：确保 playing（关闭可能残留的面板）
+  function ensurePlaying(cb) {
+    (function closeLoop(n) {
+      if (Voxel.Game.state === 'playing') { cb(); return; }
+      if (n > 4) { cb(); return; }
+      Voxel.Game.onKey('Escape');
+      wait(120, function () { closeLoop(n + 1); });
+    })(0);
+  }
+
+  // 把相机精确对准世界点并推帧应用；返回该点的屏幕坐标
+  function aimAtWorld(wx, wy, wz) {
+    var p = Voxel.Player.pos();
+    var tx = wx - p.x, ty = wy - (p.y + 1.62), tz = wz - p.z;
+    var hd = Math.sqrt(tx * tx + tz * tz);
+    Voxel.Controls.setYaw(Math.atan2(-tx, -tz));
+    Voxel.Controls.setPitch(Math.max(-1.5, Math.min(1.5, Math.atan2(ty, hd))));
+    var tn = performance.now();
+    for (var i = 0; i < 4; i++) Voxel.Game._frame(tn + 20 * (i + 1));
+    var v = new THREE.Vector3(wx, wy, wz).project(Voxel.Game.camera);
+    return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight };
+  }
+
+  // 4) 长按挖掘：复位站位；在多个候选格中挑选「投影在屏内且视线无遮挡」的目标
+  var digTarget = null;   // {x,y,z,c}
+  function stepD() {
+    ensurePlaying(function () {
+      var T = Voxel.Game._test;
+      T.clearInv();
+      // 清场：清掉现有生物并禁用生成，避免挡住触点射线（间歇性干扰源）
+      var MC = Voxel.Config.MOB;
+      MC.SHEEP_TARGET = 0; MC.PIG_TARGET = 0; MC.CHICKEN_TARGET = 0;
+      MC.RABBIT_TARGET = 0; MC.ZOMBIE_TARGET = 0;
+      Voxel.Mobs.clear();
+      var sp = Voxel.World.spawnPoint();
+      var gx = Math.floor(sp.x), gz = Math.floor(sp.z);
+      var gy = Voxel.World.surfaceAt(gx, gz);
+      Voxel.Player.init(new THREE.Vector3(gx + 0.5, gy + 1.02, gz + 0.5), 0, -0.3);
+      wait(300, function () {
+        var ex = gx + 0.5, ey = gy + 1.02 + 1.62, ez = gz + 0.5;
+        var offs = [[0, -1], [0, -2], [1, -1], [-1, -1], [1, -2], [-1, -2], [0, -3], [2, -2], [-2, -2], [1, -3], [-1, -3]];
+        var picked = null;
+        for (var oi = 0; oi < offs.length && !picked; oi++) {
+          var fx = gx + offs[oi][0], fz = gz + offs[oi][1];
+          if (fx < 2 || fz < 2 || fx > 253 || fz > 253) continue;
+          var fy = Voxel.World.surfaceAt(fx, fz);
+          if (fy < 3 || fy > 58) continue;
+          if (Math.abs(fy - gy) > 3) continue;   // 高差过大不选
+          Voxel.World.set(fx, fy, fz, 2);        // 换成泥土（徒手 0.65s）
+          var tx = fx + 0.5 - ex, ty = fy + 0.5 - ey, tz = fz + 0.5 - ez;
+          var hd = Math.sqrt(tx * tx + tz * tz);
+          if (hd < 0.8 || hd > 6) continue;      // 超出交互距离
+          Voxel.Controls.setYaw(Math.atan2(-tx, -tz));
+          Voxel.Controls.setPitch(Math.atan2(ty, hd));
+          // 手动推几帧（递增时间戳保证跨过固定步长）把姿态写进相机
+          var tnow = performance.now();
+          for (var fi = 0; fi < 4; fi++) Voxel.Game._frame(tnow + 20 * (fi + 1));
+          var v0 = new THREE.Vector3(fx + 0.5, fy + 0.5, fz + 0.5).project(Voxel.Game.camera);
+          var cx = (v0.x + 1) / 2 * innerWidth, cy = (1 - v0.y) / 2 * innerHeight;
+          if (!(cx > 30 && cx < innerWidth - 30 && cy > 30 && cy < innerHeight - 90)) continue;
+          // 视线验证：从触点方向的射线必须首先命中这个泥土块
+          var vv = new THREE.Vector3((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1, 0.5)
+            .unproject(Voxel.Game.camera);
+          vv.sub(Voxel.Game.camera.position).normalize();
+          var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), vv, 6);
+          if (hit && hit.type === 'block' && hit.x === fx && hit.y === fy && hit.z === fz && hit.id === 2) {
+            picked = { x: fx, y: fy, z: fz, c: { x: cx, y: cy } };
+          }
+        }
+        if (!picked) { check('未找到视线通畅的挖掘目标', false); return stepE(); }
+        digTarget = picked;
+        check('选定挖掘目标 @' + picked.x + ',' + picked.y + ',' + picked.z +
+          ' 屏内(' + picked.c.x.toFixed(0) + ',' + picked.c.y.toFixed(0) + ')', true);
+        pev('pointerdown', 14, picked.c.x, picked.c.y);
+        var tries = 0;
+        (function pollDig() {
+          tries++;
+          if (Voxel.World.get(digTarget.x, digTarget.y, digTarget.z) === 0 ||
+            tries >= 60) {
+            // 手指抬起（否则 look 指针一直占用，后续轻点全部失效）
+            pev('pointerup', 14, picked.c.x, picked.c.y);
+            if (Voxel.World.get(digTarget.x, digTarget.y, digTarget.z) === 0) {
+              check('长按挖掘破坏目标方块 (' + tries + '×200ms)', true);
+              return wait(150, stepVisibilityReset);
+            }
+            check('长按挖掘超时未破坏', false);
+            return stepE();
+          }
+          wait(200, pollDig);
+        })();
+      });
+    });
+  }
+
+  // 后台切换必须释放已经触发的长按挖掘，且不能留下失联的 look 指针。
+  function stepVisibilityReset() {
+    var c = digTarget.c;
+    pev('pointerdown', 40, c.x, c.y);
+    wait(Voxel.Config.TOUCH.LONGPRESS_MS + 80, function () {
+      check('后台切换前长按已进入挖掘态', Voxel.Game._test.digHeld());
+      Object.defineProperty(doc, 'hidden', { value: true, configurable: true });
+      doc.dispatchEvent(new Event('visibilitychange'));
+      check('后台切换释放挖掘与手势状态',
+        !Voxel.Game._test.digHeld() && !Voxel.Touch._test.lookActive());
+      Object.defineProperty(doc, 'hidden', { value: false, configurable: true });
+      wait(80, stepE);
+    });
+  }
+
+  // 5) 轻点放置：往挖出的洞底面点一下，放入手持木板
+  function stepE() {
+    var T = Voxel.Game._test;
+    T.inv()[0] = 10; T.cnt()[0] = 5;   // 木板 ×5 进快捷栏格 0（sel 默认 0）
+    var t = digTarget;
+    var c = aimAtWorld(t.x + 0.5, t.y + 0.02, t.z + 0.5);   // 洞底面中点
+    pev('pointerdown', 15, c.x, c.y);
+    pev('pointercancel', 15, c.x, c.y);
+    wait(100, function () {
+      check('pointercancel 不触发轻点放置',
+        Voxel.World.get(t.x, t.y, t.z) === 0 && T.cnt()[0] === 5);
+      pev('pointerdown', 16, c.x, c.y);
+      pev('pointerup', 16, c.x, c.y);
+      wait(250, function () {
+        check('轻点放置木板入洞 (hole=' + Voxel.World.get(t.x, t.y, t.z) + ')',
+          Voxel.World.get(t.x, t.y, t.z) === 10);
+        check('放置消耗一格物品', T.cnt()[0] === 4);
+        stepF();
+      });
+    });
+  }
+
+  // 6) 轻点交互：洞口上方摆工作台，轻点打开
+  function stepF() {
+    var t = digTarget;
+    Voxel.World.set(t.x, t.y + 1, t.z, 15);
+    wait(200, function () {
+      var c = aimAtWorld(t.x + 0.5, t.y + 1.5, t.z + 0.5);   // 工作台中心
+      pev('pointerdown', 16, c.x, c.y);
+      pev('pointerup', 16, c.x, c.y);
+      wait(250, function () {
+        check('轻点工作台打开合成面板', Voxel.Game.state === 'crafting');
+        ensurePlaying(function () {
+          check('Esc 关闭回 playing', Voxel.Game.state === 'playing');
+          stepG();
+        });
+      });
+    });
+  }
+
+  // 7) 按钮：跳/飞/降/暂停/背包
+  function stepG() {
+    ensurePlaying(function () {
+      var jb = doc.querySelector('.touch-btn-main');
+      var fb = doc.querySelector('.touch-btn-sub.fly');
+      var pb = doc.querySelector('.touch-btn-top.pause');
+
+      pb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 20, pointerType: 'touch' }));
+      check('暂停按钮打开菜单', Voxel.Game.state === 'paused');
+      Voxel.Game.onKey('KeyP');
+      check('恢复 playing', Voxel.Game.state === 'playing');
+
+      fb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 21, pointerType: 'touch' }));
+      fb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 21, pointerType: 'touch' }));
+      check('飞行按钮切换飞行', Voxel.Player.flying() === true);
+      wait(120, function () {
+        var db = doc.querySelector('.touch-btn-sub.descend');
+        check('飞行时显示下降按钮', db.style.display === 'flex');
+        // 摇杆外圈允许快速平移，但不能复用为飞行下降输入。
+        var H = innerHeight, fy0 = Voxel.Player.pos().y;
+        pev('pointerdown', 41, 90, H - 240);
+        pev('pointermove', 41, 156, H - 240);
+        wait(250, function () {
+          var wasSprint = Voxel.Touch._test.stickVec().sprint;
+          pev('pointerup', 41, 156, H - 240);
+          check('飞行摇杆外圈不触发下降',
+            wasSprint && Math.abs(Voxel.Player.pos().y - fy0) < 0.05);
+
+          db.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 22, pointerType: 'touch' }));
+          check('下降键注入 ShiftLeft', Voxel.Controls.keys['ShiftLeft'] === true);
+          db.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 22, pointerType: 'touch' }));
+          check('松开清除 ShiftLeft', Voxel.Controls.keys['ShiftLeft'] === false);
+
+          jb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 23, pointerType: 'touch' }));
+          check('跳跃键注入 Space', Voxel.Controls.keys['Space'] === true);
+          jb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 23, pointerType: 'touch' }));
+          check('跳跃抬起清除 Space', Voxel.Controls.keys['Space'] === false);
+          Voxel.Player.setFlying(false);
+
+          var bb = doc.querySelector('.touch-btn-top.bag');
+          aimAtWorld(Voxel.Player.pos().x, Voxel.Player.pos().y + 10, Voxel.Player.pos().z - 6); // 抬头看天
+          bb.dataset.pre = Voxel.Game.state;
+          bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 24, pointerType: 'touch' }));
+          check('背包按钮打开背包 [pre=' + bb.dataset.pre + ']', Voxel.Game.state === 'inventory');
+          bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 25, pointerType: 'touch' }));
+          check('再按关闭背包', Voxel.Game.state === 'playing');
+
+          Voxel.Game.onKey('KeyE');   // 开背包验证捕获层隐藏
+          wait(100, function () {
+            var cap = doc.querySelector('.touch-capture');
+            check('面板打开时捕获层隐藏', cap.style.display === 'none');
+            Voxel.Game.onKey('KeyE');
+            stepH();
+          });
+        });
+      });
+    });
+  }
+
+  // 8) 槽位 Pointer Events 点击拾取回归（与桌面共用同一代码路径）
+  function stepH() {
+    ensurePlaying(function () {
+      var T = Voxel.Game._test;
+      T.clearInv();
+      T.inv()[0] = 10; T.cnt()[0] = 3;
+      Voxel.Game.onKey('KeyE');   // 开背包
+      var slotEl = doc.querySelector('#inv-grid [data-slot="inv:0"]');
+      slotEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 30 }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 30 }));
+      check('pointer 点击拾取到手持', T.held() === 10 && T.heldCount() === 3);
+      slotEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 31 }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 31 }));
+      check('pointer 点击放回原格', !T.held() && T.inv()[0] === 10 && T.cnt()[0] === 3);
+      Voxel.Game.onKey('KeyE');
+
+      check('主循环无异常帧', Object.keys(errCount).length === 0);
+      report();
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -46,18 +46,23 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
 
   const targets = [
     { file: 'test/browser_test.html', re: '^TEST-PASS' },
-    { file: 'test/render_check.html', re: '^RENDER-PASS' }
+    { file: 'test/touch_test.html', re: '^TOUCH-PASS', forceTouch: true },
+    { file: 'test/render_check.html', re: '^RENDER-PASS' },
+    { file: 'test/render_check.html', re: '^RENDER-PASS', forceTouch: true }
   ];
 
   for (const t of targets) {
     const page = await browser.newPage();
+    await page.setViewport({ width: 960, height: 600 });
+    if (t.forceTouch)
+      await page.evaluateOnNewDocument(() => { window.__FORCE_TOUCH__ = true; });
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
     const ok = await page.waitForFunction(
       (re) => new RegExp(re).test(document.title),
       { timeout: 180000, polling: 500 }, t.re
     ).then(() => true).catch(() => false);
     const text = await page.$eval('#results, #out', el => el.textContent).catch(() => '');
-    console.log('\n===== ' + t.file + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
+    console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
     console.log(text);
     allPass = allPass && ok;
     await page.close();
