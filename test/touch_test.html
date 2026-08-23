@@ -309,7 +309,10 @@
       doc.getElementById('scan-active-controls').dataset.state === 'sweeping' &&
       scanBtn.getAttribute('aria-pressed') === 'true');
 
-    wait(1100, function () {
+    // CI 的软件 WebGL 页面可能被节流，不能用 1.1s 墙钟假设已经产生
+    // 0.8s 的固定模拟步。按钮真实命中/启动已在上方验证，此处确定性推进扫描时钟。
+    Voxel.Game._test.tickActiveScan(0.81);
+    wait(30, function () {
       var galaxy = Voxel.Game._test.galaxy();
       var summary = Voxel.Discovery.summary(galaxy.discovery, galaxy.catalog);
       check('扫描按钮触摸不穿透touchTap或放置方块', touchTapCalls === 0 &&
