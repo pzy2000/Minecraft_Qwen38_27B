@@ -749,6 +749,9 @@ Voxel.World = (function () {
     meshCount: function () { return meshGroup ? meshGroup.children.length : 0; },
     buildMeshes: buildMeshes,
     clearMeshes: clearMeshes,
+    // 无限世界 facade 在核心区块外生成/卸载邻居时，需要让核心边缘重新剔面。
+    // 仅暴露区块级失效入口；有限世界的数据布局仍保持私有。
+    markChunkDirty: markChunkDirty,
     get: get,
     set: set,
     surfaceAt: surfaceAt,

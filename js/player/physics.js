@@ -3,14 +3,14 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Physics = (function () {
   var CFG = Voxel.Config;
-  var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D;
+  var H = CFG.WORLD_H;
   var EPS = 0.001;
 
-  // 格子内固体高度：0=无实体，0.5=半高（床），1=整块；界外视为实心
+  // 格子内固体高度：0=无实体，0.5=半高（床），1=整块。
+  // 行星 X/Z 无边界；未加载区块和有限空间站的安全边界由 World.get 统一处理。
   function cellTop(x, y, z) {
     if (y < 0) return 1;
     if (y >= H) return 0;
-    if (x < 0 || x >= W || z < 0 || z >= D) return 1;
     var id = Voxel.World.get(x, y, z);
     if (!Voxel.Blocks.isSolid(id)) return 0;
     return Voxel.Blocks.defs[id].half ? 0.5 : 1;

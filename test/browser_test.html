@@ -103,6 +103,7 @@
 <script src="../js/blocks.js"></script>
 <script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
+<script src="../js/world/infinite.js"></script>
 <script src="../js/world/mesh.js"></script>
 <script src="../js/player/physics.js"></script>
 <script src="../js/player/controls.js"></script>
@@ -214,6 +215,47 @@
       Voxel.Settings.set('fpsCap', 0);
     })();
     check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
+
+    // 无限世界合成回归：在仍受垂直碰撞约束的 y=63 飞过旧 x=256 边界。
+    // 若 Physics 仍把 x>=WORLD_W 当作实体墙，玩家会卡在 255.7 左右；把玩家放到
+    // WORLD_H 以上会绕过旧 cellTop 边界分支，形成假阳性，因此这里必须保持 y<H。
+    (function () {
+      var T = Voxel.World._test;
+      var CS = Voxel.Config.CHUNK;
+      var z = 128, y = Voxel.Config.WORLD_H - 1;
+      var oldPos = Voxel.Player.pos().clone();
+      var oldFly = Voxel.Player.flying();
+      var oldYaw = Voxel.Controls.yaw(), oldPitch = Voxel.Controls.pitch();
+      var oldRight = Voxel.Controls.keys.KeyD;
+      var saved = [];
+      var loaded = !!T && typeof Voxel.World.ensureChunk === 'function';
+      if (loaded) Voxel.World.ensureChunk(T.floorDiv(256), T.floorDiv(z));
+      for (var x = 250; loaded && x <= 272; x++) {
+        saved.push([x, Voxel.World.get(x, y, z)]);
+        Voxel.World.set(x, y, z, 0);
+      }
+
+      if (loaded) {
+        Voxel.Player.init(new THREE.Vector3(253.5, y, z + 0.5), 0, 0);
+        Voxel.Player.setFlying(true);
+        Voxel.Controls.keys.KeyD = true; // yaw=0 时向右即 +X
+        for (var fi = 0; fi < 90; fi++) Voxel.Player.update(1 / 60);
+      }
+      var crossedX = Voxel.Player.pos().x;
+      var outsideSurface = loaded ? Voxel.World.surfaceAt(260, z) : -1;
+      check('无限世界模块/外围区块已加载', loaded &&
+        Voxel.World.isChunkLoaded(T.floorDiv(256), T.floorDiv(z)));
+      check('飞行可越过旧 x=256 硬墙 (x=' + crossedX.toFixed(2) + ')', loaded && crossedX > 260);
+      check('旧边界外 x=260 仍有真实地表 (y=' + outsideSurface + ')',
+        loaded && outsideSurface >= 2 && outsideSurface < Voxel.Config.WORLD_H &&
+        Voxel.Blocks.isSolid(Voxel.World.get(260, outsideSurface, z)));
+
+      Voxel.Controls.keys.KeyD = oldRight;
+      for (var si = 0; si < saved.length; si++) Voxel.World.set(saved[si][0], y, z, saved[si][1]);
+      Voxel.Player.init(oldPos, oldYaw, oldPitch);
+      Voxel.Player.setFlying(oldFly);
+      Voxel.World.setFocus(oldPos.x, oldPos.z);
+    })();
 
     // 音效冒烟：全部新增声音函数可调用且不抛异常（无头环境无实际出声）
     try {

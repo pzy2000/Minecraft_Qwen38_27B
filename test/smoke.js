@@ -50,6 +50,7 @@ load('js/world/shaper.js');
 load('js/blocks.js');
 load('js/crafting.js');
 load('js/world/world.js');
+load('js/world/infinite.js');
 load('js/systems/save.js');
 load('js/systems/furnace.js');
 load('js/systems/settings.js');
@@ -174,7 +175,159 @@ check('有洞穴', cave > 50);
 check('高度范围合理', minH >= 2 && maxH <= H - 2);
 console.log('  高度范围: ' + minH + ' ~ ' + maxH);
 check('出生点在地表', V.World.surfaceAt(W >> 1, D >> 1) > 5);
-check('边界外为实体(防跌落)', V.World.get(-1, 30, 10) === 12 && V.World.get(W, 30, 10) === 12);
+
+console.log('无限世界区块与旧边界回归');
+(function () {
+  var CS = V.Config.CHUNK;
+  var IT = V.World._test;
+  check('无限世界测试接口齐全', !!IT && typeof IT.floorDiv === 'function' &&
+    typeof IT.localCoord === 'function' && typeof IT.unloadOutside === 'function' &&
+    typeof V.World.ensureChunk === 'function' && typeof V.World.isChunkLoaded === 'function' &&
+    typeof V.World.streamStats === 'function');
+  if (!IT || typeof V.World.ensureChunk !== 'function') return;
+
+  // JS 的 |0 会向零截断，不能用来映射负坐标。特别覆盖两个负区块接缝。
+  check('负坐标 floor chunk 映射(-1/-32/-33)',
+    IT.floorDiv(-1) === -1 && IT.localCoord(-1) === CS - 1 &&
+    IT.floorDiv(-32) === -1 && IT.localCoord(-32) === 0 &&
+    IT.floorDiv(-33) === -2 && IT.localCoord(-33) === CS - 1 &&
+    IT.floorDiv(0) === 0 && IT.localCoord(0) === 0 &&
+    IT.floorDiv(32) === 1 && IT.localCoord(32) === 0);
+
+  V.World.ensureChunk(8, 0);   // x=256..287：越过旧右边界
+  V.World.ensureChunk(-1, 0);  // x=-32..-1
+  V.World.ensureChunk(-2, 0);  // x=-64..-33
+  check('旧 x=256 边界外区块已生成', V.World.isChunkLoaded(8, 0));
+  check('负坐标区块 -1/-2 已生成', V.World.isChunkLoaded(-1, 0) && V.World.isChunkLoaded(-2, 0));
+
+  function validSurface(x, z) {
+    var y = V.World.surfaceAt(x, z);
+    return y >= 2 && y < H && V.Blocks.isSolid(V.World.get(x, y, z));
+  }
+  function seamContinuous(a, b, z) {
+    var ya = V.World.surfaceAt(a, z), yb = V.World.surfaceAt(b, z);
+    // 程序化地形允许峭壁和树冠，但相邻列不应从真实地表跳到安全墙/虚空。
+    return validSurface(a, z) && validSurface(b, z) && Math.abs(ya - yb) <= 20;
+  }
+  var seamZ = 10;
+  check('越过 255→256 后仍是连续地形', seamContinuous(255, 256, seamZ) && validSurface(257, seamZ));
+  check('负坐标 -1→0 接缝仍是连续地形', seamContinuous(-1, 0, seamZ));
+  check('负区块 -33→-32 接缝仍是连续地形', seamContinuous(-33, -32, seamZ));
+
+  function chunkFingerprint(cx, cz) {
+    V.World.ensureChunk(cx, cz);
+    var h = 2166136261 >>> 0;
+    var x0 = cx * CS, z0 = cz * CS;
+    for (var z = z0; z < z0 + CS; z++)
+      for (var y = 0; y < H; y++)
+        for (var x = x0; x < x0 + CS; x++)
+          h = Math.imul((h ^ V.World.get(x, y, z)) >>> 0, 16777619) >>> 0;
+    for (var z2 = z0; z2 < z0 + CS; z2++)
+      for (var x2 = x0; x2 < x0 + CS; x2++)
+        h = Math.imul((h ^ (V.World.biomeAt(x2, z2) + 1)) >>> 0, 16777619) >>> 0;
+    return h.toString(16);
+  }
+
+  var order = [[8, 0], [-1, 0], [-2, 0]];
+  var sigA = {};
+  for (var oi = 0; oi < order.length; oi++)
+    sigA[order[oi].join(',')] = chunkFingerprint(order[oi][0], order[oi][1]);
+
+  // 同一种子以相反顺序请求外围区块，结果必须与请求/加载顺序无关。
+  V.World.init(12345);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  for (var ri = order.length - 1; ri >= 0; ri--) V.World.ensureChunk(order[ri][0], order[ri][1]);
+  var deterministic = true;
+  for (var di = 0; di < order.length; di++) {
+    var dk = order[di].join(',');
+    if (chunkFingerprint(order[di][0], order[di][1]) !== sigA[dk]) deterministic = false;
+  }
+  check('同 seed 外围区块与加载顺序无关', deterministic);
+
+  // 火把放在两个外围区块的接缝：光必须跨 x=287/288 传播，移除后也必须跨界熄灭。
+  // 使用世界顶层并先清空四格，排除天然洞穴、遮挡和其他光源造成的误判。
+  V.World.ensureChunk(8, 0);
+  V.World.ensureChunk(9, 0);
+  var lightY = H - 1, lightZ = 10, lightRestore = [];
+  for (var lightX = 286; lightX <= 289; lightX++) {
+    lightRestore.push([lightX, V.World.get(lightX, lightY, lightZ)]);
+    V.World.set(lightX, lightY, lightZ, 0);
+  }
+  V.World.set(287, lightY, lightZ, 19);
+  check('区块接缝火把自身亮度=14', V.World.getBlk(287, lightY, lightZ) === 14);
+  check('火把光跨 287→288 区块接缝传播', V.World.getBlk(288, lightY, lightZ) > 0);
+  V.World.set(287, lightY, lightZ, 0);
+  check('移除火把后跨区块邻格熄灭', V.World.getBlk(288, lightY, lightZ) === 0);
+  for (var li = 0; li < lightRestore.length; li++)
+    V.World.set(lightRestore[li][0], lightY, lightZ, lightRestore[li][1]);
+
+  // legacy 256 核心与无限外围使用不同的数据/光照后端，接缝必须双向传播。
+  // 核心沿用旧启动协议，必须先完成一次 initLight；外围区块则在 ensure 时已单独点亮。
+  if (!V.World.lightReady()) V.World.initLight();
+  var coreRestore = [];
+  for (var coreX = 254; coreX <= 257; coreX++) {
+    coreRestore.push([coreX, V.World.get(coreX, lightY, lightZ)]);
+    V.World.set(coreX, lightY, lightZ, 0);
+  }
+  V.World.set(256, lightY, lightZ, 19);
+  check('外围火把光跨 256→255 进入 legacy 核心',
+    V.World.getBlk(256, lightY, lightZ) === 14 && V.World.getBlk(255, lightY, lightZ) > 0);
+  V.World.set(256, lightY, lightZ, 0);
+  check('移除外围火把后 legacy 核心接缝熄灭', V.World.getBlk(255, lightY, lightZ) === 0);
+  V.World.set(255, lightY, lightZ, 19);
+  check('legacy 核心火把光跨 255→256 进入外围',
+    V.World.getBlk(255, lightY, lightZ) === 14 && V.World.getBlk(256, lightY, lightZ) > 0);
+  V.World.set(255, lightY, lightZ, 0);
+  check('移除核心火把后外围接缝熄灭', V.World.getBlk(256, lightY, lightZ) === 0);
+  for (var ci = 0; ci < coreRestore.length; ci++)
+    V.World.set(coreRestore[ci][0], lightY, lightZ, coreRestore[ci][1]);
+
+  // 外围修改既要跨卸载/再加载保留，也要能通过 edits 在一次完整重载后恢复。
+  var editX = 300, editZ = -17;
+  var editCx = IT.floorDiv(editX), editCz = IT.floorDiv(editZ);
+  V.World.ensureChunk(editCx, editCz);
+  var editY = Math.max(3, Math.min(H - 2, V.World.surfaceAt(editX, editZ) + 1));
+  var editId = V.World.get(editX, editY, editZ) === 10 ? 11 : 10;
+  V.World.set(editX, editY, editZ, editId);
+  var editKey = editX + ',' + editY + ',' + editZ;
+  check('外围 set/get 与 edits 记账生效', V.World.get(editX, editY, editZ) === editId &&
+    V.World.getEdits()[editKey] === editId);
+  var savedOuterEdits = {};
+  var allEdits = V.World.getEdits();
+  for (var ek in allEdits)
+    if (Object.prototype.hasOwnProperty.call(allEdits, ek)) savedOuterEdits[ek] = allEdits[ek];
+
+  IT.unloadOutside(0, 0, 0);
+  check('外围区块可卸载', !V.World.isChunkLoaded(editCx, editCz));
+  V.World.ensureChunk(editCx, editCz);
+  check('外围 edit 在卸载→重载后保留', V.World.get(editX, editY, editZ) === editId);
+
+  V.World.init(12345);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  V.World.applyEdits(savedOuterEdits);
+  V.World.ensureChunk(editCx, editCz);
+  check('外围 edit 在 init→applyEdits→按需生成后恢复', V.World.get(editX, editY, editZ) === editId &&
+    V.World.getEdits()[editKey] === editId);
+
+  function drainFocus(x, z) {
+    V.World.setFocus(x, z);
+    var guard = 0, st = V.World.streamStats();
+    while (st.queued > 0 && guard++ < 100) {
+      V.World.generateNext(64);
+      st = V.World.streamStats();
+    }
+    return st;
+  }
+  // 单个焦点连同装饰 halo 会加载约 17×17 块；两次相隔很远的旅行若只加载不卸载，
+  // 就会超过 19×19 的 keep 工作集上限，无需再生成第三套区块拖慢 CI。
+  var far = CS * 128 + 0.5;
+  var st1 = drainFocus(far, far);
+  var st2 = drainFocus(-far, far);
+  var cap = Math.pow(st2.keepRadius * 2 + 1, 2);
+  check('远行流式队列可清空', st1.queued === 0 && st2.queued === 0);
+  check('setFocus 远行后 loaded chunk 数量有界 (' + st2.loaded + '<=' + cap + ')',
+    st2.loaded <= cap);
+})();
 
 console.log('确定性');
 var same = true;

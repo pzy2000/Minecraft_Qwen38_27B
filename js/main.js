@@ -1685,7 +1685,8 @@ Voxel.Game = (function () {
     var dirs = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
     for (var d = 0; d < dirs.length; d++) {
       var nx = x + dirs[d][0], ny = y + dirs[d][1], nz = z + dirs[d][2];
-      if (nx < 0 || nx >= CFG.WORLD_W || ny < 0 || ny >= CFG.WORLD_H || nz < 0 || nz >= CFG.WORLD_D) continue;
+      // 行星 X/Z 无边界；垂直高度仍是有限的。空间站/未加载区块由 World.get 安全拦截。
+      if (ny < 0 || ny >= CFG.WORLD_H) continue;
       if (waterQ.length > 1500) return;
       waterQ.push([nx, ny, nz]);
     }
@@ -1948,6 +1949,14 @@ Voxel.Game = (function () {
     var fogScale = Voxel.Settings ? Voxel.Settings.get('fog') : 1;
     var fogNear = (CFG.FOG_NEAR + (CFG.WEATHER.FOG_NEAR_WET - CFG.FOG_NEAR) * wF) * fogScale;
     var fogFar = (CFG.FOG_FAR + (CFG.WEATHER.FOG_FAR_WET - CFG.FOG_FAR) * wF) * fogScale;
+    // 无限行星只渲染玩家周围的流式工作集：雾尾留出一整个区块的安全边距，
+    // 避免高雾距设置透出尚未加载的边缘。有限空间站保留原视距。
+    if (currentWorld && currentWorld.kind === 'planet') {
+      var streamFogFar = Math.max(CFG.CHUNK * 2,
+        (Math.max(2, CFG.STREAM_RENDER_RADIUS || 6) - 1) * CFG.CHUNK);
+      fogFar = Math.min(fogFar, streamFogFar);
+      fogNear = Math.min(fogNear, fogFar * 0.6);
+    }
     // 水下雾：贴脸浓雾（与天气雾取更近者，按渐变系数插值）
     fogNear = fogNear + (2.5 - fogNear) * uwFade;
     fogFar = fogFar + (26 - fogFar) * uwFade;
@@ -1962,6 +1971,8 @@ Voxel.Game = (function () {
 
     if (state === 'playing') {
       Voxel.World.setFocus(Voxel.Player.pos().x, Voxel.Player.pos().z);
+      // 初始 256×256 核心就绪后，generateNext 继续以小预算流式生成玩家周围区块。
+      Voxel.World.generateNext(Math.max(1, CFG.STREAM_GENERATE_PER_FRAME || 1));
       Voxel.World.buildMeshes(2, scene);
     }
 

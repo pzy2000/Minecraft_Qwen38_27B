@@ -4,7 +4,7 @@ window.Voxel = window.Voxel || {};
 Voxel.Mobs = (function () {
   var C = Voxel.Config.MOB;
   var P = Voxel.Config.PLAYER;
-  var W = Voxel.Config.WORLD_W, D = Voxel.Config.WORLD_D, H = Voxel.Config.WORLD_H;
+  var H = Voxel.Config.WORLD_H;
   var list = [];
   var group = null;
   var spawnTimer = 1;
@@ -286,7 +286,6 @@ Voxel.Mobs = (function () {
       var dist = C.SPAWN_MIN + Math.random() * (C.SPAWN_MAX - C.SPAWN_MIN);
       var x = Math.floor(Pp.x + Math.cos(ang) * dist);
       var z = Math.floor(Pp.z + Math.sin(ang) * dist);
-      if (x < 2 || z < 2 || x >= W - 2 || z >= D - 2) continue;
       var y = Voxel.World.surfaceAt(x, z);
       if (y < 3 || y >= H - 4) continue;
       // 地表方块匹配 + 群系允许该生物

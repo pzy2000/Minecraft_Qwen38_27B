@@ -2,7 +2,6 @@
 window.Voxel = window.Voxel || {};
 
 Voxel.Drops = (function () {
-  var W = Voxel.Config.WORLD_W, H = Voxel.Config.WORLD_H, D = Voxel.Config.WORLD_D;
   var list = [];
   var group = null;
   var mat = null;
@@ -87,9 +86,8 @@ Voxel.Drops = (function () {
         }
       }
 
-      // 出界 / 超时消失
-      if (m.pos.y < -8 || m.age > DESPAWN ||
-        m.pos.x < 0 || m.pos.x >= W || m.pos.z < 0 || m.pos.z >= D) {
+      // 掉入世界底部 / 超时消失。行星 X/Z 无边界，不再因穿过旧 256×256 边界删除。
+      if (m.pos.y < -8 || m.age > DESPAWN) {
         removeAt(i);
         continue;
       }

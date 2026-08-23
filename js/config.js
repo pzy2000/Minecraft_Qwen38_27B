@@ -7,6 +7,11 @@ Voxel.Config = {
   WORLD_H: 64,         // 高度
   WORLD_D: 256,        // Z 方向方块数
   CHUNK: 32,           // 区块边长（越大区块越少、draw call 越少，对 ANGLE/Edge 更友好）
+  // 无限行星的流式区块工作集（单位：区块）。空间站仍保持有限真空平台。
+  STREAM_RENDER_RADIUS: 5, // 11×11 网格工作集：视野与桌面/移动性能的平衡点
+  STREAM_DATA_RADIUS: 6,   // 多保留一圈数据，供跨区块光照/AO/结构采样
+  STREAM_KEEP_RADIUS: 8,   // 卸载滞回半径，避免在边缘往返时反复生成
+  STREAM_GENERATE_PER_FRAME: 1, // 游戏中每渲染帧最多生成的外围区块
   WATER_LEVEL: 27,     // 水位线
   SNOW_LEVEL: 49,      // 雪线：地表高度 ≥ 此值覆雪
   DAY_LENGTH: 1800,    // 昼夜循环秒数

@@ -105,7 +105,7 @@ Open **Settings** from the main menu or pause menu to adjust input, audio, view 
 
 ## Features
 
-- **Procedural world**: 256×256×64, noise terrain, lakes and oceans, beaches, caves, coal and iron ore
+- **Infinite procedural planets**: planet terrain streams indefinitely in X/Z, including negative coordinates and beyond the legacy 0..255 area; distant chunks unload to bound memory while player edits and block metadata persist. The original 256×256 core is regenerated exactly for old-save compatibility, while orbital stations intentionally remain finite platforms in vacuum. World height remains 64 blocks
 - **Eight biomes**: dual temperature/humidity climate noise plus elevation — plains (sparse oaks), forest (dense woods), desert (dunes / cacti / sandstone layers), snowy plains (snow + spruce), taiga (spruce forest), mega taiga (podzol, 2×2 giant spruce, mossy cobble boulders), jungle (towering 2×2 giant jungle trees, up to ~30 blocks), mountains (rocky peaks); snow covers the ground above the snow line
 - **Lighting**: dual-channel BFS — sky light (fades with the day/night cycle; caves are dark) and block light (torches stay on); incremental updates when blocks are added or removed; torches need a supporting block and light a radius of about 14
 - **Mining and placing**: DDA voxel raycast targeting; hold to mine with a crack progress animation; blocks have different hardness; pickaxes speed up stone and unlock ore tiers (coal → wooden pickaxe, iron → stone pickaxe); bedrock is unbreakable
@@ -137,7 +137,8 @@ js/
 ├── world/
 │   ├── noise.js      Seeded value noise + fBm (2D/3D, temperature/humidity climate channels)
 │   ├── biomes.js     Biome registry and climate selection (pure logic, Node-testable)
-│   ├── world.js      World data, terrain generation, incremental saves
+│   ├── world.js      Finite legacy core / station world generation
+│   ├── infinite.js   Infinite-X/Z planet facade, sparse chunk streaming and eviction
 │   └── mesh.js       Chunk meshes: face culling + vertex AO
 ├── player/
 │   ├── physics.js    AABB block collision
@@ -171,7 +172,7 @@ node test/run_browser_tests.js     # Auto-detects Chrome/Edge/Chromium; you can 
 
 | Test file | Coverage |
 |---|---|
-| `test/smoke.js` | Noise determinism, world gen (water/trees/caves/ore), snow-line peaks, **biome diversity and signature blocks (cactus / giant jungle trees / podzol / mossy cobble / spruce / sandstone)**, spawn point, incremental save round-trip, recipe match/consume (including tools/torches), one-click craft inventory counts, drops and tool tiers, lighting engine (sky light / torch spread / falloff / remove-and-extinguish) |
+| `test/smoke.js` | Noise and terrain determinism, **negative chunk coordinates, continuity across the former 255/256 edge, order-independent chunk generation, bounded streaming memory, outer-chunk edit reloads, and cross-chunk torch light**, biome signature blocks, save round-trips, crafting, smelting, and lighting |
 | `test/browser_test.html` | Full game stack: main loop, physics landing, DDA raycast, mine/place, mob spawn/death/wool drops, handbook one-click + hold-to-craft, inventory 2×2 start crafting (oak → planks → crafting table), stack-by-slot placing, drag-and-drop, crafting table 3×3 (bed), handbook, half-height bed mesh + physics, day/night, weather (rain intensity / raindrops / grey clouds / lightning flash / lightning damage / rainbow day-night conditions / G-key cycle), damage/death/respawn, save round-trip, mesh rebuild (no renderer; logic only), light init and torch lighting, new-world empty inventory, audio function smoke |
 | `test/render_check.html` | Real WebGL render for 240 frames + pixel sampling (sky and terrain both visible) |
 | `test/capture_screenshots.js` | README scene screenshots (day / dusk / rain / snow mountains) |
@@ -179,7 +180,7 @@ node test/run_browser_tests.js     # Auto-detects Chrome/Edge/Chromium; you can 
 
 ## Tunable parameters
 
-`js/config.js`: world size, water level, snow line (`SNOW_LEVEL`), day length, player speed / jump height / fall-damage threshold (`FALL_SAFE`) / breath duration (`AIR_MAX`), mob counts and behavior, weather (`WEATHER`: clear/rain/storm durations, raindrop count, cloud count, lightning interval, strike chance and damage, rainbow duration, rainy fog distance), fog distance, and more.
+`js/config.js`: finite-core/station size, infinite-planet render/data/eviction radii and per-frame generation budget, water level, snow line, day length, player movement and survival parameters, mobs, weather, fog, and more.
 
 ## Suggested first steps
 
@@ -194,7 +195,8 @@ node test/run_browser_tests.js     # Auto-detects Chrome/Edge/Chromium; you can 
 - No furnace/smelting (iron ore is used directly for iron tools); tools have no durability
 - Lighting is per-block flat light (no smooth interpolation); torches cannot be placed on walls
 - Single-player only; immersive fullscreen depends on browser support, with an adaptive in-browser fallback
-- Generating the full 256×256 world takes about 1–2 seconds plus ~1 second for light init (progress bar shown); chunk meshes build incrementally
+- Planets stream indefinitely in X/Z but remain 64 blocks tall; the resident chunk set and fog distance are bounded, and an extremely fast player may briefly meet a protective loading frontier
+- The legacy 256×256 core still takes roughly 1–2 seconds plus light initialization on first load; outer chunks generate incrementally during play
 
 ## Audio credits
 

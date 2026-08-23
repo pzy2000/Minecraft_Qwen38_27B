@@ -18,11 +18,16 @@ Voxel.SpaceTravel = (function () {
 
   function safeSurface(x, z) {
     var best = null;
+    var finiteStation = !!world && world.kind === 'station';
     for (var r = 0; r <= 14; r += 2) {
       for (var dx = -r; dx <= r; dx += Math.max(2, r || 2))
         for (var dz = -r; dz <= r; dz += Math.max(2, r || 2)) {
-          var xx = Math.max(4, Math.min(251, x + dx));
-          var zz = Math.max(4, Math.min(251, z + dz));
+          var xx = x + dx, zz = z + dz;
+          // 空间站仍是有限真空平台；行星地表使用无限世界坐标，不得夹回旧边界。
+          if (finiteStation) {
+            xx = Math.max(4, Math.min(251, xx));
+            zz = Math.max(4, Math.min(251, zz));
+          }
           var y = Voxel.World.surfaceAt(xx, zz);
           var ground = Voxel.World.get(xx, y, zz);
           var organic = ground === 4 || ground === 5 || ground === 20 || ground === 21 ||
@@ -33,6 +38,10 @@ Voxel.SpaceTravel = (function () {
           }
         }
       if (best) return best;
+    }
+    if (finiteStation) {
+      x = Math.max(4, Math.min(251, x));
+      z = Math.max(4, Math.min(251, z));
     }
     var sy = Voxel.World.surfaceAt(x, z);
     return { x: x, y: Math.max(2, Math.min(58, sy)), z: z };
