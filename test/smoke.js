@@ -60,6 +60,7 @@ load('js/world/infinite.js');
 load('js/systems/save.js');
 load('js/systems/furnace.js');
 load('js/systems/settings.js');
+load('js/ui/hud.js');
 
 var V = sandbox.window.Voxel;
 var W = V.Config.WORLD_W, H = V.Config.WORLD_H, D = V.Config.WORLD_D;
@@ -109,7 +110,48 @@ check('跃迁成本有界且随距离计算', GA.fuelCost(galA.catalog[0], galA.
   GA.fuelCost(galA.catalog[0], galA.catalog[5]) <= 42);
 var hydrated = GA.hydrate({ rootSeed: galA.rootSeed, currentId: 'planet-2', discovered: { 'planet-2': true }, ship: { fuel: 27, maxFuel: 100 }, worlds: { 'planet-0': { edits: { '1,2,3': 4 } } } }, galA.rootSeed);
 check('星系状态可恢复', hydrated.currentId === 'planet-2' && hydrated.ship.fuel === 27 &&
+  hydrated.ship.engine === galA.ship.engine &&
   hydrated.worlds['planet-0'].edits['1,2,3'] === 4);
+var nonObjectShip = GA.hydrate({ rootSeed: galA.rootSeed, ship: '损坏字段' }, galA.rootSeed);
+check('非对象飞船存档安全回退默认值', nonObjectShip.ship.engine === galA.ship.engine &&
+  nonObjectShip.ship.fuel === galA.ship.fuel && nonObjectShip.ship.maxFuel === galA.ship.maxFuel);
+var invalidShip = GA.hydrate({
+  rootSeed: galA.rootSeed,
+  ship: { engine: '   ', fuel: NaN, maxFuel: Infinity }
+}, galA.rootSeed);
+check('非有限飞船数值与空引擎名不泄漏', invalidShip.ship.engine === galA.ship.engine &&
+  invalidShip.ship.fuel === galA.ship.fuel && invalidShip.ship.maxFuel === galA.ship.maxFuel);
+var clampedShip = GA.hydrate({
+  rootSeed: galA.rootSeed,
+  ship: { engine: '  试验引擎  ', fuel: 99.8, maxFuel: 40.9 }
+}, galA.rootSeed);
+check('飞船字段独立合并并保持 fuel/maxFuel 关系', clampedShip.ship.engine === '试验引擎' &&
+  clampedShip.ship.fuel === 40 && clampedShip.ship.maxFuel === 40);
+var longEngine = new Array(81).join('X');
+var boundedShip = GA.hydrate({ rootSeed: galA.rootSeed, ship: { engine: longEngine } }, galA.rootSeed);
+check('引擎显示名有合理长度上限', boundedShip.ship.engine.length === 64);
+var invalidCollections = GA.hydrate({
+  rootSeed: galA.rootSeed,
+  discovered: ['planet-4'],
+  worlds: '损坏世界快照'
+}, galA.rootSeed);
+check('非对象 discovered/worlds 安全回退', invalidCollections.discovered['planet-0'] === true &&
+  Object.keys(invalidCollections.worlds).length === 0);
+
+console.log('HUD 数值防御');
+var HT = V.HUD._test;
+check('缺失/非有限耐久回退满值且范围夹取',
+  HT.normalizeDur(undefined, 132) === 132 && HT.normalizeDur(NaN, 132) === 132 &&
+  HT.normalizeDur(Infinity, 132) === 132 && HT.normalizeDur(-8, 132) === 0 &&
+  HT.normalizeDur(999, 132) === 132 && HT.normalizeDur(31.6, 132) === 32);
+var badDurLabel = HT.slotDescription('快捷栏第 1/9 格', 102, 1, 'bad', V.Blocks.maxDur(102));
+check('损坏耐久的格子说明不输出 NaN/undefined/null',
+  badDurLabel.indexOf('NaN') < 0 && badDurLabel.indexOf('undefined') < 0 &&
+  badDurLabel.indexOf('null') < 0 && badDurLabel.indexOf('耐久 132/132') >= 0);
+check('炉火表针对非有限值归零并夹取',
+  HT.gaugePercent(undefined) === 0 && HT.gaugePercent(NaN) === 0 &&
+  HT.gaugePercent(Infinity) === 0 && HT.gaugePercent(-0.5) === 0 &&
+  HT.gaugePercent(1.5) === 100 && HT.gaugePercent(0.456) === 46);
 (function () {
   // 模拟 v4 → 首次载入 v5：main 会把旧世界种子固化到起始行星和迁移标记。
   var legacySeed = '12345';
@@ -668,6 +710,43 @@ console.log('存档序列化往返');
   var loadedAgain = V.Save.load();
   check('载入→再保存→第三次载入不丢 edits', !!loadedAgain && !!loadedAgain.edits &&
     loadedAgain.edits[bx + ',' + by + ',' + bz] === 10);
+})();
+
+console.log('存档可载入边界');
+(function () {
+  var saveKey = V.Config.SAVE_KEY;
+  var backupKey = saveKey + '_backup';
+  var swapKey = backupKey + '_swap';
+  var primaryRaw = _store[saveKey];
+  var hadBackup = Object.prototype.hasOwnProperty.call(_store, backupKey);
+  var previousBackup = _store[backupKey];
+  var hadSwap = Object.prototype.hasOwnProperty.call(_store, swapKey);
+  var previousSwap = _store[swapKey];
+
+  check('空对象/空星系种子不可载入', !V.Save.isLoadable({}) &&
+    !V.Save.isLoadable({ galaxy: { rootSeed: null } }));
+  check('NaN/空白种子不可载入', !V.Save.isLoadable({ seed: NaN }) &&
+    !V.Save.isLoadable({ seed: '' }) && !V.Save.isLoadable({ seed: '   ' }));
+  check('legacy 数字/字符串种子仍可载入', V.Save.isLoadable({ seed: 0 }) &&
+    V.Save.isLoadable({ seed: 'legacy-world' }));
+
+  var corruptRaw = '{}';
+  _store[saveKey] = corruptRaw;
+  check('损坏主档 load/has 拒绝但 hasRaw 保护原字节',
+    V.Save.load() === null && V.Save.has() === false && V.Save.hasRaw() === true &&
+    _store[saveKey] === corruptRaw);
+
+  _store[saveKey] = primaryRaw;
+  _store[backupKey] = corruptRaw;
+  check('损坏备份不对外显示且不可恢复', V.Save.hasBackup() === false &&
+    V.Save.restoreBackup() === false && _store[saveKey] === primaryRaw &&
+    _store[backupKey] === corruptRaw);
+
+  _store[saveKey] = primaryRaw;
+  if (hadBackup) _store[backupKey] = previousBackup;
+  else delete _store[backupKey];
+  if (hadSwap) _store[swapKey] = previousSwap;
+  else delete _store[swapKey];
 })();
 
 console.log('存档归档与恢复保护');

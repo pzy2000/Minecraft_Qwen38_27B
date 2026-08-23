@@ -20,6 +20,25 @@ Voxel.Save = (function () {
     }
   }
 
+  // “能解析成对象”只足以做字节级备份，不代表它能启动一个世界。主菜单和
+  // 恢复入口必须至少拿到一个可用种子；其余旧字段仍交给加载方按版本兜底。
+  function loadableObject(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+    var seed = obj.seed;
+    var galaxySeed = obj.galaxy && typeof obj.galaxy === 'object' && !Array.isArray(obj.galaxy)
+      ? obj.galaxy.rootSeed : undefined;
+    function usableSeed(value) {
+      return (typeof value === 'string' && value.trim() !== '') ||
+        (typeof value === 'number' && isFinite(value));
+    }
+    return usableSeed(seed) || usableSeed(galaxySeed);
+  }
+
+  function loadableRaw(raw) {
+    if (!validRaw(raw)) return false;
+    try { return loadableObject(JSON.parse(raw)); } catch (e) { return false; }
+  }
+
   // localStorage.setItem() 没有事务语义；精确回读后才允许下一步删除/覆盖。
   function writeVerified(key, raw) {
     if (!validRaw(raw)) return false;
@@ -69,12 +88,16 @@ Voxel.Save = (function () {
   function load() {
     try {
       var s = localStorage.getItem(KEY);
-      if (s) return JSON.parse(s);
+      if (s) {
+        var current = JSON.parse(s);
+        return loadableObject(current) ? current : null;
+      }
       // 旧版本键迁移（v3 → 当前）：字段缺失处由加载方兜底
       for (var i = 0; i < LEGACY_KEYS.length; i++) {
         s = localStorage.getItem(LEGACY_KEYS[i]);
         if (s) {
           var obj = JSON.parse(s);
+          if (!loadableObject(obj)) continue;
           localStorage.setItem(KEY, JSON.stringify(obj));
           localStorage.removeItem(LEGACY_KEYS[i]);
           return obj;
@@ -87,6 +110,12 @@ Voxel.Save = (function () {
   }
 
   function has() { return !!load(); }
+
+  // 与 has() 分开：损坏但语法有效的对象仍需在“新世界”前被原样归档，不能
+  // 因为不可载入就静默覆盖。UI 只允许对 has() 为真的档执行“继续/恢复”。
+  function hasRaw() {
+    try { return localStorage.getItem(KEY) !== null; } catch (e) { return false; }
+  }
 
   function clear() {
     try { localStorage.removeItem(KEY); } catch (e) { }
@@ -122,7 +151,7 @@ Voxel.Save = (function () {
   }
 
   function hasBackup() {
-    try { return validRaw(localStorage.getItem(BACKUP_KEY)); } catch (e) { return false; }
+    try { return loadableRaw(localStorage.getItem(BACKUP_KEY)); } catch (e) { return false; }
   }
 
   // 当前档和备份档互换，因此恢复后可再次调用来撤销恢复。
@@ -131,7 +160,7 @@ Voxel.Save = (function () {
     var current;
     try {
       backup = localStorage.getItem(BACKUP_KEY);
-      if (!validRaw(backup)) return false;
+      if (!loadableRaw(backup)) return false;
       current = localStorage.getItem(KEY);
       if (current !== null && !validRaw(current)) return false;
 
@@ -174,9 +203,12 @@ Voxel.Save = (function () {
     save: save,
     load: load,
     has: has,
+    hasRaw: hasRaw,
     clear: clear,
     archiveCurrent: archiveCurrent,
     hasBackup: hasBackup,
-    restoreBackup: restoreBackup
+    restoreBackup: restoreBackup,
+    // 纯检查钩子：供回归验证损坏对象不会进入启动路径。
+    isLoadable: loadableObject
   };
 })();

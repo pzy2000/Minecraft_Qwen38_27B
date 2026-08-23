@@ -20,6 +20,7 @@ Voxel.Game = (function () {
   var pendingTravel = null, travelSerial = 0;
   var worldReplacePending = null, worldReplaceReturnFocus = null, worldReplaceReturnState = null;
   var galaxyState = null, currentWorld = null, travelStats = null;
+  var restoreBusy = false, restoreBusyTimer = null;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
@@ -58,6 +59,9 @@ Voxel.Game = (function () {
     }
     state = s;
     Game.state = s;
+    if (document.body) document.body.setAttribute('data-game-state', s);
+    var scanTerminal = document.getElementById('scan-terminal');
+    if (scanTerminal) scanTerminal.setAttribute('aria-hidden', s === 'playing' ? 'false' : 'true');
     if (Voxel.Touch && Voxel.Touch.onFrame) Voxel.Touch.onFrame(s);
     // 无模态时也要随 menu/loading/playing 切换 HUD 与画布可达性。
     if (typeof syncModalAccessibility === 'function') syncModalAccessibility();
@@ -339,25 +343,39 @@ Voxel.Game = (function () {
 
   function savedSeedLabel(sd) {
     if (!sd) return '';
-    if (sd.galaxy && sd.galaxy.rootSeed !== undefined) return String(sd.galaxy.rootSeed);
-    return sd.seed === undefined || sd.seed === null ? '未知' : String(sd.seed);
+    var root = sd.galaxy && sd.galaxy.rootSeed;
+    if ((typeof root === 'string' && root.trim()) || (typeof root === 'number' && isFinite(root)))
+      return String(root);
+    var seed = sd.seed;
+    if ((typeof seed === 'string' && seed.trim()) || (typeof seed === 'number' && isFinite(seed)))
+      return String(seed);
+    return '无法识别';
   }
 
   // 所有可能改变主/备份槽的操作都通过这里刷新主菜单，避免按钮与提示显示旧状态。
   function syncMainMenu(message, isError) {
     saveData = Voxel.Save.load();
+    var hasRawSave = !!(Voxel.Save.hasRaw && Voxel.Save.hasRaw());
+    var corruptSave = hasRawSave && !saveData;
     var hasBackup = !!(Voxel.Save.hasBackup && Voxel.Save.hasBackup());
     var startBtn = document.getElementById('btn-start');
     var restoreBtn = document.getElementById('btn-restore-backup');
     var hint = document.getElementById('start-hint');
-    if (startBtn) startBtn.textContent = saveData ? '继续游戏' : '开始游戏';
+    if (startBtn) {
+      startBtn.textContent = saveData ? '继续游戏' : (corruptSave ? '存档不可载入' : '开始游戏');
+      startBtn.disabled = corruptSave;
+      startBtn.setAttribute('aria-disabled', corruptSave ? 'true' : 'false');
+    }
     if (restoreBtn) {
       restoreBtn.classList.toggle('hidden', !hasBackup);
       restoreBtn.setAttribute('aria-hidden', hasBackup ? 'false' : 'true');
+      restoreBtn.disabled = restoreBusy || !hasBackup;
     }
     if (!hint) return;
-    hint.classList.toggle('is-error', !!isError);
-    if (message) {
+    hint.classList.toggle('is-error', !!isError || corruptSave);
+    if (corruptSave) {
+      hint.textContent = '检测到不可载入的存档；原始数据仍保留。可恢复上一存档，或新建世界并先归档当前数据。';
+    } else if (message) {
       hint.textContent = message;
     } else if (saveData) {
       hint.textContent = '检测到星际存档 · 星系种子 ' + savedSeedLabel(saveData) +
@@ -447,6 +465,10 @@ Voxel.Game = (function () {
   }
 
   function restorePreviousSave() {
+    if (restoreBusy || state !== 'menu') return false;
+    restoreBusy = true;
+    var restoreBtn = document.getElementById('btn-restore-backup');
+    if (restoreBtn) restoreBtn.disabled = true;
     var restored = false;
     try {
       restored = !!(Voxel.Save.restoreBackup && Voxel.Save.restoreBackup());
@@ -455,18 +477,32 @@ Voxel.Game = (function () {
     }
     if (!restored) {
       syncMainMenu('恢复失败：上一存档不可用，当前存档未变更。', true);
-      return;
+      finishRestoreBusy();
+      return false;
     }
     syncMainMenu();
     var canSwapAgain = !!(Voxel.Save.hasBackup && Voxel.Save.hasBackup());
     syncMainMenu('已恢复上一存档' + (saveData ? ' · 星系种子 ' + savedSeedLabel(saveData) : '') +
       (canSwapAgain ? ' · 再次点击可切换回来' : ' · 可以继续游戏'), false);
-    var restoreBtn = document.getElementById('btn-restore-backup');
     var startBtn = document.getElementById('btn-start');
     setTimeout(function () {
+      if (state !== 'menu' || modalTop()) return;
       if (restoreBtn && !restoreBtn.classList.contains('hidden')) restoreBtn.focus();
-      else if (startBtn) startBtn.focus();
+      else if (startBtn && !startBtn.disabled) startBtn.focus();
     }, 0);
+    finishRestoreBusy();
+    return true;
+  }
+
+  function finishRestoreBusy() {
+    if (restoreBusyTimer) clearTimeout(restoreBusyTimer);
+    restoreBusyTimer = setTimeout(function () {
+      restoreBusy = false;
+      restoreBusyTimer = null;
+      var restoreBtn = document.getElementById('btn-restore-backup');
+      if (restoreBtn) restoreBtn.disabled = state !== 'menu' ||
+        !(Voxel.Save.hasBackup && Voxel.Save.hasBackup());
+    }, 450);
   }
 
   function ensureGalaxy(rootSeed, savedGalaxy) {
@@ -587,8 +623,13 @@ Voxel.Game = (function () {
         if (saveData.dur && saveData.dur.length === 36) dur = saveData.dur.slice();
         else { dur = []; for (var q2 = 0; q2 < 36; q2++) dur.push(null); }
       }
-      heldItem = saveData.held || 0;
-      heldCnt = (saveData.heldCnt || 0) || (heldItem ? 1 : 0);
+      var loadedHeld = Number(saveData.held);
+      heldItem = isFinite(loadedHeld) && Math.floor(loadedHeld) === loadedHeld && loadedHeld > 0 &&
+        Voxel.Blocks.defs[loadedHeld] ? loadedHeld : 0;
+      var loadedHeldCount = Number(saveData.heldCnt);
+      heldCnt = heldItem
+        ? Math.max(1, Math.min(stackMax(heldItem), isFinite(loadedHeldCount) ? Math.floor(loadedHeldCount) : 1))
+        : 0;
       var heldMaxDur = Voxel.Blocks.maxDur(heldItem);
       heldDur = heldMaxDur
         ? ((typeof saveData.heldDur === 'number' && saveData.heldDur > 0 && saveData.heldDur <= heldMaxDur)
@@ -596,9 +637,14 @@ Voxel.Game = (function () {
         : null;
       craftGrid = restoreCraftGrid(saveData.craftGrid, 9);
       invCraftGrid = restoreCraftGrid(saveData.invCraftGrid, 4);
-      Voxel.DayNight.setTime(saveData.time || 0.3);
+      var savedTime = Number(saveData.time);
+      Voxel.DayNight.setTime(isFinite(savedTime) ? savedTime : 0.3);
       Voxel.Weather.restore(saveData.weather);
-      Voxel.Player.setBed(saveData.bed ? new THREE.Vector3(saveData.bed[0], saveData.bed[1], saveData.bed[2]) : null);
+      var savedBed = Array.isArray(saveData.bed) && saveData.bed.length === 3
+        ? [Number(saveData.bed[0]), Number(saveData.bed[1]), Number(saveData.bed[2])] : null;
+      if (savedBed && savedBed.every(function (v) { return isFinite(v); }))
+        Voxel.Player.setBed(new THREE.Vector3(savedBed[0], savedBed[1], savedBed[2]));
+      else Voxel.Player.setBed(null);
       var p = saveData.player;
       var savedDead = !!(p && typeof p.hp === 'number' && isFinite(p.hp) && p.hp <= 0);
       if (p && p.pos && p.pos.length === 3) {
@@ -748,7 +794,8 @@ Voxel.Game = (function () {
     for (var i = 0; i < 36; i++) {
       var md = Voxel.Blocks.maxDur(inv[i]);
       if (!md) { dur[i] = null; continue; }
-      if (dur[i] === undefined || dur[i] === null || dur[i] > md) dur[i] = md;
+      var d = Number(dur[i]);
+      dur[i] = isFinite(d) && d > 0 ? Math.max(1, Math.min(md, Math.floor(d))) : md;
     }
   }
 
@@ -1309,7 +1356,8 @@ Voxel.Game = (function () {
   function normalizedItemDur(id, d) {
     var md = Voxel.Blocks.maxDur(id);
     if (!md) return null;
-    return (typeof d === 'number' && d > 0 && d <= md) ? d : md;
+    var n = Number(d);
+    return isFinite(n) && n > 0 ? Math.max(1, Math.min(md, Math.floor(n))) : md;
   }
 
   function rejectDurabilityLoss(loc, id) {
@@ -2160,7 +2208,7 @@ Voxel.Game = (function () {
       saveData = null;
       startWorld(w.seed, null, w);
     }
-    if (Voxel.Save.has()) {
+    if (Voxel.Save.hasRaw ? Voxel.Save.hasRaw() : Voxel.Save.has()) {
       openWorldReplaceDialog({
         trigger: trigger,
         title: '进入精选世界？',
@@ -2373,6 +2421,9 @@ Voxel.Game = (function () {
     if (state !== 'playing') {
       highlight.visible = false;
       hitEl.style.display = 'none';
+      hitEl.removeAttribute('data-kind');
+      if (Voxel.SpaceTravel && Voxel.SpaceTravel.setScanTarget)
+        Voxel.SpaceTravel.setScanTarget('none', '无锁定目标', null);
       return;
     }
     var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
@@ -2380,27 +2431,44 @@ Voxel.Game = (function () {
       highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
       highlight.visible = true;
     } else highlight.visible = false;
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.setScanTarget) {
+      if (hit && hit.type === 'block') {
+        Voxel.SpaceTravel.setScanTarget('block', Voxel.Blocks.name(hit.id), hit.dist);
+      } else if (hit && hit.type === 'mob') {
+        var mobNames = { sheep: '羊', pig: '猪', rabbit: '兔子', zombie: '僵尸' };
+        var mobType = hit.mob && typeof hit.mob.type === 'string' ? hit.mob.type : '';
+        Voxel.SpaceTravel.setScanTarget('mob', mobNames[mobType] || '生命信号', hit.dist);
+      } else {
+        Voxel.SpaceTravel.setScanTarget('none', '无锁定目标', null);
+      }
+    }
     var isTouch = Voxel.Controls.touchMode();
     var spaceHint = Voxel.SpaceTravel && Voxel.SpaceTravel.actionHint ? Voxel.SpaceTravel.actionHint() : '';
     if (spaceHint) {
       hitEl.textContent = spaceHint;
+      hitEl.dataset.kind = currentWorld && currentWorld.kind === 'station' ? 'terminal' : 'ship';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 15) {
       hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
+      hitEl.dataset.kind = 'craft';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 17) {
       hitEl.textContent = Voxel.DayNight.isNight()
         ? (isTouch ? '轻点睡觉（并设置重生点）' : '按 E 睡觉（并设置重生点）')
         : (isTouch ? '轻点设置重生点' : '按 E 设置重生点');
+      hitEl.dataset.kind = 'bed';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 37) {
       hitEl.textContent = isTouch ? '轻点打开熔炉' : '按 E 打开熔炉';
+      hitEl.dataset.kind = 'furnace';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 38) {
       hitEl.textContent = isTouch ? '轻点打开箱子' : '按 E 打开箱子';
+      hitEl.dataset.kind = 'chest';
       hitEl.style.display = 'block';
     } else {
       hitEl.style.display = 'none';
+      hitEl.removeAttribute('data-kind');
     }
   }
 
@@ -2836,6 +2904,10 @@ Voxel.Game = (function () {
       galaxy: function () { return galaxyState; },
       currentWorld: function () { return currentWorld; },
       requestTravel: requestTravel,
+      syncMainMenu: syncMainMenu,
+      restorePreviousSave: restorePreviousSave,
+      savedSeedLabel: savedSeedLabel,
+      updateHighlight: updateHighlight,
       // 熔炉测试钩子
       openFurnaceAt: function (x, y, z) { openFurnace({ x: x, y: y, z: z }); },
       closeFurnace: closeFurnace,
@@ -2998,13 +3070,27 @@ Voxel.Game = (function () {
     });
     window.addEventListener('pagehide', saveForLifecycle);
     window.addEventListener('beforeunload', saveForLifecycle);
+    window.addEventListener('storage', function (e) {
+      if (state !== 'menu' || !e || !e.key) return;
+      var saveKey = CFG.SAVE_KEY;
+      if (e.key !== saveKey && e.key !== saveKey + '_backup' && e.key !== saveKey + '_backup_swap') return;
+      syncMainMenu('检测到另一个页面更新了存档，菜单状态已刷新。', false);
+    });
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
       showError('图形上下文丢失，请刷新页面（F5）重试');
     });
 
     document.getElementById('btn-start').addEventListener('click', function () {
-      startWorld(saveData ? saveData.seed : null, saveData);
+      // 另一标签页可能在菜单停留期间替换了存档；启动前必须重新读取，不能使用
+      // syncMainMenu() 留下的陈旧对象覆盖更新后的世界。
+      var latestSave = Voxel.Save.load();
+      saveData = latestSave;
+      if (!latestSave && Voxel.Save.hasRaw && Voxel.Save.hasRaw()) {
+        syncMainMenu('当前存档不可载入；原始数据仍保留，请恢复上一存档或新建世界。', true);
+        return;
+      }
+      startWorld(latestSave ? latestSave.seed : null, latestSave);
     });
     // Controls 会为游戏跳跃全局拦截 Space；菜单按钮需截断冒泡以保留原生键盘激活。
     function preserveMenuButtonSpace(button) {
@@ -3033,7 +3119,7 @@ Voxel.Game = (function () {
         saveData = null;
         startWorld(parsedSeed, null);
       }
-      if (Voxel.Save.has()) {
+      if (Voxel.Save.hasRaw ? Voxel.Save.hasRaw() : Voxel.Save.has()) {
         openWorldReplaceDialog({
           trigger: document.getElementById('btn-new'),
           title: '创建新世界？',

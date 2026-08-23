@@ -34,16 +34,34 @@ Voxel.HUD = (function () {
     return prefix + '第 ' + (idx + 1) + '/' + total + ' 格';
   }
 
+  // HUD 是存档损坏的最后一道边界：工具耐久只接受有限数，并统一取整/夹取。
+  // 旧档缺失耐久时与背包 syncDur 语义一致，按满耐久恢复。
+  function normalizeMaxDur(maxDur) {
+    if (typeof maxDur !== 'number' || !isFinite(maxDur) || maxDur <= 0) return null;
+    return Math.max(1, Math.floor(maxDur));
+  }
+
+  function normalizeDur(dur, maxDur) {
+    var max = normalizeMaxDur(maxDur);
+    if (max === null) return null;
+    if (typeof dur !== 'number' || !isFinite(dur)) return max;
+    return Math.max(0, Math.min(max, Math.round(dur)));
+  }
+
+  function slotDescription(label, id, count, dur, maxDur) {
+    var text = (typeof label === 'string' && label ? label : '物品格') + '，';
+    if (!id) return text + '空';
+    var amount = Number(count);
+    if (!isFinite(amount) || amount < 1) amount = 1;
+    text += Voxel.Blocks.name(id) + '，数量 ' + Math.floor(amount);
+    var safeDur = normalizeDur(dur, maxDur);
+    if (safeDur !== null) text += '，耐久 ' + safeDur + '/' + normalizeMaxDur(maxDur);
+    return text;
+  }
+
   function describeSlot(slot, id, count, dur, maxDur) {
     if (!slot || !slot.el) return;
-    var text = slot.label + '，';
-    if (!id) text += '空';
-    else {
-      text += Voxel.Blocks.name(id) + '，数量 ' + (Math.max(1, Number(count) || 1));
-      if (maxDur && dur !== undefined && dur !== null)
-        text += '，耐久 ' + Math.max(0, Math.round(dur)) + '/' + maxDur;
-    }
-    slot.el.setAttribute('aria-label', text);
+    slot.el.setAttribute('aria-label', slotDescription(slot.label, id, count, dur, maxDur));
   }
 
   function renderSlot(slot, id, count, dur, maxDur) {
@@ -481,8 +499,9 @@ Voxel.HUD = (function () {
       ctx.fillText(count, canvas.width - 3, canvas.height - 2);
     }
     // 工具耐久条（底部，绿→红）
-    if (maxDur && dur !== undefined && dur !== null) {
-      var frac = Math.max(0, Math.min(1, dur / maxDur));
+    var safeDur = normalizeDur(dur, maxDur);
+    if (safeDur !== null) {
+      var frac = safeDur / normalizeMaxDur(maxDur);
       var bw = canvas.width - 6;
       ctx.fillStyle = '#1a1a1a';
       ctx.fillRect(3, canvas.height - 5, bw, 3);
@@ -555,11 +574,16 @@ Voxel.HUD = (function () {
   }
 
   // 火焰余量 burn01 / 烧制进度 prog01（0~1）
+  function gaugePercent(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return 0;
+    return Math.round(Math.max(0, Math.min(1, value)) * 100);
+  }
+
   function setFurnaceGauges(burn01, prog01) {
     var flame = document.getElementById('fur-flame');
     var prog = document.getElementById('fur-prog');
-    var burn = Math.round(Math.max(0, Math.min(1, burn01)) * 100);
-    var progress = Math.round(Math.max(0, Math.min(1, prog01)) * 100);
+    var burn = gaugePercent(burn01);
+    var progress = gaugePercent(prog01);
     if (flame) {
       flame.firstElementChild.style.height = burn + '%';
       flame.setAttribute('aria-valuenow', String(burn));
@@ -765,6 +789,11 @@ Voxel.HUD = (function () {
     refreshManual: refreshManual,
     setFurnace: setFurnace,
     setFurnaceGauges: setFurnaceGauges,
-    setChest: setChest
+    setChest: setChest,
+    _test: {
+      normalizeDur: normalizeDur,
+      slotDescription: slotDescription,
+      gaugePercent: gaugePercent
+    }
   };
 })();

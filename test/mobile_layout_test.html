@@ -2,25 +2,46 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>MOBILE-LAYOUT-RUNNING</title>
 <link rel="stylesheet" href="../css/style.css">
 </head>
-<body>
+<body data-game-state="playing">
 <canvas id="game"></canvas>
 <div id="hud">
   <div id="crosshair"></div>
   <div id="space-hud"><div id="world-name">◆ 测试星域</div><div id="world-coord">坐标 0 / 0</div><div id="warp-fuel">跃迁 100%</div></div>
   <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+  <aside id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
+    aria-hidden="false" data-status="online" data-target-kind="block">
+    <div id="scan-terminal-title">遥测终端 // ONLINE</div>
+    <div id="scan-world">阿特拉斯深空中继站 · 轨道空间站</div>
+    <div id="scan-position">X -123456.7 · Y +63.0 · Z +987654.3</div>
+    <div id="scan-biome">原始针叶林</div>
+    <div id="scan-environment">夜间 · 强雷雨 · 真空警戒</div>
+    <div id="scan-target">受损的远古航行终端控制核心</div>
+    <div id="scan-distance">12.8 m</div>
+  </aside>
   <canvas id="oxygen" width="212" height="20"></canvas>
   <canvas id="hunger" width="212" height="20"></canvas>
   <canvas id="health" width="212" height="20"></canvas>
   <div id="hotbar"></div>
+  <div id="toast" class="show">空间站对接完成 · 跃迁能源已补满</div>
+  <div id="use-hint" data-kind="terminal" style="display:block">航行终端：按 H 打开星图</div>
+  <div id="lock-hint" style="display:block">鼠标未锁定 — 点击画面锁定鼠标</div>
 </div>
 <div class="touch-btn touch-btn-main" style="display:flex">跳</div>
 <div class="touch-btn touch-btn-sub fly" style="display:flex">飞</div>
 <div class="touch-btn touch-btn-top pause" style="display:flex">Ⅱ</div>
 <div class="touch-btn touch-btn-top bag" style="display:flex">包</div>
+
+<div id="overlay-start" class="overlay start-overlay hidden"><div class="panel start-panel">
+  <header class="start-brand"><div class="start-kicker">EXO-ARK // WAKE SEQUENCE</div><h1>星海方舟</h1><div class="sub">STARBOUND VOXEL</div><p class="start-tagline">启动方舟导航核，重连深空航路。</p><div class="start-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div></header>
+  <div class="start-actions"><button id="btn-start" class="btn primary">继续游戏</button><button id="btn-new" class="btn">新世界</button><button id="btn-featured" class="btn">精选世界</button>
+    <div class="seed-row"><input id="seed-input" placeholder="星系种子 · 留空随机"><button id="btn-seed-random" class="btn small">随机</button></div>
+    <button id="btn-settings-menu" class="btn">设置</button><div id="start-hint" class="hint">导航系统已就绪</div></div>
+  <details class="start-brief"><summary><span class="start-brief-code">MISSION // DEEP SPACE</span><strong>展开航行简报</strong></summary><div class="start-brief-body"><p>探索星系、传送门、飞船和空间站。</p><div class="controls"><div><b>WASD</b> 移动 · <b>H</b> 星图</div></div></div></details>
+</div></div>
 
 <!-- 动效与对比度探针不参与布局，仅用于 reduced-motion/样式回归。 -->
 <div id="rotate-hint" class="hidden"><div class="rh-icon">⟳</div></div>
@@ -183,6 +204,55 @@
     target44('触摸动作 ' + (i + 1), btn);
   });
 
+  var scan = document.getElementById('scan-terminal');
+  var scanR = scan.getBoundingClientRect();
+  check('遥测终端完整限制在可视区', scanR.width > 0 && scanR.height > 0 && inViewport(scanR));
+  check('遥测终端长文本不产生横向溢出', scan.scrollWidth <= scan.clientWidth + 1 &&
+    document.documentElement.scrollWidth <= W + 1);
+  check('遥测终端只读且不截获指针/焦点', getComputedStyle(scan).pointerEvents === 'none' &&
+    !scan.querySelector('button,input,select,textarea,a,[tabindex]:not([tabindex="-1"])'));
+  check('极窄视口仍保留世界/位置/目标三项遥测',
+    document.getElementById('scan-world').getBoundingClientRect().height > 0 &&
+    document.getElementById('scan-position').getBoundingClientRect().height > 0 &&
+    document.getElementById('scan-target').getBoundingClientRect().height > 0);
+  var scanAvoid = [document.getElementById('space-hud'), starBtn,
+    document.getElementById('health'), document.getElementById('hunger'),
+    hotbar, document.getElementById('crosshair'), document.getElementById('use-hint')];
+  for (var sai = 0; sai < scanAvoid.length; sai++) {
+    var avoidR = scanAvoid[sai].getBoundingClientRect();
+    if (avoidR.width > 0 && avoidR.height > 0)
+      check('遥测终端与关键HUD ' + (sai + 1) + ' 不重叠', overlapArea(scanR, avoidR) === 0);
+  }
+  var messages = [document.getElementById('toast'), document.getElementById('use-hint'), document.getElementById('lock-hint')];
+  for (var mi = 0; mi < messages.length; mi++) {
+    var mr = messages[mi].getBoundingClientRect();
+    check('消息通道 ' + (mi + 1) + ' 在可视区', inViewport(mr));
+    for (var mj = mi + 1; mj < messages.length; mj++)
+      check('消息通道 ' + (mi + 1) + '/' + (mj + 1) + ' 不重叠',
+        overlapArea(mr, messages[mj].getBoundingClientRect()) === 0);
+  }
+
+  var startOverlay = document.getElementById('overlay-start');
+  var startPanel = startOverlay.querySelector('.start-panel');
+  startOverlay.classList.remove('hidden');
+  var startR = startPanel.getBoundingClientRect();
+  check('深空主菜单面板完整限制在可视区', inViewport(startR));
+  check('深空主菜单不横向撑开页面', startPanel.scrollWidth <= startPanel.clientWidth + 1 &&
+    document.documentElement.scrollWidth <= W + 1);
+  Array.prototype.forEach.call(startPanel.querySelectorAll('.start-actions button, .start-actions input, .start-brief summary'),
+    function (el, i) { target44('主菜单核心目标 ' + (i + 1), el); });
+  if (W >= 480 && H <= 500) {
+    var initialCore = [document.getElementById('btn-start'), document.getElementById('btn-new'),
+      document.getElementById('btn-featured'), document.getElementById('seed-input'),
+      document.getElementById('btn-seed-random'), document.getElementById('btn-settings-menu')];
+    check('低高横屏首屏无需滚动即可操作全部核心入口', initialCore.every(function (el) {
+      return inside(el.getBoundingClientRect(), startR);
+    }));
+  }
+  check('主菜单显示时游戏HUD不穿透', getComputedStyle(document.getElementById('hud')).visibility === 'hidden');
+  startOverlay.classList.add('hidden');
+  check('主菜单关闭后playing HUD恢复可见', getComputedStyle(document.getElementById('hud')).visibility === 'visible');
+
   var cases = [
     ['inventory', 'btn-inv-close', ['inv-grid']],
     ['crafting', 'btn-craft-close', ['craft-inv-grid']],
@@ -251,6 +321,9 @@
     check('reduced-motion 跃迁星空静止', getComputedStyle(document.querySelector('.warp-stars')).animationName === 'none');
     check('reduced-motion 跃迁进度静止', getComputedStyle(document.querySelector('.warp-track i')).animationName === 'none');
     check('reduced-motion 卡片无过渡', parseFloat(getComputedStyle(document.getElementById('motion-card')).transitionDuration || '0') === 0);
+    check('reduced-motion 遥测终端扫描动效静止',
+      getComputedStyle(scan).animationName === 'none' &&
+      getComputedStyle(scan, '::after').animationName === 'none');
   }
 
   var fails = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;

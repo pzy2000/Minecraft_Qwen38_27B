@@ -1,6 +1,6 @@
 // 精选世界：主菜单推荐世界网格
 // 种子与 test/capture_biomes.js 一致（种子 12345 含全部 18 种群系），进入后自动传送到对应群系
-// 本模块自成一体：弹窗开关不依赖 main.js，图片缺失时以群系色块兜底
+// 本模块负责内容与显隐原语；按钮/焦点/状态由 main.js 的统一模态栈单点管理。
 window.Voxel = window.Voxel || {};
 
 Voxel.Featured = (function () {
@@ -81,10 +81,6 @@ Voxel.Featured = (function () {
         grid.appendChild(card);
       });
     }
-    var btn = document.getElementById('btn-featured');
-    if (btn) btn.addEventListener('click', show);
-    var back = document.getElementById('btn-featured-back');
-    if (back) back.addEventListener('click', hide);
   }
 
   build();

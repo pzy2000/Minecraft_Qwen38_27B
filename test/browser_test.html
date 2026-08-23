@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="../css/style.css">
 <style>body { background: #222; } #results { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
 </head>
-<body>
+<body data-game-state="loading">
 <canvas id="game" width="640" height="480"></canvas>
 <div id="hud">
   <div id="crosshair"></div>
@@ -23,6 +23,22 @@
   <div id="dmg-flash"></div>
   <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
+  <div id="space-hud">
+    <div id="world-name">◆ 航行数据同步中</div>
+    <div id="world-coord">星图坐标待同步</div>
+    <div id="warp-fuel">跃迁待命</div>
+  </div>
+  <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+  <aside id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
+    aria-hidden="true" data-status="offline" data-target-kind="none">
+    <div id="scan-terminal-title">遥测终端</div>
+    <div id="scan-world">世界数据待同步</div>
+    <div id="scan-position">位置数据待同步</div>
+    <div id="scan-biome">地表数据待同步</div>
+    <div id="scan-environment">环境数据待同步</div>
+    <div id="scan-target">无锁定目标</div>
+    <div id="scan-distance">—</div>
+  </aside>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
   <div class="panel-titlebar"><div id="inventory-title" class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
@@ -64,11 +80,26 @@
   <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
   <div class="inv-tip"></div>
 </div></div>
-<div id="overlay-start" class="overlay hidden"><div class="panel">
-  <h1></h1><div class="sub"></div>
-  <button id="btn-start"></button><button id="btn-new"></button><button id="btn-featured"></button>
-  <button id="btn-restore-backup" class="hidden"></button><button id="btn-settings-menu"></button><label class="sr-only" for="seed-input">星系种子</label><input id="seed-input" type="text" value="12345">
-  <div id="start-hint" class="hint"></div>
+<div id="overlay-start" class="overlay start-overlay hidden"><div class="panel start-panel">
+  <header class="start-brand">
+    <div class="start-kicker">EXO-ARK // WAKE SEQUENCE</div>
+    <h1>星海方舟</h1><div class="sub">STARBOUND VOXEL</div>
+    <p class="start-tagline">启动方舟导航核，重连深空航路。</p>
+    <div class="start-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  </header>
+  <div class="start-actions" aria-label="世界启动选项">
+    <button id="btn-start" class="btn primary"></button>
+    <button id="btn-new" class="btn">新世界</button>
+    <button id="btn-featured" class="btn">精选世界</button>
+    <button id="btn-restore-backup" class="btn restore hidden"></button>
+    <div class="seed-row"><label class="sr-only" for="seed-input">星系种子</label>
+      <input id="seed-input" type="text" value="12345"><button id="btn-seed-random" class="btn small" type="button">随机</button></div>
+    <button id="btn-settings-menu" class="btn">设置</button>
+    <div id="start-hint" class="hint"></div>
+  </div>
+  <details class="start-brief"><summary><span class="start-brief-code">MISSION // DEEP SPACE</span><strong>展开航行简报</strong></summary>
+    <div class="start-brief-body"><p>探索种子星系，穿越传送门并驾驶飞船。</p><div class="controls"><div><b>WASD</b> 移动 · <b>H</b> 星图</div></div></div>
+  </details>
 </div></div>
 <div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note" aria-busy="false">
   <h2 id="world-replace-title"></h2><p id="world-replace-message"></p><div id="world-replace-note"></div>
@@ -351,6 +382,51 @@
       doc.getElementById('error-banner').getAttribute('aria-live') === 'assertive');
   }
 
+  function telemetryRegression() {
+    var scan = doc.getElementById('scan-terminal');
+    var world = Voxel.Game._test.currentWorld();
+    var pos = Voxel.Player.pos();
+    var scanText = scan ? scan.textContent : '';
+    var forbidden = /\b(?:undefined|null|NaN|Infinity)\b|\[object Object\]|未初始化|RUNNING(?:\.\.\.)?/;
+    check('遥测终端为只读命名region且无可聚焦后代', !!scan &&
+      scan.getAttribute('role') === 'region' && scan.getAttribute('aria-labelledby') === 'scan-terminal-title' &&
+      !scan.querySelector('button,input,select,textarea,a,[tabindex]:not([tabindex="-1"])'));
+    check('playing状态同步body且遥测终端在线可见', doc.body.dataset.gameState === 'playing' &&
+      scan.getAttribute('aria-hidden') === 'false' && scan.dataset.status === 'online' &&
+      getComputedStyle(scan).display !== 'none');
+    check('遥测世界/位置/群系/环境来自真实运行态', !!world &&
+      doc.getElementById('scan-world').textContent.indexOf(world.name) >= 0 &&
+      doc.getElementById('scan-world').textContent.indexOf(world.typeName) >= 0 &&
+      /X\s*[+-]?\d+(?:\.\d+)?[\s\S]*Y\s*[+-]?\d+(?:\.\d+)?[\s\S]*Z\s*[+-]?\d+(?:\.\d+)?/.test(doc.getElementById('scan-position').textContent) &&
+      doc.getElementById('scan-biome').textContent.trim().length > 0 &&
+      doc.getElementById('scan-environment').textContent.trim().length > 0 &&
+      isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z));
+    check('世界HUD与遥测不泄漏未初始化字符串', !forbidden.test(scanText) &&
+      !forbidden.test(doc.getElementById('space-hud').textContent) &&
+      doc.getElementById('world-name').textContent.indexOf('待同步') < 0 &&
+      doc.getElementById('world-coord').textContent.indexOf('待同步') < 0 &&
+      /^跃迁\s+(?:100|[1-9]?\d)%$/.test(doc.getElementById('warp-fuel').textContent.trim()));
+
+    var oldCast = Voxel.Raycaster.cast;
+    Voxel.Raycaster.cast = function () {
+      var p = Voxel.Player.pos();
+      return { type: 'block', x: Math.floor(p.x), y: Math.max(0, Math.floor(p.y) - 1),
+        z: Math.floor(p.z), nx: 0, ny: 1, nz: 0, id: 1, dist: 3.25 };
+    };
+    Voxel.Game._test.updateHighlight();
+    Voxel.SpaceTravel.update(0, 0);
+    check('raycast方块同步扫描目标与有限距离', scan.dataset.targetKind === 'block' &&
+      doc.getElementById('scan-target').textContent.indexOf(Voxel.Blocks.name(1)) >= 0 &&
+      /3\.3\s*m/.test(doc.getElementById('scan-distance').textContent));
+    Voxel.Raycaster.cast = function () { return null; };
+    Voxel.Game._test.updateHighlight();
+    Voxel.SpaceTravel.update(0, 0);
+    check('无目标会清除旧目标和距离', scan.dataset.targetKind === 'none' &&
+      doc.getElementById('scan-target').textContent.indexOf('无锁定目标') >= 0 &&
+      doc.getElementById('scan-distance').textContent.trim() === '—');
+    Voxel.Raycaster.cast = oldCast;
+  }
+
   function slotAccessibilityRegression() {
     function press(target, keyName, extra) {
       var init = { bubbles: true, cancelable: true, key: keyName,
@@ -623,11 +699,17 @@
       var pausedSteps = T.fixedStepCount();
       check('固定步：进入暂停立即清空半步余量', Voxel.Game.state === 'paused' &&
         Math.abs(T.simAccumulator()) < EPS);
+      check('暂停时遥测终端同步隐藏且退出可访问树',
+        doc.getElementById('scan-terminal').getAttribute('aria-hidden') === 'true' &&
+        getComputedStyle(doc.getElementById('scan-terminal')).display === 'none');
       // 模拟浏览器后台停止rAF：暂停期间完全没有frame，恢复后的第一帧也只能重定基线。
       Voxel.Game.onKey('KeyP');
       Voxel.Game._frame(base + 10000);
       check('固定步：暂停十秒且无rAF时恢复首帧不补算', Voxel.Game.state === 'playing' &&
         T.fixedStepCount() === pausedSteps && Math.abs(T.simAccumulator()) < EPS);
+      check('恢复playing后遥测终端重新可见',
+        doc.getElementById('scan-terminal').getAttribute('aria-hidden') === 'false' &&
+        getComputedStyle(doc.getElementById('scan-terminal')).display !== 'none');
       Voxel.Game._frame(base + 10000 + 1000 / 120);
       check('固定步：恢复后首个半步不继承暂停前余量', T.fixedStepCount() === pausedSteps &&
         T.simAccumulator() > 0 && T.simAccumulator() < STEP);
@@ -640,6 +722,9 @@
       var panelSteps = T.fixedStepCount();
       check('固定步：打开面板清空半步余量', Voxel.Game.state === 'inventory' &&
         Math.abs(T.simAccumulator()) < EPS);
+      check('背包面板期间只保留快捷栏而隐藏扫描终端',
+        doc.getElementById('scan-terminal').getAttribute('aria-hidden') === 'true' &&
+        getComputedStyle(doc.getElementById('scan-terminal')).display === 'none');
       // 同样模拟面板打开期间浏览器没有任何帧回调。
       T.toggleInv(false);
       Voxel.Game._frame(base + 5000);
@@ -828,6 +913,7 @@
 
     modalSemanticsRegression();
     accessibilitySemanticsRegression();
+    telemetryRegression();
     keyboardIsolationRegression();
     slotAccessibilityRegression();
 
@@ -2067,6 +2153,52 @@
   }
 
   // P0 回归：新建/精选世界必须先确认并保护已有存档。
+  function menuDataSafetyRegression() {
+    var T = Voxel.Game._test;
+    var saveKey = Voxel.Config.SAVE_KEY;
+    var original = localStorage.getItem(saveKey);
+    var invalid = JSON.stringify({ galaxy: { rootSeed: null } });
+    localStorage.setItem(saveKey, invalid);
+    var storageEvent = new Event('storage');
+    Object.defineProperty(storageEvent, 'key', { value: saveKey });
+    window.dispatchEvent(storageEvent);
+    check('跨页损坏存档刷新后禁用继续且保留原始字节',
+      doc.getElementById('btn-start').disabled && Voxel.Save.load() === null &&
+      Voxel.Save.hasRaw() && localStorage.getItem(saveKey) === invalid);
+    var badHint = doc.getElementById('start-hint').textContent;
+    check('损坏存档菜单给出明确恢复路径且不泄漏null',
+      badHint.indexOf('不可载入') >= 0 && badHint.indexOf('null') < 0);
+    check('种子标签忽略null根种子并回退合法legacy seed',
+      T.savedSeedLabel({ seed: 'SAFE-SEED', galaxy: { rootSeed: null } }) === 'SAFE-SEED');
+
+    localStorage.setItem(saveKey, original);
+    window.dispatchEvent(storageEvent);
+    check('跨页恢复合法存档后继续入口重新启用',
+      !doc.getElementById('btn-start').disabled && !!Voxel.Save.load());
+
+    var startPanel = doc.querySelector('#overlay-start .start-panel');
+    var startRect = startPanel.getBoundingClientRect();
+    var viewportW = doc.documentElement.clientWidth, viewportH = doc.documentElement.clientHeight;
+    var menuTargets = startPanel.querySelectorAll('.start-actions button, .start-actions input');
+    var targetsOK = true;
+    for (var i = 0; i < menuTargets.length; i++) {
+      var r = menuTargets[i].getBoundingClientRect();
+      if (r.width > 0 && (r.width < 44 || r.height < 44)) targetsOK = false;
+    }
+    var primaryStyle = getComputedStyle(doc.getElementById('btn-start'));
+    var secondaryStyle = getComputedStyle(doc.getElementById('btn-new'));
+    check('主菜单完全接管画面且HUD/扫描终端不穿透', doc.body.dataset.gameState === 'menu' &&
+      getComputedStyle(doc.getElementById('hud')).visibility === 'hidden' &&
+      doc.getElementById('scan-terminal').getAttribute('aria-hidden') === 'true');
+    check('深空主菜单结构完整且品牌/主CTA层级明确', !!startPanel &&
+      doc.querySelector('.start-brand h1').textContent.indexOf('星海方舟') >= 0 &&
+      doc.querySelector('.start-brief') && !doc.querySelector('.start-brief').open &&
+      primaryStyle.backgroundImage !== secondaryStyle.backgroundImage);
+    check('主菜单面板/核心入口位于视口且无横向溢出', targetsOK &&
+      startRect.left >= -1 && startRect.top >= -1 && startRect.right <= viewportW + 1 &&
+      startRect.bottom <= viewportH + 1 && startPanel.scrollWidth <= startPanel.clientWidth + 1);
+  }
+
   function stepReset() {
     var T2 = Voxel.Game._test;
     T2.clearInv();
@@ -2077,6 +2209,7 @@
     }
     check('存档保护与menu模态测试已回到主菜单', Voxel.Game.state === 'menu' &&
       !doc.getElementById('overlay-start').classList.contains('hidden'));
+    menuDataSafetyRegression();
     menuModalRegression(function () { continueStepReset(); });
   }
 
@@ -2152,25 +2285,37 @@
       if (Voxel.Game.state === 'playing') {
         check('新世界背包已清空', T2.countInv(3) === 0 && !T2.held());
         check('新世界进入后旧档仍可恢复', Voxel.Save.hasBackup() && localStorage.getItem(backupKey) === protectedRaw);
+        // 恢复入口只在主菜单生效；先把新世界保存成当前档，再与旧档安全交换。
+        Voxel.Game.onKey('KeyP');
+        doc.getElementById('btn-menu').click();
+        check('恢复前先回主菜单并保存当前新世界', Voxel.Game.state === 'menu' && !!Voxel.Save.load());
+        var newWorldRaw = localStorage.getItem(saveKey);
         var restoreBtn = doc.getElementById('btn-restore-backup');
-        check('恢复上一存档按钮存在', !!restoreBtn);
+        check('恢复上一存档按钮可见可用', !!restoreBtn && !restoreBtn.disabled &&
+          !restoreBtn.classList.contains('hidden'));
         if (restoreBtn) restoreBtn.click();
         check('恢复按钮将旧档原始字节写回主槽', localStorage.getItem(saveKey) === protectedRaw);
         check('恢复后 Save.load 可读取原存档', !!Voxel.Save.load() &&
           Voxel.Save.load().seed === JSON.parse(protectedRaw).seed);
-        doc.getElementById('btn-start').click();
-        var legacyPoll = 0;
-        (function pollLegacyDefaults() {
-          if (Voxel.Game.state === 'playing' || legacyPoll++ > 600) {
-            check('旧档缺 heldDur 时工具默认补满耐久', Voxel.Game.state === 'playing' &&
-              T2.held() === 102 && T2.heldCount() === 1 && T2.heldDur() === Voxel.Blocks.maxDur(102));
-            check('旧档缺临时格字段时默认全空', T2.craft().every(function (id) { return id === 0; }) &&
-              T2.invCraft().every(function (id) { return id === 0; }));
-            report();
-            return;
-          }
-          wait(100, pollLegacyDefaults);
-        })();
+        if (restoreBtn) restoreBtn.click();
+        check('恢复按钮快速双击不会立即撤销交换', localStorage.getItem(saveKey) === protectedRaw &&
+          localStorage.getItem(backupKey) === newWorldRaw && restoreBtn.disabled);
+        wait(500, function () {
+          check('恢复防抖结束后允许玩家主动再次交换', !restoreBtn.disabled);
+          doc.getElementById('btn-start').click();
+          var legacyPoll = 0;
+          (function pollLegacyDefaults() {
+            if (Voxel.Game.state === 'playing' || legacyPoll++ > 600) {
+              check('旧档缺 heldDur 时工具默认补满耐久', Voxel.Game.state === 'playing' &&
+                T2.held() === 102 && T2.heldCount() === 1 && T2.heldDur() === Voxel.Blocks.maxDur(102));
+              check('旧档缺临时格字段时默认全空', T2.craft().every(function (id) { return id === 0; }) &&
+                T2.invCraft().every(function (id) { return id === 0; }));
+              report();
+              return;
+            }
+            wait(100, pollLegacyDefaults);
+          })();
+        });
         return;
       }
       if (++n2 > 600) { check('新世界重载超时', false); report(); return; }

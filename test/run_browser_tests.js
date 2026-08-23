@@ -69,10 +69,12 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     if (t.forceTouch)
       await page.evaluateOnNewDocument(() => { window.__FORCE_TOUCH__ = true; });
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
-    const ok = await page.waitForFunction(
-      (re) => new RegExp(re).test(document.title),
+    const reachedTerminal = await page.waitForFunction(
+      (re) => new RegExp(re).test(document.title) || /-FAIL\b/.test(document.title),
       { timeout: 300000, polling: 500 }, t.re
     ).then(() => true).catch(() => false);
+    const pageTitle = await page.title();
+    const ok = reachedTerminal && new RegExp(t.re).test(pageTitle);
     const text = await page.$eval('#results, #out', el => el.textContent).catch(() => '');
     const vpLabel = t.viewport ? ` [${t.viewport.width}x${t.viewport.height}]` : '';
     console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') +

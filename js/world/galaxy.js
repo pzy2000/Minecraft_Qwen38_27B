@@ -31,6 +31,10 @@ Voxel.Galaxy = (function () {
     return SYL_A[a] + SYL_B[b] + '-' + String.fromCharCode(65 + i);
   }
 
+  function plainObject(value) {
+    return !!value && Object.prototype.toString.call(value) === '[object Object]';
+  }
+
   function create(seed) {
     var root = rootString(seed);
     var worlds = [];
@@ -94,11 +98,24 @@ Voxel.Galaxy = (function () {
       freshStart.seed = legacyStart;
     }
     fresh.currentId = find(fresh, saved.currentId) ? saved.currentId : 'planet-0';
-    fresh.discovered = saved.discovered || fresh.discovered;
-    fresh.ship = saved.ship || fresh.ship;
-    fresh.ship.maxFuel = Math.max(1, +fresh.ship.maxFuel || 100);
-    fresh.ship.fuel = Math.max(0, Math.min(fresh.ship.maxFuel, +fresh.ship.fuel || 0));
-    fresh.worlds = saved.worlds || {};
+    fresh.discovered = plainObject(saved.discovered) ? saved.discovered : fresh.discovered;
+    // 存档字段是不可信输入：只从普通对象逐字段合并，缺失/损坏字段沿用当前版本默认值。
+    // 不能直接 fresh.ship = saved.ship；旧档缺 engine 时会把 "undefined" 泄漏到航行终端，
+    // 非对象 ship 还会令 fuel/maxFuel 变成 NaN。
+    var savedShip = plainObject(saved.ship) ? saved.ship : null;
+    if (savedShip) {
+      if (typeof savedShip.engine === 'string' && savedShip.engine.trim())
+        fresh.ship.engine = savedShip.engine.trim().slice(0, 64);
+
+      if (typeof savedShip.maxFuel === 'number' && isFinite(savedShip.maxFuel) && savedShip.maxFuel > 0)
+        fresh.ship.maxFuel = Math.floor(savedShip.maxFuel);
+
+      if (typeof savedShip.fuel === 'number' && isFinite(savedShip.fuel))
+        fresh.ship.fuel = Math.floor(savedShip.fuel);
+    }
+    fresh.ship.maxFuel = Math.max(1, fresh.ship.maxFuel);
+    fresh.ship.fuel = Math.max(0, Math.min(fresh.ship.maxFuel, fresh.ship.fuel));
+    fresh.worlds = plainObject(saved.worlds) ? saved.worlds : {};
     return fresh;
   }
 

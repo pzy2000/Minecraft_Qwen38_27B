@@ -5,8 +5,183 @@ Voxel.SpaceTravel = (function () {
   var scene = null, group = null, ship = null, portals = [];
   var galaxy = null, world = null, nearShip = false, portalCooldown = 0;
   var fuelEl = null, worldEl = null, coordEl = null, mapGrid = null;
+  var scanEl = null, scanWorldEl = null, scanPositionEl = null, scanBiomeEl = null;
+  var scanEnvironmentEl = null, scanTargetEl = null, scanDistanceEl = null;
+  var scanTarget = { kind: 'none', label: '无锁定目标', distance: null };
+  var scanLastSampleAt = -Infinity, scanLastSignature = '', scanUrgent = false;
+  var scanOnline = false;
   var shipBaseY = 0;
   var SHIP_BOB_AMPLITUDE = 0.06;
+  var SCAN_INTERVAL_MS = 125; // 约 8Hz；目标种类/名称改变时允许立即刷新。
+
+  function finite(v, fallback, min, max) {
+    var n = Number(v);
+    if (!isFinite(n)) n = fallback;
+    if (!isFinite(n)) n = 0;
+    if (typeof min === 'number' && n < min) n = min;
+    if (typeof max === 'number' && n > max) n = max;
+    return n;
+  }
+
+  function safeText(v, fallback, maxLen) {
+    var s = (typeof v === 'string' || typeof v === 'number') ? String(v) : '';
+    s = s.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+    // 这些是程序值泄漏，不是可展示的遥测文本。
+    if (!s || /\b(?:undefined|null|nan|infinity)\b|\[object object\]/i.test(s) ||
+      /^[-—?？\s]+$/.test(s) || /^未知(?:星域|天体)?$/.test(s)) s = fallback || '';
+    if (!s) s = '不可用';
+    return s.slice(0, Math.max(1, maxLen || 64));
+  }
+
+  function signed(v, digits) {
+    var n = finite(v, 0, -9999999.9, 9999999.9);
+    var s = n.toFixed(digits);
+    return (n >= 0 ? '+' : '') + s;
+  }
+
+  function safeWorldKind(w) { return w && w.kind === 'station' ? 'station' : 'planet'; }
+
+  function safeAccent(v) {
+    var s = typeof v === 'string' ? v.trim() : '';
+    return /^#[0-9a-f]{3,8}$/i.test(s) ? s : '#8df7ff';
+  }
+
+  function worldText(w) {
+    var kind = safeWorldKind(w);
+    return {
+      icon: safeText(w && w.icon, kind === 'station' ? '▣' : '◆', 4),
+      name: safeText(w && w.name, kind === 'station' ? '未命名空间站' : '未命名行星', 48),
+      typeName: safeText(w && w.typeName, kind === 'station' ? '轨道空间站' : '行星', 32),
+      kind: kind
+    };
+  }
+
+  function shipText(g) {
+    var raw = g && g.ship && typeof g.ship === 'object' ? g.ship : {};
+    var maxFuel = finite(raw.maxFuel, 100, 1, 999);
+    var fuel = finite(raw.fuel, 0, 0, maxFuel);
+    return {
+      engine: safeText(raw.engine, '跃迁引擎', 40),
+      maxFuel: Math.round(maxFuel),
+      fuel: Math.round(fuel),
+      percent: Math.round(fuel / maxFuel * 100)
+    };
+  }
+
+  function setText(el, value) {
+    if (el && el.textContent !== value) el.textContent = value;
+  }
+
+  function setAttr(el, name, value) {
+    if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
+  function bindScanDom() {
+    if (typeof document === 'undefined') return;
+    if (scanEl && scanWorldEl && scanPositionEl && scanBiomeEl && scanEnvironmentEl &&
+      scanTargetEl && scanDistanceEl && document.documentElement.contains(scanEl)) return;
+    scanEl = document.getElementById('scan-terminal');
+    scanWorldEl = document.getElementById('scan-world');
+    scanPositionEl = document.getElementById('scan-position');
+    scanBiomeEl = document.getElementById('scan-biome');
+    scanEnvironmentEl = document.getElementById('scan-environment');
+    scanTargetEl = document.getElementById('scan-target');
+    scanDistanceEl = document.getElementById('scan-distance');
+  }
+
+  function resetScanTarget() {
+    scanTarget = { kind: 'none', label: '无锁定目标', distance: null };
+    scanUrgent = true;
+  }
+
+  function setScanOffline() {
+    bindScanDom();
+    setAttr(scanEl, 'data-status', 'offline');
+    setAttr(scanEl, 'data-target-kind', 'none');
+    setText(scanWorldEl, '遥测离线');
+    setText(scanPositionEl, '坐标不可用');
+    setText(scanBiomeEl, '区域不可用');
+    setText(scanEnvironmentEl, '环境不可用');
+    setText(scanTargetEl, '无锁定目标');
+    setText(scanDistanceEl, '—');
+    scanLastSignature = '';
+    scanLastSampleAt = -Infinity;
+  }
+
+  function setHudOffline() {
+    setText(worldEl, '◆ 导航链路离线');
+    setText(coordEl, '星图坐标离线');
+    if (fuelEl) {
+      setText(fuelEl, '跃迁待机');
+      fuelEl.style.setProperty('--fuel', '0%');
+    }
+  }
+
+  function scanModel() {
+    var wt = worldText(world);
+    var p = Voxel.Player && Voxel.Player.pos ? Voxel.Player.pos() : null;
+    var px = finite(p && p.x, 0, -9999999.9, 9999999.9);
+    var py = finite(p && p.y, 0, -9999999.9, 9999999.9);
+    var pz = finite(p && p.z, 0, -9999999.9, 9999999.9);
+    var biome = '空间站平台';
+    var environment = '真空 · 人工重力';
+    if (wt.kind !== 'station') {
+      try {
+        var bid = Voxel.World && Voxel.World.biomeAt ? Voxel.World.biomeAt(Math.floor(px), Math.floor(pz)) : 0;
+        biome = safeText(Voxel.Biomes && Voxel.Biomes.name ? Voxel.Biomes.name(bid) : '', '未识别群系', 32);
+      } catch (e) { biome = '未识别群系'; }
+      var phase = Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight() ? '夜间' : '日间';
+      var weather = safeText(Voxel.Weather && Voxel.Weather.label ? Voxel.Weather.label() : '', '晴', 16);
+      environment = phase + ' · ' + weather;
+    }
+    var kind = scanTarget.kind;
+    var label = kind === 'none' ? '无锁定目标' : safeText(scanTarget.label, '未命名目标', 48);
+    var distance = kind === 'none' || scanTarget.distance === null ? '—' : finite(scanTarget.distance, 0, 0, 9999.9).toFixed(1) + ' m';
+    return {
+      status: 'online',
+      targetKind: kind,
+      world: wt.icon + ' ' + wt.name + ' · ' + wt.typeName,
+      position: 'X ' + signed(px, 1) + ' · Y ' + signed(py, 1) + ' · Z ' + signed(pz, 1),
+      biome: biome,
+      environment: environment,
+      target: label,
+      distance: distance
+    };
+  }
+
+  function syncScan(force) {
+    bindScanDom();
+    if (!scanEl || !scanOnline || !world || !galaxy) { setScanOffline(); return; }
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!force && !scanUrgent && now - scanLastSampleAt < SCAN_INTERVAL_MS) return;
+    scanLastSampleAt = now;
+    var model = scanModel();
+    var sig = [model.status, model.targetKind, model.world, model.position, model.biome,
+      model.environment, model.target, model.distance].join('\u001f');
+    if (force || sig !== scanLastSignature) {
+      setAttr(scanEl, 'data-status', model.status);
+      setAttr(scanEl, 'data-target-kind', model.targetKind);
+      setText(scanWorldEl, model.world);
+      setText(scanPositionEl, model.position);
+      setText(scanBiomeEl, model.biome);
+      setText(scanEnvironmentEl, model.environment);
+      setText(scanTargetEl, model.target);
+      setText(scanDistanceEl, model.distance);
+      scanLastSignature = sig;
+    }
+    scanUrgent = false;
+  }
+
+  function setScanTarget(kind, label, distance) {
+    kind = kind === 'block' || kind === 'mob' ? kind : 'none';
+    var nextLabel = kind === 'none' ? '无锁定目标' : safeText(label, '未命名目标', 48);
+    var nextDistance = kind === 'none' ? null : finite(distance, 0, 0, 9999.9);
+    // 距离显示到 0.1m，先量化可避免微小浮点抖动制造无意义 DOM 写入。
+    if (nextDistance !== null) nextDistance = Math.round(nextDistance * 10) / 10;
+    if (scanTarget.kind !== kind || scanTarget.label !== nextLabel) scanUrgent = true;
+    scanTarget = { kind: kind, label: nextLabel, distance: nextDistance };
+    return { kind: kind, label: nextLabel, distance: nextDistance };
+  }
 
   function box(parent, size, pos, color, emissive) {
     var lit = new THREE.Color(color);
@@ -126,11 +301,20 @@ Voxel.SpaceTravel = (function () {
       });
     }
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false;
+    scanOnline = false;
+    resetScanTarget();
+    setScanOffline();
+    setHudOffline();
   }
 
   function loadWorld(w, g) {
     clear();
     galaxy = g; world = w;
+    scanOnline = !!world && !!galaxy;
+    resetScanTarget();
+    // DOM 遥测不依赖 3D 建模完成；首帧以及缺少 scene 的测试环境都必须立刻可读。
+    syncHud();
+    syncScan(true);
     if (!scene || !world || !galaxy) return;
     group = new THREE.Group();
     scene.add(group);
@@ -138,14 +322,14 @@ Voxel.SpaceTravel = (function () {
     var layout = Voxel.Galaxy.portalsFor(galaxy, world);
     for (var i = 0; i < layout.length; i++) {
       var pos = safeSurface(layout[i].x, layout[i].z);
-      var dest = Voxel.Galaxy.find(galaxy, layout[i].destinationId);
+      var dest = Voxel.Galaxy.find(galaxy, layout[i].destinationId) || {};
       var pg = makePortal(layout[i], dest);
       pg.position.set(pos.x + 0.5, pos.y + 1, pos.z + 0.5);
       group.add(pg);
       portals.push(pg);
     }
 
-    if (world.kind === 'planet') {
+    if (safeWorldKind(world) === 'planet') {
       var sp = Voxel.World.spawnPoint();
       var sPos = safeSurface(Math.round(sp.x + 9), Math.round(sp.z + 7));
       ship = makeShip();
@@ -160,16 +344,20 @@ Voxel.SpaceTravel = (function () {
     }
     portalCooldown = 2.5;
     syncHud();
+    syncScan(true);
   }
 
   function syncHud() {
     if (!world || !galaxy) return;
-    if (worldEl) worldEl.textContent = world.icon + ' ' + world.name + ' · ' + world.typeName;
-    if (coordEl) coordEl.textContent = '坐标 ' + (world.x >= 0 ? '+' : '') + world.x + ' / ' + (world.y >= 0 ? '+' : '') + world.y;
+    var wt = worldText(world);
+    var st = shipText(galaxy);
+    setText(worldEl, wt.icon + ' ' + wt.name + ' · ' + wt.typeName);
+    setText(coordEl, '坐标 ' + signed(world.x, 0) + ' / ' + signed(world.y, 0));
     if (fuelEl) {
-      var f = Math.round(galaxy.ship.fuel);
-      fuelEl.textContent = '跃迁 ' + f + '%';
-      fuelEl.style.setProperty('--fuel', f + '%');
+      setText(fuelEl, '跃迁 ' + st.percent + '%');
+      var fuelCss = st.percent + '%';
+      if (fuelEl.style.getPropertyValue('--fuel') !== fuelCss)
+        fuelEl.style.setProperty('--fuel', fuelCss);
     }
   }
 
@@ -179,9 +367,13 @@ Voxel.SpaceTravel = (function () {
     worldEl = document.getElementById('world-name');
     coordEl = document.getElementById('world-coord');
     mapGrid = document.getElementById('starmap-grid');
+    bindScanDom();
+    if (world && galaxy) { syncHud(); syncScan(true); }
+    else { setHudOffline(); setScanOffline(); }
   }
 
   function update(dt, renderDt) {
+    syncScan(false);
     if (!world || !galaxy || !group || !Voxel.Player) return;
     if (typeof dt !== 'number' || !isFinite(dt) || dt < 0) dt = 0;
     if (typeof renderDt !== 'number' || !isFinite(renderDt) || renderDt < 0) renderDt = dt;
@@ -216,41 +408,70 @@ Voxel.SpaceTravel = (function () {
 
   function canOpenMap() { return !!world && (world.kind === 'station' || nearShip); }
 
+  function galaxyDistance(dest) {
+    try { return Math.round(finite(Voxel.Galaxy.distance(world, dest), 0, 0, 999999)); }
+    catch (e) { return 0; }
+  }
+
+  function galaxyFuelCost(dest) {
+    try { return Math.round(finite(Voxel.Galaxy.fuelCost(world, dest), 0, 0, 100)); }
+    catch (e) { return 0; }
+  }
+
   function showMap() {
     if (!mapGrid || !galaxy || !world) return;
     mapGrid.innerHTML = '';
-    var list = galaxy.catalog.slice();
-    list.sort(function (a, b) { return Voxel.Galaxy.distance(world, a) - Voxel.Galaxy.distance(world, b); });
+    var list = Array.isArray(galaxy.catalog) ? galaxy.catalog.filter(function (d) {
+      return d && typeof d === 'object';
+    }).slice() : [];
+    list.sort(function (a, b) { return galaxyDistance(a) - galaxyDistance(b); });
     for (var i = 0; i < list.length; i++) {
       (function (dest) {
         var current = dest.id === world.id;
-        var cost = current ? 0 : Voxel.Galaxy.fuelCost(world, dest);
-        var known = !!galaxy.discovered[dest.id];
+        var distance = galaxyDistance(dest);
+        var cost = current ? 0 : galaxyFuelCost(dest);
+        var known = !!(galaxy.discovered && galaxy.discovered[dest.id]);
+        var wt = worldText(dest);
         var card = document.createElement('button');
         card.type = 'button';
         card.className = 'star-card' + (current ? ' current' : '') + (known ? ' discovered' : '');
         card.disabled = current;
-        card.style.setProperty('--accent', dest.accent || '#8df7ff');
-        card.innerHTML =
-          '<span class="star-icon">' + dest.icon + '</span>' +
-          '<span class="star-main"><b>' + dest.name + '</b><small>' + dest.typeName + ' · ' + dest.desc + '</small></span>' +
-          '<span class="star-meta">' + (current ? '当前位置' : (known ? '已发现' : '未发现')) + '<br>' +
-          (current ? '' : ('距离 ' + Voxel.Galaxy.distance(world, dest) + ' LY · 能量 ' + cost + '%')) + '</span>';
+        card.style.setProperty('--accent', safeAccent(dest.accent));
+        var icon = document.createElement('span');
+        icon.className = 'star-icon';
+        icon.textContent = wt.icon;
+        var main = document.createElement('span');
+        main.className = 'star-main';
+        var name = document.createElement('b');
+        name.textContent = wt.name;
+        var detail = document.createElement('small');
+        detail.textContent = wt.typeName + ' · ' + safeText(dest.desc, '暂无环境档案', 80);
+        main.appendChild(name); main.appendChild(detail);
+        var meta = document.createElement('span');
+        meta.className = 'star-meta';
+        meta.appendChild(document.createTextNode(current ? '当前位置' : (known ? '已发现' : '未发现')));
+        if (!current) {
+          meta.appendChild(document.createElement('br'));
+          meta.appendChild(document.createTextNode('距离 ' + distance + ' LY · 能量 ' + cost + '%'));
+        }
+        card.appendChild(icon); card.appendChild(main); card.appendChild(meta);
         card.addEventListener('click', function () {
-          if (Voxel.Game && Voxel.Game.requestTravel) Voxel.Game.requestTravel(dest.id, 'ship');
+          if (Voxel.Game && Voxel.Game.requestTravel && (typeof dest.id === 'string' || typeof dest.id === 'number'))
+            Voxel.Game.requestTravel(dest.id, 'ship');
         });
         mapGrid.appendChild(card);
       })(list[i]);
     }
     var title = document.getElementById('starmap-status');
-    if (title) title.textContent = galaxy.ship.engine + ' · 能量 ' + Math.round(galaxy.ship.fuel) + '/' + galaxy.ship.maxFuel;
+    var st = shipText(galaxy);
+    setText(title, st.engine + ' · 能量 ' + st.fuel + '/' + st.maxFuel);
   }
 
   function showWarp(from, to, mode) {
     var title = document.getElementById('warp-title');
     var sub = document.getElementById('warp-sub');
-    if (title) title.textContent = mode === 'portal' ? '传送门同步中' : '跃迁引擎点火';
-    if (sub) sub.textContent = (from ? from.name : '未知星域') + '  →  ' + (to ? to.name : '未知星域');
+    setText(title, mode === 'portal' ? '传送门同步中' : '跃迁引擎点火');
+    setText(sub, worldText(from).name + '  →  ' + worldText(to).name);
     var el = document.getElementById('overlay-warp');
     if (el) el.classList.remove('hidden');
   }
@@ -265,6 +486,7 @@ Voxel.SpaceTravel = (function () {
     clear: clear,
     loadWorld: loadWorld,
     update: update,
+    setScanTarget: setScanTarget,
     actionHint: actionHint,
     canOpenMap: canOpenMap,
     showMap: showMap,

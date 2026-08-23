@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=20260824k">
+<link rel="stylesheet" href="css/style.css?v=20260824l">
 </head>
-<body>
+<body data-game-state="loading">
 <canvas id="game"></canvas>
 
 <!-- HUD -->
@@ -25,12 +25,30 @@
   <div id="uw-overlay"></div>
   <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
-  <div id="space-hud">
-    <div id="world-name">◆ 未知星域</div>
-    <div id="world-coord">坐标 -- / --</div>
-    <div id="warp-fuel">跃迁 100%</div>
+  <div id="telemetry-rail">
+    <div id="space-hud">
+      <div id="world-name">◆ 导航链路离线</div>
+      <div id="world-coord">星图坐标离线</div>
+      <div id="warp-fuel">跃迁待机</div>
+    </div>
+    <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
   </div>
-  <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+  <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
+           aria-hidden="true" data-status="offline" data-target-kind="none">
+    <div class="scan-terminal-head">
+      <span class="scan-terminal-mark" aria-hidden="true">◈</span>
+      <h2 id="scan-terminal-title">环境扫描终端</h2>
+      <span class="scan-terminal-mode">PASSIVE</span>
+    </div>
+    <dl class="scan-terminal-grid">
+      <div class="scan-field scan-secondary"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div>
+      <div class="scan-field scan-secondary"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div>
+      <div class="scan-field scan-secondary"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div>
+      <div class="scan-field scan-secondary"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div>
+      <div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div>
+      <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div>
+    </dl>
+  </section>
 </div>
 
 <!-- 背包 -->
@@ -119,28 +137,45 @@
 </div>
 
 <!-- 开始界面 -->
-<div id="overlay-start" class="overlay">
-  <div class="panel">
-    <h1>星海方舟</h1>
-    <div class="sub">STARBOUND VOXEL</div>
-    <button id="btn-start" class="btn primary">继续游戏</button>
-    <button id="btn-new" class="btn" aria-haspopup="dialog">新世界</button>
-    <button id="btn-featured" class="btn">精选世界</button>
-    <button id="btn-restore-backup" class="btn restore hidden" type="button">恢复上一存档</button>
-    <div class="seed-row">
-      <label class="sr-only" for="seed-input">星系种子</label>
-      <input id="seed-input" type="text" maxlength="32" placeholder="留空随机" spellcheck="false">
-      <button id="btn-seed-random" class="btn small">随机</button>
+<div id="overlay-start" class="overlay start-overlay">
+  <div class="panel start-panel">
+    <header class="start-brand">
+      <div class="start-kicker">EXO-ARK // WAKE SEQUENCE</div>
+      <h1>星海方舟</h1>
+      <div class="sub">STARBOUND VOXEL</div>
+      <p class="start-tagline">启动方舟导航核，重连深空航路。</p>
+      <div class="start-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    </header>
+
+    <div class="start-actions" aria-label="世界启动选项">
+      <button id="btn-start" class="btn primary">继续游戏</button>
+      <button id="btn-new" class="btn" aria-haspopup="dialog">新世界</button>
+      <button id="btn-featured" class="btn">精选世界</button>
+      <button id="btn-restore-backup" class="btn restore hidden" type="button">恢复上一存档</button>
+      <div class="seed-row">
+        <label class="sr-only" for="seed-input">星系种子</label>
+        <input id="seed-input" type="text" maxlength="32" placeholder="星系种子 · 留空随机" spellcheck="false">
+        <button id="btn-seed-random" class="btn small" type="button">随机</button>
+      </div>
+      <button id="btn-settings-menu" class="btn">设置</button>
+      <div id="start-hint" class="hint" role="status" aria-live="polite">正在校验本地存档与导航信标…</div>
     </div>
-    <button id="btn-settings-menu" class="btn">设置</button>
-    <div id="start-hint" class="hint" role="status" aria-live="polite">检测到存档，点击"继续游戏"载入</div>
-    <div class="controls">
-      <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
-      <div><b>左键</b> 放置 <b>右键长按</b> 挖掘（对生物=攻击） <b>中键</b> 吸取方块</div>
-      <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
-      <div><b>M</b> 合成手册（一键合成） <b>Q</b> 丢弃 <b>R</b> 吃东西 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
-      <div style="margin-top:6px;color:#9ab">任务：探索种子星系，穿越随机传送门；在降落点附近登上飞船，使用跃迁引擎前往未知星球与空间站。</div>
-    </div>
+
+    <details class="start-brief">
+      <summary>
+        <span class="start-brief-code">MISSION // DEEP SPACE</span>
+        <strong>展开航行简报</strong>
+      </summary>
+      <div class="start-brief-body">
+        <p>探索种子星系，穿越随机传送门；在降落点附近登上飞船，使用跃迁引擎前往未知星球与空间站。</p>
+        <div class="controls">
+          <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
+          <div><b>左键</b> 放置 <b>右键长按</b> 挖掘/攻击 <b>中键</b> 吸取方块</div>
+          <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
+          <div><b>M</b> 合成手册 <b>Q</b> 丢弃 <b>R</b> 进食 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -194,11 +229,15 @@
 <div id="overlay-starmap" class="overlay hidden">
   <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title">
     <div class="panel-titlebar">
-      <div><h2 id="starmap-title">星系航行图</h2><div id="starmap-status" class="terminal-line"></div></div>
+      <div class="starmap-ident">
+        <div class="starmap-kicker">ARK NAVIGATION // ROUTE SELECT</div>
+        <h2 id="starmap-title">星系航行图</h2>
+        <div id="starmap-status" class="terminal-line">导航引擎待机 · 等待星域数据</div>
+      </div>
       <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
     </div>
     <div id="starmap-grid"></div>
-    <div class="hint">选择目的地启动跃迁 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
+    <div class="starmap-footer hint"><span>ROUTE PROTOCOL</span>选择目的地启动跃迁 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
   </div>
 </div>
 
@@ -276,7 +315,7 @@
 <script src="js/config.js?v=20260824c"></script>
 <script src="js/assets.js?v=20260823f"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
-<script src="js/world/galaxy.js?v=20260824a"></script>
+<script src="js/world/galaxy.js?v=20260824l"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
 <script src="js/world/biomes.js?v=20260823f"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
@@ -295,14 +334,14 @@
 <script src="js/systems/sound.js?v=20260823f"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=20260824h"></script>
+<script src="js/systems/space_travel.js?v=20260824l"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
-<script src="js/systems/save.js?v=20260824g"></script>
+<script src="js/systems/save.js?v=20260824l"></script>
 <script src="js/ui/handitem.js?v=20260823f"></script>
-<script src="js/ui/featured.js?v=20260823f"></script>
+<script src="js/ui/featured.js?v=20260824l"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
-<script src="js/ui/hud.js?v=20260824k"></script>
-<script src="js/main.js?v=20260824k"></script>
+<script src="js/ui/hud.js?v=20260824l"></script>
+<script src="js/main.js?v=20260824l"></script>
 </body>
 </html>

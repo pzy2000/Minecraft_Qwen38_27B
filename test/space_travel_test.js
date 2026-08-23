@@ -38,6 +38,21 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('file://' + path.join(__dirname, '..', 'index.html'), { waitUntil: 'load' });
   await page.evaluate(() => {
+    // SpaceTravel 的遥测模型必须在 DOM 缺失时安全降级；本 E2E 若 UI 代理尚未落盘，
+    // 注入同名稳定契约以独立验证生产数据/清理/安全格式化。
+    let scan = document.getElementById('scan-terminal');
+    if (!scan) {
+      scan = document.createElement('aside');
+      scan.id = 'scan-terminal';
+      (document.getElementById('hud') || document.body).appendChild(scan);
+    }
+    ['scan-world', 'scan-position', 'scan-biome', 'scan-environment', 'scan-target', 'scan-distance'].forEach(id => {
+      if (!document.getElementById(id)) {
+        const el = document.createElement('div');
+        el.id = id;
+        scan.appendChild(el);
+      }
+    });
     localStorage.clear();
     document.getElementById('seed-input').value = 'STARBOUND-E2E';
     document.getElementById('btn-new').click();
@@ -52,6 +67,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     if (!ok) throw new Error('FAIL ' + name);
     console.log('  ok  ' + name);
   }
+  function noLeak(values) {
+    const s = (Array.isArray(values) ? values : [values]).map(v => String(v)).join(' ');
+    return !/undefined|null|NaN|Infinity|\[object Object\]|坐标\s*--\s*\/\s*--/i.test(s);
+  }
 
   await waitWorld('planet-0');
   let first = await page.evaluate(() => ({
@@ -60,12 +79,107 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     portals: Voxel.SpaceTravel.portals().length,
     ship: !!Voxel.SpaceTravel.ship(),
     hud: document.getElementById('world-name').textContent,
-    fuel: Voxel.Game._test.galaxy().ship.fuel
+    coord: document.getElementById('world-coord').textContent,
+    fuelText: document.getElementById('warp-fuel').textContent,
+    fuel: Voxel.Game._test.galaxy().ship.fuel,
+    player: [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z],
+    scan: {
+      status: document.getElementById('scan-terminal').dataset.status,
+      kind: document.getElementById('scan-terminal').dataset.targetKind,
+      world: document.getElementById('scan-world').textContent,
+      position: document.getElementById('scan-position').textContent,
+      biome: document.getElementById('scan-biome').textContent,
+      environment: document.getElementById('scan-environment').textContent,
+      target: document.getElementById('scan-target').textContent,
+      distance: document.getElementById('scan-distance').textContent,
+      expectedWorld: Voxel.Game._test.currentWorld().name,
+      expectedBiome: Voxel.Biomes.name(Voxel.World.biomeAt(
+        Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z)))
+    }
   }));
   check('起始星系包含 7 个天体', first.count === 7);
   check('起始世界是行星且生成飞船', first.kind === 'planet' && first.ship);
   check('行星生成 3-4 扇种子传送门', first.portals >= 3 && first.portals <= 4);
   check('HUD 显示当前天体', first.hud && first.hud.indexOf('未知') < 0);
+  check('行星遥测首帧立即online且无残留目标', first.scan.status === 'online' &&
+    first.scan.kind === 'none' && first.scan.target === '无锁定目标' && first.scan.distance === '—');
+  check('行星遥测世界/群系/环境来自真实状态', first.scan.world.includes(first.scan.expectedWorld) &&
+    first.scan.biome === first.scan.expectedBiome && /^(日间|夜间) · (晴|雨|雷雨)$/.test(first.scan.environment));
+  check('行星遥测XYZ与玩家有限坐标一致', first.player.every(Number.isFinite) &&
+    first.scan.position.includes(first.player[0].toFixed(1)) &&
+    first.scan.position.includes(first.player[1].toFixed(1)) &&
+    first.scan.position.includes(first.player[2].toFixed(1)));
+  check('初始HUD/遥测无禁止泄漏字符串', noLeak([
+    first.hud, first.coord, first.fuelText, first.scan.world, first.scan.position,
+    first.scan.biome, first.scan.environment, first.scan.target, first.scan.distance
+  ]));
+
+  const targetTelemetry = await page.evaluate(async () => {
+    const root = document.getElementById('scan-terminal');
+    Voxel.SpaceTravel.setScanTarget('block', '石头', 3.456);
+    Voxel.SpaceTravel.update(0, 0.016);
+    const normal = {
+      kind: root.dataset.targetKind,
+      target: document.getElementById('scan-target').textContent,
+      distance: document.getElementById('scan-distance').textContent
+    };
+    let mutations = 0;
+    const observer = new MutationObserver(records => { mutations += records.length; });
+    observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });
+    for (let i = 0; i < 80; i++) Voxel.SpaceTravel.update(0, 0);
+    await Promise.resolve();
+    observer.disconnect();
+    Voxel.SpaceTravel.setScanTarget('mob', 'undefined', Infinity);
+    Voxel.SpaceTravel.update(0, 0);
+    const unsafe = {
+      kind: root.dataset.targetKind,
+      target: document.getElementById('scan-target').textContent,
+      distance: document.getElementById('scan-distance').textContent
+    };
+    Voxel.SpaceTravel.setScanTarget('none', 'null', NaN);
+    Voxel.SpaceTravel.update(0, 0);
+    const cleared = {
+      kind: root.dataset.targetKind,
+      target: document.getElementById('scan-target').textContent,
+      distance: document.getElementById('scan-distance').textContent
+    };
+    return { normal, mutations, unsafe, cleared };
+  });
+  check('setScanTarget方块名称/距离安全量化', targetTelemetry.normal.kind === 'block' &&
+    targetTelemetry.normal.target === '石头' && targetTelemetry.normal.distance === '3.5 m');
+  check('相同遥测高频update不重复写DOM', targetTelemetry.mutations === 0);
+  check('坏目标字段被替换并夹紧为有限距离', targetTelemetry.unsafe.kind === 'mob' &&
+    targetTelemetry.unsafe.target === '未命名目标' && targetTelemetry.unsafe.distance === '0.0 m' &&
+    noLeak(Object.values(targetTelemetry.unsafe)));
+  check('清除目标不残留旧名称/距离', targetTelemetry.cleared.kind === 'none' &&
+    targetTelemetry.cleared.target === '无锁定目标' && targetTelemetry.cleared.distance === '—');
+
+  const badTelemetry = await page.evaluate(() => {
+    const w = Voxel.Game._test.currentWorld();
+    const ship = Voxel.Game._test.galaxy().ship;
+    const wb = { icon: w.icon, name: w.name, typeName: w.typeName, desc: w.desc, x: w.x, y: w.y };
+    const sb = { engine: ship.engine, fuel: ship.fuel, maxFuel: ship.maxFuel };
+    w.icon = undefined; w.name = '--'; w.typeName = NaN; w.desc = '[object Object]';
+    w.x = Infinity; w.y = -Infinity;
+    ship.engine = undefined; ship.fuel = NaN; ship.maxFuel = Infinity;
+    Voxel.SpaceTravel.setScanTarget('block', '[object Object]', Infinity);
+    Voxel.SpaceTravel.update(0, 0);
+    Voxel.SpaceTravel.showMap();
+    Voxel.SpaceTravel.showWarp({ name: null }, { name: undefined }, 'ship');
+    const ids = ['world-name', 'world-coord', 'warp-fuel', 'starmap-status', 'warp-sub',
+      'scan-world', 'scan-position', 'scan-biome', 'scan-environment', 'scan-target', 'scan-distance'];
+    const values = ids.map(id => (document.getElementById(id) || {}).textContent || '');
+    values.push(document.getElementById('starmap-grid').textContent);
+    const injectedMarkup = document.querySelector('#starmap-grid img, #starmap-grid script');
+    const placeholderLeak = values.some(value => /(^|\s)--(?:\s|$)|\?\?/.test(value));
+    Object.assign(w, wb); Object.assign(ship, sb);
+    Voxel.SpaceTravel.setScanTarget('none');
+    Voxel.SpaceTravel.update(0, 0);
+    Voxel.SpaceTravel.hideWarp();
+    return { values, injectedMarkup: !!injectedMarkup, placeholderLeak };
+  });
+  check('坏world/ship/目标字段不会泄漏程序字符串', noLeak(badTelemetry.values) && !badTelemetry.placeholderLeak);
+  check('星图字段只按文本写入且不会注入标记', badTelemetry.injectedMarkup === false);
 
   const map = await page.evaluate(() => {
     const ship = Voxel.SpaceTravel.ship();
@@ -82,6 +196,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     const p = Voxel.Player.pos().clone().add(new THREE.Vector3(8, 3, 0));
     const d = Voxel.Drops.spawn(102, 1, p, new THREE.Vector3(1.25, 2.5, -0.75), 37);
     if (d) d.age = 12.5;
+    Voxel.SpaceTravel.setScanTarget('block', '跨世界残留测试', 8.8);
+    Voxel.SpaceTravel.update(0, 0);
     const ok = Voxel.Game.requestTravel('station-0', 'ship');
     const beforePagehide = Voxel.Save.load();
     window.dispatchEvent(typeof PageTransitionEvent === 'function'
@@ -117,13 +233,32 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     deck: Voxel.World.get(128, 23, 128),
     portals: Voxel.SpaceTravel.portals().length,
     drops: Voxel.Drops.snapshot(),
-    savedCurrent: (Voxel.Save.load().galaxy || {}).currentId
+    savedCurrent: (Voxel.Save.load().galaxy || {}).currentId,
+    actionHint: Voxel.SpaceTravel.actionHint(),
+    scan: {
+      status: document.getElementById('scan-terminal').dataset.status,
+      kind: document.getElementById('scan-terminal').dataset.targetKind,
+      world: document.getElementById('scan-world').textContent,
+      biome: document.getElementById('scan-biome').textContent,
+      environment: document.getElementById('scan-environment').textContent,
+      target: document.getElementById('scan-target').textContent,
+      distance: document.getElementById('scan-distance').textContent,
+      expectedWorld: Voxel.Game._test.currentWorld().name
+    }
   }));
   check('抵达独立空间站体素世界', station.kind === 'station' && station.deck !== 0);
   check('空间站自动补满跃迁能量', station.fuel === station.max);
   check('空间站拥有返回用传送门', station.portals === 3);
   check('抵达后提交目标世界存档', station.savedCurrent === 'station-0');
   check('源行星掉落未泄漏到空间站', station.drops.length === 0);
+  check('空间站遥测首帧切换世界且清除行星目标', station.scan.status === 'online' &&
+    station.scan.kind === 'none' && station.scan.world.includes(station.scan.expectedWorld) &&
+    station.scan.target === '无锁定目标' && station.scan.distance === '—' &&
+    station.scan.world.indexOf('跨世界残留测试') < 0);
+  check('空间站遥测使用平台/真空环境而非行星群系', station.scan.biome === '空间站平台' &&
+    station.scan.environment === '真空 · 人工重力' && noLeak(Object.values(station.scan)));
+  check('空间站航行终端提示与只读遥测终端保持独立', /航行终端/.test(station.actionHint) &&
+    /打开星图/.test(station.actionHint) && station.scan.target === '无锁定目标');
 
   await page.evaluate(() => Voxel.World.set(130, 24, 130, 13));
   const returnDeparture = await page.evaluate(() => {
@@ -142,13 +277,28 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   await waitWorld('planet-0');
   const backOnPlanet = await page.evaluate(() => ({
     fuel: Voxel.Game._test.galaxy().ship.fuel,
-    drops: Voxel.Drops.snapshot()
+    drops: Voxel.Drops.snapshot(),
+    scan: {
+      kind: document.getElementById('scan-terminal').dataset.targetKind,
+      world: document.getElementById('scan-world').textContent,
+      biome: document.getElementById('scan-biome').textContent,
+      environment: document.getElementById('scan-environment').textContent,
+      target: document.getElementById('scan-target').textContent,
+      expectedWorld: Voxel.Game._test.currentWorld().name,
+      expectedBiome: Voxel.Biomes.name(Voxel.World.biomeAt(
+        Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z)))
+    }
   }));
   const afterShipFuel = backOnPlanet.fuel;
   check('飞船跃迁实际消耗能量', afterShipFuel < station.max);
   check('返航行星恢复原工具掉落及耐久且隔离空间站掉落',
     backOnPlanet.drops.some(d => d.id === 102 && d.n === 1 && d.dur === 37 && d.age >= 12.5) &&
     !backOnPlanet.drops.some(d => d.id === 10 && d.n === 3));
+  check('返航行星遥测清除空间站环境与目标', backOnPlanet.scan.kind === 'none' &&
+    backOnPlanet.scan.world.includes(backOnPlanet.scan.expectedWorld) &&
+    backOnPlanet.scan.biome === backOnPlanet.scan.expectedBiome &&
+    backOnPlanet.scan.biome !== '空间站平台' && backOnPlanet.scan.environment !== '真空 · 人工重力' &&
+    backOnPlanet.scan.target === '无锁定目标' && noLeak(Object.values(backOnPlanet.scan)));
 
   const portalJump = await page.evaluate(() => ({
     ok: Voxel.Game.requestTravel('station-0', 'portal'),
@@ -190,6 +340,20 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     saved.galaxy.worlds['planet-0'].drops.some(d => d.id === 102 && d.dur === 37) &&
     saved.galaxy.worlds['station-0'].drops.some(d => d.id === 10 && d.n === 3) &&
     saved.drops.some(d => d.id === 10 && d.n === 3));
+  const offline = await page.evaluate(() => {
+    Voxel.SpaceTravel.clear();
+    return {
+      status: document.getElementById('scan-terminal').dataset.status,
+      kind: document.getElementById('scan-terminal').dataset.targetKind,
+      values: ['scan-world', 'scan-position', 'scan-biome', 'scan-environment', 'scan-target', 'scan-distance']
+        .map(id => document.getElementById(id).textContent),
+      hud: ['world-name', 'world-coord', 'warp-fuel'].map(id => document.getElementById(id).textContent)
+    };
+  });
+  check('clear后遥测明确offline且不保留跨世界目标', offline.status === 'offline' &&
+    offline.kind === 'none' && offline.values[4] === '无锁定目标' && offline.values[5] === '—' &&
+    offline.hud[0].includes('导航链路离线') && offline.hud[1] === '星图坐标离线' &&
+    offline.hud[2] === '跃迁待机' && noLeak(offline.values.concat(offline.hud)));
   check('页面运行无未捕获异常', errors.length === 0);
 
   await browser.close();
