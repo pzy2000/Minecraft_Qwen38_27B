@@ -23,13 +23,27 @@ Voxel.Controls = (function () {
     if (pitch < -lim) pitch = -lim;
   }
 
+  function isInteractiveTarget(target) {
+    if (!target || !target.closest) return false;
+    return !!target.closest('input, textarea, select, button, [contenteditable]:not([contenteditable="false"])');
+  }
+
+  function isModifiedCommand(e) {
+    return !!(e.ctrlKey || e.metaKey || e.altKey);
+  }
+
   function init(c) {
     canvas = c;
     if (Voxel.Settings) sensMul = Voxel.Settings.get('sens');
     document.addEventListener('keydown', function (e) {
+      // 表单、按钮、可编辑内容、IME 和浏览器快捷键完全保留原生语义。
+      if (isInteractiveTarget(e.target) || e.isComposing || isModifiedCommand(e)) return;
       keys[e.code] = true;
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0) e.preventDefault();
-      if (Voxel.Game) Voxel.Game.onKey(e.code);
+      var gameplay = Voxel.Game && Voxel.Game.state === 'playing';
+      if (gameplay && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0)
+        e.preventDefault();
+      // repeat 只维持移动 keys；开关/一次性命令每次物理按键最多执行一次。
+      if (!e.repeat && Voxel.Game) Voxel.Game.onKey(e.code);
     });
     document.addEventListener('keyup', function (e) { keys[e.code] = false; });
     window.addEventListener('blur', function () {

@@ -104,6 +104,16 @@ Voxel.HUD = (function () {
         btn.addEventListener('pointerup', function () { Voxel.Game.manualCraftStop(); });
         btn.addEventListener('pointercancel', function () { Voxel.Game.manualCraftStop(); });
         btn.addEventListener('mouseleave', function () { Voxel.Game.manualCraftStop(); });
+        // 键盘激活只合成一次：同步 start/stop 会执行首件但不会留下长按 interval。
+        // 截断冒泡，避免 Space/Enter 同时触发游戏全局快捷键；重复键与IME组合态忽略。
+        btn.addEventListener('keydown', function (e) {
+          if (e.isComposing || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          e.stopPropagation();
+          Voxel.Game.manualCraftStart(idx);
+          Voxel.Game.manualCraftStop();
+        });
       })(i);
       row.appendChild(btn);
       manualBtns.push(btn);

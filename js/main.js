@@ -15,7 +15,7 @@ Voxel.Game = (function () {
   var sel = 0, heldItem = 0, heldCnt = 0, heldDur = null;
   var craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];   // 工作台 3x3（每格 1 个）
   var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2（每格 1 个）
-  var manualOpen = false;
+  var manualOpen = false, manualReturnState = 'menu';
   var saveData = null, pendingEdits = null, featuredPending = null;
   var pendingTravel = null, travelSerial = 0;
   var worldReplacePending = null, worldReplaceReturnFocus = null, worldReplaceReturnState = null;
@@ -46,15 +46,165 @@ Voxel.Game = (function () {
   var _tint = new THREE.Color(), _sky = new THREE.Color(), _skyTop = new THREE.Color();
 
   function setState(s) {
-    // 暂停、菜单、加载等墙钟时间绝不能在重新进入游戏时补算成物理步。
-    if ((state === 'playing') !== (s === 'playing')) {
+    // playing/furnace 是活跃固定时钟；任一端跨状态都清余量，离开活跃态时
+    // 使墙钟基线失效，避免 furnace→manual→furnace 等路径补算隐藏时间。
+    var wasActive = state === 'playing' || state === 'furnace';
+    var nextActive = s === 'playing' || s === 'furnace';
+    if (state !== s && (wasActive || nextActive)) {
       simAccumulator = 0;
-      // 离开 playing 时先使墙钟基线失效；若暂停期间仍有渲染帧，frame() 会自然
+      // 离开活跃模拟态时先使墙钟基线失效；若面板期间仍有渲染帧，frame() 会自然
       // 建立最新基线。若后台完全无帧，恢复后的首帧只建基线而不会补算后台时间。
-      if (state === 'playing') lastT = null;
+      if (wasActive) lastT = null;
     }
     state = s;
     Game.state = s;
+  }
+
+  // ---------- 统一模态层：状态、焦点、Tab/Escape、背景 inert ----------
+  var modalStack = [];
+  var intentionalUnlockPending = false, intentionalUnlockTimer = null;
+  var MODAL_LAYER_IDS = [
+    'game', 'hud', 'btn-starmap-hud', 'inventory', 'crafting', 'furnace', 'chest', 'manual',
+    'overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-featured',
+    'overlay-world-replace', 'overlay-starmap', 'overlay-settings'
+  ];
+
+  function modalTop() { return modalStack.length ? modalStack[modalStack.length - 1] : null; }
+
+  function clearIntentionalUnlock() {
+    intentionalUnlockPending = false;
+    if (intentionalUnlockTimer) clearTimeout(intentionalUnlockTimer);
+    intentionalUnlockTimer = null;
+  }
+
+  function exitLockForUI() {
+    if (!Voxel.Controls) return;
+    if (!Voxel.Controls.touchMode() && Voxel.Controls.isLocked()) {
+      intentionalUnlockPending = true;
+      if (intentionalUnlockTimer) clearTimeout(intentionalUnlockTimer);
+      // 防御：浏览器若吞掉 pointerlockchange，不能永久吞掉未来真实的 Esc 解锁。
+      intentionalUnlockTimer = setTimeout(clearIntentionalUnlock, 2000);
+    }
+    Voxel.Controls.exitLock();
+  }
+
+  function modalFocusables(root) {
+    if (!root) return [];
+    var all = root.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])');
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      if (!all[i].classList.contains('hidden') && all[i].getAttribute('aria-hidden') !== 'true') out.push(all[i]);
+    }
+    return out;
+  }
+
+  function syncModalAccessibility() {
+    var top = modalTop();
+    for (var i = 0; i < MODAL_LAYER_IDS.length; i++) {
+      var el = document.getElementById(MODAL_LAYER_IDS[i]);
+      if (!el) continue;
+      var active = !!top && el === top.root;
+      // 游戏容器面板复用 HUD hotbar 做拖拽；保留 HUD 容器可交互，但其唯一背景按钮
+      // btn-starmap-hud 仍由下一项单独 inert。其他模态继续冻结整个 HUD。
+      if (top && el.id === 'hud' && ['inventory', 'crafting', 'furnace', 'chest'].indexOf(top.state) >= 0)
+        active = true;
+      el.inert = !!top && !active;
+      if (top) el.setAttribute('aria-hidden', active ? 'false' : 'true');
+      else if (el.classList && el.classList.contains('hidden')) el.setAttribute('aria-hidden', 'true');
+      else el.removeAttribute('aria-hidden');
+    }
+  }
+
+  function resolveModalFocus(entry) {
+    var target = entry.initialFocus;
+    if (typeof target === 'function') target = target();
+    else if (typeof target === 'string') target = document.querySelector(target);
+    if (!target) {
+      var list = modalFocusables(entry.root);
+      target = list.length ? list[0] : null;
+    }
+    return target;
+  }
+
+  function openModalLayer(options) {
+    var root = document.getElementById(options.id);
+    if (!root) return null;
+    var top = modalTop();
+    if (top && top.root === root) return top;
+    var entry = {
+      id: options.id,
+      root: root,
+      state: options.state,
+      returnState: options.returnState || state,
+      trigger: options.trigger || document.activeElement,
+      initialFocus: options.initialFocus || null,
+      closeKeys: options.closeKeys || [],
+      manualKey: !!options.manualKey,
+      onEscape: options.onEscape || null
+    };
+    modalStack.push(entry);
+    root.classList.remove('hidden');
+    setState(entry.state);
+    exitLockForUI();
+    syncModalAccessibility();
+    setTimeout(function () {
+      if (modalTop() !== entry) return;
+      var focus = resolveModalFocus(entry);
+      if (focus && focus.focus) focus.focus();
+    }, 0);
+    return entry;
+  }
+
+  function closeModalLayer(id, restoreFocus) {
+    var entry = modalTop();
+    if (!entry || entry.id !== id) return false;
+    entry.root.classList.add('hidden');
+    modalStack.pop();
+    syncModalAccessibility();
+    var lower = modalTop();
+    var nextState = lower ? lower.state : entry.returnState;
+    setState(nextState);
+    if (!lower && nextState === 'playing') {
+      if (canvas) {
+        canvas.tabIndex = -1;
+        if (canvas.focus) canvas.focus({ preventScroll: true });
+      }
+      tryLock();
+    } else if (restoreFocus !== false && entry.trigger && document.documentElement.contains(entry.trigger)) {
+      setTimeout(function () {
+        if (entry.trigger && !entry.trigger.inert && entry.trigger.focus) entry.trigger.focus();
+      }, 0);
+    }
+    return true;
+  }
+
+  function clearModalLayers() {
+    modalStack.length = 0;
+    syncModalAccessibility();
+  }
+
+  function handleModalKeydown(e) {
+    var top = modalTop();
+    if (!top) return;
+    var inside = top.root.contains(e.target);
+    if (e.key === 'Tab') {
+      var list = modalFocusables(top.root);
+      if (!list.length) { e.preventDefault(); e.stopPropagation(); return; }
+      var first = list[0], last = list[list.length - 1];
+      if (!inside) { (e.shiftKey ? last : first).focus(); e.preventDefault(); }
+      else if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+      else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+      if (e.defaultPrevented) e.stopPropagation();
+      return;
+    }
+    if (e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+    var closeKey = e.key === 'Escape' || top.closeKeys.indexOf(e.code) >= 0;
+    var manualKey = top.manualKey && e.code === 'KeyM';
+    if (!closeKey && !manualKey) return;
+    if (manualKey) openManual();
+    else if (top.onEscape) top.onEscape();
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   // 移动浏览器同时存在 layout viewport 与 visual viewport；渲染、CSS 和触摸
@@ -158,10 +308,15 @@ Voxel.Game = (function () {
   }
 
   function hideOverlays() {
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-warp', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
+    manualOpen = false;
+    manualCraftStop();
+    clearModalLayers();
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-settings', 'overlay-warp', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
+    document.body.classList.remove('panel-open', 'world-replace-open');
+    syncModalAccessibility();
   }
 
   function showOverlay(id) {
@@ -212,25 +367,20 @@ Voxel.Game = (function () {
     var dialog = document.getElementById('overlay-world-replace');
     var confirmBtn = document.getElementById('btn-world-replace-confirm');
     var cancelBtn = document.getElementById('btn-world-replace-cancel');
-    if (dialog) dialog.setAttribute('aria-busy', busy ? 'true' : 'false');
+    var semanticPanel = dialog && dialog.querySelector('[role="alertdialog"], .world-replace-panel');
+    if (semanticPanel) semanticPanel.setAttribute('aria-busy', busy ? 'true' : 'false');
     if (confirmBtn) confirmBtn.disabled = !!busy;
     if (cancelBtn) cancelBtn.disabled = !!busy;
   }
 
   function closeWorldReplaceDialog(restoreFocus) {
     var overlay = document.getElementById('overlay-world-replace');
-    if (overlay) overlay.classList.add('hidden');
     document.body.classList.remove('world-replace-open');
     setWorldReplaceBusy(false);
-    var focusTarget = worldReplaceReturnFocus;
-    var returnState = worldReplaceReturnState || 'menu';
     worldReplacePending = null;
     worldReplaceReturnFocus = null;
     worldReplaceReturnState = null;
-    setState(returnState);
-    if (restoreFocus && focusTarget && document.documentElement.contains(focusTarget)) {
-      setTimeout(function () { focusTarget.focus(); }, 0);
-    }
+    if (!closeModalLayer('overlay-world-replace', restoreFocus) && overlay) overlay.classList.add('hidden');
   }
 
   function openWorldReplaceDialog(options) {
@@ -248,14 +398,16 @@ Voxel.Game = (function () {
     if (confirmBtn) confirmBtn.textContent = options.confirmLabel || '备份并创建';
     if (error) { error.textContent = ''; error.classList.add('hidden'); }
     setWorldReplaceBusy(false);
-    overlay.classList.remove('hidden');
     document.body.classList.add('world-replace-open');
-    setState('world-replace');
-    // 将初始焦点放在安全操作上，避免按回车误触覆盖流程。
-    setTimeout(function () {
-      var cancelBtn = document.getElementById('btn-world-replace-cancel');
-      if (cancelBtn) cancelBtn.focus();
-    }, 0);
+    openModalLayer({
+      id: 'overlay-world-replace', state: 'world-replace',
+      returnState: worldReplaceReturnState, trigger: worldReplaceReturnFocus,
+      initialFocus: '#btn-world-replace-cancel',
+      onEscape: function () {
+        var cancel = document.getElementById('btn-world-replace-cancel');
+        if (cancel && !cancel.disabled) closeWorldReplaceDialog(true);
+      }
+    });
   }
 
   function confirmWorldReplacement() {
@@ -538,9 +690,11 @@ Voxel.Game = (function () {
   }
 
   function doSave(silent) {
+    var manualSaveable = state === 'manual' &&
+      ['playing', 'paused', 'inventory', 'crafting', 'furnace', 'chest', 'dead'].indexOf(manualReturnState) >= 0;
     if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
       state !== 'furnace' && state !== 'chest' && state !== 'starmap' && state !== 'sleeping' &&
-      state !== 'dead') return false;
+      !manualSaveable && state !== 'dead') return false;
     var p = Voxel.Player.pos();
     var bed = Voxel.Player.getBed();
     storeCurrentWorld();
@@ -1069,13 +1223,14 @@ Voxel.Game = (function () {
 
   function openCrafting() {
     if (state !== 'playing') return;
-    setState('crafting');
     document.body.classList.add('panel-open');
-    document.getElementById('crafting').classList.remove('hidden');
     refreshInv();
     Voxel.HUD.drawHeld(heldItem);
     refreshCraft();
-    Voxel.Controls.exitLock();
+    openModalLayer({
+      id: 'crafting', state: 'crafting', returnState: 'playing',
+      initialFocus: '#btn-craft-close', closeKeys: ['KeyE'], manualKey: true, onEscape: closeCrafting
+    });
   }
 
   function closeCrafting() {
@@ -1094,10 +1249,8 @@ Voxel.Game = (function () {
     }
     refreshInv();
     Voxel.HUD.drawHeld(0);
-    document.getElementById('crafting').classList.add('hidden');
     document.body.classList.remove('panel-open');
-    setState('playing');
-    tryLock();
+    closeModalLayer('crafting', false);
     return true;
   }
 
@@ -1514,26 +1667,40 @@ Voxel.Game = (function () {
 
   function openManual() {
     if (manualOpen) return;
+    manualReturnState = state;
     manualOpen = true;
-    document.getElementById('manual').classList.remove('hidden');
     Voxel.HUD.refreshManual();
+    openModalLayer({
+      id: 'manual', state: 'manual', returnState: manualReturnState,
+      initialFocus: function () {
+        return document.querySelector('#manual .craft-btn:not(:disabled)') || document.getElementById('btn-manual-close');
+      },
+      closeKeys: ['KeyM', 'KeyE'], onEscape: closeManual
+    });
   }
 
   function closeManual() {
     if (!manualOpen) return;
     manualOpen = false;
-    document.getElementById('manual').classList.add('hidden');
     manualCraftStop();
+    closeModalLayer('manual', true);
+    manualReturnState = 'menu';
   }
 
   // ---------- 手册一键合成（自动消耗背包材料，长按连续合成） ----------
   var manualCraftTimer = null;
 
+  function manualCraftContextAllowed() {
+    return ['playing', 'paused', 'inventory', 'crafting', 'furnace', 'chest'].indexOf(manualReturnState) >= 0;
+  }
+
   function manualCraftable(i) {
+    if (!manualCraftContextAllowed()) return 0;
     return Voxel.Crafting.canCraftFromInv(inv, Voxel.Crafting.recipes[i], cnt);
   }
 
   function manualCraftOnce(i) {
+    if (!manualCraftContextAllowed()) return false;
     var r = Voxel.Crafting.recipes[i];
     if (Voxel.Crafting.canCraftFromInv(inv, r, cnt) < 1) return false;
     // 空间检查：现有空间 + 整格被清空的材料格腾出的空间 ≥ 产物数量
@@ -1562,7 +1729,7 @@ Voxel.Game = (function () {
     manualCraftStop();
     if (!manualCraftOnce(i)) return;
     manualCraftTimer = setInterval(function () {
-      if (state !== 'playing' && state !== 'crafting' && state !== 'inventory' && state !== 'paused') {
+      if (!manualOpen || state !== 'manual' || !manualCraftContextAllowed()) {
         manualCraftStop();
         return;
       }
@@ -1619,13 +1786,14 @@ Voxel.Game = (function () {
     var f = furnaceAt(hit.x, hit.y, hit.z, true);
     if (!f) return;
     curFurnace = f;
-    setState('furnace');
     document.body.classList.add('panel-open');
-    document.getElementById('furnace').classList.remove('hidden');
     refreshInv();
     Voxel.HUD.drawHeld(heldItem);
     refreshFurnacePanel(f);
-    Voxel.Controls.exitLock();
+    openModalLayer({
+      id: 'furnace', state: 'furnace', returnState: 'playing',
+      initialFocus: '#btn-furnace-close', closeKeys: ['KeyE'], manualKey: true, onEscape: closeFurnace
+    });
   }
 
   function closeFurnace() {
@@ -1638,10 +1806,8 @@ Voxel.Game = (function () {
     // 炉内物品保留在方块元数据中，继续烧制
     refreshInv();
     Voxel.HUD.drawHeld(0);
-    document.getElementById('furnace').classList.add('hidden');
     document.body.classList.remove('panel-open');
-    setState('playing');
-    tryLock();
+    closeModalLayer('furnace', false);
     return true;
   }
 
@@ -1675,13 +1841,14 @@ Voxel.Game = (function () {
       Voxel.World.setMeta(hit.x, hit.y, hit.z, c);
     }
     curChest = c;
-    setState('chest');
     document.body.classList.add('panel-open');
-    document.getElementById('chest').classList.remove('hidden');
     Voxel.HUD.setInv(inv, cnt, dur);
     Voxel.HUD.drawHeld(heldItem);
     Voxel.HUD.setChest(c);
-    Voxel.Controls.exitLock();
+    openModalLayer({
+      id: 'chest', state: 'chest', returnState: 'playing',
+      initialFocus: '#btn-chest-close', closeKeys: ['KeyE'], manualKey: true, onEscape: closeChest
+    });
   }
 
   function closeChest() {
@@ -1694,10 +1861,8 @@ Voxel.Game = (function () {
     refreshInv();
     Voxel.HUD.drawHeld(0);
     curChest = null;   // 箱内物品保留在方块元数据中
-    document.getElementById('chest').classList.add('hidden');
     document.body.classList.remove('panel-open');
-    setState('playing');
-    tryLock();
+    closeModalLayer('chest', false);
     return true;
   }
 
@@ -1764,13 +1929,14 @@ Voxel.Game = (function () {
 
   function toggleInv(open) {
     if (open && state === 'playing') {
-      setState('inventory');
       document.body.classList.add('panel-open');
-      document.getElementById('inventory').classList.remove('hidden');
       refreshInv();
       Voxel.HUD.drawHeld(heldItem);
       refreshInvCraft();
-      Voxel.Controls.exitLock();
+      openModalLayer({
+        id: 'inventory', state: 'inventory', returnState: 'playing',
+        initialFocus: '#btn-inv-close', closeKeys: ['KeyE'], manualKey: true, onEscape: function () { toggleInv(false); }
+      });
     } else if (!open && state === 'inventory') {
       if (heldItem && stowHeld() === false) {
         refreshInv();
@@ -1786,32 +1952,28 @@ Voxel.Game = (function () {
       }
       refreshInv();
       Voxel.HUD.drawHeld(0);
-      document.getElementById('inventory').classList.add('hidden');
       document.body.classList.remove('panel-open');
-      setState('playing');
-      tryLock();
+      closeModalLayer('inventory', false);
       return true;
     }
   }
 
   function pause() {
     if (state !== 'playing') return;
-    setState('paused');
-    document.getElementById('overlay-pause').classList.remove('hidden');
     doSave(true);
-    Voxel.Controls.exitLock();
+    openModalLayer({
+      id: 'overlay-pause', state: 'paused', returnState: 'playing',
+      initialFocus: '#btn-resume', closeKeys: ['KeyP'], manualKey: true, onEscape: resume
+    });
   }
 
   function resume() {
     if (state !== 'paused' && state !== 'dead') return;
     var wasDead = state === 'dead';
     if (wasDead) Voxel.Player.respawn();
-    document.getElementById('overlay-dead').classList.add('hidden');
-    document.getElementById('overlay-pause').classList.add('hidden');
-    setState('playing');
+    closeModalLayer(wasDead ? 'overlay-dead' : 'overlay-pause', false);
     // 重生位置、已失效床位清理和恢复后的生命状态立即落盘。
     if (wasDead) doSave(true);
-    tryLock();
   }
 
   // 存档并回到主菜单
@@ -1832,17 +1994,19 @@ Voxel.Game = (function () {
       Voxel.HUD.toast('需要靠近飞船，或在空间站航行终端内使用星图');
       return;
     }
-    setState('starmap');
     Voxel.SpaceTravel.showMap();
-    document.getElementById('overlay-starmap').classList.remove('hidden');
-    Voxel.Controls.exitLock();
+    openModalLayer({
+      id: 'overlay-starmap', state: 'starmap', returnState: 'playing',
+      initialFocus: function () {
+        return document.querySelector('#starmap-grid .star-card:not(:disabled)') || document.getElementById('btn-starmap-close');
+      },
+      closeKeys: ['KeyH', 'KeyE'], onEscape: closeStarMap
+    });
   }
 
   function closeStarMap() {
     if (state !== 'starmap') return;
-    document.getElementById('overlay-starmap').classList.add('hidden');
-    setState('playing');
-    tryLock();
+    closeModalLayer('overlay-starmap', false);
   }
 
   function requestTravel(destinationId, mode) {
@@ -1885,7 +2049,7 @@ Voxel.Game = (function () {
     pendingTravel = tx;
     document.getElementById('overlay-starmap').classList.add('hidden');
     setState('warping');
-    Voxel.Controls.exitLock();
+    exitLockForUI();
     try {
       if (Voxel.SpaceTravel) Voxel.SpaceTravel.showWarp(currentWorld, dest, mode);
     } catch (e) {
@@ -1912,6 +2076,21 @@ Voxel.Game = (function () {
   }
 
   // 精选世界：已有存档时先确认并备份；无存档时直接创建。
+  function openFeatured(trigger) {
+    if (state !== 'menu') return;
+    if (Voxel.Featured && Voxel.Featured.show) Voxel.Featured.show();
+    openModalLayer({
+      id: 'overlay-featured', state: 'featured', returnState: 'menu', trigger: trigger,
+      initialFocus: '.featured-card', onEscape: closeFeatured
+    });
+  }
+
+  function closeFeatured() {
+    if (state !== 'featured') return;
+    if (Voxel.Featured && Voxel.Featured.hide) Voxel.Featured.hide();
+    closeModalLayer('overlay-featured', true);
+  }
+
   function startFeatured(idx) {
     var w = Voxel.Featured && Voxel.Featured.WORLDS[idx];
     if (!w) return;
@@ -1937,14 +2116,23 @@ Voxel.Game = (function () {
   }
 
   function onPlayerDead() {
-    setState('dead');
     if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(Voxel.Player.lastDamageCause());
-    document.getElementById('overlay-dead').classList.remove('hidden');
-    Voxel.Controls.exitLock();
     doSave(true);
+    openModalLayer({
+      id: 'overlay-dead', state: 'dead', returnState: 'playing',
+      initialFocus: '#btn-respawn'
+    });
   }
 
   function onLockChange(locked) {
+    if (locked) {
+      clearIntentionalUnlock();
+      return;
+    }
+    if (intentionalUnlockPending) {
+      clearIntentionalUnlock();
+      return;
+    }
     if (!locked && state === 'playing') pause();
   }
 
@@ -2005,6 +2193,13 @@ Voxel.Game = (function () {
       else if (code === 'KeyM') openManual();
     } else if (state === 'starmap') {
       if (code === 'Escape' || code === 'KeyH' || code === 'KeyE') closeStarMap();
+    } else if (state === 'settings') {
+      if (code === 'Escape') {
+        var settingsModal = modalTop();
+        if (settingsModal && settingsModal.onEscape) settingsModal.onEscape();
+      }
+    } else if (state === 'featured') {
+      if (code === 'Escape') closeFeatured();
     } else if (state === 'world-replace') {
       // 对话框拥有独立状态；尤其不能让 Enter 落入主菜单的直接载入快捷键。
       if (code === 'Escape') closeWorldReplaceDialog(true);
@@ -2678,6 +2873,7 @@ Voxel.Game = (function () {
     Voxel.Mobs.init(scene);
     Voxel.Drops.init(scene);
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.init(scene);
+    document.addEventListener('keydown', handleModalKeydown, true);
     Voxel.Controls.init(canvas);
     if (Voxel.Touch && Voxel.Touch.init) Voxel.Touch.init();
 
@@ -2822,15 +3018,10 @@ Voxel.Game = (function () {
     if (document.getElementById('btn-featured')) {
       var featuredMenuBtn = document.getElementById('btn-featured');
       featuredMenuBtn.addEventListener('click', function () {
-        if (Voxel.Featured && Voxel.Featured.show) Voxel.Featured.show();
-        setTimeout(function () {
-          var firstCard = document.querySelector('.featured-card');
-          if (firstCard) firstCard.focus();
-        }, 0);
+        openFeatured(featuredMenuBtn);
       });
       document.getElementById('btn-featured-back').addEventListener('click', function () {
-        if (Voxel.Featured && Voxel.Featured.hide) Voxel.Featured.hide();
-        setTimeout(function () { featuredMenuBtn.focus(); }, 0);
+        closeFeatured();
       });
       preserveMenuButtonSpace(document.getElementById('btn-featured-back'));
 
@@ -2893,14 +3084,15 @@ Voxel.Game = (function () {
     var setReturn = 'menu';
     function openSettings(from) {
       setReturn = from;
-      document.getElementById('overlay-start').classList.add('hidden');
-      document.getElementById('overlay-pause').classList.add('hidden');
-      document.getElementById('overlay-settings').classList.remove('hidden');
+      openModalLayer({
+        id: 'overlay-settings', state: 'settings', returnState: from,
+        initialFocus: '#btn-settings-close', onEscape: closeSettings
+      });
     }
     function closeSettings() {
-      document.getElementById('overlay-settings').classList.add('hidden');
-      if (setReturn === 'paused') document.getElementById('overlay-pause').classList.remove('hidden');
-      else document.getElementById('overlay-start').classList.remove('hidden');
+      if (state !== 'settings') return;
+      closeModalLayer('overlay-settings', true);
+      setReturn = 'menu';
     }
     var sliderSyncs = [];
     function bindSlider(key) {

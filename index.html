@@ -35,9 +35,9 @@
 
 <!-- 背包 -->
 <div id="inventory" class="hidden">
-  <div class="panel inv-panel">
+  <div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
     <div class="panel-titlebar">
-      <div class="inv-title">背包</div>
+      <div id="inventory-title" class="inv-title">背包</div>
       <button id="btn-inv-close" class="panel-close" type="button" aria-label="关闭背包" title="关闭背包">×</button>
     </div>
     <div class="craft-row">
@@ -53,9 +53,9 @@
 
 <!-- 工作台 -->
 <div id="crafting" class="hidden">
-  <div class="panel craft-panel">
+  <div class="panel craft-panel" role="dialog" aria-modal="true" aria-labelledby="crafting-title">
     <div class="panel-titlebar">
-      <div class="inv-title">工作台</div>
+      <div id="crafting-title" class="inv-title">工作台</div>
       <button id="btn-craft-close" class="panel-close" type="button" aria-label="关闭工作台" title="关闭工作台">×</button>
     </div>
     <div class="craft-row">
@@ -72,9 +72,9 @@
 
 <!-- 熔炉 -->
 <div id="furnace" class="hidden">
-  <div class="panel furnace-panel">
+  <div class="panel furnace-panel" role="dialog" aria-modal="true" aria-labelledby="furnace-title">
     <div class="panel-titlebar">
-      <div class="inv-title">熔炉</div>
+      <div id="furnace-title" class="inv-title">熔炉</div>
       <button id="btn-furnace-close" class="panel-close" type="button" aria-label="关闭熔炉" title="关闭熔炉">×</button>
     </div>
     <div class="furnace-row">
@@ -94,9 +94,9 @@
 
 <!-- 箱子 -->
 <div id="chest" class="hidden">
-  <div class="panel chest-panel">
+  <div class="panel chest-panel" role="dialog" aria-modal="true" aria-labelledby="chest-title">
     <div class="panel-titlebar">
-      <div class="inv-title">箱子</div>
+      <div id="chest-title" class="inv-title">箱子</div>
       <button id="btn-chest-close" class="panel-close" type="button" aria-label="关闭箱子" title="关闭箱子">×</button>
     </div>
     <div id="chest-grid"></div>
@@ -108,9 +108,9 @@
 
 <!-- 合成手册 -->
 <div id="manual" class="hidden">
-  <div class="panel manual-panel">
+  <div class="panel manual-panel" role="dialog" aria-modal="true" aria-labelledby="manual-title">
     <div class="panel-titlebar">
-      <div class="inv-title">合成手册</div>
+      <div id="manual-title" class="inv-title">合成手册</div>
       <button id="btn-manual-close" class="panel-close" type="button" aria-label="关闭合成手册" title="关闭合成手册">×</button>
     </div>
     <div id="manual-list"></div>
@@ -146,7 +146,8 @@
 <!-- 新建世界前保护当前存档的确认对话框 -->
 <div id="overlay-world-replace" class="overlay world-replace-overlay hidden">
   <div class="panel world-replace-panel" role="alertdialog" aria-modal="true"
-       aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note">
+       aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note"
+       aria-busy="false">
     <div class="world-replace-kicker">存档保护协议</div>
     <h2 id="world-replace-title">创建新世界？</h2>
     <p id="world-replace-message" class="world-replace-message">当前世界会先存入“上一存档”备份槽。</p>
@@ -161,8 +162,8 @@
 
 <!-- 精选世界 -->
 <div id="overlay-featured" class="overlay hidden">
-  <div class="panel featured-panel">
-    <h2>精选世界</h2>
+  <div class="panel featured-panel" role="dialog" aria-modal="true" aria-labelledby="featured-title">
+    <h2 id="featured-title">精选世界</h2>
     <div id="featured-grid"></div>
     <div class="hint">点击卡片以固定种子创建对应世界并直接进入（会覆盖当前存档）</div>
     <button id="btn-featured-back" class="btn">返回</button>
@@ -171,8 +172,8 @@
 
 <!-- 暂停菜单 -->
 <div id="overlay-pause" class="overlay hidden">
-  <div class="panel">
-    <h2>游戏暂停</h2>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+    <h2 id="pause-title">游戏暂停</h2>
     <button id="btn-resume" class="btn primary">继续游戏</button>
     <button id="btn-fullscreen" class="btn">进入全屏</button>
     <button id="btn-save" class="btn">立即存档</button>
@@ -190,9 +191,9 @@
 
 <!-- 飞船星图 -->
 <div id="overlay-starmap" class="overlay hidden">
-  <div class="panel starmap-panel">
+  <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title">
     <div class="panel-titlebar">
-      <div><h2>星系航行图</h2><div id="starmap-status" class="terminal-line"></div></div>
+      <div><h2 id="starmap-title">星系航行图</h2><div id="starmap-status" class="terminal-line"></div></div>
       <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
     </div>
     <div id="starmap-grid"></div>
@@ -201,7 +202,8 @@
 </div>
 
 <!-- 跃迁过场 -->
-<div id="overlay-warp" class="overlay warp-overlay hidden">
+<div id="overlay-warp" class="overlay warp-overlay hidden" role="status" aria-live="polite"
+     aria-busy="true" aria-labelledby="warp-title" aria-describedby="warp-sub">
   <div class="warp-stars"></div>
   <div class="warp-copy">
     <h2 id="warp-title">跃迁引擎点火</h2>
@@ -212,8 +214,8 @@
 
 <!-- 死亡界面 -->
 <div id="overlay-dead" class="overlay hidden">
-  <div class="panel">
-    <h2 class="dead">你死了！</h2>
+  <div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause">
+    <h2 id="dead-title" class="dead">你死了！</h2>
     <div id="death-cause" class="hint"></div>
     <button id="btn-respawn" class="btn primary">重生</button>
   </div>
@@ -221,9 +223,9 @@
 
 <!-- 设置 -->
 <div id="overlay-settings" class="overlay hidden">
-  <div class="panel settings-panel">
+  <div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="panel-titlebar">
-      <h2>设置</h2>
+      <h2 id="settings-title">设置</h2>
       <button id="btn-settings-close" class="panel-close" type="button" aria-label="关闭设置" title="关闭设置">×</button>
     </div>
     <div class="set-row"><label>鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05"><span id="set-sens-v"></span></div>
@@ -252,17 +254,18 @@
 
 <!-- 竖屏提示（移动端，可关闭） -->
 <div id="rotate-hint" class="hidden">
-  <div class="rh-box">
+  <div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
     <div class="rh-icon">⟳</div>
-    <div class="rh-text">建议横屏游玩<br>体验更佳</div>
+    <div id="rotate-title" class="rh-text">建议横屏游玩<br>体验更佳</div>
     <button id="btn-rotate-ok" class="btn primary">仍要继续</button>
   </div>
 </div>
 
 <!-- 生成进度 -->
-<div id="overlay-loading" class="overlay hidden">
+<div id="overlay-loading" class="overlay hidden" role="status" aria-live="polite"
+     aria-busy="true" aria-labelledby="loading-title">
   <div class="panel">
-    <h2>方块世界</h2>
+    <h2 id="loading-title">方块世界</h2>
     <div id="loading-text">正在生成世界...</div>
     <div class="bar"><div id="loading-bar"></div></div>
   </div>
@@ -282,7 +285,7 @@
 <script src="js/world/infinite.js?v=20260824i"></script>
 <script src="js/world/mesh.js?v=20260823f"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
-<script src="js/player/controls.js?v=20260823f"></script>
+<script src="js/player/controls.js?v=20260824j"></script>
 <script src="js/player/player.js?v=20260824g"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260823f"></script>
@@ -298,7 +301,7 @@
 <script src="js/ui/handitem.js?v=20260823f"></script>
 <script src="js/ui/featured.js?v=20260823f"></script>
 <script src="js/ui/touch.js?v=20260823f"></script>
-<script src="js/ui/hud.js?v=20260823f"></script>
-<script src="js/main.js?v=20260824i"></script>
+<script src="js/ui/hud.js?v=20260824j"></script>
+<script src="js/main.js?v=20260824j"></script>
 </body>
 </html>

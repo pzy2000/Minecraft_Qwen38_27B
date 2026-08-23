@@ -23,26 +23,26 @@
   <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
 </div>
-<div id="inventory" class="hidden"><div class="panel inv-panel">
-  <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
+<div id="inventory" class="hidden"><div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
+  <div class="panel-titlebar"><div id="inventory-title" class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
   <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
   <div id="inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
   <div class="inv-tip"></div>
 </div></div>
-<div id="crafting" class="hidden"><div class="panel craft-panel">
-  <div class="panel-titlebar"><div class="inv-title">工作台</div><button id="btn-craft-close" class="panel-close" aria-label="关闭工作台">×</button></div>
+<div id="crafting" class="hidden"><div class="panel craft-panel" role="dialog" aria-modal="true" aria-labelledby="crafting-title">
+  <div class="panel-titlebar"><div id="crafting-title" class="inv-title">工作台</div><button id="btn-craft-close" class="panel-close" aria-label="关闭工作台">×</button></div>
   <div class="craft-row"><div id="craft-grid"></div><div class="craft-arrow">→</div><div id="craft-result" class="slot result"></div></div>
   <div id="craft-inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
   <div class="inv-tip"></div>
   <button id="btn-manual" class="btn">查看合成手册</button>
 </div></div>
-<div id="manual" class="hidden"><div class="panel manual-panel">
-  <div class="panel-titlebar"><div class="inv-title">合成手册</div><button id="btn-manual-close" class="panel-close" aria-label="关闭合成手册">×</button></div><div id="manual-list"></div><div class="inv-tip"></div>
+<div id="manual" class="hidden"><div class="panel manual-panel" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+  <div class="panel-titlebar"><div id="manual-title" class="inv-title">合成手册</div><button id="btn-manual-close" class="panel-close" aria-label="关闭合成手册">×</button></div><div id="manual-list"></div><div class="inv-tip"></div>
 </div></div>
-<div id="furnace" class="hidden"><div class="panel furnace-panel">
-  <div class="panel-titlebar"><div class="inv-title">熔炉</div><button id="btn-furnace-close" class="panel-close" aria-label="关闭熔炉">×</button></div>
+<div id="furnace" class="hidden"><div class="panel furnace-panel" role="dialog" aria-modal="true" aria-labelledby="furnace-title">
+  <div class="panel-titlebar"><div id="furnace-title" class="inv-title">熔炉</div><button id="btn-furnace-close" class="panel-close" aria-label="关闭熔炉">×</button></div>
   <div class="furnace-row">
     <div class="furnace-col">
       <div id="fur-in" class="slot"></div>
@@ -56,8 +56,8 @@
   <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
   <div class="inv-tip"></div>
 </div></div>
-<div id="chest" class="hidden"><div class="panel chest-panel">
-  <div class="panel-titlebar"><div class="inv-title">箱子</div><button id="btn-chest-close" class="panel-close" aria-label="关闭箱子">×</button></div>
+<div id="chest" class="hidden"><div class="panel chest-panel" role="dialog" aria-modal="true" aria-labelledby="chest-title">
+  <div class="panel-titlebar"><div id="chest-title" class="inv-title">箱子</div><button id="btn-chest-close" class="panel-close" aria-label="关闭箱子">×</button></div>
   <div id="chest-grid"></div>
   <div id="chest-inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
@@ -69,26 +69,26 @@
   <button id="btn-restore-backup" class="hidden"></button><button id="btn-settings-menu"></button><input id="seed-input" type="text" value="12345">
   <div id="start-hint" class="hint"></div>
 </div></div>
-<div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog">
+<div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note" aria-busy="false">
   <h2 id="world-replace-title"></h2><p id="world-replace-message"></p><div id="world-replace-note"></div>
   <div id="world-replace-error" class="hidden"></div>
   <button id="btn-world-replace-cancel"></button><button id="btn-world-replace-confirm"></button>
 </div></div>
-<div id="overlay-featured" class="overlay hidden"><div class="panel">
-  <div id="featured-grid"></div><button id="btn-featured-back"></button>
+<div id="overlay-featured" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="featured-title">
+  <h2 id="featured-title">精选世界</h2><div id="featured-grid"></div><button id="btn-featured-back"></button>
 </div></div>
-<div id="overlay-starmap" class="overlay hidden"><div class="panel">
-  <div id="starmap-status"></div><div id="starmap-grid"></div>
+<div id="overlay-starmap" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title">
+  <h2 id="starmap-title">星系航行图</h2><div id="starmap-status"></div><div id="starmap-grid"></div>
 </div></div>
-<div id="overlay-warp" class="overlay hidden"><div class="panel">
+<div id="overlay-warp" class="overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-labelledby="warp-title" aria-describedby="warp-sub"><div class="panel">
   <div id="warp-title"></div><div id="warp-sub"></div>
 </div></div>
-<div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
+<div id="overlay-pause" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="pause-title"><h2 id="pause-title">游戏暂停</h2>
   <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
   <div class="hint"></div>
 </div></div>
-<div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
-<div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel"><div class="panel-titlebar"><h2></h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause"><h2 id="dead-title" class="dead">你死了</h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
+<div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="panel-titlebar"><h2 id="settings-title">设置</h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
   <input id="set-sens" type="range"><span id="set-sens-v"></span>
   <input id="set-volume" type="range"><span id="set-volume-v"></span>
   <input id="set-fov" type="range"><span id="set-fov-v"></span>
@@ -102,7 +102,8 @@
   <div class="btn-row" id="perf-preset-row"><button class="btn small" data-preset="smooth">流畅</button><button class="btn small" data-preset="balanced">均衡</button><button class="btn small" data-preset="high">高画质</button></div>
   <button id="btn-set-close" class="btn"></button>
 </div></div>
-<div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
+<div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div id="rotate-title">建议横屏游玩</div><button id="btn-rotate-ok"></button></div></div>
+<div id="overlay-loading" class="overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-labelledby="loading-title"><div class="panel"><h2 id="loading-title">方块世界</h2>
   <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
 </div></div>
 <pre id="results">RUNNING...</pre>
@@ -199,6 +200,11 @@
   };
   function check(name, cond) { out.push((cond ? 'ok   ' : 'FAIL ') + name); }
   function wait(ms, cb) { setTimeout(cb, ms); }
+  // 无头浏览器的真实Pointer Lock许可/释放是异步且不稳定，会在任意面板关闭后触发
+  // onLockChange(false) 把后续用例意外暂停。该fixture不测试浏览器权限，统一桩掉锁请求；
+  // 指针锁协议由独立真实页面/触控回归覆盖。
+  Voxel.Controls.requestLock = function () { return true; };
+  Voxel.Controls.exitLock = function () { };
   // 模拟真实鼠标拖拽：从 rect1 中心按下 → 移动 → 在 rect2 中心松开
   function dragTo(r1, r2) {
     function fire(type, x, y) {
@@ -255,6 +261,84 @@
     if (++waitN > 900) { check('进入 playing 超时(state=' + Voxel.Game.state + ' ready=' + Voxel.World.isReady() + ' center=' + Voxel.World.centerMeshed() + ')', false); return report(); }
     setTimeout(poll, 100);
   })();
+
+  function modalSemanticsRegression() {
+    var dialogs = [
+      ['#inventory > .panel', 'dialog'], ['#crafting > .panel', 'dialog'],
+      ['#furnace > .panel', 'dialog'], ['#chest > .panel', 'dialog'],
+      ['#manual > .panel', 'dialog'], ['#overlay-featured > .panel', 'dialog'],
+      ['#overlay-pause > .panel', 'dialog'], ['#overlay-starmap > .panel', 'dialog'],
+      ['#overlay-settings > .panel', 'dialog'], ['#overlay-dead > .panel', 'alertdialog'],
+      ['#overlay-world-replace > .panel', 'alertdialog'], ['#rotate-hint > .rh-box', 'dialog']
+    ];
+    var semanticOK = true;
+    for (var i = 0; i < dialogs.length; i++) {
+      var el = doc.querySelector(dialogs[i][0]);
+      var labelId = el && el.getAttribute('aria-labelledby');
+      if (!el || el.getAttribute('role') !== dialogs[i][1] || el.getAttribute('aria-modal') !== 'true' ||
+        !labelId || !doc.getElementById(labelId)) semanticOK = false;
+    }
+    check('所有交互模态具有role/aria-modal/有效labelledby', semanticOK);
+    var replacePanel = doc.querySelector('#overlay-world-replace > .panel');
+    check('world-replace busy状态位于alertdialog语义节点', !!replacePanel &&
+      replacePanel.hasAttribute('aria-busy') && !doc.getElementById('overlay-world-replace').hasAttribute('aria-busy'));
+    var loading = doc.getElementById('overlay-loading'), warp = doc.getElementById('overlay-warp');
+    check('loading/warp使用live status与busy语义', !!loading && !!warp &&
+      loading.getAttribute('role') === 'status' && loading.getAttribute('aria-live') === 'polite' &&
+      loading.getAttribute('aria-busy') === 'true' && warp.getAttribute('role') === 'status' &&
+      warp.getAttribute('aria-live') === 'polite' && warp.getAttribute('aria-busy') === 'true');
+  }
+
+  function keyboardIsolationRegression() {
+    function key(target, keyName, code, extra) {
+      var init = { bubbles: true, cancelable: true, key: keyName, code: code || keyName };
+      extra = extra || {};
+      for (var k in extra) init[k] = extra[k];
+      var ev = new KeyboardEvent('keydown', init);
+      target.dispatchEvent(ev);
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+      return ev;
+    }
+    var stateBefore = Voxel.Game.state;
+    var startOverlay = doc.getElementById('overlay-start');
+    var settingsOverlay = doc.getElementById('overlay-settings');
+    startOverlay.classList.remove('hidden');
+    var seed = doc.getElementById('seed-input');
+    seed.focus();
+    var seedSpace = key(seed, ' ', 'Space');
+    var seedArrow = key(seed, 'ArrowLeft', 'ArrowLeft');
+    key(seed, 'm', 'KeyM');
+    check('seed输入空格/箭头/M不穿透游戏快捷键', !seedSpace.defaultPrevented &&
+      !seedArrow.defaultPrevented && !Voxel.Controls.keys.Space && !Voxel.Controls.keys.ArrowLeft &&
+      !Voxel.Controls.keys.KeyM && document.getElementById('manual').classList.contains('hidden') &&
+      Voxel.Game.state === stateBefore);
+
+    settingsOverlay.classList.remove('hidden');
+    var range = doc.getElementById('set-sens');
+    range.focus();
+    var rangeArrow = key(range, 'ArrowRight', 'ArrowRight');
+    check('range箭头保留原生语义且不进入游戏按键状态', !rangeArrow.defaultPrevented &&
+      !Voxel.Controls.keys.ArrowRight && Voxel.Game.state === stateBefore);
+    settingsOverlay.classList.add('hidden');
+
+    var ordinaryButton = doc.getElementById('btn-start');
+    ordinaryButton.focus();
+    var buttonSpace = key(ordinaryButton, ' ', 'Space');
+    check('普通button Space不被全局监听阻止默认激活', !buttonSpace.defaultPrevented &&
+      !Voxel.Controls.keys.Space && Voxel.Game.state === stateBefore);
+    startOverlay.classList.add('hidden');
+
+    var gameCanvas = doc.getElementById('game');
+    gameCanvas.tabIndex = -1;
+    gameCanvas.focus();
+    key(gameCanvas, 'm', 'KeyM', { ctrlKey: true });
+    key(gameCanvas, 'm', 'KeyM', { isComposing: true });
+    key(gameCanvas, 'm', 'KeyM', { repeat: true });
+    check('modifier/composing/repeat键不触发游戏命令', !Voxel.Controls.keys.KeyM &&
+      document.getElementById('manual').classList.contains('hidden') && Voxel.Game.state === stateBefore);
+    delete Voxel.Controls.keys.Space; delete Voxel.Controls.keys.ArrowLeft;
+    delete Voxel.Controls.keys.ArrowRight; delete Voxel.Controls.keys.KeyM;
+  }
 
   // 固定步进与FPS cap完全由合成时间戳驱动；不使用真实等待。
   function fixedStepRegression() {
@@ -451,6 +535,134 @@
     }
   }
 
+  function playingModalRegression(done) {
+    var T = Voxel.Game._test;
+    var oldRequestLock = Voxel.Controls.requestLock;
+    var oldExitLock = Voxel.Controls.exitLock;
+    var oldDrops = Voxel.Drops.snapshot();
+    var oldCap = Voxel.Settings.get('fpsCap');
+    Voxel.Controls.requestLock = function () { return true; };
+    Voxel.Controls.exitLock = function () { };
+
+    function press(target, keyName, code, extra) {
+      var init = { bubbles: true, cancelable: true, key: keyName, code: code || keyName };
+      extra = extra || {};
+      for (var k in extra) init[k] = extra[k];
+      var ev = new KeyboardEvent('keydown', init);
+      target.dispatchEvent(ev);
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+      return ev;
+    }
+    function finish() {
+      Voxel.Settings.set('fpsCap', oldCap);
+      Voxel.Drops.restore(oldDrops);
+      Voxel.Controls.requestLock = oldRequestLock;
+      Voxel.Controls.exitLock = oldExitLock;
+      T.resetFrameClock(performance.now());
+      autoFrameEnabled = true;
+      done();
+    }
+
+    Voxel.Game.onKey('KeyP');
+    wait(20, function () {
+      var pause = doc.getElementById('overlay-pause');
+      var hud = doc.getElementById('hud');
+      check('pause初始焦点在继续且背景HUD inert', Voxel.Game.state === 'paused' &&
+        doc.activeElement === doc.getElementById('btn-resume') && hud.inert === true);
+      var first = doc.getElementById('btn-resume'), last = doc.getElementById('btn-menu');
+      last.focus(); press(last, 'Tab', 'Tab');
+      var forwardWrapped = doc.activeElement === first;
+      first.focus(); press(first, 'Tab', 'Tab', { shiftKey: true });
+      check('pause Tab/ShiftTab在面板首尾循环且不落HUD', forwardWrapped &&
+        doc.activeElement === last && doc.activeElement !== doc.getElementById('btn-starmap-hud'));
+
+      var pauseSettings = doc.getElementById('btn-settings');
+      pauseSettings.focus(); pauseSettings.click();
+      wait(20, function () {
+        check('pause→settings进入独立模态并冻结pause层', Voxel.Game.state === 'settings' &&
+          !doc.getElementById('overlay-settings').classList.contains('hidden') && pause.inert === true &&
+          doc.activeElement === doc.getElementById('btn-settings-close'));
+        press(doc.activeElement, 'p', 'KeyP');
+        check('settings内P不穿透恢复游戏', Voxel.Game.state === 'settings' &&
+          !doc.getElementById('overlay-settings').classList.contains('hidden'));
+        press(doc.activeElement, 'Escape', 'Escape');
+        wait(20, function () {
+          check('settings Escape只回pause并恢复触发器焦点', Voxel.Game.state === 'paused' &&
+            doc.getElementById('overlay-settings').classList.contains('hidden') &&
+            !pause.classList.contains('hidden') && doc.activeElement === pauseSettings);
+          press(doc.activeElement, 'Escape', 'Escape');
+          wait(20, function () {
+            check('pause第二层Escape才恢复playing', Voxel.Game.state === 'playing' && pause.classList.contains('hidden'));
+
+            var gameCanvas = doc.getElementById('game');
+            gameCanvas.tabIndex = -1; gameCanvas.focus();
+            var playerBefore = Voxel.Player.pos().clone();
+            Voxel.Drops.restore([{
+              id: 3, n: 1, dur: null,
+              pos: [playerBefore.x + 20, Voxel.Config.WORLD_H + 10, playerBefore.z + 20],
+              vel: [0, 0, 0], age: 6
+            }]);
+            Voxel.Game.openManual();
+            wait(20, function () {
+              check('playing→manual初始焦点在手册且世界层inert', Voxel.Game.state === 'manual' &&
+                doc.getElementById('game').inert === true && doc.getElementById('hud').inert === true &&
+                doc.getElementById('manual').contains(doc.activeElement));
+              autoFrameEnabled = false;
+              Voxel.Settings.set('fpsCap', 0);
+              var manualBase = 3000000;
+              T.resetFrameClock(manualBase);
+              for (var mf = 1; mf <= 60; mf++) Voxel.Game._frame(manualBase + mf * 1000 / 60);
+              var manualDrops = Voxel.Drops.snapshot();
+              check('manual打开1秒不推进玩家与drop.age', Voxel.Player.pos().distanceTo(playerBefore) < 0.000001 &&
+                manualDrops.length === 1 && Math.abs(manualDrops[0].age - 6) < 0.000001);
+              Voxel.Settings.set('fpsCap', oldCap);
+              T.resetFrameClock(performance.now());
+              autoFrameEnabled = true;
+              press(doc.activeElement, 'Escape', 'Escape');
+              wait(20, function () {
+                check('manual Escape回playing并恢复canvas焦点', Voxel.Game.state === 'playing' &&
+                  doc.getElementById('manual').classList.contains('hidden') && doc.activeElement === gameCanvas);
+
+                T.openCrafting();
+                wait(20, function () {
+                  var manualTrigger = doc.getElementById('btn-manual');
+                  manualTrigger.focus(); manualTrigger.click();
+                  wait(20, function () {
+                    check('crafting→manual形成嵌套栈并使crafting inert', Voxel.Game.state === 'manual' &&
+                      doc.getElementById('crafting').inert === true && doc.getElementById('manual').contains(doc.activeElement));
+                    press(doc.activeElement, 'Escape', 'Escape');
+                    wait(20, function () {
+                      check('嵌套manual Escape只回crafting并恢复触发器焦点', Voxel.Game.state === 'crafting' &&
+                        !doc.getElementById('crafting').inert && doc.activeElement === manualTrigger);
+                      T.closeCrafting();
+                      var beforeMapPos = Voxel.Player.pos().clone();
+                      var ship = Voxel.SpaceTravel && Voxel.SpaceTravel.ship ? Voxel.SpaceTravel.ship() : null;
+                      if (ship) {
+                        Voxel.Player.pos().copy(ship.position).add(new THREE.Vector3(0, 1, 1));
+                        Voxel.SpaceTravel.update(0.016, 0.016);
+                        Voxel.Game.openStarMap();
+                      }
+                      wait(20, function () {
+                        check('starmap初始焦点在面板且背景HUD inert', !!ship && Voxel.Game.state === 'starmap' &&
+                          doc.getElementById('overlay-starmap').contains(doc.activeElement) &&
+                          doc.getElementById('hud').inert === true && doc.activeElement !== doc.getElementById('btn-starmap-hud'));
+                        if (ship && Voxel.Game.state === 'starmap') press(doc.activeElement, 'Escape', 'Escape');
+                        wait(20, function () {
+                          Voxel.Player.pos().copy(beforeMapPos);
+                          finish();
+                        });
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  }
+
   function stepB() {
     check('世界已生成', Voxel.World.isReady());
     check('状态=playing', Voxel.Game.state === 'playing');
@@ -463,6 +675,9 @@
     initT.setHeld(0, 0, null);
     initT.clearCraft();
     initT.clearInvCraft();
+
+    modalSemanticsRegression();
+    keyboardIsolationRegression();
 
     fixedStepRegression();
     check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
@@ -522,7 +737,9 @@
     } catch (e) {
       check('音效函数无异常 (' + e.message + ')', false);
     }
-    wait(2500, stepC); // 让真实循环跑重力
+    playingModalRegression(function () {
+      wait(2500, stepC); // 让真实循环跑重力
+    });
   }
 
   function stepC() {
@@ -883,10 +1100,14 @@
     var btn0 = document.querySelector('.craft-btn[data-recipe="0"]');
     check('合成按钮显示可合成次数 ×2', btn0.textContent === '合成 ×2' && btn0.disabled === false);
     check('工作台按钮材料不足(禁用)', document.querySelector('.craft-btn[data-recipe="1"]').disabled === true);
-    btn0.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 8 }));
-    btn0.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 8 }));
-    check('一键合成: 1 橡木 → 4 木板', T.countInv(10) === 4 && T.countInv(4) === 1);
+    btn0.focus();
+    btn0.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' }));
+    check('手册按钮 Enter 单次合成且不留下长按任务', T.countInv(10) === 4 && T.countInv(4) === 1);
     check('合成按钮次数更新 ×1', document.querySelector('.craft-btn[data-recipe="0"]').textContent === '合成 ×1');
+    btn0.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', repeat: true }));
+    check('手册按钮 repeat Enter 不重复合成', T.countInv(10) === 4 && T.countInv(4) === 1);
+    btn0.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+    check('手册按钮 Space 也只合成一次', T.countInv(10) === 8 && T.countInv(4) === 0);
 
     // 长按连续合成
     T.clearInv();
@@ -1624,11 +1845,91 @@
     wait(300, stepReset);
   }
 
+  function menuModalRegression(done) {
+    function press(target, keyName, code, extra) {
+      var init = { bubbles: true, cancelable: true, key: keyName, code: code || keyName };
+      extra = extra || {};
+      for (var k in extra) init[k] = extra[k];
+      var ev = new KeyboardEvent('keydown', init);
+      target.dispatchEvent(ev);
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+      return ev;
+    }
+    var menuSettings = doc.getElementById('btn-settings-menu');
+    menuSettings.focus(); menuSettings.click();
+    wait(20, function () {
+      var settings = doc.getElementById('overlay-settings');
+      check('menu→settings初始焦点在关闭且menu层inert', Voxel.Game.state === 'settings' &&
+        doc.activeElement === doc.getElementById('btn-settings-close') &&
+        doc.getElementById('overlay-start').inert === true);
+      var settingsFirst = doc.getElementById('btn-settings-close');
+      var settingsLast = doc.getElementById('btn-set-close');
+      settingsLast.focus(); press(settingsLast, 'Tab', 'Tab');
+      var settingsForward = doc.activeElement === settingsFirst;
+      settingsFirst.focus(); press(settingsFirst, 'Tab', 'Tab', { shiftKey: true });
+      check('settings Tab/ShiftTab首尾循环', settingsForward && doc.activeElement === settingsLast);
+      press(doc.activeElement, 'Escape', 'Escape');
+      wait(20, function () {
+        check('menu settings Escape回menu及原触发器', Voxel.Game.state === 'menu' &&
+          settings.classList.contains('hidden') && doc.activeElement === menuSettings);
+
+        var featuredTrigger = doc.getElementById('btn-featured');
+        featuredTrigger.focus(); featuredTrigger.click();
+        wait(20, function () {
+          var featured = doc.getElementById('overlay-featured');
+          var card = doc.querySelector('.featured-card');
+          var back = doc.getElementById('btn-featured-back');
+          check('featured初始焦点首卡且menu背景inert', Voxel.Game.state === 'featured' &&
+            doc.activeElement === card && doc.getElementById('overlay-start').inert === true);
+          back.focus(); press(back, 'Tab', 'Tab');
+          var featuredForward = doc.activeElement === card;
+          card.focus(); press(card, 'Tab', 'Tab', { shiftKey: true });
+          check('featured Tab/ShiftTab在首卡/返回间循环', featuredForward && doc.activeElement === back);
+
+          card.focus(); card.click();
+          wait(20, function () {
+            var replace = doc.getElementById('overlay-world-replace');
+            var cancel = doc.getElementById('btn-world-replace-cancel');
+            var confirm = doc.getElementById('btn-world-replace-confirm');
+            check('featured→world-replace嵌套时底层inert且Cancel初焦', Voxel.Game.state === 'world-replace' &&
+              featured.inert === true && doc.activeElement === cancel && !replace.classList.contains('hidden'));
+            cancel.focus(); press(cancel, 'Tab', 'Tab', { shiftKey: true });
+            var replaceBackward = doc.activeElement === confirm;
+            confirm.focus(); press(confirm, 'Tab', 'Tab');
+            check('world-replace Tab/ShiftTab只在两按钮循环', replaceBackward && doc.activeElement === cancel);
+            press(doc.activeElement, 'Escape', 'Escape');
+            wait(20, function () {
+              check('第一层Escape仅回featured原卡片', Voxel.Game.state === 'featured' &&
+                replace.classList.contains('hidden') && !featured.inert && doc.activeElement === card);
+              press(doc.activeElement, 'Escape', 'Escape');
+              wait(20, function () {
+                check('第二层Escape才回menu及featured触发器', Voxel.Game.state === 'menu' &&
+                  featured.classList.contains('hidden') && doc.activeElement === featuredTrigger);
+                done();
+              });
+            });
+          });
+        });
+      });
+    });
+  }
+
   // P0 回归：新建/精选世界必须先确认并保护已有存档。
   function stepReset() {
     var T2 = Voxel.Game._test;
     T2.clearInv();
     T2.addInv(3, 5); // 背包塞 5 个石头
+    if (Voxel.Game.state === 'playing') {
+      Voxel.Game.onKey('KeyP');
+      doc.getElementById('btn-menu').click();
+    }
+    check('存档保护与menu模态测试已回到主菜单', Voxel.Game.state === 'menu' &&
+      !doc.getElementById('overlay-start').classList.contains('hidden'));
+    menuModalRegression(function () { continueStepReset(); });
+  }
+
+  function continueStepReset() {
+    var T2 = Voxel.Game._test;
 
     var saveKey = Voxel.Config.SAVE_KEY;
     var backupKey = saveKey + '_backup';
@@ -1677,9 +1978,11 @@
         Voxel.Game.state === 'world-replace');
       check('精选世界未确认前主档不变', localStorage.getItem(saveKey) === protectedRaw);
       cancel.click();
-      check('取消精选世界后恢复原游戏状态', Voxel.Game.state === stateBefore);
+      check('取消精选世界后仅回到精选层', Voxel.Game.state === 'featured' &&
+        !doc.getElementById('overlay-featured').classList.contains('hidden'));
       check('取消精选世界后主档字节完全一致', localStorage.getItem(saveKey) === protectedRaw);
       doc.getElementById('btn-featured-back').click();
+      check('精选返回后恢复主菜单状态', Voxel.Game.state === stateBefore);
     } else {
       check('精选世界保护路径可测', false);
     }
