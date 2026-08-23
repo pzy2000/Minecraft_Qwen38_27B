@@ -603,11 +603,23 @@ Voxel.Blocks = (function () {
 
   if (typeof document !== 'undefined' && typeof THREE !== 'undefined') buildAtlas();
 
+  // 主动扫描只把自然地质/稀有资源写入档案；普通建筑方块不计数，避免玩家
+  // 摆放同一方块刷发现奖励。World.isEdited 会再拒绝被玩家修改过的坐标。
+  var SCANNABLE_RESOURCES = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33];
+  var scannableResourceSet = Object.create(null);
+  for (var sri = 0; sri < SCANNABLE_RESOURCES.length; sri++)
+    scannableResourceSet[SCANNABLE_RESOURCES[sri]] = true;
+
   return {
     defs: defs,
     T: T,
     MAX_STACK: 64,
     ITEM_BASE: 100,
+    SCANNABLE_RESOURCES: SCANNABLE_RESOURCES.slice(),
+    isScannableResource: function (id) {
+      return typeof id === 'number' && isFinite(id) && Math.floor(id) === id &&
+        Object.prototype.hasOwnProperty.call(scannableResourceSet, id);
+    },
     isSolid: function (id) { return id > 0 && !!defs[id] && !!defs[id].solid; },
     isOpaque: function (id) { return id > 0 && !!defs[id] && !!defs[id].opaque; },
     name: function (id) { return defs[id] ? defs[id].name : '?'; },

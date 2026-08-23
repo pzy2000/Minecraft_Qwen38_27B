@@ -1053,6 +1053,13 @@ window.Voxel = window.Voxel || {};
     return out;
   }
 
+  function isEdited(x, y, z) {
+    if (!validXYZ(x, y, z)) return false;
+    if (!planetMode || inCore(x, z))
+      return FiniteWorld.isEdited ? FiniteWorld.isEdited(x, y, z) : own(FiniteWorld.getEdits(), posKey(x, y, z));
+    return own(extraEdits, posKey(x, y, z));
+  }
+
   function buildMeshes(n, scene) {
     FiniteWorld.buildMeshes(n, scene);
     if (!planetMode || !FiniteWorld.isReady()) return 0;
@@ -1130,6 +1137,7 @@ window.Voxel = window.Voxel || {};
     getSky: getSky,
     getBlk: getBlk,
     getEdits: getEdits,
+    isEdited: isEdited,
     getMeta: function (x, y, z) { return FiniteWorld.getMeta(x, y, z); },
     setMeta: function (x, y, z, m) { FiniteWorld.setMeta(x, y, z, m); },
     getAllMeta: function () { return FiniteWorld.getAllMeta(); },

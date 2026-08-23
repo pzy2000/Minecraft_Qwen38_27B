@@ -3,11 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <title>VOXEL RENDER CHECK</title>
+<link rel="stylesheet" href="../css/style.css">
 <style>body { margin: 0; background: #222; } #out { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="hud"><div id="crosshair"></div><div id="debug"></div><canvas id="oxygen" width="212" height="20"></canvas><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div><div id="dmg-dir"><i></i></div></div>
+<div id="hud">
+  <div id="crosshair"></div><div id="debug"></div><canvas id="oxygen" width="212" height="20"></canvas><canvas id="hunger" width="212" height="20"></canvas><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div><div id="uw-overlay"></div><div id="dmg-dir"><i></i></div><div id="sleep-fade"></div>
+  <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title" aria-hidden="true" data-status="offline" data-target-kind="none">
+    <div class="scan-terminal-head"><span class="scan-terminal-mark" aria-hidden="true">◈</span><h2 id="scan-terminal-title">环境扫描终端</h2><span class="scan-terminal-mode">PASSIVE</span></div>
+    <dl class="scan-terminal-grid"><div class="scan-field"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div><div class="scan-field"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div><div class="scan-field"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div><div class="scan-field"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div><div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div><div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div></dl>
+  </section>
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制"><div class="scan-active-actions"><button id="btn-scan-hud" type="button" aria-label="启动主动扫描" aria-keyshortcuts="G" aria-pressed="false" aria-controls="scan-active-status scan-progress scan-result"><span class="scan-active-icon" aria-hidden="true">◎</span><span class="scan-active-label">扫描</span></button><button id="btn-discovery-log" type="button" aria-label="打开发现档案" aria-haspopup="dialog" aria-controls="overlay-discovery"><span aria-hidden="true">▤</span><span class="scan-active-label">档案</span></button></div><div class="scan-active-readout"><div class="scan-active-kicker" aria-hidden="true">ANALYSIS // ACTIVE</div><div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true">主动扫描待机</div><div id="scan-progress" role="progressbar" aria-label="主动扫描进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div><div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div></div></div>
+</div>
 <div id="inventory" class="hidden"><div class="panel"><div id="inv-craft-grid"></div><div id="inv-craft-result" class="slot result"></div><div id="inv-grid"></div><div class="inv-held-row"><canvas id="inv-held" width="44" height="44"></canvas></div></div></div>
 <div id="crafting" class="hidden"><div class="panel craft-panel"><div id="craft-grid"></div><div id="craft-result" class="slot result"></div><div id="craft-inv-grid"></div><div class="inv-held-row"><canvas id="craft-held" width="44" height="44"></canvas></div><button id="btn-manual" class="btn">查看合成手册</button></div></div>
 <div id="manual" class="hidden"><div class="panel manual-panel"><div id="manual-list"></div></div></div>
@@ -24,6 +32,7 @@
   <input id="set-res" type="range"><span id="set-res-v"></span>
   <button id="btn-set-close" class="btn"></button>
 </div></div>
+<div id="overlay-discovery" class="overlay discovery-overlay hidden"><div class="panel discovery-panel" role="dialog" aria-modal="true" aria-labelledby="discovery-title" aria-describedby="discovery-reward"><div class="panel-titlebar discovery-titlebar"><div class="discovery-heading"><div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div><h2 id="discovery-title">发现档案</h2></div><button id="btn-discovery-close" class="panel-close" type="button" aria-label="关闭发现档案">×</button></div><section class="discovery-goal" aria-labelledby="discovery-goal-title"><div class="discovery-goal-copy"><span class="discovery-section-label">CURRENT OBJECTIVE</span><h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3><p id="discovery-reward">完成目标可获得探索点及跃迁能量。</p></div><strong id="discovery-goal-progress">0 / 1</strong></section><div class="discovery-stats"><div class="discovery-stat points"><span>探索点</span><strong id="discovery-points">0</strong></div><div class="discovery-stat"><span>已访天体</span><strong id="discovery-worlds">0</strong></div><div class="discovery-stat"><span>生物群系</span><strong id="discovery-biomes">0</strong></div><div class="discovery-stat"><span>资源样本</span><strong id="discovery-resources">0</strong></div><div class="discovery-stat"><span>生命记录</span><strong id="discovery-fauna">0</strong></div></div><div id="discovery-world-list"></div></div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div></div></div>
 <pre id="out">RUNNING</pre>
 <script>window.__CAPTURE__ = true;</script>
@@ -47,6 +56,7 @@
 <script src="../js/world/biomes.js"></script>
 <script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
+<script src="../js/systems/discovery.js"></script>
 <script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
 <script src="../js/world/infinite.js"></script>
@@ -84,7 +94,7 @@
   var siEl = document.getElementById('seed-input');
   if (siEl) siEl.value = '12345';
   document.getElementById('btn-new').click();
-  var n = 0, playing = false, playedFrames = 0, sceneOk = false;
+  var n = 0, playing = false, playedFrames = 0, sceneOk = false, uiOk = false;
   (function drive() {
     try {
       Voxel.Game._frame(performance.now());
@@ -114,8 +124,56 @@
       out.push('pixels: sky=' + counts.sky + ' green=' + counts.green + ' brown=' + counts.brown + ' water=' + counts.blue + ' dark=' + counts.dark + ' other=' + counts.other);
       sceneOk = counts.sky > 20 && (counts.green + counts.brown) > 20;
       out.push(sceneOk ? 'SCENE-LOOKS-CORRECT (天空+地形均可见)' : 'SCENE-SUSPICIOUS');
+
+      // 主动扫描/发现档案的生产 DOM 与样式也必须能随真实渲染 fixture 启动。
+      function rect(el) {
+        var r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+      }
+      function inside(r) {
+        return r.left >= -0.5 && r.top >= -0.5 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5;
+      }
+      function overlap(a, b) {
+        return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+          Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      }
+      var active = document.getElementById('scan-active-controls');
+      var scanButton = document.getElementById('btn-scan-hud');
+      var passive = document.getElementById('scan-terminal');
+      var activeRect = rect(active), scanRect = rect(scanButton), passiveRect = rect(passive);
+      var activeLayoutOk = inside(activeRect) && inside(scanRect) && scanRect.width >= 44 && scanRect.height >= 44 &&
+        overlap(activeRect, passiveRect) === 0 &&
+        getComputedStyle(passive).pointerEvents === 'none' &&
+        !passive.querySelector('button,input,select,textarea,a,[tabindex]:not([tabindex="-1"])');
+
+      var discoveryOverlay = document.getElementById('overlay-discovery');
+      discoveryOverlay.classList.remove('hidden');
+      var discoveryPanelRect = rect(discoveryOverlay.querySelector('.discovery-panel'));
+      var discoveryCloseRect = rect(document.getElementById('btn-discovery-close'));
+      var discoveryLayoutOk = inside(discoveryPanelRect) && inside(discoveryCloseRect) &&
+        discoveryCloseRect.width >= 44 && discoveryCloseRect.height >= 44 &&
+        document.documentElement.scrollWidth <= innerWidth + 1;
+      discoveryOverlay.classList.add('hidden');
+
+      var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      active.dataset.state = 'sweeping';
+      document.body.classList.add('scan-scanning');
+      var pulseStyle = getComputedStyle(active, '::before');
+      var sweepStyle = getComputedStyle(active, '::after');
+      var progressStyle = getComputedStyle(document.querySelector('#scan-progress i'));
+      var motionOk = reduced
+        ? pulseStyle.animationName === 'none' && sweepStyle.animationName === 'none' &&
+          progressStyle.animationName === 'none' && parseFloat(pulseStyle.opacity) > 0
+        : pulseStyle.animationName === 'activeScanPulse' && sweepStyle.animationName === 'activeScanSweep' &&
+          progressStyle.animationName === 'activeScanFill' && Math.abs(parseFloat(pulseStyle.animationDuration) - 0.8) < 0.001;
+      document.body.classList.remove('scan-scanning');
+      active.dataset.state = 'idle';
+      uiOk = activeLayoutOk && discoveryLayoutOk && motionOk;
+      out.push(activeLayoutOk ? 'SCAN-HUD-LAYOUT-CORRECT' : 'SCAN-HUD-LAYOUT-FAIL');
+      out.push(discoveryLayoutOk ? 'DISCOVERY-DIALOG-LAYOUT-CORRECT' : 'DISCOVERY-DIALOG-LAYOUT-FAIL');
+      out.push(motionOk ? (reduced ? 'SCAN-REDUCED-MOTION-STATIC' : 'SCAN-MOTION-0.8S') : 'SCAN-MOTION-FAIL');
       document.getElementById('out').textContent = out.join('\n');
-      document.title = (glErr === 0 && sceneOk) ? 'RENDER-PASS' : 'RENDER-FAIL';
+      document.title = (glErr === 0 && sceneOk && uiOk) ? 'RENDER-PASS' : 'RENDER-FAIL';
       return;
     }
     if (n++ > 6000) { out.push('TIMEOUT state=' + Voxel.Game.state); document.getElementById('out').textContent = out.join('\n'); document.title = 'RENDER-FAIL'; return; }

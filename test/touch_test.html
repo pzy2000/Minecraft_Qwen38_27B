@@ -17,6 +17,31 @@
   <div id="lock-hint"></div><div id="error-banner"></div>
   <div id="dmg-flash"></div><div id="uw-overlay"></div>
   <div id="dmg-dir"><i></i></div><div id="sleep-fade"></div>
+  <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
+           aria-hidden="true" data-status="offline" data-target-kind="none">
+    <div class="scan-terminal-head"><span class="scan-terminal-mark" aria-hidden="true">◈</span><h2 id="scan-terminal-title">环境扫描终端</h2><span class="scan-terminal-mode">PASSIVE</span></div>
+    <dl class="scan-terminal-grid">
+      <div class="scan-field"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div>
+      <div class="scan-field"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div>
+      <div class="scan-field"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div>
+      <div class="scan-field"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div>
+      <div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div>
+      <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div>
+    </dl>
+  </section>
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
+    <div class="scan-active-actions">
+      <button id="btn-scan-hud" type="button" aria-label="启动主动扫描" aria-keyshortcuts="G"
+              aria-pressed="false" aria-controls="scan-active-status scan-progress scan-result"><span class="scan-active-icon" aria-hidden="true">◎</span><span class="scan-active-label">扫描</span></button>
+      <button id="btn-discovery-log" type="button" aria-label="打开发现档案" aria-haspopup="dialog"
+              aria-controls="overlay-discovery"><span aria-hidden="true">▤</span><span class="scan-active-label">档案</span></button>
+    </div>
+    <div class="scan-active-readout"><div class="scan-active-kicker" aria-hidden="true">ANALYSIS // ACTIVE</div>
+      <div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true">主动扫描待机</div>
+      <div id="scan-progress" role="progressbar" aria-label="主动扫描进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
+      <div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div>
+    </div>
+  </div>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel">
   <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
@@ -81,6 +106,12 @@
   <div class="btn-row" id="perf-preset-row"><button class="btn small" data-preset="smooth">流畅</button><button class="btn small" data-preset="balanced">均衡</button><button class="btn small" data-preset="high">高画质</button></div>
   <button id="btn-set-close" class="btn"></button>
 </div></div>
+<div id="overlay-discovery" class="overlay discovery-overlay hidden"><div class="panel discovery-panel" role="dialog" aria-modal="true" aria-labelledby="discovery-title" aria-describedby="discovery-reward">
+  <div class="panel-titlebar discovery-titlebar"><div class="discovery-heading"><div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div><h2 id="discovery-title">发现档案</h2></div><button id="btn-discovery-close" class="panel-close" type="button" aria-label="关闭发现档案">×</button></div>
+  <section class="discovery-goal" aria-labelledby="discovery-goal-title"><div class="discovery-goal-copy"><span class="discovery-section-label">CURRENT OBJECTIVE</span><h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3><p id="discovery-reward">完成目标可获得探索点及跃迁能量。</p></div><strong id="discovery-goal-progress">0 / 1</strong></section>
+  <div class="discovery-stats" role="group" aria-label="发现统计"><div class="discovery-stat points"><span>探索点</span><strong id="discovery-points">0</strong></div><div class="discovery-stat"><span>已访天体</span><strong id="discovery-worlds">0</strong></div><div class="discovery-stat"><span>生物群系</span><strong id="discovery-biomes">0</strong></div><div class="discovery-stat"><span>资源样本</span><strong id="discovery-resources">0</strong></div><div class="discovery-stat"><span>生命记录</span><strong id="discovery-fauna">0</strong></div></div>
+  <div id="discovery-world-list" aria-label="天体发现记录"></div>
+</div></div>
 <div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div class="rh-icon">⟳</div><div id="rotate-title" class="rh-text"></div><button id="btn-rotate-ok" class="btn primary">仍要继续</button></div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
   <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
@@ -107,6 +138,7 @@
 <script src="../js/world/biomes.js"></script>
 <script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
+<script src="../js/systems/discovery.js"></script>
 <script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
 <script src="../js/world/infinite.js"></script>
@@ -220,23 +252,87 @@
         doc.querySelector('.touch-stick-knob').getAttribute('aria-hidden') === 'true');
       check('飞行按钮初始aria-pressed=false', fb.getAttribute('aria-pressed') === 'false');
 
-      // Rotate 使用与其余面板相同的modal栈；横屏resize与显式dismiss都精确返回。
-      Voxel.Game.openRotateHint();
-      wait(20, function () {
-        check('rotate modal初焦继续按钮并冻结背景', Voxel.Game.state === 'rotate' &&
-          doc.activeElement === doc.getElementById('btn-rotate-ok') && doc.getElementById('hud').inert === true);
-        window.dispatchEvent(new Event('resize'));
+      testActiveScan(function () {
+        // Rotate 使用与其余面板相同的modal栈；横屏resize与显式dismiss都精确返回。
+        Voxel.Game.openRotateHint();
         wait(20, function () {
-          check('横屏自动关闭rotate并精确回playing', Voxel.Game.state === 'playing' &&
-            doc.getElementById('rotate-hint').classList.contains('hidden'));
-          Voxel.Game.openRotateHint();
+          check('rotate modal初焦继续按钮并冻结背景', Voxel.Game.state === 'rotate' &&
+            doc.activeElement === doc.getElementById('btn-rotate-ok') && doc.getElementById('hud').inert === true);
+          window.dispatchEvent(new Event('resize'));
           wait(20, function () {
-            doc.getElementById('btn-rotate-ok').click();
-            check('rotate显式dismiss关闭并记录本会话', Voxel.Game.state === 'playing' &&
-              doc.getElementById('rotate-hint').classList.contains('hidden') &&
-              sessionStorage.getItem('rh_dismissed') === '1');
-            stepB();
+            check('横屏自动关闭rotate并精确回playing', Voxel.Game.state === 'playing' &&
+              doc.getElementById('rotate-hint').classList.contains('hidden'));
+            Voxel.Game.openRotateHint();
+            wait(20, function () {
+              doc.getElementById('btn-rotate-ok').click();
+              check('rotate显式dismiss关闭并记录本会话', Voxel.Game.state === 'playing' &&
+                doc.getElementById('rotate-hint').classList.contains('hidden') &&
+                sessionStorage.getItem('rh_dismissed') === '1');
+              stepB();
+            });
           });
+        });
+      });
+    });
+  }
+
+  // 主动扫描必须是独立 44px 控件：触摸它只启动扫描，不得穿透为世界轻点/放置。
+  function testActiveScan(done) {
+    var scanBtn = doc.getElementById('btn-scan-hud');
+    var logBtn = doc.getElementById('btn-discovery-log');
+    var passive = doc.getElementById('scan-terminal');
+    var scanRect = scanBtn.getBoundingClientRect();
+    var logRect = logBtn.getBoundingClientRect();
+    var scanHit = doc.elementFromPoint(scanRect.left + scanRect.width / 2, scanRect.top + scanRect.height / 2);
+    var logHit = doc.elementFromPoint(logRect.left + logRect.width / 2, logRect.top + logRect.height / 2);
+    check('主动扫描入口是有名称且至少44px的真实button', scanBtn.tagName === 'BUTTON' &&
+      scanBtn.getAttribute('aria-label') === '启动主动扫描' && scanBtn.getAttribute('aria-keyshortcuts') === 'G' &&
+      scanRect.width >= 44 && scanRect.height >= 44);
+    check('发现档案入口是至少44px的对话框按钮', logBtn.tagName === 'BUTTON' &&
+      logBtn.getAttribute('aria-haspopup') === 'dialog' && logRect.width >= 44 && logRect.height >= 44);
+    check('全屏触摸捕获层下仍由真实扫描/档案按钮命中',
+      (scanHit === scanBtn || scanBtn.contains(scanHit)) && (logHit === logBtn || logBtn.contains(logHit)));
+    check('PASSIVE终端仍无交互且不含主动扫描按钮', getComputedStyle(passive).pointerEvents === 'none' &&
+      !passive.contains(scanBtn) && !passive.querySelector('button,input,select,textarea,a,[tabindex]:not([tabindex="-1"])'));
+
+    var originalTouchTap = Voxel.Game.touchTap;
+    var touchTapCalls = 0;
+    Voxel.Game.touchTap = function () {
+      touchTapCalls++;
+      return originalTouchTap.apply(Voxel.Game, arguments);
+    };
+    var editsBefore = JSON.stringify(Voxel.World.getEdits());
+    pev('pointerdown', 71, scanRect.left + scanRect.width / 2, scanRect.top + scanRect.height / 2);
+    pev('pointerup', 71, scanRect.left + scanRect.width / 2, scanRect.top + scanRect.height / 2);
+    scanBtn.click();
+    check('触摸扫描按钮进入0.8秒sweeping且保持playing', Voxel.Game.state === 'playing' &&
+      doc.getElementById('scan-active-controls').dataset.state === 'sweeping' &&
+      scanBtn.getAttribute('aria-pressed') === 'true');
+
+    wait(1100, function () {
+      var galaxy = Voxel.Game._test.galaxy();
+      var summary = Voxel.Discovery.summary(galaxy.discovery, galaxy.catalog);
+      check('扫描按钮触摸不穿透touchTap或放置方块', touchTapCalls === 0 &&
+        JSON.stringify(Voxel.World.getEdits()) === editsBefore);
+      check('扫描完成写入天体发现且进度语义同步', summary.surveyedWorlds >= 1 &&
+        doc.getElementById('scan-progress').getAttribute('aria-valuenow') === '100' &&
+        scanBtn.getAttribute('aria-pressed') === 'false');
+
+      logBtn.click();
+      wait(30, function () {
+        var overlay = doc.getElementById('overlay-discovery');
+        check('触摸档案按钮打开发现dialog并冻结背景', Voxel.Game.state === 'discovery' &&
+          !overlay.classList.contains('hidden') && overlay.querySelector('.discovery-panel').getAttribute('role') === 'dialog' &&
+          doc.activeElement === doc.getElementById('btn-discovery-close') && doc.getElementById('hud').inert === true);
+        check('发现档案同步统计与逐天体列表', Number(doc.getElementById('discovery-worlds').textContent) >= 1 &&
+          doc.querySelectorAll('#discovery-world-list .discovery-world-card').length === galaxy.catalog.length);
+        doc.getElementById('btn-discovery-close').click();
+        wait(30, function () {
+          check('档案关闭按钮回playing并把焦点交还游戏画布', Voxel.Game.state === 'playing' &&
+            overlay.classList.contains('hidden') && doc.activeElement === doc.getElementById('game'));
+          check('档案开关全过程不产生世界轻点', touchTapCalls === 0);
+          Voxel.Game.touchTap = originalTouchTap;
+          done();
         });
       });
     });

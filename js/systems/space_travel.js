@@ -396,6 +396,28 @@ Voxel.SpaceTravel = (function () {
 
   function canOpenMap() { return !!world && (world.kind === 'station' || nearShip); }
 
+  function scanLandmark() {
+    if (!world || !Voxel.Player || !Voxel.Player.pos) return null;
+    var p = Voxel.Player.pos();
+    var best = null;
+    function consider(kind, id, x, y, z, limit) {
+      var dx = p.x - x, dy = p.y - y, dz = p.z - z;
+      var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (distance <= limit && (!best || distance < best.distance))
+        best = { kind: kind, id: id, distance: distance };
+    }
+    if (world.kind === 'station')
+      consider('station-terminal', 'station-terminal', 128.5, 27.5, 128.5, 10);
+    if (ship)
+      consider('ship', 'ship', ship.position.x, ship.position.y + 1.5, ship.position.z, 8);
+    for (var i = 0; i < portals.length; i++) {
+      var portal = portals[i];
+      consider('portal', portal.userData && portal.userData.portal ? portal.userData.portal.id : ('portal-' + i),
+        portal.position.x, portal.position.y + 2, portal.position.z, 6);
+    }
+    return best;
+  }
+
   function galaxyDistance(dest) {
     try { return Math.round(finite(Voxel.Galaxy.distance(world, dest), 0, 0, 999999)); }
     catch (e) { return 0; }
@@ -419,10 +441,14 @@ Voxel.SpaceTravel = (function () {
         var distance = galaxyDistance(dest);
         var cost = current ? 0 : galaxyFuelCost(dest);
         var known = !!(galaxy.discovered && galaxy.discovered[dest.id]);
+        var discovery = Voxel.Discovery && Voxel.Discovery.worldSummary
+          ? Voxel.Discovery.worldSummary(galaxy.discovery, dest.id) : null;
+        var surveyed = !!(discovery && discovery.surveyed);
         var wt = worldText(dest);
         var card = document.createElement('button');
         card.type = 'button';
-        card.className = 'star-card' + (current ? ' current' : '') + (known ? ' discovered' : '');
+        card.className = 'star-card' + (current ? ' current' : '') + (known ? ' discovered' : '') +
+          (surveyed ? ' surveyed' : '');
         card.disabled = current;
         card.style.setProperty('--accent', safeAccent(dest.accent));
         var icon = document.createElement('span');
@@ -437,7 +463,15 @@ Voxel.SpaceTravel = (function () {
         main.appendChild(name); main.appendChild(detail);
         var meta = document.createElement('span');
         meta.className = 'star-meta';
-        meta.appendChild(document.createTextNode(current ? '当前位置' : (known ? '已发现' : '未发现')));
+        meta.appendChild(document.createTextNode(current ? '当前位置' : (known ? '已抵达' : '未抵达')));
+        if (surveyed) {
+          meta.appendChild(document.createElement('br'));
+          meta.appendChild(document.createTextNode('已测绘 · 群系 ' + discovery.counts.biomes +
+            ' · 资源 ' + discovery.counts.resources + ' · 生命 ' + discovery.counts.fauna));
+        } else if (known) {
+          meta.appendChild(document.createElement('br'));
+          meta.appendChild(document.createTextNode('尚未主动测绘'));
+        }
         if (!current) {
           meta.appendChild(document.createElement('br'));
           meta.appendChild(document.createTextNode('距离 ' + distance + ' LY · 能量 ' + cost + '%'));
@@ -477,6 +511,7 @@ Voxel.SpaceTravel = (function () {
     setScanTarget: setScanTarget,
     actionHint: actionHint,
     canOpenMap: canOpenMap,
+    scanLandmark: scanLandmark,
     showMap: showMap,
     showWarp: showWarp,
     hideWarp: hideWarp,

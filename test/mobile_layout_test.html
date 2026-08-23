@@ -22,6 +22,20 @@
     <div id="scan-target">受损的远古航行终端控制核心</div>
     <div id="scan-distance">12.8 m</div>
   </aside>
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
+    <div class="scan-active-actions">
+      <button id="btn-scan-hud" type="button" aria-label="启动主动扫描" aria-keyshortcuts="G"
+        aria-pressed="false"><span class="scan-active-icon">◎</span><span class="scan-active-label">扫描</span></button>
+      <button id="btn-discovery-log" type="button" aria-label="打开发现档案"
+        aria-haspopup="dialog" aria-controls="overlay-discovery"><span>▤</span><span class="scan-active-label">档案</span></button>
+    </div>
+    <div class="scan-active-readout">
+      <div class="scan-active-kicker">ANALYSIS // ACTIVE</div>
+      <div id="scan-active-status" role="status">主动扫描待机</div>
+      <div id="scan-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+      <div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div>
+    </div>
+  </div>
   <canvas id="oxygen" width="212" height="20"></canvas>
   <canvas id="hunger" width="212" height="20"></canvas>
   <canvas id="health" width="212" height="20"></canvas>
@@ -42,6 +56,16 @@
     <button id="btn-settings-menu" class="btn">设置</button><div id="start-hint" class="hint">导航系统已就绪</div></div>
   <details class="start-brief"><summary><span class="start-brief-code">MISSION // DEEP SPACE</span><strong>展开航行简报</strong></summary><div class="start-brief-body"><p>探索星系、传送门、飞船和空间站。</p><div class="controls"><div><b>WASD</b> 移动 · <b>H</b> 星图</div></div></div></details>
 </div></div>
+
+<div id="overlay-discovery" class="overlay discovery-overlay hidden">
+  <div class="panel discovery-panel" role="dialog" aria-modal="true" aria-labelledby="discovery-title">
+    <div class="panel-titlebar discovery-titlebar"><div class="discovery-heading"><div class="discovery-kicker">EXPLORATION ARCHIVE</div><h2 id="discovery-title">发现档案</h2></div><button id="btn-discovery-close" class="panel-close" aria-label="关闭发现档案">×</button></div>
+    <section class="discovery-goal"><div class="discovery-goal-copy"><span class="discovery-section-label">CURRENT OBJECTIVE</span><h3>编录 3 种自然资源</h3><p id="discovery-reward">完成目标可获得 10 探索点与 5% 跃迁能量。</p></div><strong id="discovery-goal-progress">2 / 3</strong></section>
+    <div class="discovery-stats"><div class="discovery-stat points"><span>探索点</span><strong>42</strong></div><div class="discovery-stat"><span>已测绘天体</span><strong>2</strong></div><div class="discovery-stat"><span>群系</span><strong>4</strong></div><div class="discovery-stat"><span>资源</span><strong>2</strong></div><div class="discovery-stat"><span>生命</span><strong>1</strong></div></div>
+    <div class="discovery-list-head"><span class="discovery-section-label">WORLD CATALOG</span><span>扫描进度按天体独立保存</span></div>
+    <div id="discovery-world-list"><article class="discovery-world-card current surveyed"><div class="discovery-world-head"><strong>◆ 阿尔忒亚-A</strong><span>已测绘</span></div><div class="discovery-world-detail">群系 4 · 资源 2 · 生命 1 · 地标 2</div></article></div>
+  </div>
+</div>
 
 <!-- 动效与对比度探针不参与布局，仅用于 reduced-motion/样式回归。 -->
 <div id="rotate-hint" class="hidden"><div class="rh-icon">⟳</div></div>
@@ -223,6 +247,31 @@
     if (avoidR.width > 0 && avoidR.height > 0)
       check('遥测终端与关键HUD ' + (sai + 1) + ' 不重叠', overlapArea(scanR, avoidR) === 0);
   }
+  var activeScanControls = document.getElementById('scan-active-controls');
+  var activeScanButton = document.getElementById('btn-scan-hud');
+  var discoveryButton = document.getElementById('btn-discovery-log');
+  var activeScanR = activeScanControls.getBoundingClientRect();
+  var activeScanButtonR = activeScanButton.getBoundingClientRect();
+  check('主动扫描控件完整限制在可视区', activeScanR.width > 0 && activeScanR.height > 0 && inViewport(activeScanR));
+  target44('主动扫描按钮', activeScanButton);
+  check('主动扫描按钮完整可见且可命中', inViewport(activeScanButtonR) && hit(activeScanButton));
+  var discoveryButtonR = discoveryButton.getBoundingClientRect();
+  if (discoveryButtonR.width > 0 && discoveryButtonR.height > 0) {
+    target44('发现档案按钮', discoveryButton);
+    check('发现档案按钮完整可见且可命中', inViewport(discoveryButtonR) && hit(discoveryButton));
+  }
+  var activeAvoid = [scan, document.getElementById('space-hud'), starBtn,
+    document.getElementById('health'), document.getElementById('hunger'), hotbar,
+    document.getElementById('crosshair'), document.querySelector('.touch-btn-top.pause'),
+    document.querySelector('.touch-btn-top.bag'), document.querySelector('.touch-btn-main'),
+    document.querySelector('.touch-btn-sub')];
+  for (var aai = 0; aai < activeAvoid.length; aai++) {
+    var activeAvoidR = activeAvoid[aai].getBoundingClientRect();
+    if (activeAvoidR.width > 0 && activeAvoidR.height > 0)
+      check('主动扫描与关键HUD ' + (aai + 1) + ' 不重叠', overlapArea(activeScanR, activeAvoidR) === 0);
+  }
+  check('主动扫描长文本不产生横向溢出',
+    activeScanControls.scrollWidth <= activeScanControls.clientWidth + 1 && document.documentElement.scrollWidth <= W + 1);
   var messages = [document.getElementById('toast'), document.getElementById('use-hint'), document.getElementById('lock-hint')];
   for (var mi = 0; mi < messages.length; mi++) {
     var mr = messages[mi].getBoundingClientRect();
@@ -252,6 +301,24 @@
   check('主菜单显示时游戏HUD不穿透', getComputedStyle(document.getElementById('hud')).visibility === 'hidden');
   startOverlay.classList.add('hidden');
   check('主菜单关闭后playing HUD恢复可见', getComputedStyle(document.getElementById('hud')).visibility === 'visible');
+
+  var discoveryOverlay = document.getElementById('overlay-discovery');
+  var discoveryPanel = discoveryOverlay.querySelector('.discovery-panel');
+  var discoveryClose = document.getElementById('btn-discovery-close');
+  discoveryOverlay.classList.remove('hidden');
+  var discoveryPanelR = discoveryPanel.getBoundingClientRect();
+  var discoveryCloseR = discoveryClose.getBoundingClientRect();
+  check('发现档案面板完整限制在可视区', inViewport(discoveryPanelR));
+  check('发现档案不横向撑开页面', discoveryPanel.scrollWidth <= discoveryPanel.clientWidth + 1 &&
+    document.documentElement.scrollWidth <= W + 1);
+  check('发现档案关闭按钮至少 44px 且完整可见', discoveryCloseR.width >= 44 &&
+    discoveryCloseR.height >= 44 && inViewport(discoveryCloseR));
+  check('发现档案关闭按钮可命中', hit(discoveryClose));
+  discoveryPanel.scrollTop = discoveryPanel.scrollHeight;
+  discoveryCloseR = discoveryClose.getBoundingClientRect();
+  check('发现档案滚动后关闭按钮仍可见可命中', inViewport(discoveryCloseR) && hit(discoveryClose));
+  discoveryPanel.scrollTop = 0;
+  discoveryOverlay.classList.add('hidden');
 
   var cases = [
     ['inventory', 'btn-inv-close', ['inv-grid']],
@@ -316,6 +383,9 @@
   check('准星不依赖 difference 混合', crossStyle.mixBlendMode === 'normal');
   check('准星具有深色描边', crossStyle.boxShadow !== 'none');
 
+  activeScanControls.setAttribute('data-state', 'sweeping');
+  activeScanButton.classList.add('scanning');
+  document.body.classList.add('scan-scanning');
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     check('reduced-motion 旋转提示静止', getComputedStyle(document.querySelector('.rh-icon')).animationName === 'none');
     check('reduced-motion 跃迁星空静止', getComputedStyle(document.querySelector('.warp-stars')).animationName === 'none');
@@ -324,6 +394,17 @@
     check('reduced-motion 遥测终端扫描动效静止',
       getComputedStyle(scan).animationName === 'none' &&
       getComputedStyle(scan, '::after').animationName === 'none');
+    check('reduced-motion 主动扫描脉冲/扫描线/进度全部静止',
+      getComputedStyle(activeScanControls, '::before').animationName === 'none' &&
+      getComputedStyle(activeScanControls, '::after').animationName === 'none' &&
+      getComputedStyle(document.querySelector('#scan-progress i')).animationName === 'none');
+  } else {
+    check('主动扫描脉冲动画周期为 0.8s',
+      getComputedStyle(activeScanControls, '::before').animationDuration === '0.8s');
+    check('主动扫描扫描线动画周期为 0.8s',
+      getComputedStyle(activeScanControls, '::after').animationDuration === '0.8s');
+    check('主动扫描进度动画周期为 0.8s',
+      getComputedStyle(document.querySelector('#scan-progress i')).animationDuration === '0.8s');
   }
 
   var fails = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;

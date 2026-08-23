@@ -123,6 +123,62 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       first.atmosphereStats.created[key] - first.atmosphereStats.disposed[key] === first.atmosphereStats.live[key] &&
       first.atmosphereStats.live[key] >= 0 && first.atmosphereStats.live[key] <= 64));
 
+  const initialDiscovery = await page.evaluate(() => {
+    const T = Voxel.Game._test;
+    const galaxy = T.galaxy();
+    const world = T.currentWorld();
+    const before = Voxel.Discovery.worldSummary(galaxy.discovery, world.id);
+    Voxel.SpaceTravel.showMap();
+    const beforeMap = (document.querySelector('#starmap-grid .star-card.current') || {}).textContent || '';
+    const unvisitedMap = Array.from(document.querySelectorAll('#starmap-grid .star-card:not(.current)'))
+      .map(card => card.textContent).find(text => text.indexOf('未抵达') >= 0) || '';
+
+    // 靠近真实飞船，一次主动扫描同时归档当前群系和行星地标。
+    const ship = Voxel.SpaceTravel.ship();
+    Voxel.Player.pos().copy(ship.position).add(new THREE.Vector3(0, 1.5, 0));
+    Voxel.SpaceTravel.update(0, 0);
+    const biomeId = Voxel.World.biomeAt(Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z));
+    const started = Voxel.Game.startActiveScan();
+    T.tickActiveScan(0.81);
+    const after = Voxel.Discovery.worldSummary(galaxy.discovery, world.id);
+    const saved = Voxel.Save.load();
+    const savedSummary = Voxel.Discovery.worldSummary(saved.galaxy.discovery, world.id);
+    Voxel.SpaceTravel.showMap();
+    const afterMap = (document.querySelector('#starmap-grid .star-card.current') || {}).textContent || '';
+    return {
+      worldId: world.id,
+      visited: !!galaxy.discovered[world.id],
+      before,
+      beforeMap,
+      unvisitedMap,
+      started,
+      biomeId,
+      after,
+      savedSummary,
+      afterMap,
+      scanResult: document.getElementById('scan-result').textContent,
+      fuel: galaxy.ship.fuel,
+      uiState: document.getElementById('scan-active-controls').dataset.state
+    };
+  });
+  check('起始行星只表示已抵达，不将visited冒充surveyed', initialDiscovery.visited &&
+    initialDiscovery.before.surveyed === false && initialDiscovery.before.total === 0);
+  check('星图在扫描前区分已抵达未测绘/未抵达',
+    initialDiscovery.beforeMap.includes('当前位置') && initialDiscovery.beforeMap.includes('尚未主动测绘') &&
+    initialDiscovery.unvisitedMap.includes('未抵达'));
+  check('主动扫描完成起始行星survey/群系/飞船地标归档', initialDiscovery.started === true &&
+    initialDiscovery.after.surveyed && initialDiscovery.after.counts.survey === 1 &&
+    initialDiscovery.after.counts.biomes === 1 &&
+    initialDiscovery.after.biomes.some(entry => entry.key === String(initialDiscovery.biomeId)) &&
+    initialDiscovery.after.landmarks.some(entry => entry.key === 'ship') &&
+    initialDiscovery.uiState === 'cooldown');
+  check('行星扫描档案立即写入Save且星图改为已测绘进度',
+    initialDiscovery.savedSummary.surveyed && initialDiscovery.savedSummary.counts.biomes === 1 &&
+    initialDiscovery.savedSummary.counts.landmarks === 1 &&
+    initialDiscovery.afterMap.includes('已测绘') && initialDiscovery.afterMap.includes('群系 1'));
+  check('满能量时扫描反馈不虚报+5%', initialDiscovery.fuel === 100 &&
+    initialDiscovery.scanResult.includes('跃迁能量已满') && !initialDiscovery.scanResult.includes('+5% 跃迁能量'));
+
   const targetTelemetry = await page.evaluate(async () => {
     const root = document.getElementById('scan-terminal');
     Voxel.SpaceTravel.setScanTarget('block', '石头', 3.456);
@@ -222,6 +278,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       state: Voxel.Game.state,
       pending: Voxel.Game._test.travelPending(),
       sourceWeatherTint,
+      sourceDiscovery: Voxel.Discovery.worldSummary(beforePagehide.galaxy.discovery, sourceId),
+      pagehideDiscoverySame: JSON.stringify(beforePagehide.galaxy.discovery) === JSON.stringify(afterPagehide.galaxy.discovery),
       beforePagehide,
       afterPagehide
     };
@@ -240,31 +298,41 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   check('warping 中 pagehide 不写出源数据与目标 currentId 混合档', firstDeparture.afterPagehide &&
     firstDeparture.afterPagehide.galaxy.currentId === firstDeparture.sourceId &&
     JSON.stringify(firstDeparture.afterPagehide) === JSON.stringify(firstDeparture.beforePagehide));
+  check('起始行星发现档案穿过离场保存/pagehide链路', firstDeparture.sourceDiscovery.surveyed &&
+    firstDeparture.sourceDiscovery.counts.biomes === 1 && firstDeparture.pagehideDiscoverySame);
   await waitWorld('station-0');
-  const station = await page.evaluate(() => ({
-    kind: Voxel.World.getProfile().kind,
-    fuel: Voxel.Game._test.galaxy().ship.fuel,
-    max: Voxel.Game._test.galaxy().ship.maxFuel,
-    deck: Voxel.World.get(128, 23, 128),
-    portals: Voxel.SpaceTravel.portals().length,
-    drops: Voxel.Drops.snapshot(),
-    savedCurrent: (Voxel.Save.load().galaxy || {}).currentId,
-    actionHint: Voxel.SpaceTravel.actionHint(),
-    atmosphere: Voxel.Atmosphere.snapshot(),
-    atmosphereStats: Voxel.Atmosphere.resourceStats(),
-    weatherTint: [Voxel.Weather.getTint().r, Voxel.Weather.getTint().g, Voxel.Weather.getTint().b],
-    weatherIntensity: Voxel.Weather.intensity(),
-    scan: {
-      status: document.getElementById('scan-terminal').dataset.status,
-      kind: document.getElementById('scan-terminal').dataset.targetKind,
-      world: document.getElementById('scan-world').textContent,
-      biome: document.getElementById('scan-biome').textContent,
-      environment: document.getElementById('scan-environment').textContent,
-      target: document.getElementById('scan-target').textContent,
-      distance: document.getElementById('scan-distance').textContent,
-      expectedWorld: Voxel.Game._test.currentWorld().name
-    }
-  }));
+  const station = await page.evaluate(() => {
+    const galaxy = Voxel.Game._test.galaxy();
+    const world = Voxel.Game._test.currentWorld();
+    Voxel.SpaceTravel.showMap();
+    return {
+      kind: Voxel.World.getProfile().kind,
+      fuel: galaxy.ship.fuel,
+      max: galaxy.ship.maxFuel,
+      deck: Voxel.World.get(128, 23, 128),
+      portals: Voxel.SpaceTravel.portals().length,
+      drops: Voxel.Drops.snapshot(),
+      savedCurrent: (Voxel.Save.load().galaxy || {}).currentId,
+      actionHint: Voxel.SpaceTravel.actionHint(),
+      atmosphere: Voxel.Atmosphere.snapshot(),
+      atmosphereStats: Voxel.Atmosphere.resourceStats(),
+      weatherTint: [Voxel.Weather.getTint().r, Voxel.Weather.getTint().g, Voxel.Weather.getTint().b],
+      weatherIntensity: Voxel.Weather.intensity(),
+      discovery: Voxel.Discovery.worldSummary(galaxy.discovery, world.id),
+      planetDiscovery: Voxel.Discovery.worldSummary(galaxy.discovery, 'planet-0'),
+      mapCurrent: (document.querySelector('#starmap-grid .star-card.current') || {}).textContent || '',
+      scan: {
+        status: document.getElementById('scan-terminal').dataset.status,
+        kind: document.getElementById('scan-terminal').dataset.targetKind,
+        world: document.getElementById('scan-world').textContent,
+        biome: document.getElementById('scan-biome').textContent,
+        environment: document.getElementById('scan-environment').textContent,
+        target: document.getElementById('scan-target').textContent,
+        distance: document.getElementById('scan-distance').textContent,
+        expectedWorld: world.name
+      }
+    };
+  });
   check('抵达独立空间站体素世界', station.kind === 'station' && station.deck !== 0);
   check('空间站自动补满跃迁能量', station.fuel === station.max);
   check('空间站拥有返回用传送门', station.portals === 3);
@@ -286,6 +354,41 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     station.weatherIntensity === 0 && station.weatherTint.every(v => Math.abs(v - 1) < 1e-9) &&
     ['geometries', 'materials', 'textures'].every(key =>
       station.atmosphereStats.created[key] - station.atmosphereStats.disposed[key] === station.atmosphereStats.live[key]));
+  check('刚抵达空间站仍是visited但未测绘，源行星档案保留',
+    station.discovery.surveyed === false && station.mapCurrent.includes('尚未主动测绘') &&
+    station.planetDiscovery.surveyed && station.planetDiscovery.counts.biomes === 1);
+
+  const stationDiscovery = await page.evaluate(() => {
+    const T = Voxel.Game._test;
+    const galaxy = T.galaxy();
+    const world = T.currentWorld();
+    // 航行终端地标只在中央平台10格内记录。
+    Voxel.Player.pos().set(128.5, 27.5, 128.5);
+    const started = Voxel.Game.startActiveScan();
+    T.tickActiveScan(0.81);
+    const after = Voxel.Discovery.worldSummary(galaxy.discovery, world.id);
+    const planet = Voxel.Discovery.worldSummary(galaxy.discovery, 'planet-0');
+    const saved = Voxel.Save.load();
+    const savedAfter = Voxel.Discovery.worldSummary(saved.galaxy.discovery, world.id);
+    const savedPlanet = Voxel.Discovery.worldSummary(saved.galaxy.discovery, 'planet-0');
+    Voxel.SpaceTravel.showMap();
+    return {
+      started,
+      after,
+      planet,
+      savedAfter,
+      savedPlanet,
+      mapCurrent: (document.querySelector('#starmap-grid .star-card.current') || {}).textContent || ''
+    };
+  });
+  check('空间站主动扫描写入survey和航行终端地标', stationDiscovery.started &&
+    stationDiscovery.after.surveyed && stationDiscovery.after.counts.survey === 1 &&
+    stationDiscovery.after.counts.biomes === 0 &&
+    stationDiscovery.after.landmarks.some(entry => entry.key === 'station-terminal'));
+  check('空间站扫描立即持久化且星图显示已测绘', stationDiscovery.savedAfter.surveyed &&
+    stationDiscovery.savedAfter.counts.landmarks === 1 && stationDiscovery.mapCurrent.includes('已测绘'));
+  check('扫描空间站不会覆盖起始行星发现档案', stationDiscovery.planet.surveyed &&
+    stationDiscovery.savedPlanet.surveyed && stationDiscovery.savedPlanet.counts.biomes === 1);
 
   await page.evaluate(() => Voxel.World.set(130, 24, 130, 13));
   const returnDeparture = await page.evaluate(() => {
@@ -294,29 +397,45 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     if (d) d.age = 8;
     const ok = Voxel.Game.requestTravel('planet-0', 'ship');
     const saved = Voxel.Save.load();
-    return { ok, saved };
+    return {
+      ok,
+      saved,
+      planetDiscovery: Voxel.Discovery.worldSummary(saved.galaxy.discovery, 'planet-0'),
+      stationDiscovery: Voxel.Discovery.worldSummary(saved.galaxy.discovery, 'station-0')
+    };
   });
   check('空间站航行终端可返回行星', returnDeparture.ok === true);
   check('空间站离场前保存自己的掉落快照', returnDeparture.saved &&
     returnDeparture.saved.galaxy.currentId === 'station-0' &&
     returnDeparture.saved.galaxy.worlds['station-0'].drops.some(d =>
       d.id === 10 && d.n === 3 && d.dur === null && Math.abs(d.age - 8) < 0.001));
+  check('双世界发现档案随空间站离场存档保留', returnDeparture.planetDiscovery.surveyed &&
+    returnDeparture.planetDiscovery.counts.biomes === 1 && returnDeparture.stationDiscovery.surveyed &&
+    returnDeparture.stationDiscovery.landmarks.some(entry => entry.key === 'station-terminal'));
   await waitWorld('planet-0');
-  const backOnPlanet = await page.evaluate(() => ({
-    fuel: Voxel.Game._test.galaxy().ship.fuel,
-    drops: Voxel.Drops.snapshot(),
-    atmosphere: Voxel.Atmosphere.snapshot(),
-    scan: {
-      kind: document.getElementById('scan-terminal').dataset.targetKind,
-      world: document.getElementById('scan-world').textContent,
-      biome: document.getElementById('scan-biome').textContent,
-      environment: document.getElementById('scan-environment').textContent,
-      target: document.getElementById('scan-target').textContent,
-      expectedWorld: Voxel.Game._test.currentWorld().name,
-      expectedBiome: Voxel.Biomes.name(Voxel.World.biomeAt(
-        Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z)))
-    }
-  }));
+  const backOnPlanet = await page.evaluate(() => {
+    const galaxy = Voxel.Game._test.galaxy();
+    return {
+      fuel: galaxy.ship.fuel,
+      drops: Voxel.Drops.snapshot(),
+      atmosphere: Voxel.Atmosphere.snapshot(),
+      planetDiscovery: Voxel.Discovery.worldSummary(galaxy.discovery, 'planet-0'),
+      stationDiscovery: Voxel.Discovery.worldSummary(galaxy.discovery, 'station-0'),
+      savedDiscovery: Voxel.Save.load().galaxy.discovery,
+      savedPlanetDiscovery: Voxel.Discovery.worldSummary(Voxel.Save.load().galaxy.discovery, 'planet-0'),
+      savedStationDiscovery: Voxel.Discovery.worldSummary(Voxel.Save.load().galaxy.discovery, 'station-0'),
+      scan: {
+        kind: document.getElementById('scan-terminal').dataset.targetKind,
+        world: document.getElementById('scan-world').textContent,
+        biome: document.getElementById('scan-biome').textContent,
+        environment: document.getElementById('scan-environment').textContent,
+        target: document.getElementById('scan-target').textContent,
+        expectedWorld: Voxel.Game._test.currentWorld().name,
+        expectedBiome: Voxel.Biomes.name(Voxel.World.biomeAt(
+          Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z)))
+      }
+    };
+  });
   const afterShipFuel = backOnPlanet.fuel;
   check('飞船跃迁实际消耗能量', afterShipFuel < station.max);
   check('返航行星恢复原工具掉落及耐久且隔离空间站掉落',
@@ -330,6 +449,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   check('返航行星第一帧恢复lush天空且不残留station roles', backOnPlanet.atmosphere.typeKey === 'lush' &&
     backOnPlanet.atmosphere.roles.includes('sky-dome') && backOnPlanet.atmosphere.roles.includes('pollen') &&
     !backOnPlanet.atmosphere.roles.includes('station-stars'));
+  check('双世界survey/群系/地标档案穿过返航和目标世界提交', backOnPlanet.planetDiscovery.surveyed &&
+    backOnPlanet.planetDiscovery.counts.biomes === 1 && backOnPlanet.stationDiscovery.surveyed &&
+    backOnPlanet.stationDiscovery.landmarks.some(entry => entry.key === 'station-terminal') &&
+    backOnPlanet.savedPlanetDiscovery.surveyed && backOnPlanet.savedStationDiscovery.surveyed);
 
   const portalJump = await page.evaluate(() => ({
     ok: Voxel.Game.requestTravel('station-0', 'portal'),
@@ -342,13 +465,18 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     fuel: Voxel.Game._test.galaxy().ship.fuel,
     edit: Voxel.World.get(130, 24, 130),
     discovered: Object.keys(Voxel.Game._test.galaxy().discovered).length,
-    drops: Voxel.Drops.snapshot()
+    drops: Voxel.Drops.snapshot(),
+    planetDiscovery: Voxel.Discovery.worldSummary(Voxel.Game._test.galaxy().discovery, 'planet-0'),
+    stationDiscovery: Voxel.Discovery.worldSummary(Voxel.Game._test.galaxy().discovery, 'station-0')
   }));
   check('重返空间站后再次完成补能', roundTrip.fuel === station.max);
   check('空间站修改在跨世界往返后恢复', roundTrip.edit === 13);
   check('发现记录随旅行更新', roundTrip.discovered >= 2);
   check('重返空间站只恢复空间站掉落', roundTrip.drops.some(d => d.id === 10 && d.n === 3) &&
     !roundTrip.drops.some(d => d.id === 102));
+  check('多次跃迁后两个主动测绘档案仍完整', roundTrip.planetDiscovery.surveyed &&
+    roundTrip.planetDiscovery.counts.biomes === 1 && roundTrip.stationDiscovery.surveyed &&
+    roundTrip.stationDiscovery.counts.landmarks === 1);
 
   // 再离场并第三次进入空间站：applyEdits 回放后的修改仍须进入下一份世界快照。
   check('二次离开空间站请求成功',
@@ -381,6 +509,18 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     saved.galaxy.worlds['planet-0'].drops.some(d => d.id === 102 && d.dur === 37) &&
     saved.galaxy.worlds['station-0'].drops.some(d => d.id === 10 && d.n === 3) &&
     saved.drops.some(d => d.id === 10 && d.n === 3));
+  const savedDiscoverySummaries = await page.evaluate(() => {
+    const data = Voxel.Save.load();
+    return {
+      planet: Voxel.Discovery.worldSummary(data.galaxy.discovery, 'planet-0'),
+      station: Voxel.Discovery.worldSummary(data.galaxy.discovery, 'station-0')
+    };
+  });
+  const savedPlanetDiscovery = savedDiscoverySummaries.planet;
+  const savedStationDiscovery = savedDiscoverySummaries.station;
+  check('最终手动保存保留行星群系与空间站终端档案', savedPlanetDiscovery.surveyed &&
+    savedPlanetDiscovery.counts.biomes === 1 && savedStationDiscovery.surveyed &&
+    savedStationDiscovery.landmarks.some(entry => entry.key === 'station-terminal'));
   const offline = await page.evaluate(() => {
     Voxel.SpaceTravel.clear();
     return {

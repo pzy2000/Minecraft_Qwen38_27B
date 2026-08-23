@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=20260824l">
+<link rel="stylesheet" href="css/style.css?v=20260824n">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -49,6 +49,28 @@
       <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div>
     </dl>
   </section>
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
+    <div class="scan-active-actions">
+      <button id="btn-scan-hud" type="button" aria-label="启动主动扫描"
+              aria-keyshortcuts="G" aria-pressed="false"
+              aria-controls="scan-active-status scan-progress scan-result">
+        <span class="scan-active-icon" aria-hidden="true">◎</span>
+        <span class="scan-active-label">扫描</span>
+      </button>
+      <button id="btn-discovery-log" type="button" aria-label="打开发现档案"
+              aria-haspopup="dialog" aria-controls="overlay-discovery">
+        <span aria-hidden="true">▤</span>
+        <span class="scan-active-label">档案</span>
+      </button>
+    </div>
+    <div class="scan-active-readout">
+      <div class="scan-active-kicker" aria-hidden="true">ANALYSIS // ACTIVE</div>
+      <div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true">主动扫描待机</div>
+      <div id="scan-progress" role="progressbar" aria-label="主动扫描进度"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
+      <div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div>
+    </div>
+  </div>
 </div>
 
 <!-- 背包 -->
@@ -171,7 +193,7 @@
         <div class="controls">
           <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
           <div><b>左键</b> 放置 <b>右键长按</b> 挖掘/攻击 <b>中键</b> 吸取方块</div>
-          <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
+          <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>G</b> 主动扫描 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
           <div><b>M</b> 合成手册 <b>Q</b> 丢弃 <b>R</b> 进食 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
         </div>
       </div>
@@ -219,7 +241,7 @@
     <div class="controls">
       <div><b>WASD</b> 移动 · <b>空格</b> 跳/上浮 · <b>Shift</b> 疾跑/下降</div>
       <div><b>左键</b> 放置 · <b>右键长按</b> 挖掘/攻击 · <b>中键</b> 吸取</div>
-      <div><b>E</b> 背包 / 交互 / 登舰 · <b>H</b> 星图 · <b>F</b> 飞行 · <b>G</b> 天气</div>
+      <div><b>E</b> 背包 / 交互 / 登舰 · <b>G</b> 主动扫描 · <b>H</b> 星图 · <b>F</b> 飞行</div>
       <div><b>M</b> 合成手册 · <b>Q</b> 丢弃 · <b>R</b> 进食 · <b>F3</b> 调试 · <b>P/Esc</b> 暂停</div>
     </div>
   </div>
@@ -238,6 +260,46 @@
     </div>
     <div id="starmap-grid"></div>
     <div class="starmap-footer hint"><span>ROUTE PROTOCOL</span>选择目的地启动跃迁 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
+  </div>
+</div>
+
+<!-- 发现档案 -->
+<div id="overlay-discovery" class="overlay discovery-overlay hidden">
+  <div class="panel discovery-panel" role="dialog" aria-modal="true"
+       aria-labelledby="discovery-title" aria-describedby="discovery-reward">
+    <div class="panel-titlebar discovery-titlebar">
+      <div class="discovery-heading">
+        <div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div>
+        <h2 id="discovery-title">发现档案</h2>
+      </div>
+      <button id="btn-discovery-close" class="panel-close" type="button"
+              aria-label="关闭发现档案" title="关闭发现档案">×</button>
+    </div>
+
+    <section class="discovery-goal" aria-labelledby="discovery-goal-title">
+      <div class="discovery-goal-copy">
+        <span class="discovery-section-label">CURRENT OBJECTIVE</span>
+        <h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3>
+        <p id="discovery-reward">完成环境、资源与生命记录可获得探索点及跃迁能量。</p>
+      </div>
+      <strong id="discovery-goal-progress" aria-label="当前探索目标进度">0 / 1</strong>
+    </section>
+
+    <div class="discovery-stats" role="group" aria-label="发现统计">
+      <div class="discovery-stat points"><span>探索点</span><strong id="discovery-points">0</strong></div>
+      <div class="discovery-stat"><span>已测绘天体</span><strong id="discovery-worlds">0</strong></div>
+      <div class="discovery-stat"><span>生物群系</span><strong id="discovery-biomes">0</strong></div>
+      <div class="discovery-stat"><span>资源样本</span><strong id="discovery-resources">0</strong></div>
+      <div class="discovery-stat"><span>生命记录</span><strong id="discovery-fauna">0</strong></div>
+    </div>
+
+    <div class="discovery-list-head">
+      <span class="discovery-section-label">WORLD CATALOG</span>
+      <span>扫描进度按天体独立保存</span>
+    </div>
+    <div id="discovery-world-list" aria-label="天体发现记录">
+      <div class="discovery-empty">尚无发现记录 · 返回世界并启动主动扫描</div>
+    </div>
   </div>
 </div>
 
@@ -315,15 +377,16 @@
 <script src="js/config.js?v=20260824c"></script>
 <script src="js/assets.js?v=20260823f"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
-<script src="js/world/galaxy.js?v=20260824l"></script>
+<script src="js/world/galaxy.js?v=20260824n"></script>
 <script src="js/systems/atmosphere_profiles.js?v=20260824m"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
 <script src="js/world/biomes.js?v=20260823f"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
-<script src="js/blocks.js?v=20260823f"></script>
+<script src="js/blocks.js?v=20260824n"></script>
+<script src="js/systems/discovery.js?v=20260824n"></script>
 <script src="js/crafting.js?v=20260823f"></script>
-<script src="js/world/world.js?v=20260824i"></script>
-<script src="js/world/infinite.js?v=20260824i"></script>
+<script src="js/world/world.js?v=20260824n"></script>
+<script src="js/world/infinite.js?v=20260824n"></script>
 <script src="js/world/mesh.js?v=20260823f"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=20260824j"></script>
@@ -336,7 +399,7 @@
 <script src="js/systems/sound.js?v=20260823f"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=20260824m"></script>
+<script src="js/systems/space_travel.js?v=20260824n"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=20260824l"></script>
@@ -344,6 +407,6 @@
 <script src="js/ui/featured.js?v=20260824l"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
 <script src="js/ui/hud.js?v=20260824l"></script>
-<script src="js/main.js?v=20260824m"></script>
+<script src="js/main.js?v=20260824n"></script>
 </body>
 </html>

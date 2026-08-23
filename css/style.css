@@ -5,6 +5,9 @@
   --space-violet: #c66cff;
   --space-panel: rgba(7, 13, 29, 0.94);
   --space-line: rgba(89, 232, 255, 0.55);
+  --scan-amber: #ffd86b;
+  --scan-orange: #ff9d52;
+  --scan-green: #75f0bb;
 }
 @supports (height: 100dvh) {
   :root {
@@ -1552,6 +1555,238 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 #scan-terminal > #scan-target,
 #scan-terminal > #scan-distance { color: #fff1a6; }
 
+/* ---------- 主动扫描：独立于只读 PASSIVE 遥测终端 ---------- */
+#scan-active-controls {
+  position: absolute;
+  top: max(82px, calc(env(safe-area-inset-top) + 82px));
+  left: max(310px, calc(env(safe-area-inset-left) + 310px));
+  /* touch.js 在 body 末尾追加 z-index:7 的全屏手势捕获层；
+     真实扫描按钮必须像星图按钮一样位于它之上。 */
+  z-index: 8;
+  isolation: isolate;
+  display: none;
+  grid-template-columns: auto minmax(130px, 1fr);
+  gap: 8px;
+  width: min(360px, calc(var(--app-width) - 324px));
+  min-width: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,.35));
+}
+body[data-game-state="playing"] #scan-active-controls { display: grid; }
+
+.scan-active-actions,
+.scan-active-readout {
+  position: relative;
+  z-index: 1;
+}
+.scan-active-actions {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  pointer-events: auto;
+}
+#btn-scan-hud,
+#btn-discovery-log {
+  min-width: 44px;
+  min-height: 44px;
+  height: 48px;
+  margin: 0;
+  padding: 5px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #fff0b2;
+  border: 1px solid rgba(255,216,107,.66);
+  background:
+    linear-gradient(145deg, rgba(255,216,107,.18), transparent 52%),
+    rgba(24, 20, 21, .92);
+  box-shadow: inset 0 -2px 0 rgba(255,157,82,.18), inset 3px 0 0 rgba(255,216,107,.46);
+  font: bold 10px/1.1 'Courier New', 'PingFang SC', monospace;
+  letter-spacing: .8px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#btn-scan-hud { min-width: 76px; }
+#btn-discovery-log {
+  min-width: 66px;
+  color: #d9eaff;
+  border-color: rgba(132,184,226,.52);
+  background:
+    linear-gradient(145deg, rgba(89,232,255,.10), transparent 52%),
+    rgba(6, 18, 35, .92);
+  box-shadow: inset 3px 0 0 rgba(89,232,255,.30);
+}
+.scan-active-icon {
+  color: var(--scan-amber);
+  font-size: 17px;
+  text-shadow: 0 0 9px rgba(255,216,107,.78);
+}
+#btn-scan-hud:hover,
+#btn-scan-hud:focus-visible,
+#btn-scan-hud[aria-pressed="true"] {
+  color: #fff;
+  border-color: #fff2bc;
+  background:
+    linear-gradient(145deg, rgba(255,216,107,.34), transparent 58%),
+    rgba(34, 26, 20, .96);
+  box-shadow: inset 3px 0 0 var(--scan-amber), 0 0 17px rgba(255,183,78,.25);
+}
+#btn-discovery-log:hover,
+#btn-discovery-log:focus-visible {
+  color: #fff;
+  border-color: #d9f9ff;
+  background: rgba(9, 31, 52, .96);
+}
+#btn-scan-hud:focus-visible,
+#btn-discovery-log:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+#btn-scan-hud:active,
+#btn-discovery-log:active { transform: translateY(1px); }
+#btn-scan-hud:disabled {
+  opacity: .72;
+  cursor: wait;
+}
+
+.scan-active-readout {
+  min-width: 0;
+  min-height: 48px;
+  overflow: hidden;
+  padding: 5px 8px 6px;
+  color: #ffefb2;
+  border: 1px solid rgba(255,216,107,.40);
+  background:
+    linear-gradient(90deg, rgba(255,216,107,.09), transparent 72%),
+    rgba(9, 15, 27, .90);
+  box-shadow: inset 3px 0 0 rgba(255,157,82,.32);
+  backdrop-filter: blur(4px);
+}
+.scan-active-kicker {
+  overflow: hidden;
+  color: #b7965a;
+  font-size: 7px;
+  line-height: 1.2;
+  letter-spacing: 1.2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#scan-active-status {
+  overflow: hidden;
+  margin-top: 2px;
+  color: #fff2bc;
+  font-size: 10px;
+  font-weight: bold;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#scan-progress {
+  position: relative;
+  height: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255,216,107,.35);
+  background: rgba(255,255,255,.08);
+}
+#scan-progress i {
+  display: block;
+  width: var(--scan-progress, 0%);
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--scan-orange), #fff2a5);
+  box-shadow: 0 0 8px rgba(255,216,107,.72);
+  transition: width .08s linear;
+}
+#scan-result {
+  overflow: hidden;
+  margin-top: 3px;
+  color: #9cafc5;
+  font-size: 8px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#scan-active-controls[data-state="tracking"] .scan-active-readout,
+#scan-active-controls.tracking .scan-active-readout {
+  border-color: rgba(255,216,107,.72);
+  box-shadow: inset 3px 0 0 var(--scan-amber), 0 0 15px rgba(255,183,78,.12);
+}
+#scan-active-controls[data-state="cooldown"] #btn-scan-hud,
+#scan-active-controls.cooldown #btn-scan-hud {
+  opacity: .66;
+  cursor: wait;
+}
+#scan-active-controls[data-state="result"] #scan-result,
+#scan-active-controls.has-result #scan-result {
+  color: var(--scan-green);
+  text-shadow: 0 0 7px rgba(117,240,187,.32);
+}
+
+/* JS 可在 body、控制组或扫描按钮任一层加 scanning；三种入口共享 0.8s 表现。 */
+#scan-active-controls::before,
+#scan-active-controls::after {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+#scan-active-controls::before {
+  left: 50%; top: 50%;
+  width: 18vmin; height: 18vmin;
+  border: 2px solid rgba(255,216,107,.76);
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgba(255,157,82,.36), inset 0 0 18px rgba(255,216,107,.18);
+  transform: translate(-50%, -50%) scale(.18);
+}
+#scan-active-controls::after {
+  left: 0; right: 0; top: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 3%, rgba(255,216,107,.92) 50%, transparent 97%);
+  box-shadow: 0 0 14px 3px rgba(255,157,82,.20);
+  transform: translateY(-4px);
+}
+body.scanning #scan-active-controls::before,
+body.scan-scanning #scan-active-controls::before,
+#scan-active-controls.scanning::before,
+#scan-active-controls[data-state="scanning"]::before,
+#scan-active-controls[data-state="sweeping"]::before,
+#scan-active-controls:has(#btn-scan-hud.scanning)::before {
+  animation: activeScanPulse .8s ease-out both;
+}
+body.scanning #scan-active-controls::after,
+body.scan-scanning #scan-active-controls::after,
+#scan-active-controls.scanning::after,
+#scan-active-controls[data-state="scanning"]::after,
+#scan-active-controls[data-state="sweeping"]::after,
+#scan-active-controls:has(#btn-scan-hud.scanning)::after {
+  animation: activeScanSweep .8s linear both;
+}
+body.scanning #scan-progress i,
+body.scan-scanning #scan-progress i,
+#scan-active-controls.scanning #scan-progress i,
+#scan-active-controls[data-state="scanning"] #scan-progress i,
+#scan-active-controls[data-state="sweeping"] #scan-progress i,
+#scan-active-controls:has(#btn-scan-hud.scanning) #scan-progress i {
+  animation: activeScanFill .8s linear both;
+}
+@keyframes activeScanPulse {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.18); }
+  18% { opacity: .72; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(6); }
+}
+@keyframes activeScanSweep {
+  0% { opacity: 0; transform: translateY(-4px); }
+  12%, 82% { opacity: .76; }
+  100% { opacity: 0; transform: translateY(var(--app-height)); }
+}
+@keyframes activeScanFill {
+  from { width: 100%; transform: scaleX(0); }
+  to { width: 100%; transform: scaleX(1); }
+}
+
 /* HUD 三条消息通道：系统右上、日志右上次席、交互准星下。 */
 #lock-hint,
 #toast,
@@ -1703,6 +1938,10 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 }
 .star-card.current:hover { transform: none; }
 .star-card.discovered:not(.current) { background-color: rgba(8,24,40,.94); }
+.star-card.surveyed {
+  box-shadow: inset 4px 0 0 #ffe77a, inset 0 0 24px rgba(255,231,122,.05);
+}
+.star-card.surveyed .star-meta { color: #ffefa0; }
 .star-icon { font-size: 29px; }
 .star-main b { color: #f3fbff; font-size: 14px; letter-spacing: .5px; }
 .star-main small { max-width: 300px; color: #9eb1c7; font-size: 11px; }
@@ -1720,6 +1959,211 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   color: #6f8daa;
   font-size: 9px;
   letter-spacing: 1.4px;
+}
+
+/* ---------- 发现档案 ---------- */
+.discovery-overlay {
+  z-index: 76;
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+    max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255,190,85,.11), transparent 32%),
+    radial-gradient(circle at 82% 78%, rgba(89,232,255,.10), transparent 36%),
+    rgba(1, 5, 14, .84);
+}
+.discovery-panel {
+  width: min(780px, calc(var(--app-width) - 16px));
+  min-width: 0;
+  max-width: calc(var(--app-width) - 16px);
+  padding: 20px 24px;
+  text-align: left;
+  border-color: rgba(255,216,107,.38);
+  background:
+    linear-gradient(rgba(255,216,107,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(89,232,255,.025) 1px, transparent 1px),
+    radial-gradient(circle at 10% 10%, rgba(255,190,85,.09), transparent 30%),
+    rgba(3, 10, 23, .97);
+  background-size: 24px 24px, 24px 24px, auto, auto;
+  box-shadow: 0 0 0 1px rgba(255,216,107,.30), 0 28px 80px rgba(0,0,0,.62), inset 0 0 48px rgba(54,91,137,.08);
+}
+.discovery-titlebar {
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(255,216,107,.22);
+  background: linear-gradient(90deg, rgba(4,13,28,.99), rgba(4,13,28,.90));
+}
+.discovery-heading { min-width: 0; }
+.discovery-kicker,
+.discovery-section-label {
+  color: #b6955a;
+  font-size: 8px;
+  font-weight: bold;
+  letter-spacing: 1.7px;
+}
+.discovery-panel h2 {
+  margin: 4px 0 0;
+  color: #fff0ad;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.15;
+  letter-spacing: 4px;
+  text-shadow: 0 0 16px rgba(255,190,85,.30);
+}
+.discovery-goal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 78px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,216,107,.38);
+  background:
+    linear-gradient(105deg, rgba(255,216,107,.13), transparent 58%),
+    rgba(17, 20, 28, .88);
+  box-shadow: inset 4px 0 0 rgba(255,216,107,.58);
+}
+.discovery-goal-copy { min-width: 0; }
+.discovery-goal h3 {
+  margin: 4px 0 3px;
+  overflow-wrap: anywhere;
+  color: #fff7d5;
+  font-size: 15px;
+  line-height: 1.35;
+  letter-spacing: .5px;
+}
+#discovery-reward {
+  color: #aebed0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+#discovery-goal-progress {
+  min-width: 82px;
+  padding: 9px 10px;
+  color: #fff0ad;
+  border: 1px solid rgba(255,216,107,.48);
+  background: rgba(255,216,107,.08);
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 1px;
+  text-align: center;
+  white-space: nowrap;
+}
+.discovery-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+.discovery-stat {
+  min-width: 0;
+  min-height: 60px;
+  padding: 8px 9px;
+  border: 1px solid rgba(89,232,255,.20);
+  background: rgba(5, 17, 34, .78);
+}
+.discovery-stat.points {
+  border-color: rgba(255,216,107,.34);
+  background: rgba(40, 29, 19, .68);
+}
+.discovery-stat span {
+  display: block;
+  overflow: hidden;
+  color: #8196ae;
+  font-size: 8px;
+  line-height: 1.3;
+  letter-spacing: .8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-stat strong {
+  display: block;
+  margin-top: 6px;
+  color: #c8f7ff;
+  font-size: 19px;
+  line-height: 1;
+  text-shadow: 0 0 9px rgba(89,232,255,.22);
+}
+.discovery-stat.points strong { color: #ffe58c; text-shadow: 0 0 9px rgba(255,216,107,.24); }
+.discovery-list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 15px 0 7px;
+  color: #8196ae;
+  font-size: 9px;
+  line-height: 1.35;
+}
+#discovery-world-list {
+  max-height: min(38vh, 330px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border-top: 1px solid rgba(89,232,255,.16);
+  border-bottom: 1px solid rgba(89,232,255,.16);
+  background: rgba(2, 9, 21, .56);
+}
+.discovery-empty {
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: #8194aa;
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+}
+.discovery-world-card,
+.discovery-world-row {
+  --accent: #59e8ff;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(89,232,255,.13);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 62%, transparent);
+}
+.discovery-world-card:last-child,
+.discovery-world-row:last-child { border-bottom: 0; }
+.discovery-world-card b,
+.discovery-world-row b,
+.discovery-world-head strong { display: block; color: #edf9ff; font-size: 12px; }
+.discovery-world-card small,
+.discovery-world-row small { display: block; margin-top: 3px; color: #8fa4bb; font-size: 9px; line-height: 1.4; }
+.discovery-world-head { min-width: 0; }
+.discovery-world-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-world-head span {
+  display: block;
+  margin-top: 3px;
+  color: #8fa4bb;
+  font-size: 9px;
+  line-height: 1.35;
+}
+.discovery-world-detail {
+  color: #ffe69a;
+  font-size: 9px;
+  line-height: 1.45;
+  text-align: right;
+  white-space: nowrap;
+}
+.discovery-world-card.current {
+  background: linear-gradient(90deg, rgba(89,232,255,.10), transparent 60%);
+}
+.discovery-world-card.surveyed {
+  box-shadow: inset 3px 0 0 var(--scan-green);
+}
+.discovery-world-progress {
+  color: #ffe69a;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* ---------- 星舰界面响应式 ---------- */
@@ -1742,8 +2186,22 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   #lock-hint,
   #toast { max-width: calc(50vw - 14px); }
   #scan-terminal { top: max(62px, calc(env(safe-area-inset-top) + 62px)); left: max(8px, env(safe-area-inset-left)); }
+  #scan-active-controls {
+    top: max(62px, calc(env(safe-area-inset-top) + 62px));
+    left: calc(50vw + 2px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    width: min(180px, calc(50vw - 10px));
+  }
+  .scan-active-actions { width: 100%; }
+  #btn-scan-hud { flex: 1 1 auto; min-width: 70px; }
+  #btn-discovery-log { flex: 0 0 52px; min-width: 52px; }
+  .scan-active-readout { min-height: 42px; padding: 4px 7px 5px; }
   #lock-hint { top: max(62px, calc(env(safe-area-inset-top) + 62px)); right: max(8px, env(safe-area-inset-right)); }
   #toast { top: max(132px, calc(env(safe-area-inset-top) + 132px)); right: max(8px, env(safe-area-inset-right)); }
+
+  .discovery-panel { width: min(720px, calc(var(--app-width) - 16px)); padding: 14px 16px; }
+  .discovery-stat { min-height: 56px; }
 
   .start-panel {
     width: min(620px, calc(var(--app-width) - 16px));
@@ -1795,6 +2253,13 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   .start-brief summary { padding-left: 10px; }
 
   #scan-terminal { width: calc(50vw - 14px); }
+  #scan-active-controls { width: calc(50vw - 10px); }
+  #btn-scan-hud { min-width: 64px; padding-inline: 7px; }
+  #btn-discovery-log { flex-basis: 44px; min-width: 44px; padding-inline: 6px; }
+  #btn-discovery-log .scan-active-label { display: none; }
+  .scan-active-kicker,
+  #scan-result { display: none; }
+  #scan-active-status { margin-top: 0; font-size: 9px; }
   .scan-terminal-head { grid-template-columns: auto minmax(0,1fr); }
   .scan-terminal-mode { display: none; }
   .scan-terminal-grid { grid-template-columns: 1fr; }
@@ -1812,6 +2277,14 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 
   .starmap-footer { display: block; }
   .starmap-footer span { display: block; margin-bottom: 3px; }
+
+  .discovery-panel { padding: 10px 11px; }
+  .discovery-goal { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; }
+  #discovery-goal-progress { min-width: 0; width: max-content; }
+  .discovery-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .discovery-stat.points { grid-column: 1 / -1; }
+  .discovery-list-head { display: block; }
+  .discovery-list-head > :last-child { display: block; margin-top: 3px; }
 }
 
 @media (orientation: landscape) and (min-width: 480px) and (max-height: 500px) {
@@ -1854,6 +2327,16 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   .start-brief summary strong { font-size: 10px; }
 
   #scan-terminal { top: max(58px, calc(env(safe-area-inset-top) + 58px)); }
+  #scan-active-controls {
+    top: max(58px, calc(env(safe-area-inset-top) + 58px));
+    left: calc(50vw + 14px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    width: min(168px, calc(50vw - 116px));
+  }
+  #scan-active-controls .scan-active-actions { width: 100%; }
+  #scan-active-controls #btn-scan-hud { flex: 1 1 auto; min-width: 70px; }
+  #scan-active-controls #btn-discovery-log { flex-basis: 44px; min-width: 44px; }
   .scan-terminal-grid { grid-template-columns: 1fr 1fr; }
   .scan-field:has(#scan-biome),
   .scan-field:has(#scan-environment),
@@ -1864,6 +2347,12 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   #lock-hint { top: max(58px, calc(env(safe-area-inset-top) + 58px)); }
   #toast { top: max(112px, calc(env(safe-area-inset-top) + 112px)); }
   #use-hint { top: calc(50% + 30px); }
+  .discovery-panel { padding: 8px 10px; }
+  .discovery-titlebar { margin-bottom: 7px; padding-bottom: 5px; }
+  .discovery-goal { min-height: 62px; padding: 8px 10px; }
+  .discovery-stats { margin-top: 7px; }
+  .discovery-stat { min-height: 50px; padding: 6px 8px; }
+  .discovery-list-head { margin: 8px 0 5px; }
 }
 
 @media (max-width: 220px) {
@@ -1879,14 +2368,69 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   .start-actions .seed-row { grid-template-columns: 1fr; }
   .start-actions .seed-row .btn.small { width: 100%; }
   #telemetry-rail { width: calc(var(--app-width) - 16px); }
+  #space-hud,
   #telemetry-rail > #space-hud { display: none; }
   #telemetry-rail > #btn-starmap-hud { justify-self: end; }
+  #btn-starmap-hud,
+  #telemetry-rail > #btn-starmap-hud {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+  #btn-starmap-hud::before,
+  #telemetry-rail > #btn-starmap-hud::before { display: none; }
+  #btn-starmap-hud::after {
+    content: '图';
+    display: block;
+    font-size: 14px;
+    line-height: 1;
+  }
+  /* 200% 等效竖屏中，默认飞行键会覆盖第二排的档案/星图入口。 */
+  .touch-btn-sub.fly {
+    top: max(4px, env(safe-area-inset-top));
+    right: auto;
+    bottom: auto;
+    left: max(4px, env(safe-area-inset-left));
+    width: 44px;
+    height: 44px;
+  }
   #scan-terminal {
     top: max(108px, calc(env(safe-area-inset-top) + 108px));
     left: max(8px, env(safe-area-inset-left));
     width: calc(var(--app-width) - 16px);
     max-width: calc(var(--app-width) - 16px);
   }
+  #scan-active-controls {
+    top: max(58px, calc(env(safe-area-inset-top) + 58px));
+    left: max(8px, env(safe-area-inset-left));
+    display: none;
+    width: 94px;
+    transform: none;
+    filter: none;
+  }
+  body[data-game-state="playing"] #scan-active-controls { display: block; }
+  .scan-active-readout { display: none; }
+  #scan-active-controls .scan-active-actions { width: 94px; gap: 6px; }
+  #btn-discovery-log {
+    display: inline-flex;
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  #btn-discovery-log .scan-active-label { display: none; }
+  #btn-scan-hud {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  #btn-scan-hud .scan-active-label { display: none; }
   #scan-terminal .scan-terminal-head,
   #scan-terminal > #scan-terminal-title,
   .scan-field:has(#scan-biome),
@@ -1913,6 +2457,20 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   #use-hint,
   #lock-hint { display: none !important; }
   #crosshair { display: none; }
+
+  .discovery-panel { padding: 7px; }
+  .discovery-titlebar { gap: 5px; margin-bottom: 7px; }
+  .discovery-kicker { display: none; }
+  .discovery-panel h2 { font-size: 18px; letter-spacing: 2px; }
+  .discovery-goal { min-height: 0; padding: 7px; }
+  .discovery-goal h3 { font-size: 11px; }
+  #discovery-reward { font-size: 8px; }
+  #discovery-goal-progress { padding: 6px; font-size: 13px; }
+  .discovery-stats { grid-template-columns: 1fr; gap: 4px; }
+  .discovery-stat,
+  .discovery-stat.points { grid-column: auto; min-height: 44px; padding: 6px; }
+  .discovery-stat strong { margin-top: 3px; font-size: 15px; }
+  #discovery-world-list { max-height: 38vh; }
 }
 
 @media (orientation: landscape) and (max-height: 180px) {
@@ -1941,6 +2499,61 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
     max-width: calc(54vw - 16px);
     transform: none;
   }
+  /* 200% 等效窄横屏：扫描/档案/星图/暂停/背包五个入口互不重叠。 */
+  #telemetry-rail {
+    top: max(4px, env(safe-area-inset-top));
+    right: auto;
+    left: max(108px, calc(env(safe-area-inset-left) + 108px));
+    width: 44px;
+    min-width: 44px;
+    transform: none;
+    filter: none;
+  }
+  #space-hud,
+  #telemetry-rail::before,
+  #telemetry-rail::after,
+  #telemetry-rail > #space-hud { display: none; }
+  #telemetry-rail > #btn-starmap-hud {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+  #telemetry-rail > #btn-starmap-hud::before { margin: 0; font-size: 15px; }
+  #scan-active-controls {
+    top: max(4px, env(safe-area-inset-top));
+    left: max(8px, env(safe-area-inset-left));
+    display: none;
+    width: 94px;
+    transform: none;
+  }
+  body[data-game-state="playing"] #scan-active-controls { display: block; }
+  #scan-active-controls .scan-active-readout { display: none; }
+  #scan-active-controls .scan-active-actions { width: 94px; gap: 6px; }
+  #scan-active-controls #btn-discovery-log {
+    display: inline-flex;
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  #scan-active-controls #btn-discovery-log .scan-active-label { display: none; }
+  #scan-active-controls #btn-scan-hud {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  #scan-active-controls #btn-scan-hud .scan-active-label { display: none; }
+  .discovery-panel { padding: 6px; }
+  .discovery-titlebar { margin-bottom: 5px; padding-bottom: 3px; }
+  .discovery-goal { min-height: 0; padding: 6px; }
+  .discovery-stats { margin-top: 5px; }
+  .discovery-list-head { margin: 6px 0 4px; }
   #scan-terminal {
     top: auto;
     right: max(8px, env(safe-area-inset-right));
@@ -1979,6 +2592,10 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 @media (max-width: 520px) {
   .world-replace-actions { grid-template-columns: 1fr; }
   .world-replace-actions #btn-world-replace-cancel { order: 2; }
+  .discovery-world-card,
+  .discovery-world-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .discovery-world-progress,
+  .discovery-world-detail { text-align: left; white-space: normal; }
 }
 
 /* 尊重系统的“减少动态效果”：保留状态信息，移除旋转、缩放和位移动画。 */
@@ -1991,6 +2608,9 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   .start-panel::after,
   .start-signal i,
   #telemetry-rail::after,
+  #scan-active-controls::before,
+  #scan-active-controls::after,
+  #scan-progress i,
   .star-card::before,
   #dmg-dir.show i,
   #dmg-flash.go {
@@ -2003,11 +2623,43 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
   #uw-overlay,
   #toast,
   #hud,
+  #scan-progress i,
   .start-actions .btn,
   .star-card,
   .touch-stick-knob,
   .featured-card {
     transition: none !important;
+  }
+  body.scanning #scan-active-controls::before,
+  body.scan-scanning #scan-active-controls::before,
+  #scan-active-controls.scanning::before,
+  #scan-active-controls[data-state="scanning"]::before,
+  #scan-active-controls[data-state="sweeping"]::before,
+  #scan-active-controls:has(#btn-scan-hud.scanning)::before {
+    opacity: .34;
+    animation: none !important;
+    transform: translate(-50%, -50%) scale(2.4);
+  }
+  body.scanning #scan-active-controls::after,
+  body.scan-scanning #scan-active-controls::after,
+  #scan-active-controls.scanning::after,
+  #scan-active-controls[data-state="scanning"]::after,
+  #scan-active-controls[data-state="sweeping"]::after,
+  #scan-active-controls:has(#btn-scan-hud.scanning)::after {
+    top: 50%;
+    opacity: .38;
+    animation: none !important;
+    transform: none;
+  }
+  body.scanning #scan-progress i,
+  body.scan-scanning #scan-progress i,
+  #scan-active-controls.scanning #scan-progress i,
+  #scan-active-controls[data-state="scanning"] #scan-progress i,
+  #scan-active-controls[data-state="sweeping"] #scan-progress i,
+  #scan-active-controls:has(#btn-scan-hud.scanning) #scan-progress i {
+    width: 100%;
+    animation: none !important;
+    transform: none;
   }
   .featured-card:hover,
   .featured-card:focus-visible,

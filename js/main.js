@@ -21,6 +21,7 @@ Voxel.Game = (function () {
   var worldReplacePending = null, worldReplaceReturnFocus = null, worldReplaceReturnState = null;
   var galaxyState = null, currentWorld = null, travelStats = null;
   var restoreBusy = false, restoreBusyTimer = null;
+  var activeScan = null, scanCooldownT = 0, scanResultT = 0;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
@@ -57,6 +58,8 @@ Voxel.Game = (function () {
       // 建立最新基线。若后台完全无帧，恢复后的首帧只建基线而不会补算后台时间。
       if (wasActive) lastT = null;
     }
+    if (state === 'playing' && s !== 'playing' && activeScan && typeof cancelActiveScan === 'function')
+      cancelActiveScan(false);
     state = s;
     Game.state = s;
     if (document.body) document.body.setAttribute('data-game-state', s);
@@ -71,9 +74,10 @@ Voxel.Game = (function () {
   var modalStack = [];
   var intentionalUnlockPending = false, intentionalUnlockTimer = null;
   var MODAL_LAYER_IDS = [
-    'game', 'hud', 'btn-starmap-hud', 'inventory', 'crafting', 'furnace', 'chest', 'manual',
+    'game', 'hud', 'btn-starmap-hud', 'btn-scan-hud', 'btn-discovery-log',
+    'inventory', 'crafting', 'furnace', 'chest', 'manual',
     'overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-featured',
-    'overlay-world-replace', 'overlay-starmap', 'overlay-settings', 'rotate-hint'
+    'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'rotate-hint'
   ];
 
   function modalTop() { return modalStack.length ? modalStack[modalStack.length - 1] : null; }
@@ -116,7 +120,8 @@ Voxel.Game = (function () {
       // btn-starmap-hud 仍由下一项单独 inert。其他模态继续冻结整个 HUD。
       if (top && el.id === 'hud' && ['inventory', 'crafting', 'furnace', 'chest'].indexOf(top.state) >= 0)
         active = true;
-      var idleGameLayer = !top && (el.id === 'game' || el.id === 'hud' || el.id === 'btn-starmap-hud');
+      var idleGameLayer = !top && (el.id === 'game' || el.id === 'hud' ||
+        el.id === 'btn-starmap-hud' || el.id === 'btn-scan-hud' || el.id === 'btn-discovery-log');
       el.inert = top ? !active : (idleGameLayer && state !== 'playing');
       if (top) el.setAttribute('aria-hidden', active ? 'false' : 'true');
       else if (idleGameLayer && state !== 'playing') el.setAttribute('aria-hidden', 'true');
@@ -321,7 +326,7 @@ Voxel.Game = (function () {
     manualOpen = false;
     manualCraftStop();
     clearModalLayers();
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-settings', 'overlay-warp', 'rotate-hint', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'overlay-warp', 'rotate-hint', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
@@ -508,6 +513,8 @@ Voxel.Game = (function () {
   function ensureGalaxy(rootSeed, savedGalaxy) {
     if (savedGalaxy) galaxyState = Voxel.Galaxy.hydrate(savedGalaxy, rootSeed);
     else if (!galaxyState) galaxyState = Voxel.Galaxy.create(rootSeed);
+    if (Voxel.Discovery && Voxel.Discovery.hydrate)
+      galaxyState.discovery = Voxel.Discovery.hydrate(galaxyState.discovery, galaxyState.catalog);
     currentWorld = Voxel.Galaxy.find(galaxyState, galaxyState.currentId) || galaxyState.catalog[0];
     galaxyState.currentId = currentWorld.id;
   }
@@ -515,6 +522,10 @@ Voxel.Game = (function () {
   function startWorld(s, sd, featured, destinationId) {
     requestGameFullscreen(true);
     Voxel.Sound.unlock();
+    activeScan = null;
+    scanCooldownT = 0;
+    scanResultT = 0;
+    setActiveScanUI('idle', '主动扫描待机', '按 G 或触摸“扫描”发射探索脉冲', 0);
     if (destinationId) {
       galaxyState.currentId = destinationId;
       currentWorld = Voxel.Galaxy.find(galaxyState, destinationId);
@@ -722,6 +733,8 @@ Voxel.Game = (function () {
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.hideWarp();
     if (Voxel.DayNight.updateCamera && camera) Voxel.DayNight.updateCamera(camera.position);
     setState('playing');
+    refreshDiscoveryUI();
+    setActiveScanUI('idle', '主动扫描就绪', '按 G 或触摸“扫描”发射探索脉冲', 0);
     // 世界真正可玩后才提交当前 worldId；跃迁/新世界中途退出仍保留上一个一致存档。
     doSave(true);
   }
@@ -2118,6 +2131,222 @@ Voxel.Game = (function () {
     closeModalLayer('overlay-starmap', false);
   }
 
+  // ---------- 主动扫描、发现档案与探索目标 ----------
+
+  function setActiveScanUI(mode, statusText, resultText, percent) {
+    var root = document.getElementById('scan-active-controls');
+    var button = document.getElementById('btn-scan-hud');
+    var statusEl = document.getElementById('scan-active-status');
+    var resultEl = document.getElementById('scan-result');
+    var progress = document.getElementById('scan-progress');
+    percent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    if (root) root.setAttribute('data-state', mode || 'idle');
+    if (button) {
+      button.disabled = mode === 'sweeping' || mode === 'cooldown';
+      button.setAttribute('aria-pressed', mode === 'sweeping' ? 'true' : 'false');
+      button.classList.toggle('scanning', mode === 'sweeping');
+    }
+    document.body.classList.toggle('scan-scanning', mode === 'sweeping');
+    if (statusEl && statusText !== undefined && statusEl.textContent !== statusText)
+      statusEl.textContent = statusText;
+    if (resultEl && resultText !== undefined && resultEl.textContent !== resultText)
+      resultEl.textContent = resultText;
+    if (progress) {
+      progress.setAttribute('aria-valuenow', String(percent));
+      var fill = progress.querySelector('i');
+      if (fill) fill.style.width = percent + '%';
+    }
+  }
+
+  function discoveryState() {
+    if (!galaxyState || !Voxel.Discovery) return null;
+    galaxyState.discovery = Voxel.Discovery.hydrate(galaxyState.discovery, galaxyState.catalog);
+    return galaxyState.discovery;
+  }
+
+  function refreshDiscoveryUI() {
+    var stateData = discoveryState();
+    if (!stateData || !currentWorld) return;
+    var summary = Voxel.Discovery.summary(stateData, galaxyState.catalog);
+    var objective = Voxel.Discovery.objective(stateData, currentWorld, galaxyState.catalog);
+    var values = {
+      'discovery-points': summary.points,
+      'discovery-worlds': summary.surveyedWorlds,
+      'discovery-biomes': summary.biomes,
+      'discovery-resources': summary.resources,
+      'discovery-fauna': summary.fauna,
+      'discovery-goal-title': objective.label,
+      'discovery-goal-progress': objective.current + ' / ' + objective.target
+    };
+    for (var id in values) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = String(values[id]);
+    }
+    var reward = document.getElementById('discovery-reward');
+    if (reward) reward.textContent = objective.complete
+      ? '本星系初步勘探已经完成；继续扫描仍会记录新的档案条目。'
+      : '完成目标可获得 ' + objective.pointsReward + ' 探索点与 ' + objective.fuelReward + '% 跃迁能量。';
+
+    var list = document.getElementById('discovery-world-list');
+    if (!list) return;
+    list.innerHTML = '';
+    for (var i = 0; i < galaxyState.catalog.length; i++) {
+      var world = galaxyState.catalog[i];
+      var ws = Voxel.Discovery.worldSummary(stateData, world.id);
+      var card = document.createElement('article');
+      card.className = 'discovery-world-card' + (world.id === currentWorld.id ? ' current' : '') +
+        (ws.surveyed ? ' surveyed' : '');
+      card.setAttribute('data-world-id', world.id);
+      var head = document.createElement('div');
+      head.className = 'discovery-world-head';
+      var name = document.createElement('strong');
+      name.textContent = world.icon + ' ' + world.name;
+      var stateLabel = document.createElement('span');
+      stateLabel.textContent = ws.surveyed ? '已测绘' :
+        (galaxyState.discovered[world.id] ? '已抵达 · 未测绘' : '尚未抵达');
+      head.appendChild(name); head.appendChild(stateLabel);
+      var detail = document.createElement('div');
+      detail.className = 'discovery-world-detail';
+      detail.textContent = '群系 ' + ws.counts.biomes + ' · 资源 ' + ws.counts.resources +
+        ' · 生命 ' + ws.counts.fauna + ' · 地标 ' + ws.counts.landmarks;
+      card.appendChild(head); card.appendChild(detail); list.appendChild(card);
+    }
+  }
+
+  function cancelActiveScan(announce) {
+    if (!activeScan) return false;
+    activeScan = null;
+    if (announce) setActiveScanUI('idle', '主动扫描已取消', '返回世界后可重新发射扫描脉冲', 0);
+    else setActiveScanUI('idle', '主动扫描待机', '扫描已中断；返回世界后可重新发射', 0);
+    return true;
+  }
+
+  function startActiveScan() {
+    if (state !== 'playing' || !currentWorld || !galaxyState || !Voxel.Discovery) return false;
+    if (activeScan) return false;
+    if (scanCooldownT > 0) {
+      setActiveScanUI('cooldown', '扫描阵列冷却中', '冷却完成后可再次扫描', 100);
+      return false;
+    }
+    activeScan = { elapsed: 0, duration: 0.8 };
+    setActiveScanUI('sweeping', '扫描脉冲扩展中', '正在重新采样当前视野与周边环境…', 0);
+    if (Voxel.Sound && Voxel.Sound.select) Voxel.Sound.select();
+    return true;
+  }
+
+  function scanPosition(v) {
+    return [Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0];
+  }
+
+  function completeActiveScan() {
+    activeScan = null;
+    if (state !== 'playing' || !currentWorld || !galaxyState || !Voxel.Discovery) {
+      setActiveScanUI('idle', '扫描中断', '当前状态无法写入发现档案', 0);
+      return false;
+    }
+    var playerPos = Voxel.Player.pos();
+    var events = [{ worldId: currentWorld.id, kind: 'survey', key: 'world', pos: scanPosition(playerPos) }];
+    var analysisNote = '';
+    if (currentWorld.kind === 'planet') {
+      var biome = Voxel.World.biomeAt(Math.floor(playerPos.x), Math.floor(playerPos.z));
+      events.push({ worldId: currentWorld.id, kind: 'biome', key: biome, pos: scanPosition(playerPos) });
+      var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
+      if (hit && hit.type === 'mob') {
+        events.push({ worldId: currentWorld.id, kind: 'fauna', key: hit.mob && hit.mob.type,
+          pos: hit.mob && hit.mob.pos ? scanPosition(hit.mob.pos) : scanPosition(playerPos) });
+      } else if (hit && hit.type === 'block') {
+        if (Voxel.Blocks.isScannableResource(hit.id) &&
+          !(Voxel.World.isEdited && Voxel.World.isEdited(hit.x, hit.y, hit.z))) {
+          events.push({ worldId: currentWorld.id, kind: 'resource', key: hit.id,
+            pos: [hit.x, hit.y, hit.z] });
+        } else if (Voxel.Blocks.isScannableResource(hit.id)) {
+          analysisNote = ' · 玩家改动方块不计入自然资源档案';
+        } else {
+          analysisNote = ' · ' + Voxel.Blocks.name(hit.id) + ' 已分析（非自然资源样本）';
+        }
+      }
+    }
+    var landmark = Voxel.SpaceTravel && Voxel.SpaceTravel.scanLandmark
+      ? Voxel.SpaceTravel.scanLandmark() : null;
+    if (landmark) events.push({ worldId: currentWorld.id, kind: 'landmark', key: landmark.kind,
+      pos: scanPosition(playerPos) });
+
+    var oldDiscovery = galaxyState.discovery;
+    var oldFuel = galaxyState.ship.fuel;
+    var next = oldDiscovery;
+    var addedEntries = [], pointsAwarded = 0, fuelAwarded = 0, rewards = [];
+    for (var i = 0; i < events.length; i++) {
+      var recorded = Voxel.Discovery.record(next, events[i], galaxyState.catalog);
+      next = recorded.state;
+      if (!recorded.added) continue;
+      addedEntries = addedEntries.concat(recorded.entries);
+      pointsAwarded += recorded.pointsAwarded;
+      fuelAwarded += recorded.fuelAwarded;
+      rewards = rewards.concat(recorded.objectiveRewards);
+    }
+
+    scanCooldownT = 1.2;
+    scanResultT = 10;
+    if (!addedEntries.length) {
+      setActiveScanUI('cooldown', '扫描完成 · 无新档案', '当前环境与目标均已编录' + analysisNote, 100);
+      return false;
+    }
+
+    galaxyState.discovery = next;
+    galaxyState.ship.fuel = Math.min(galaxyState.ship.maxFuel, oldFuel + fuelAwarded);
+    var actualFuelAwarded = galaxyState.ship.fuel - oldFuel;
+    if (!doSave(true)) {
+      galaxyState.discovery = oldDiscovery;
+      galaxyState.ship.fuel = oldFuel;
+      setActiveScanUI('cooldown', '扫描写入失败', '档案与奖励已回滚，请检查浏览器存储空间', 100);
+      return false;
+    }
+
+    var labels = [];
+    for (var j = 0; j < addedEntries.length; j++) labels.push(Voxel.Discovery.label(addedEntries[j]));
+    var rewardText = '新增 ' + addedEntries.length + ' 项：' + labels.join('、') +
+      ' · +' + pointsAwarded + ' 探索点' + (actualFuelAwarded > 0
+        ? ' · +' + actualFuelAwarded + '% 跃迁能量'
+        : (fuelAwarded > 0 ? ' · 跃迁能量已满' : ''));
+    setActiveScanUI('cooldown', rewards.length ? '探索目标完成' : '扫描档案已写入', rewardText + analysisNote, 100);
+    Voxel.HUD.toast(rewardText);
+    refreshDiscoveryUI();
+    return true;
+  }
+
+  function tickActiveScan(dt) {
+    if (scanCooldownT > 0) {
+      scanCooldownT = Math.max(0, scanCooldownT - dt);
+      if (scanCooldownT === 0 && !activeScan)
+        setActiveScanUI(scanResultT > 0 ? 'result' : 'idle', '主动扫描就绪', undefined, 0);
+    }
+    if (scanResultT > 0) {
+      scanResultT = Math.max(0, scanResultT - dt);
+      if (scanResultT === 0 && !activeScan && scanCooldownT === 0)
+        setActiveScanUI('idle', '主动扫描待机', '按 G 或触摸“扫描”发射探索脉冲', 0);
+    }
+    if (!activeScan) return;
+    activeScan.elapsed += dt;
+    var progress = Math.min(100, activeScan.elapsed / activeScan.duration * 100);
+    setActiveScanUI('sweeping', undefined, undefined, progress);
+    if (activeScan.elapsed + 1e-9 >= activeScan.duration) completeActiveScan();
+  }
+
+  function openDiscoveryLog(trigger) {
+    if (state !== 'playing') return false;
+    refreshDiscoveryUI();
+    return !!openModalLayer({
+      id: 'overlay-discovery', state: 'discovery', returnState: 'playing', trigger: trigger,
+      initialFocus: '#btn-discovery-close', closeKeys: ['KeyG'],
+      onEscape: function () { closeDiscoveryLog(); }
+    });
+  }
+
+  function closeDiscoveryLog() {
+    if (state !== 'discovery') return false;
+    return closeModalLayer('overlay-discovery', true);
+  }
+
   function requestTravel(destinationId, mode) {
     if ((state !== 'playing' && state !== 'starmap') || pendingTravel) return false;
     var travelOriginState = state;
@@ -2289,8 +2518,7 @@ Voxel.Game = (function () {
         Voxel.Player.setFlying(!Voxel.Player.flying());
         Voxel.HUD.toast(Voxel.Player.flying() ? '飞行模式：开（空格↑ Shift↓）' : '飞行模式：关');
       } else if (code === 'KeyG') {
-        Voxel.Weather.next();
-        Voxel.HUD.toast('天气切换：' + Voxel.Weather.label());
+        startActiveScan();
       } else if (code === 'KeyQ') {
         throwSelected();
       } else if (code === 'KeyR') {
@@ -2316,6 +2544,8 @@ Voxel.Game = (function () {
       else if (code === 'KeyM') openManual();
     } else if (state === 'starmap') {
       if (code === 'Escape' || code === 'KeyH' || code === 'KeyE') closeStarMap();
+    } else if (state === 'discovery') {
+      if (code === 'Escape' || code === 'KeyG' || code === 'KeyE') closeDiscoveryLog();
     } else if (state === 'settings') {
       if (code === 'Escape') {
         var settingsModal = modalTop();
@@ -2586,6 +2816,7 @@ Voxel.Game = (function () {
     if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
     Voxel.Drops.update(step);
     updateFallers(step);
+    tickActiveScan(step);
   }
 
   function frameBody(dt) {
@@ -2818,6 +3049,9 @@ Voxel.Game = (function () {
     requestTravel: requestTravel,
     openStarMap: openStarMap,
     closeStarMap: closeStarMap,
+    startActiveScan: startActiveScan,
+    openDiscoveryLog: openDiscoveryLog,
+    closeDiscoveryLog: closeDiscoveryLog,
     openRotateHint: openRotateHint,
     closeRotateHint: closeRotateHint,
     // 触控接口（ui/touch.js 调用）
@@ -2917,6 +3151,14 @@ Voxel.Game = (function () {
       requestFullscreen: requestGameFullscreen,
       galaxy: function () { return galaxyState; },
       currentWorld: function () { return currentWorld; },
+      discovery: function () { return discoveryState(); },
+      activeScan: function () {
+        return activeScan ? { elapsed: activeScan.elapsed, duration: activeScan.duration } : null;
+      },
+      scanCooldown: function () { return scanCooldownT; },
+      tickActiveScan: tickActiveScan,
+      completeActiveScan: completeActiveScan,
+      refreshDiscoveryUI: refreshDiscoveryUI,
       requestTravel: requestTravel,
       syncMainMenu: syncMainMenu,
       restorePreviousSave: restorePreviousSave,
@@ -3244,6 +3486,16 @@ Voxel.Game = (function () {
     });
     var starmapClose = document.getElementById('btn-starmap-close');
     if (starmapClose) starmapClose.addEventListener('click', closeStarMap);
+    var scanBtn = document.getElementById('btn-scan-hud');
+    if (scanBtn) scanBtn.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation(); startActiveScan();
+    });
+    var discoveryBtn = document.getElementById('btn-discovery-log');
+    if (discoveryBtn) discoveryBtn.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation(); openDiscoveryLog(discoveryBtn);
+    });
+    var discoveryClose = document.getElementById('btn-discovery-close');
+    if (discoveryClose) discoveryClose.addEventListener('click', closeDiscoveryLog);
 
     // 所有可由触屏打开的面板都提供可见关闭入口，并复用原有状态机收尾逻辑。
     var closeBindings = [

@@ -74,6 +74,7 @@ Voxel.Galaxy = (function () {
       currentId: 'planet-0',
       discovered: { 'planet-0': true },
       ship: { fuel: 100, maxFuel: 100, engine: '脉冲跃迁引擎 MK-I' },
+      discovery: null,
       worlds: {},
       catalog: worlds
     };
@@ -116,6 +117,9 @@ Voxel.Galaxy = (function () {
     fresh.ship.maxFuel = Math.max(1, fresh.ship.maxFuel);
     fresh.ship.fuel = Math.max(0, Math.min(fresh.ship.maxFuel, fresh.ship.fuel));
     fresh.worlds = plainObject(saved.worlds) ? saved.worlds : {};
+    // 发现档案由 Discovery.hydrate 按当前 catalog 严格净化；Galaxy 这里只保留
+    // 普通对象原料，不能把未知键直接当作有效扫描记录。
+    fresh.discovery = plainObject(saved.discovery) ? saved.discovery : null;
     return fresh;
   }
 

@@ -39,6 +39,24 @@
     <div id="scan-target">无锁定目标</div>
     <div id="scan-distance">—</div>
   </aside>
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
+    <div class="scan-active-actions">
+      <button id="btn-scan-hud" type="button" aria-label="启动主动扫描" aria-keyshortcuts="G"
+        aria-pressed="false" aria-controls="scan-active-status scan-progress scan-result">
+        <span class="scan-active-icon" aria-hidden="true">◎</span><span class="scan-active-label">扫描</span>
+      </button>
+      <button id="btn-discovery-log" type="button" aria-label="打开发现档案"
+        aria-haspopup="dialog" aria-controls="overlay-discovery">
+        <span aria-hidden="true">▤</span><span class="scan-active-label">档案</span>
+      </button>
+    </div>
+    <div class="scan-active-readout">
+      <div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true">主动扫描待机</div>
+      <div id="scan-progress" role="progressbar" aria-label="主动扫描进度"
+        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
+      <div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div>
+    </div>
+  </div>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
   <div class="panel-titlebar"><div id="inventory-title" class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
@@ -112,6 +130,26 @@
 <div id="overlay-starmap" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title">
   <h2 id="starmap-title">星系航行图</h2><div id="starmap-status"></div><div id="starmap-grid"></div>
 </div></div>
+<div id="overlay-discovery" class="overlay discovery-overlay hidden"><div class="panel discovery-panel" role="dialog" aria-modal="true"
+  aria-labelledby="discovery-title" aria-describedby="discovery-reward">
+  <div class="panel-titlebar discovery-titlebar"><div class="discovery-heading">
+    <div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div><h2 id="discovery-title">发现档案</h2>
+  </div><button id="btn-discovery-close" class="panel-close" type="button" aria-label="关闭发现档案">×</button></div>
+  <section class="discovery-goal" aria-labelledby="discovery-goal-title">
+    <div class="discovery-goal-copy"><span class="discovery-section-label">CURRENT OBJECTIVE</span>
+      <h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3>
+      <p id="discovery-reward">完成环境、资源与生命记录可获得探索点及跃迁能量。</p>
+    </div><strong id="discovery-goal-progress" aria-label="当前探索目标进度">0 / 3</strong>
+  </section>
+  <div class="discovery-stats" role="group" aria-label="发现统计">
+    <div><span>探索点</span><strong id="discovery-points">0</strong></div>
+    <div><span>已访天体</span><strong id="discovery-worlds">0</strong></div>
+    <div><span>生物群系</span><strong id="discovery-biomes">0</strong></div>
+    <div><span>资源样本</span><strong id="discovery-resources">0</strong></div>
+    <div><span>生命记录</span><strong id="discovery-fauna">0</strong></div>
+  </div>
+  <div id="discovery-world-list" aria-label="天体发现记录"><div class="discovery-empty">尚无发现记录</div></div>
+</div></div>
 <div id="overlay-warp" class="overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-labelledby="warp-title" aria-describedby="warp-sub"><div class="panel">
   <div id="warp-title"></div><div id="warp-sub"></div>
 </div></div>
@@ -161,6 +199,7 @@
 <script src="../js/world/biomes.js"></script>
 <script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
+<script src="../js/systems/discovery.js"></script>
 <script src="../js/crafting.js"></script>
 <script src="../js/world/world.js"></script>
 <script src="../js/world/infinite.js"></script>
@@ -302,6 +341,7 @@
       ['#furnace > .panel', 'dialog'], ['#chest > .panel', 'dialog'],
       ['#manual > .panel', 'dialog'], ['#overlay-featured > .panel', 'dialog'],
       ['#overlay-pause > .panel', 'dialog'], ['#overlay-starmap > .panel', 'dialog'],
+      ['#overlay-discovery > .panel', 'dialog'],
       ['#overlay-settings > .panel', 'dialog'], ['#overlay-dead > .panel', 'alertdialog'],
       ['#overlay-world-replace > .panel', 'alertdialog'], ['#rotate-hint > .rh-box', 'dialog']
     ];
@@ -427,6 +467,231 @@
       doc.getElementById('scan-target').textContent.indexOf('无锁定目标') >= 0 &&
       doc.getElementById('scan-distance').textContent.trim() === '—');
     Voxel.Raycaster.cast = oldCast;
+  }
+
+  function activeDiscoveryRegression(done) {
+    var T = Voxel.Game._test;
+    var galaxy = T.galaxy();
+    var catalog = galaxy.catalog;
+    var world = T.currentWorld();
+    var scanRoot = doc.getElementById('scan-active-controls');
+    var scanBtn = doc.getElementById('btn-scan-hud');
+    var logBtn = doc.getElementById('btn-discovery-log');
+    var oldCast = Voxel.Raycaster.cast;
+    var oldLandmark = Voxel.SpaceTravel.scanLandmark;
+    var oldSave = Voxel.Save.save;
+    var oldBiomeAt = Voxel.World.biomeAt;
+    var oldIsEdited = Voxel.World.isEdited;
+    var changedBlock = null;
+    var oldWorldName = null;
+    var saveCalls = 0;
+    var cleaned = false;
+
+    function fireG(repeat) {
+      var init = { bubbles: true, cancelable: true, key: 'g', code: 'KeyG', repeat: !!repeat };
+      doc.body.dispatchEvent(new KeyboardEvent('keydown', init));
+      doc.body.dispatchEvent(new KeyboardEvent('keyup', init));
+    }
+    function summary() {
+      return Voxel.Discovery.summary(T.discovery(), catalog);
+    }
+    function cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      Voxel.Raycaster.cast = oldCast;
+      Voxel.SpaceTravel.scanLandmark = oldLandmark;
+      Voxel.Save.save = oldSave;
+      Voxel.World.biomeAt = oldBiomeAt;
+      Voxel.World.isEdited = oldIsEdited;
+      if (changedBlock) Voxel.World.set(changedBlock[0], changedBlock[1], changedBlock[2], changedBlock[3]);
+      if (oldWorldName !== null) {
+        catalog[0].name = oldWorldName;
+        if (T.refreshDiscoveryUI) T.refreshDiscoveryUI();
+      }
+      autoFrameEnabled = true;
+    }
+
+    autoFrameEnabled = false;
+    try {
+      check('主动扫描/发现控制DOM语义完整', !!scanRoot && scanRoot.getAttribute('role') === 'group' &&
+        !!scanBtn && scanBtn.type === 'button' && scanBtn.getAttribute('aria-keyshortcuts') === 'G' &&
+        scanBtn.getAttribute('aria-controls').indexOf('scan-progress') >= 0 &&
+        doc.getElementById('scan-progress').getAttribute('role') === 'progressbar' &&
+        doc.getElementById('scan-active-status').getAttribute('aria-live') === 'polite' &&
+        !!logBtn && logBtn.getAttribute('aria-haspopup') === 'dialog' &&
+        logBtn.getAttribute('aria-controls') === 'overlay-discovery');
+
+      galaxy.discovery = Voxel.Discovery.empty();
+      galaxy.ship.fuel = 40;
+      check('主动扫描测试基线可持久化', T.saveNow() === true);
+      var passiveRaw = localStorage.getItem(Voxel.Config.SAVE_KEY);
+      Voxel.SpaceTravel.setScanTarget('block', '煤矿石', 3.2);
+      Voxel.SpaceTravel.update(0, 0);
+      check('被动遥测只更新目标，不写发现档案或存档', summary().entries === 0 &&
+        T.discovery().points === 0 && localStorage.getItem(Voxel.Config.SAVE_KEY) === passiveRaw &&
+        doc.getElementById('scan-terminal').dataset.targetKind === 'block');
+
+      Voxel.Save.save = function () {
+        saveCalls++;
+        return oldSave.apply(Voxel.Save, arguments);
+      };
+      Voxel.Raycaster.cast = function () { return null; };
+      Voxel.SpaceTravel.scanLandmark = function () { return null; };
+      var weatherBefore = Voxel.Weather.stateName();
+      fireG(false);
+      var keyScan = T.activeScan();
+      check('真实 G keydown 与按钮共用主动扫描入口且不再切天气', !!keyScan &&
+        Math.abs(keyScan.duration - 0.8) < 1e-9 && scanRoot.dataset.state === 'sweeping' &&
+        scanBtn.disabled && scanBtn.getAttribute('aria-pressed') === 'true' &&
+        Voxel.Weather.stateName() === weatherBefore);
+      fireG(true);
+      check('键盘 repeat 不会重启或提前结算扫描', !!T.activeScan() &&
+        T.activeScan().elapsed === 0 && summary().entries === 0 && saveCalls === 0);
+      T.tickActiveScan(0.79);
+      check('0.79s 时扫描仍在进行且进度未提前完成', !!T.activeScan() &&
+        T.activeScan().elapsed >= 0.79 && +doc.getElementById('scan-progress').getAttribute('aria-valuenow') < 100 &&
+        summary().entries === 0);
+      T.tickActiveScan(0.01);
+      var firstSummary = summary();
+      var firstSaved = Voxel.Save.load();
+      var firstSavedSummary = firstSaved && firstSaved.galaxy
+        ? Voxel.Discovery.summary(firstSaved.galaxy.discovery, firstSaved.galaxy.catalog) : null;
+      check('恰满0.8s才完成首次扫描并写入测绘+当前群系', !T.activeScan() &&
+        firstSummary.entries === 2 && firstSummary.surveyedWorlds === 1 && firstSummary.biomes === 1 &&
+        firstSummary.points === 14 && saveCalls === 1);
+      check('首次扫描档案/目标奖励/燃料同份存档原子落盘', !!firstSavedSummary &&
+        firstSavedSummary.entries === 2 && firstSavedSummary.points === 14 &&
+        galaxy.ship.fuel === 45 && firstSaved.galaxy.ship.fuel === 45 &&
+        doc.getElementById('scan-result').textContent.indexOf('+14 探索点') >= 0 &&
+        doc.getElementById('scan-result').textContent.indexOf('+5% 跃迁能量') >= 0);
+
+      var firstBytes = localStorage.getItem(Voxel.Config.SAVE_KEY);
+      fireG(false);
+      scanBtn.click();
+      check('1.2s冷却期内键盘/按钮重复输入均被抑制', !T.activeScan() &&
+        T.scanCooldown() > 0 && scanBtn.disabled && saveCalls === 1 &&
+        localStorage.getItem(Voxel.Config.SAVE_KEY) === firstBytes);
+      T.tickActiveScan(1.2);
+      check('冷却结束重新启用扫描按钮', T.scanCooldown() === 0 && !scanBtn.disabled);
+      scanBtn.click();
+      var buttonScan = T.activeScan();
+      check('扫描按钮进入与 G 完全相同的0.8s扫描状态', !!buttonScan &&
+        Math.abs(buttonScan.duration - keyScan.duration) < 1e-9 && scanRoot.dataset.state === 'sweeping');
+      T.tickActiveScan(0.8);
+      check('重复扫描不重复存档、不重复积分或燃料', !T.activeScan() && summary().entries === 2 &&
+        summary().points === 14 && galaxy.ship.fuel === 45 && saveCalls === 1 &&
+        localStorage.getItem(Voxel.Config.SAVE_KEY) === firstBytes &&
+        doc.getElementById('scan-active-status').textContent.indexOf('无新档案') >= 0);
+
+      // 使用真实 World.set/isEdited 账本证明“玩家摆放的白名单资源”也不会被当成自然样本。
+      T.tickActiveScan(1.2);
+      var rx = 140, ry = 5, rz = 140;
+      changedBlock = [rx, ry, rz, Voxel.World.get(rx, ry, rz)];
+      Voxel.World.set(rx, ry, rz, 8);
+      Voxel.Raycaster.cast = function () {
+        return { type: 'block', x: rx, y: ry, z: rz, id: 8, dist: 3 };
+      };
+      check('资源防刷测试坐标已进入玩家编辑账本', Voxel.World.isEdited(rx, ry, rz) === true);
+      scanBtn.click();
+      T.tickActiveScan(0.8);
+      check('玩家编辑的资源方块被拒绝且不给档案/奖励/存档',
+        summary().resources === 0 && summary().points === 14 && galaxy.ship.fuel === 45 &&
+        saveCalls === 1 && doc.getElementById('scan-result').textContent.indexOf('玩家改动方块不计入') >= 0);
+
+      // 先合法预置第2种群系；失败用例再扫描第3种群系+自然资源，确保本应同时产生
+      // 目标积分与燃料奖励，从而验证 Save.save=false 时两者和档案一起回滚。
+      var usedBiome = Number(Voxel.Discovery.worldSummary(T.discovery(), world.id).biomes[0].key);
+      var biome2 = (usedBiome + 1) % Voxel.Biomes.count;
+      var biome3 = (usedBiome + 2) % Voxel.Biomes.count;
+      if (biome3 === biome2) biome3 = (biome3 + 1) % Voxel.Biomes.count;
+      var seeded = Voxel.Discovery.record(galaxy.discovery, {
+        worldId: world.id, kind: 'biome', key: biome2, pos: [1, 2, 3]
+      }, catalog);
+      galaxy.discovery = seeded.state;
+      Voxel.Save.save = oldSave;
+      check('失败回滚前的两群系基线可落盘', T.saveNow() === true && summary().biomes === 2);
+      var rollbackBytes = localStorage.getItem(Voxel.Config.SAVE_KEY);
+      var rollbackState = JSON.stringify(T.discovery());
+      var rollbackPoints = summary().points;
+      var rollbackFuel = galaxy.ship.fuel;
+      var failedSaves = 0;
+      Voxel.Save.save = function () { failedSaves++; return false; };
+      Voxel.World.biomeAt = function () { return biome3; };
+      Voxel.World.isEdited = function () { return false; };
+      Voxel.Raycaster.cast = function () {
+        return { type: 'block', x: 10, y: 10, z: 10, id: 8, dist: 2 };
+      };
+      T.tickActiveScan(1.2);
+      fireG(false);
+      T.tickActiveScan(0.8);
+      var afterFailure = summary();
+      check('存档失败时新档案、阶段积分与燃料奖励全部回滚', failedSaves === 1 &&
+        JSON.stringify(T.discovery()) === rollbackState && afterFailure.points === rollbackPoints &&
+        afterFailure.biomes === 2 && afterFailure.resources === 0 && galaxy.ship.fuel === rollbackFuel &&
+        localStorage.getItem(Voxel.Config.SAVE_KEY) === rollbackBytes &&
+        doc.getElementById('scan-active-status').textContent.indexOf('写入失败') >= 0 &&
+        doc.getElementById('scan-result').textContent.indexOf('奖励已回滚') >= 0);
+
+      Voxel.Save.save = oldSave;
+      Voxel.Raycaster.cast = oldCast;
+      Voxel.World.biomeAt = oldBiomeAt;
+      Voxel.World.isEdited = oldIsEdited;
+      T.tickActiveScan(1.2);
+
+      oldWorldName = catalog[0].name;
+      catalog[0].name = '<img src=x onerror="window.__discoveryInjected=1">';
+      window.__discoveryInjected = 0;
+      logBtn.focus();
+      logBtn.click();
+    } catch (e) {
+      check('主动扫描/发现浏览器回归无异常：' + e.message, false);
+      cleanup();
+      done();
+      return;
+    }
+
+    wait(30, function () {
+      try {
+        var overlay = doc.getElementById('overlay-discovery');
+        var dialog = doc.querySelector('#overlay-discovery > .panel');
+        var close = doc.getElementById('btn-discovery-close');
+        var modalText = overlay.textContent;
+        var forbidden = /\b(?:undefined|null|NaN|Infinity)\b|\[object Object\]/;
+        check('发现档案以命名aria-modal dialog打开并把焦点置于关闭按钮',
+          Voxel.Game.state === 'discovery' && !overlay.classList.contains('hidden') &&
+          dialog.getAttribute('role') === 'dialog' && dialog.getAttribute('aria-modal') === 'true' &&
+          dialog.getAttribute('aria-labelledby') === 'discovery-title' &&
+          dialog.getAttribute('aria-describedby') === 'discovery-reward' && doc.activeElement === close);
+        check('发现modal隔离游戏/HUD背景并展示安全有限统计',
+          doc.getElementById('game').inert && doc.getElementById('hud').inert &&
+          doc.querySelectorAll('#discovery-world-list .discovery-world-card').length === catalog.length &&
+          doc.getElementById('discovery-points').textContent === String(rollbackPoints) &&
+          !forbidden.test(modalText));
+        check('发现世界名使用textContent，恶意目录文本不能注入标记或执行脚本',
+          modalText.indexOf('<img src=x') >= 0 &&
+          !doc.querySelector('#discovery-world-list img, #discovery-world-list script') &&
+          window.__discoveryInjected === 0);
+        close.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true, cancelable: true, key: 'Tab', code: 'Tab'
+        }));
+        check('发现modal单一焦点目标的Tab仍被圈定在对话框内', doc.activeElement === close);
+        close.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true, cancelable: true, key: 'Escape', code: 'Escape'
+        }));
+      } catch (e2) {
+        check('发现modal语义/安全文本回归无异常：' + e2.message, false);
+        cleanup();
+        done();
+        return;
+      }
+      wait(30, function () {
+        check('Escape关闭发现modal、回到playing并把焦点交还游戏画布',
+          Voxel.Game.state === 'playing' && doc.getElementById('overlay-discovery').classList.contains('hidden') &&
+          doc.activeElement === doc.getElementById('game') && !doc.getElementById('game').inert);
+        cleanup();
+        done();
+      });
+    });
   }
 
   function atmosphereIntegrationRegression() {
@@ -1022,8 +1287,10 @@
     } catch (e) {
       check('音效函数无异常 (' + e.message + ')', false);
     }
-    playingModalRegression(function () {
-      wait(2500, stepC); // 让真实循环跑重力
+    activeDiscoveryRegression(function () {
+      playingModalRegression(function () {
+        wait(2500, stepC); // 让真实循环跑重力
+      });
     });
   }
 
@@ -1990,13 +2257,13 @@
       while (Wt.rainbowVisible() && n2++ < 400) Wt.update(0.25);
       check('夜里不出现彩虹', !Wt.rainbowVisible() && Wt.rainbowOpacity() === 0);
 
-      // G 键手动切换（headless 下可能被指针锁失败暂停：先确保 playing）
+      // 天气仍保留显式调试 API；G 已在本轮改为主动扫描，不再隐式改变天气。
       if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
       Wt.set('clear');
-      Voxel.Game.onKey('KeyG');
-      check('G 键切换为雨', Wt.stateName() === 'rain');
-      Voxel.Game.onKey('KeyG');
-      check('G 键切换为雷雨', Wt.stateName() === 'storm');
+      Wt.next();
+      check('天气调试API切换为雨', Wt.stateName() === 'rain');
+      Wt.next();
+      check('天气调试API切换为雷雨', Wt.stateName() === 'storm');
       Wt.set('clear');
       wait(800, stepTravelTransient);
   }

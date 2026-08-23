@@ -778,6 +778,10 @@ Voxel.World = (function () {
       return blkL[idx(x, y, z)];
     },
     getEdits: function () { return edits; },
+    isEdited: function (x, y, z) {
+      if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || !Number.isSafeInteger(z)) return false;
+      return Object.prototype.hasOwnProperty.call(edits, x + ',' + y + ',' + z);
+    },
     // 方块实例元数据（熔炉/箱子内容等）
     getMeta: function (x, y, z) { return meta[x + ',' + y + ',' + z] || null; },
     setMeta: function (x, y, z, m) {

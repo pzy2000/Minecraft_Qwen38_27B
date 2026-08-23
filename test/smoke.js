@@ -55,6 +55,7 @@ load('js/world/noise.js');
 load('js/world/biomes.js');
 load('js/world/shaper.js');
 load('js/blocks.js');
+load('js/systems/discovery.js');
 load('js/crafting.js');
 load('js/world/world.js');
 load('js/world/infinite.js');
@@ -138,6 +139,190 @@ var invalidCollections = GA.hydrate({
 }, galA.rootSeed);
 check('非对象 discovered/worlds 安全回退', invalidCollections.discovered['planet-0'] === true &&
   Object.keys(invalidCollections.worlds).length === 0);
+
+console.log('主动扫描、发现档案与探索目标');
+(function () {
+  var D = V.Discovery;
+  var catalog = galA.catalog;
+  var p0 = catalog[0], p1 = catalog[1], p2 = catalog[2];
+
+  function entry(worldId, kind, key, pos) {
+    return { worldId: worldId, kind: kind, key: key, pos: pos.slice() };
+  }
+  function bucket() { return Object.create(null); }
+  function rawWorld() {
+    return { survey: bucket(), biomes: bucket(), resources: bucket(), fauna: bucket(), landmarks: bucket() };
+  }
+  function hasReward(result, id) {
+    return result.objectiveRewards.some(function (reward) { return reward.id === id; });
+  }
+
+  var blank = D.empty();
+  check('空发现档案使用 v1/零积分/无原型安全映射', blank.v === 1 && blank.points === 0 &&
+    Object.getPrototypeOf(blank.worlds) === null && Object.getPrototypeOf(blank.claimed) === null &&
+    Object.keys(blank.worlds).length === 0);
+  check('旧 v5 缺失 discovery 时迁移为空，不把 visited 冒充 scanned',
+    D.summary(D.hydrate(null, catalog), catalog).entries === 0 &&
+    D.summary(D.hydrate({ points: 99, worlds: {} }, catalog), catalog).entries === 0 &&
+    D.objective(blank, p0, catalog).id === 'survey:' + p0.id);
+
+  // 测试不可信存档：大量未知键、原型键、非白名单类型、坏坐标与伪 plain object
+  // 都不能进入标准化结果。hydrate 只读 catalog/注册表中已知键。
+  var hugeWorlds = bucket();
+  for (var junk = 0; junk < 5000; junk++) hugeWorlds['unknown-' + junk] = { junk: true };
+  hugeWorlds.__proto__ = { polluted: true };
+  var rw = rawWorld();
+  rw.survey.world = entry(p0.id, 'survey', 'world', [20000000, -20000000, 1.5]);
+  rw.biomes['0'] = entry(p0.id, 'biome', '0', [1, 2, 3]);
+  rw.biomes[String(V.Biomes.count)] = entry(p0.id, 'biome', String(V.Biomes.count), [1, 2, 3]);
+  rw.biomes.__proto__ = entry(p0.id, 'biome', '__proto__', [1, 2, 3]);
+  rw.resources['8'] = entry(p0.id, 'resource', '8', [4, 5, 6]);
+  rw.resources['1'] = entry(p0.id, 'resource', '1', [4, 5, 6]);
+  rw.resources['9'] = Object.create({ worldId: p0.id, kind: 'resource', key: '9', pos: [4, 5, 6] });
+  rw.fauna.chicken = entry(p0.id, 'fauna', 'chicken', [7, 8, 9]);
+  rw.fauna.dragon = entry(p0.id, 'fauna', 'dragon', [7, 8, 9]);
+  rw.landmarks.portal = entry(p0.id, 'landmark', 'portal', [10, 11, 12]);
+  rw.landmarks.monolith = entry(p0.id, 'landmark', 'monolith', [10, 11, 12]);
+  rw.landmarks.ship = entry(p0.id, 'landmark', 'ship', [NaN, 0, 0]);
+  for (var bad = 0; bad < 5000; bad++) rw.resources['junk-' + bad] = entry(p0.id, 'resource', '8', [0, 0, 0]);
+  hugeWorlds[p0.id] = rw;
+  var rawClaimed = bucket();
+  rawClaimed['survey:' + p0.id] = true;
+  rawClaimed['biomes:3'] = true; // 只有 1 种群系，不得伪造领奖。
+  rawClaimed.__proto__ = true;
+  for (var cj = 0; cj < 5000; cj++) rawClaimed['junk-' + cj] = true;
+  var clean = D.hydrate({ v: 1, points: '999', worlds: hugeWorlds, claimed: rawClaimed }, catalog);
+  var cleanWorld = D.worldSummary(clean, p0.id);
+  check('巨型/未知/原型键被忽略，结果仅保留五条白名单档案',
+    Object.keys(clean.worlds).length === 1 && cleanWorld.total === 5 && cleanWorld.counts.survey === 1 &&
+    cleanWorld.counts.biomes === 1 && cleanWorld.counts.resources === 1 && cleanWorld.counts.fauna === 1 &&
+    cleanWorld.counts.landmarks === 1 && !Object.prototype.polluted);
+  check('每层发现映射均无原型，且不信任字符串 points/未完成 claimed',
+    Object.getPrototypeOf(clean.worlds) === null && Object.getPrototypeOf(clean.worlds[p0.id].survey) === null &&
+    Object.getPrototypeOf(clean.worlds[p0.id].resources) === null && clean.points === 0 &&
+    clean.claimed['survey:' + p0.id] === true && !clean.claimed['biomes:3']);
+  check('有限坐标被夹紧到 ±1e7，NaN 条目被拒绝', cleanWorld.survey.pos[0] === 10000000 &&
+    cleanWorld.survey.pos[1] === -10000000 && cleanWorld.counts.landmarks === 1);
+  var inheritedRaw = Object.create({ v: 1, points: 77, worlds: hugeWorlds, claimed: rawClaimed });
+  check('带自定义原型的伪 plain object 整体拒绝', D.summary(D.hydrate(inheritedRaw, catalog), catalog).entries === 0);
+  check('发现标签只由受信注册表派生', D.label(cleanWorld.survey) === '天体测绘' &&
+    D.label(cleanWorld.biomes[0]) === V.Biomes.name(0) && D.label(cleanWorld.resources[0]) === V.Blocks.name(8) &&
+    D.label(cleanWorld.fauna[0]) === '鸡' && D.label(cleanWorld.landmarks[0]) === '星际传送门' &&
+    D.label({ kind: 'fauna', key: 'dragon' }) === '未知档案');
+
+  // copy-on-write + 每世界每分类唯一：重复扫描不覆盖首次位置，不给积分/燃料。
+  var source = D.empty();
+  var sourceBytes = JSON.stringify(source);
+  var survey = D.record(source, { worldId: p0.id, kind: 'survey', pos: [1.25, 64, -2.5] }, catalog);
+  check('首次天体测绘产生档案 +2 与阶段 +10，且返回燃料奖励数值',
+    survey.added === 1 && survey.entries.length === 1 && survey.pointsAwarded === 12 && survey.state.points === 12 &&
+    hasReward(survey, 'survey:' + p0.id) && survey.objectiveRewards[0].fuel === 5 && survey.fuelAwarded === 5 &&
+    survey.objectiveBefore.id === 'survey:' + p0.id && survey.objectiveAfter.id === 'biomes:3');
+  check('record 为 copy-on-write，输入对象字节不变', JSON.stringify(source) === sourceBytes &&
+    source !== survey.state && Object.keys(source.worlds).length === 0);
+  var repeated = D.record(survey.state, { worldId: p0.id, kind: 'survey', pos: [999, 999, 999] }, catalog);
+  check('重复事件 added/reward 均为 0，且保留首次发现位置', repeated.added === 0 &&
+    repeated.pointsAwarded === 0 && repeated.objectiveRewards.length === 0 && repeated.fuelAwarded === 0 &&
+    repeated.state.points === survey.state.points && D.worldSummary(repeated.state, p0.id).survey.pos[0] === 1.25);
+
+  var state = survey.state;
+  var biomeResult;
+  [0, 1, 2].forEach(function (id) {
+    biomeResult = D.record(state, { worldId: p0.id, kind: 'biome', key: id, pos: [id, 60, id] }, catalog);
+    state = biomeResult.state;
+  });
+  check('第 3 种全局唯一群系首次完成目标且只领奖一次', biomeResult.added === 1 &&
+    biomeResult.pointsAwarded === 12 && hasReward(biomeResult, 'biomes:3') &&
+    biomeResult.objectiveBefore.id === 'biomes:3' && biomeResult.objectiveAfter.id === 'resources:3');
+  var biomeRepeat = D.record(state, { worldId: p1.id, kind: 'biome', key: 2, pos: [5, 5, 5] }, catalog);
+  check('同类群系可按 world 隔离建档，但全局目标不重复领奖', biomeRepeat.added === 1 &&
+    biomeRepeat.pointsAwarded === 2 && biomeRepeat.objectiveRewards.length === 0 &&
+    D.worldSummary(biomeRepeat.state, p1.id).counts.biomes === 1);
+  state = biomeRepeat.state;
+
+  var resourceResult;
+  [8, 9, 14].forEach(function (id) {
+    resourceResult = D.record(state, { worldId: p0.id, kind: 'resource', key: id, pos: [id, 22, 0] }, catalog);
+    state = resourceResult.state;
+  });
+  check('资源仅白名单 ID 可入档，第 3 种解锁单次目标奖励', resourceResult.added === 1 &&
+    resourceResult.pointsAwarded === 12 && hasReward(resourceResult, 'resources:3') &&
+    D.record(state, { worldId: p0.id, kind: 'resource', key: 1, pos: [0, 0, 0] }, catalog).added === 0);
+
+  var faunaA = D.record(state, { worldId: p0.id, kind: 'fauna', key: 'sheep', pos: [3, 4, 5] }, catalog);
+  var faunaB = D.record(faunaA.state, { worldId: p0.id, kind: 'fauna', key: 'pig', pos: [6, 7, 8] }, catalog);
+  state = faunaB.state;
+  check('固定物种注册表中第 2 种生命体解锁单次目标奖励', faunaB.added === 1 &&
+    faunaB.pointsAwarded === 12 && hasReward(faunaB, 'fauna:2') &&
+    D.record(state, { worldId: p0.id, kind: 'fauna', key: 'dragon', pos: [0, 0, 0] }, catalog).added === 0);
+
+  var surveyP1 = D.record(state, { worldId: p1.id, kind: 'survey', pos: [10, 20, 30] }, catalog);
+  var surveyP2 = D.record(surveyP1.state, { worldId: p2.id, kind: 'survey', pos: [40, 50, 60] }, catalog);
+  state = surveyP2.state;
+  check('每天体测绘各有一次阶段奖，第 3 个天体额外完成星系目标',
+    hasReward(surveyP1, 'survey:' + p1.id) && hasReward(surveyP2, 'survey:' + p2.id) &&
+    hasReward(surveyP2, 'survey-worlds:3') && surveyP2.objectiveAfter.complete === true &&
+    surveyP2.objectiveAfter.id === 'complete');
+  var summaries = D.summary(state, catalog);
+  check('跨 world 档案隔离，全局 summary 按唯一 key 统计',
+    D.worldSummary(state, p0.id).counts.biomes === 3 && D.worldSummary(state, p1.id).counts.biomes === 1 &&
+    D.worldSummary(state, p2.id).counts.biomes === 0 && summaries.surveyedWorlds === 3 &&
+    summaries.biomes === 3 && summaries.resources === 3 && summaries.fauna === 2);
+
+  var landmark = D.record(state, {
+    worldId: p0.id, kind: 'landmark', key: 'ship', pos: [20000000, -20000000, 0.5]
+  }, catalog);
+  check('目标全完成后新档案仅 +2，位置夹紧且不重复领阶段奖', landmark.added === 1 &&
+    landmark.pointsAwarded === 2 && landmark.objectiveRewards.length === 0 &&
+    landmark.entries[0].pos[0] === 10000000 && landmark.entries[0].pos[1] === -10000000);
+  check('非有限位置/未知 world/坏 event 不计数不奖励',
+    D.record(landmark.state, { worldId: p0.id, kind: 'landmark', key: 'portal', pos: [NaN, 0, 0] }, catalog).added === 0 &&
+    D.record(landmark.state, { worldId: 'unknown', kind: 'survey', pos: [0, 0, 0] }, catalog).added === 0 &&
+    D.record(landmark.state, [], catalog).pointsAwarded === 0);
+
+  var serialized = JSON.stringify(landmark.state);
+  var roundTrip = D.hydrate(JSON.parse(serialized), catalog);
+  var roundSummary = D.summary(roundTrip, catalog);
+  check('发现档案 JSON 序列化往返保留积分、位置、隔离记录与 claimed',
+    roundTrip.points === landmark.state.points && roundSummary.entries === D.summary(landmark.state, catalog).entries &&
+    D.worldSummary(roundTrip, p0.id).landmarks[0].pos[0] === 10000000 &&
+    roundTrip.claimed['survey:' + p0.id] === true && roundTrip.claimed['biomes:3'] === true &&
+    roundTrip.claimed['resources:3'] === true && roundTrip.claimed['fauna:2'] === true &&
+    roundTrip.claimed['survey-worlds:3'] === true);
+
+  // 填满所有白名单条目，验证理论上限与输出体积。每世界最多
+  // 1 survey + 18 biomes + 11 resources + 5 fauna + 3 landmarks = 38 条。
+  var fullRaw = { v: 1, points: 1234, worlds: bucket(), claimed: bucket() };
+  var resources = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33];
+  var fauna = ['sheep', 'pig', 'chicken', 'rabbit', 'zombie'];
+  var landmarks = ['ship', 'station-terminal', 'portal'];
+  for (var wi = 0; wi < catalog.length; wi++) {
+    var wid = catalog[wi].id;
+    var fw = rawWorld();
+    fw.survey.world = entry(wid, 'survey', 'world', [wi, 0, 0]);
+    for (var bi = 0; bi < V.Biomes.count; bi++) fw.biomes[String(bi)] = entry(wid, 'biome', String(bi), [bi, 0, 0]);
+    for (var ri = 0; ri < resources.length; ri++) fw.resources[String(resources[ri])] = entry(wid, 'resource', String(resources[ri]), [ri, 0, 0]);
+    for (var fi = 0; fi < fauna.length; fi++) fw.fauna[fauna[fi]] = entry(wid, 'fauna', fauna[fi], [fi, 0, 0]);
+    for (var li = 0; li < landmarks.length; li++) fw.landmarks[landmarks[li]] = entry(wid, 'landmark', landmarks[li], [li, 0, 0]);
+    for (var extraKey = 0; extraKey < 1000; extraKey++) fw.landmarks['unknown-' + extraKey] = entry(wid, 'landmark', 'portal', [0, 0, 0]);
+    fullRaw.worlds[wid] = fw;
+    fullRaw.claimed['survey:' + wid] = true;
+  }
+  var GLOBAL_DISCOVERY_CLAIMS = ['biomes:3', 'resources:3', 'fauna:2', 'survey-worlds:3'];
+  for (var gi = 0; gi < GLOBAL_DISCOVERY_CLAIMS.length; gi++) fullRaw.claimed[GLOBAL_DISCOVERY_CLAIMS[gi]] = true;
+  for (var gunk = 0; gunk < 5000; gunk++) fullRaw.claimed['unknown-' + gunk] = true;
+  var full = D.hydrate(fullRaw, catalog);
+  var fullSummary = D.summary(full, catalog);
+  check('全白名单填满时条目/领奖数仍严格有界', fullSummary.entries === catalog.length *
+    (1 + V.Biomes.count + resources.length + fauna.length + landmarks.length) &&
+    Object.keys(full.claimed).length === catalog.length + 4 && Object.keys(full.worlds).length === catalog.length);
+  check('巨型输入净化后 JSON 体积受控且全部映射无原型', JSON.stringify(full).length < 100000 &&
+    Object.getPrototypeOf(full.worlds) === null && Object.getPrototypeOf(full.claimed) === null &&
+    catalog.every(function (world) { return Object.getPrototypeOf(full.worlds[world.id].fauna) === null; }));
+  var hugeCatalog = [];
+  for (var hci = 0; hci < 400; hci++) hugeCatalog.push({ id: 'world-' + hci });
+  check('巨型 catalog 同样受硬上限约束', D.summary(D.empty(), hugeCatalog).totalWorlds === 64);
+})();
 
 console.log('七类大气与天体描述');
 var AP = V.AtmosphereProfiles;
