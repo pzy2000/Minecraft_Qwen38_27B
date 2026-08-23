@@ -9,106 +9,162 @@ Voxel.Mobs = (function () {
   var group = null;
   var spawnTimer = 1;
 
-  function box(w, h, d, mat, x, y, z) {
-    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(x, y, z);
-    return m;
+  // ---- 合批：合并几何缓存 + 共享材质 ----
+  // 每只生物 = 1 个 Mesh（逐顶点色）→ 1 次绘制；几何按「类型×配色变体」全局缓存。
+  var sharedMat = null;   // 常态：顶点色 × 昼夜 tint（每帧一次 uniform 更新）
+  var flashMat = null;    // 受击闪白：纯白
+  var geoCache = {};      // "type_variant" -> BufferGeometry
+
+  function ensureSharedMats() {
+    if (sharedMat) return;
+    sharedMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   }
 
-  function makeSheep() {
-    var g = new THREE.Group();
-    var wool = [0xffffff, 0xb0b0b0, 0x5a5a5a, 0x9a7248][(Math.random() * 4) | 0];
-    var mWool = new THREE.MeshBasicMaterial({ color: wool });
-    var mSkin = new THREE.MeshBasicMaterial({ color: 0xe8c8a8 });
-    g.add(box(0.8, 0.55, 1.1, mWool, 0, 0.62, -0.05));
-    g.add(box(0.45, 0.42, 0.45, mSkin, 0, 0.95, 0.62));
-    g.add(box(0.14, 0.16, 0.1, mSkin, 0, 0.88, 0.86));
-    var legs = [[-0.25, 0.38], [0.25, 0.38], [-0.25, -0.42], [0.25, -0.42]];
-    for (var i = 0; i < 4; i++)
-      g.add(box(0.16, 0.38, 0.16, mWool, legs[i][0], 0.19, legs[i][1]));
-    return { group: g, mats: [mWool, mSkin], w: 0.8, h: 1.15 };
+  function partGeo(w, h, d, x, y, z, colorHex) {
+    var g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    var c = new THREE.Color(colorHex);
+    var n = g.attributes.position.count;
+    var arr = new Float32Array(n * 3);
+    for (var i = 0; i < n; i++) {
+      arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    return g;
   }
 
-  function makeZombie() {
-    var g = new THREE.Group();
-    var mSkin = new THREE.MeshBasicMaterial({ color: 0x5a9a50 });
-    var mShirt = new THREE.MeshBasicMaterial({ color: 0x3f6e8c });
-    var mPants = new THREE.MeshBasicMaterial({ color: 0x4a4a6e });
-    g.add(box(0.42, 0.42, 0.42, mSkin, 0, 1.55, 0));
-    g.add(box(0.44, 0.62, 0.26, mShirt, 0, 1.02, 0));
-    g.add(box(0.14, 0.55, 0.14, mSkin, -0.32, 1.05, 0.3));
-    g.add(box(0.14, 0.55, 0.14, mSkin, 0.32, 1.05, 0.3));
-    g.add(box(0.16, 0.55, 0.16, mPants, -0.11, 0.28, 0));
-    g.add(box(0.16, 0.55, 0.16, mPants, 0.11, 0.28, 0));
-    return { group: g, mats: [mSkin, mShirt, mPants], w: 0.6, h: 1.8, bodyY: 1.02 };
+  function mergeGeos(geos) {
+    var vTotal = 0, iTotal = 0, j, k;
+    for (j = 0; j < geos.length; j++) {
+      vTotal += geos[j].attributes.position.count;
+      iTotal += geos[j].index.count;
+    }
+    var pos = new Float32Array(vTotal * 3);
+    var col = new Float32Array(vTotal * 3);
+    var idx = vTotal > 65535 ? new Uint32Array(iTotal) : new Uint16Array(iTotal);
+    var vo = 0, io = 0;
+    for (j = 0; j < geos.length; j++) {
+      var g = geos[j];
+      pos.set(g.attributes.position.array, vo * 3);
+      col.set(g.attributes.color.array, vo * 3);
+      var gi = g.index.array;
+      for (k = 0; k < gi.length; k++) idx[io + k] = gi[k] + vo;
+      io += gi.length;
+      vo += g.attributes.position.count;
+    }
+    var out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    out.setIndex(new THREE.BufferAttribute(idx, 1));
+    return out;
   }
 
-  function makePig() {
-    var g = new THREE.Group();
-    var mBody = new THREE.MeshBasicMaterial({ color: 0xf0a0a0 });
-    var mSkin = new THREE.MeshBasicMaterial({ color: 0xe08888 });
-    g.add(box(0.85, 0.55, 1.15, mBody, 0, 0.58, -0.05));
-    g.add(box(0.55, 0.5, 0.45, mSkin, 0, 0.72, 0.68));
-    g.add(box(0.24, 0.16, 0.08, mSkin, 0, 0.66, 0.94));                       // 鼻
-    var legs = [[-0.26, 0.38], [0.26, 0.38], [-0.26, -0.44], [0.26, -0.44]];
-    for (var i = 0; i < 4; i++)
-      g.add(box(0.18, 0.32, 0.18, mSkin, legs[i][0], 0.16, legs[i][1]));
-    return { group: g, mats: [mBody, mSkin], w: 0.8, h: 1.0, bodyY: 0.58 };
+  function getGeo(key, parts) {
+    ensureSharedMats();
+    if (!geoCache[key]) {
+      var gs = [];
+      for (var i = 0; i < parts.length; i++)
+        gs.push(partGeo(parts[i][0], parts[i][1], parts[i][2],
+          parts[i][3], parts[i][4], parts[i][5], parts[i][6]));
+      geoCache[key] = mergeGeos(gs);
+    }
+    return geoCache[key];
   }
 
-  function makeChicken() {
-    var g = new THREE.Group();
-    var mBody = new THREE.MeshBasicMaterial({ color: 0xf2f2f2 });
-    var mBeak = new THREE.MeshBasicMaterial({ color: 0xe8b23a });
-    var mWattle = new THREE.MeshBasicMaterial({ color: 0xc03a3a });
-    g.add(box(0.45, 0.45, 0.62, mBody, 0, 0.52, -0.05));
-    g.add(box(0.28, 0.36, 0.26, mBody, 0, 0.92, 0.28));                        // 头
-    g.add(box(0.14, 0.09, 0.12, mBeak, 0, 0.9, 0.46));                         // 喙
-    g.add(box(0.1, 0.12, 0.06, mWattle, 0, 0.76, 0.42));                       // 肉垂
-    g.add(box(0.08, 0.3, 0.4, mBody, -0.27, 0.56, 0));                         // 翅膀
-    g.add(box(0.08, 0.3, 0.4, mBody, 0.27, 0.56, 0));
-    g.add(box(0.07, 0.3, 0.07, mBeak, -0.1, 0.15, 0));                         // 腿
-    g.add(box(0.07, 0.3, 0.07, mBeak, 0.1, 0.15, 0));
-    return { group: g, mats: [mBody, mBeak, mWattle], w: 0.45, h: 1.05, bodyY: 0.52 };
+  // 各类型部件定义：[w,h,d,x,y,z,color]；variant 用于几何缓存键（羊 4 色毛/兔 3 色）
+  function sheepBuild() {
+    var vi = (Math.random() * 4) | 0;
+    var wool = [0xffffff, 0xb0b0b0, 0x5a5a5a, 0x9a7248][vi];
+    var skin = 0xe8c8a8;
+    return { variant: String(vi), w: 0.8, h: 1.15, mainColor: wool, parts: [
+      [0.80, 0.55, 1.10, 0, 0.62, -0.05, wool],
+      [0.45, 0.42, 0.45, 0, 0.95, 0.62, skin],
+      [0.14, 0.16, 0.10, 0, 0.88, 0.86, skin],
+      [0.16, 0.38, 0.16, -0.25, 0.19, 0.38, wool],
+      [0.16, 0.38, 0.16, 0.25, 0.19, 0.38, wool],
+      [0.16, 0.38, 0.16, -0.25, 0.19, -0.42, wool],
+      [0.16, 0.38, 0.16, 0.25, 0.19, -0.42, wool]
+    ] };
+  }
+  function pigBuild() {
+    var body = 0xf0a0a0, skin = 0xe08888;
+    return { variant: '', w: 0.8, h: 1.0, mainColor: body, parts: [
+      [0.85, 0.55, 1.15, 0, 0.58, -0.05, body],
+      [0.55, 0.50, 0.45, 0, 0.72, 0.68, skin],
+      [0.24, 0.16, 0.08, 0, 0.66, 0.94, skin],
+      [0.18, 0.32, 0.18, -0.26, 0.16, 0.38, skin],
+      [0.18, 0.32, 0.18, 0.26, 0.16, 0.38, skin],
+      [0.18, 0.32, 0.18, -0.26, 0.16, -0.44, skin],
+      [0.18, 0.32, 0.18, 0.26, 0.16, -0.44, skin]
+    ] };
+  }
+  function chickenBuild() {
+    var body = 0xf2f2f2, beak = 0xe8b23a, wattle = 0xc03a3a;
+    return { variant: '', w: 0.45, h: 1.05, mainColor: body, parts: [
+      [0.45, 0.45, 0.62, 0, 0.52, -0.05, body],
+      [0.28, 0.36, 0.26, 0, 0.92, 0.28, body],
+      [0.14, 0.09, 0.12, 0, 0.90, 0.46, beak],
+      [0.10, 0.12, 0.06, 0, 0.76, 0.42, wattle],
+      [0.08, 0.30, 0.40, -0.27, 0.56, 0, body],
+      [0.08, 0.30, 0.40, 0.27, 0.56, 0, body],
+      [0.07, 0.30, 0.07, -0.10, 0.15, 0, beak],
+      [0.07, 0.30, 0.07, 0.10, 0.15, 0, beak]
+    ] };
+  }
+  function rabbitBuild() {
+    var fi = (Math.random() * 3) | 0;
+    var fur = [0x9a7a52, 0xbfa07a, 0xd8d2c8][fi];
+    var dark = 0x6e563a;
+    return { variant: String(fi), w: 0.4, h: 0.95, mainColor: fur, parts: [
+      [0.38, 0.34, 0.58, 0, 0.30, -0.05, fur],
+      [0.28, 0.28, 0.28, 0, 0.52, 0.32, fur],
+      [0.08, 0.30, 0.06, -0.09, 0.82, 0.30, dark],
+      [0.08, 0.30, 0.06, 0.09, 0.82, 0.30, dark],
+      [0.12, 0.12, 0.08, 0, 0.34, -0.36, 0xffffff],
+      [0.10, 0.16, 0.10, -0.13, 0.08, 0.22, fur],
+      [0.10, 0.16, 0.10, 0.13, 0.08, 0.22, fur]
+    ] };
+  }
+  function zombieBuild() {
+    var skin = 0x5a9a50, shirt = 0x3f6e8c, pants = 0x4a4a6e;
+    return { variant: '', w: 0.6, h: 1.8, mainColor: skin, parts: [
+      [0.42, 0.42, 0.42, 0, 1.55, 0, skin],
+      [0.44, 0.62, 0.26, 0, 1.02, 0, shirt],
+      [0.14, 0.55, 0.14, -0.32, 1.05, 0.30, skin],
+      [0.14, 0.55, 0.14, 0.32, 1.05, 0.30, skin],
+      [0.16, 0.55, 0.16, -0.11, 0.28, 0, pants],
+      [0.16, 0.55, 0.16, 0.11, 0.28, 0, pants]
+    ] };
   }
 
-  function makeRabbit() {
-    var g = new THREE.Group();
-    var fur = [0x9a7a52, 0xbfa07a, 0xd8d2c8][(Math.random() * 3) | 0];
-    var mFur = new THREE.MeshBasicMaterial({ color: fur });
-    var mDark = new THREE.MeshBasicMaterial({ color: 0x6e563a });
-    var mTail = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    g.add(box(0.38, 0.34, 0.58, mFur, 0, 0.3, -0.05));
-    g.add(box(0.28, 0.28, 0.28, mFur, 0, 0.52, 0.32));                         // 头
-    g.add(box(0.08, 0.3, 0.06, mDark, -0.09, 0.82, 0.3));                      // 耳朵
-    g.add(box(0.08, 0.3, 0.06, mDark, 0.09, 0.82, 0.3));
-    g.add(box(0.12, 0.12, 0.08, mTail, 0, 0.34, -0.36));                       // 尾巴
-    g.add(box(0.1, 0.16, 0.1, mFur, -0.13, 0.08, 0.22));                       // 腿
-    g.add(box(0.1, 0.16, 0.1, mFur, 0.13, 0.08, 0.22));
-    return { group: g, mats: [mFur, mDark, mTail], w: 0.4, h: 0.95, bodyY: 0.3 };
-  }
-
-  // 各类型构建器与属性
   var BUILDERS = {
-    sheep: { make: makeSheep, hp: function () { return C.HP_SHEEP; }, speedMul: 1 },
-    pig: { make: makePig, hp: function () { return C.HP_PIG; }, speedMul: 0.95 },
-    chicken: { make: makeChicken, hp: function () { return C.HP_CHICKEN; }, speedMul: 0.75 },
-    rabbit: { make: makeRabbit, hp: function () { return C.HP_RABBIT; }, speedMul: 1.35 },
-    zombie: { make: makeZombie, hp: function () { return C.HP_ZOMBIE; }, speedMul: 1 }
+    sheep:   { make: sheepBuild,   hp: function () { return C.HP_SHEEP; },   speedMul: 1 },
+    pig:     { make: pigBuild,     hp: function () { return C.HP_PIG; },     speedMul: 0.95 },
+    chicken: { make: chickenBuild, hp: function () { return C.HP_CHICKEN; }, speedMul: 0.75 },
+    rabbit:  { make: rabbitBuild,  hp: function () { return C.HP_RABBIT; },  speedMul: 1.35 },
+    zombie:  { make: zombieBuild,  hp: function () { return C.HP_ZOMBIE; },  speedMul: 1 }
   };
 
-  // 被动生物（受击逃跑 + 叫声）
+  // 行为表与渲染构建器分离：合批只改变 Mesh 结构，不改变逃跑、声音和掉落语义。
   var PASSIVE = { sheep: true, pig: true, chicken: true, rabbit: true };
-  // 击杀掉落 [物品ID, 数量]（null=不掉落）
   var KILL_DROPS = {
     sheep: [16, C.WOOL_DROP],
     pig: [109, 1],        // 生猪排
     chicken: [111, 1],    // 生鸡肉
     rabbit: [113, 1]      // 生兔肉
   };
-  // 叫声函数名（Sound 上的方法）
   var VOICE = { sheep: 'sheep', pig: 'pig', chicken: 'chicken', rabbit: 'rabbit', zombie: 'zombie' };
   var VOICE_HURT = { sheep: 'sheepHurt', pig: 'pigHurt', chicken: 'chickenHurt', rabbit: 'rabbitHurt' };
+
+  var mobDensityF = 1;
+  var TARGET_KEYS = {
+    sheep: 'SHEEP_TARGET',
+    pig: 'PIG_TARGET',
+    chicken: 'CHICKEN_TARGET',
+    rabbit: 'RABBIT_TARGET',
+    zombie: 'ZOMBIE_TARGET'
+  };
 
   // 各被动生物可生成的地表方块 + 是否允许出现在该群系（biomes.js 的 mobs 表）
   var PASSIVE_SURFACES = {
@@ -120,16 +176,17 @@ Voxel.Mobs = (function () {
 
   function spawn(type, pos) {
     var b = BUILDERS[type].make();
+    var key = type + (b.variant ? '_' + b.variant : '');
+    ensureSharedMats();
+    var mesh = new THREE.Mesh(getGeo(key, b.parts), sharedMat);
     var m = {
       type: type,
       pos: pos.clone(),
       vel: new THREE.Vector3(),
       w: b.w, h: b.h,
-      bodyY: b.bodyY !== undefined ? b.bodyY : (type === 'sheep' ? 0.62 : 1.02),
       speedMul: BUILDERS[type].speedMul,
-      group: b.group,
-      mats: b.mats,
-      baseColors: b.mats.map(function (mt) { return mt.color.getHex(); }),
+      group: mesh,
+      baseColors: [b.mainColor],
       hp: BUILDERS[type].hp(),
       onGround: false,
       dir: Math.random() * Math.PI * 2,
@@ -142,21 +199,47 @@ Voxel.Mobs = (function () {
       voiceTimer: 4 + Math.random() * 10,    // 叫声计时
       dead: false
     };
-    group.add(b.group);
+    group.add(mesh);
     list.push(m);
     return m;
   }
 
   function removeAt(i) {
     var m = list[i];
-    group.remove(m.group);
-    for (var j = 0; j < m.mats.length; j++) m.mats[j].dispose();
+    group.remove(m.group);   // 几何与材质为共享缓存，不释放
     list.splice(i, 1);
   }
 
+  function densityTarget(type) {
+    var base = C[TARGET_KEYS[type]];
+    if (!(base > 0)) return 0;   // 测试/调试可把目标设为 0 来禁用该类型
+    return Math.max(1, Math.round(base * mobDensityF));
+  }
+
+  // 设置降低时立即清掉各类型的超额个体；提高时仍交给原有生成节奏逐步补齐。
+  function trimToDensity() {
+    var counts = {};
+    for (var i = 0; i < list.length; i++)
+      counts[list[i].type] = (counts[list[i].type] || 0) + 1;
+    for (var j = list.length - 1; j >= 0; j--) {
+      var type = list[j].type;
+      if ((counts[type] || 0) > densityTarget(type)) {
+        counts[type]--;
+        removeAt(j);
+      }
+    }
+  }
+
+  function setDensity(f) {
+    var next = (typeof f === 'number' && isFinite(f)) ? f : 1;
+    next = Math.max(0.25, Math.min(1, next));
+    if (next === mobDensityF) return;
+    mobDensityF = next;
+    trimToDensity();
+  }
+
   function setFlash(m, on) {
-    for (var i = 0; i < m.mats.length; i++)
-      m.mats[i].color.setHex(on ? 0xffffff : m.baseColors[i]);
+    m.group.material = on ? flashMat : sharedMat;
   }
 
   function damage(m, n, dir) {
@@ -223,11 +306,11 @@ Voxel.Mobs = (function () {
     for (var i = 0; i < list.length; i++) {
       counts[list[i].type] = (counts[list[i].type] || 0) + 1;
     }
-    if ((counts.sheep || 0) < C.SHEEP_TARGET) trySpawn('sheep');
-    if ((counts.pig || 0) < C.PIG_TARGET) trySpawn('pig');
-    if ((counts.chicken || 0) < C.CHICKEN_TARGET) trySpawn('chicken');
-    if ((counts.rabbit || 0) < C.RABBIT_TARGET) trySpawn('rabbit');
-    if ((counts.zombie || 0) < (night ? C.ZOMBIE_TARGET : 0)) trySpawn('zombie');
+    if ((counts.sheep || 0) < densityTarget('sheep')) trySpawn('sheep');
+    if ((counts.pig || 0) < densityTarget('pig')) trySpawn('pig');
+    if ((counts.chicken || 0) < densityTarget('chicken')) trySpawn('chicken');
+    if ((counts.rabbit || 0) < densityTarget('rabbit')) trySpawn('rabbit');
+    if (night && (counts.zombie || 0) < densityTarget('zombie')) trySpawn('zombie');
   }
 
   // 僵尸眼 → 玩家眼 的视线是否无遮挡
@@ -350,10 +433,12 @@ Voxel.Mobs = (function () {
       }
 
       // 渲染
-      m.group.position.set(m.pos.x, m.pos.y, m.pos.z);
       m.group.rotation.y = m.dir + Math.PI;
-      if (speed > 0 && m.onGround)
-        m.group.children[0].position.y = m.bodyY + Math.sin(t * 9 + i) * 0.03;
+      // 走路整体轻微浮动（合批后无法单独动某一部件）
+      m.group.position.set(
+        m.pos.x,
+        m.pos.y + ((speed > 0 && m.onGround) ? Math.sin(t * 9 + i) * 0.03 : 0),
+        m.pos.z);
 
       // 白天烧僵尸（需露天：天光 ≥ 12，洞穴里不烧）
       if (m.type === 'zombie' && Voxel.DayNight.sunlight() > 0.55 &&
@@ -379,12 +464,8 @@ Voxel.Mobs = (function () {
   }
 
   function applyTint(tint) {
-    for (var i = 0; i < list.length; i++) {
-      var m = list[i];
-      if (m.flash > 0) continue;
-      for (var j = 0; j < m.mats.length; j++)
-        m.mats[j].color.setHex(m.baseColors[j]).multiply(tint);
-    }
+    // 合批后所有常态生物共享一个材质：整帧只需一次颜色更新（闪白中的自动覆盖为白）
+    if (sharedMat) sharedMat.color.copy(tint);
   }
 
   function clear() {
@@ -398,6 +479,7 @@ Voxel.Mobs = (function () {
   }
 
   return {
+    setDensity: setDensity,
     init: init,
     update: update,
     applyTint: applyTint,
@@ -405,6 +487,9 @@ Voxel.Mobs = (function () {
     clear: clear,
     list: list,
     count: function () { return list.length; },
-    spawn: spawn
+    spawn: spawn,
+    _test: {
+      densityTarget: densityTarget
+    }
   };
 })();

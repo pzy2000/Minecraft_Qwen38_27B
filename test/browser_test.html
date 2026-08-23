@@ -65,7 +65,7 @@
 </div></div>
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
-  <button id="btn-start"></button><button id="btn-new"></button><input id="seed-input" type="text" value="12345">
+  <button id="btn-start"></button><button id="btn-new"></button><button id="btn-settings-menu"></button><input id="seed-input" type="text" value="12345">
   <div id="start-hint" class="hint"></div>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
@@ -78,6 +78,13 @@
   <input id="set-volume" type="range"><span id="set-volume-v"></span>
   <input id="set-fov" type="range"><span id="set-fov-v"></span>
   <input id="set-fog" type="range"><span id="set-fog-v"></span>
+  <input id="set-tsens" type="range"><span id="set-tsens-v"></span>
+  <input id="set-res" type="range"><span id="set-res-v"></span>
+  <div class="btn-row" id="fps-cap-row"><button class="btn small" data-fps="0">原生</button><button class="btn small" data-fps="30">30</button><button class="btn small" data-fps="60">60</button></div>
+  <input id="set-particleDensity" type="range"><span id="set-particleDensity-v"></span>
+  <input id="set-rainDensity" type="range"><span id="set-rainDensity-v"></span>
+  <input id="set-mobDensity" type="range"><span id="set-mobDensity-v"></span>
+  <div class="btn-row" id="perf-preset-row"><button class="btn small" data-preset="smooth">流畅</button><button class="btn small" data-preset="balanced">均衡</button><button class="btn small" data-preset="high">高画质</button></div>
   <button id="btn-set-close" class="btn"></button>
 </div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
@@ -111,6 +118,7 @@
 <script src="../js/systems/save.js"></script>
 <script src="../js/ui/handitem.js"></script>
 <script src="../js/ui/hud.js"></script>
+<script>window.requestAnimationFrame = function () { return 0; };</script>
 <script src="../js/main.js"></script>
 <script>
 // ---- 自动化测试：驱动真实游戏主循环 ----
@@ -184,6 +192,22 @@
   function stepB() {
     check('世界已生成', Voxel.World.isReady());
     check('状态=playing', Voxel.Game.state === 'playing');
+
+    // 帧率上限门控（_frame 直驱同样生效；同步执行无 harness 竞态）
+    (function () {
+      var T0 = Voxel.Game._test;
+      Voxel.Settings.set('fpsCap', 30);
+      var t0 = performance.now(), fc0 = T0.frameCount(), k;
+      // 找到一个能放行的时间点（距上次执行 ≥33ms）
+      for (k = 1; k <= 5; k++) { Voxel.Game._frame(t0 + k * 50); if (T0.frameCount() > fc0) break; }
+      var fc1 = T0.frameCount();
+      check('帧控：大间隔放行', fc1 === fc0 + 1);
+      Voxel.Game._frame(t0 + k * 50 + 5);   // 仅 +5ms → 必须跳过
+      check('帧控：间隔不足被跳过', T0.frameCount() === fc1);
+      Voxel.Game._frame(t0 + k * 50 + 60);  // +60ms → 放行
+      check('帧控：恢复放行', T0.frameCount() === fc1 + 1);
+      Voxel.Settings.set('fpsCap', 0);
+    })();
     check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
 
     // 音效冒烟：全部新增声音函数可调用且不抛异常（无头环境无实际出声）
@@ -317,6 +341,15 @@
     if (rbt) Voxel.Mobs.damage(rbt, 99, new THREE.Vector3(1, 0, 0));
     check('击杀鸡掉生鸡肉 / 兔掉生兔肉',
       Voxel.Game._test.countInv(111) >= 1 && Voxel.Game._test.countInv(113) >= 1);
+
+    // 生物密度设置：降低后立即裁掉超额个体，后续生成目标也使用同一倍率。
+    Voxel.Settings.set('mobDensity', 1);
+    for (var md = 0; md < 6; md++) Voxel.Mobs.spawn('pig', mobPos);
+    Voxel.Settings.set('mobDensity', 0.25);
+    var pigN = Voxel.Mobs.list.filter(function (m) { return m.type === 'pig'; }).length;
+    check('生物密度降低立即裁剪 (pig=' + pigN + ')',
+      pigN === Voxel.Mobs._test.densityTarget('pig') && pigN === 1);
+    Voxel.Settings.set('mobDensity', 1);
 
     // ---- 背包 UX：Shift 快搬 / 右键拆半堆 ----
     Voxel.Game._test.clearInv();

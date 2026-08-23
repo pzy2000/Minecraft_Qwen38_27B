@@ -89,5 +89,12 @@ Voxel.Config = {
     LONGPRESS_MS: 250,       // 长按挖掘触发时长
     LONGPRESS_DIST: 12,      // 长按触发时允许的位移
     LEFT_ZONE_FRAC: 0.45     // 屏幕左侧此比例内为摇杆区，其余为视角/手势区
+  },
+
+  // 性能预设（设置面板一键应用；键名对应 Voxel.Settings）
+  PERF_PRESETS: {
+    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5 },
+    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75 },
+    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1 }
   }
 };

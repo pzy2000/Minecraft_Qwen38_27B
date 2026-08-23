@@ -30,7 +30,7 @@ Voxel.Touch = (function () {
 
   // ---- 触控模式判定 ----
   // 主信号：pointer: coarse（手机/平板）；?touch=1 强制开、?touch=0 强制关
-  // （避免带触摸屏的笔记本误开启）
+  // （避免带触摸屏的笔记本误开启）。模块加载期即判定，供渲染器 DPR 等提前分支。
   function detect() {
     try {
       if (window.__FORCE_TOUCH__) return true;   // 测试注入
@@ -43,7 +43,7 @@ Voxel.Touch = (function () {
     return false;
   }
 
-  var enabled = false;
+  var enabled = detect();
   var domBuilt = false;
   var capture = null, base = null, knob = null;
   var btnJump = null, btnDescend = null, btnFly = null, btnPause = null, btnBag = null;
@@ -319,10 +319,19 @@ Voxel.Touch = (function () {
     lastState = state;
   }
 
-  function init() {
-    enabled = detect();
-    if (!enabled) return;
-    buildDom();
+  function resetActiveInputs() {
+    releaseStick();
+    if (look) {
+      if (look.lpTimer) { clearTimeout(look.lpTimer); look.lpTimer = null; }
+      if (look.digOn && Voxel.Game) Voxel.Game.setDigHold(false);
+      lookId = null; look = null;
+      if (Voxel.Game) Voxel.Game.setTouchAim(null);
+    }
+    Voxel.Controls.keys['Space'] = false;
+    Voxel.Controls.keys['ShiftLeft'] = false;
+  }
+
+  function bindEvents() {
     capture.addEventListener('pointerdown', onDown);
     document.addEventListener('pointermove', onMove, { passive: false });
     document.addEventListener('pointerup', onUp);
@@ -330,6 +339,12 @@ Voxel.Touch = (function () {
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) resetActiveInputs();
     });
+  }
+
+  function init() {
+    if (!enabled) return;
+    buildDom();
+    bindEvents();
   }
 
   return {
@@ -343,10 +358,7 @@ Voxel.Touch = (function () {
       forceEnable: function () {
         enabled = true;
         buildDom();
-        capture.addEventListener('pointerdown', onDown);
-        document.addEventListener('pointermove', onMove, { passive: false });
-        document.addEventListener('pointerup', onUp);
-        document.addEventListener('pointercancel', onCancel);
+        bindEvents();
       },
       stickVec: function () { return { x: moveX, y: moveY, mag: moveMag, sprint: stickSprint }; },
       lookActive: function () { return lookId !== null; }

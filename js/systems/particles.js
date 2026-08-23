@@ -20,7 +20,10 @@ Voxel.Particles = (function () {
 
   function burst(pos, color, n) {
     var scene = Voxel.Game.scene;
-    for (var i = 0; i < (n || 8); i++) {
+    // 粒子密度（设置项）：按倍率缩减本次生成数，至少 1 个
+    var dens = (Voxel.Settings && Voxel.Settings.get('particleDensity')) || 1;
+    var total = Math.max(1, Math.round((n || 8) * Math.max(0.1, Math.min(1, dens))));
+    for (var i = 0; i < total; i++) {
       var m = new THREE.Mesh(geo, mat(color));
       m.position.set(
         pos.x + (Math.random() - 0.5) * 0.7,

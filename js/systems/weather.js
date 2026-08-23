@@ -33,6 +33,8 @@ Voxel.Weather = (function () {
   var tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
   var RAINBOW_COLORS = [0xff3b30, 0xff9500, 0xffe135, 0x34c759, 0x32ade6, 0x0a84ff, 0xaf52de];
   var RAIN_TOP = 40, RAIN_BOT = -22;
+  var rainDensityF = 1;        // 雨滴密度倍率（设置项，setDrawRange 实时生效）
+  var rainVisibleN = 0;        // 实际模拟/绘制的雨丝数
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
@@ -109,6 +111,7 @@ Voxel.Weather = (function () {
     rain.frustumCulled = false;
     rain.visible = false;
     scene.add(rain);
+    applyRainDensity();
 
     // 云层：水平面片 + 程序化纹理，随风漂移
     var tex1 = makeCloudTex(), tex2 = makeCloudTex();
@@ -229,7 +232,8 @@ Voxel.Weather = (function () {
     rain.material.opacity = 0.4 * intensity * (0.45 + 0.55 * DN.sunlight());
     if (rain.visible) {
       rain.position.copy(cam.position);
-      var p = rainPos, n = W.RAIN_DROPS, box = W.RAIN_BOX;
+      var p = rainPos, box = W.RAIN_BOX;
+      var n = rainVisibleN;
       for (var i = 0; i < n; i++) {
         var i6 = i * 6, i2 = i * 2;
         var spd = dropSpd[i];
@@ -354,7 +358,22 @@ Voxel.Weather = (function () {
     return state === 'clear' ? '晴' : (state === 'rain' ? '雨' : '雷雨');
   }
 
+  function applyRainDensity() {
+    var total = Voxel.Config.WEATHER.RAIN_DROPS;
+    if (!total) return;
+    rainVisibleN = Math.max(1, Math.round(total * Math.max(0.05, Math.min(1, rainDensityF))));
+    if (rain && rain.geometry) {
+      rain.geometry.setDrawRange(0, rainVisibleN * 2);   // LineSegments：每段 2 顶点
+    }
+  }
+
+  function setRainDensity(f) {
+    rainDensityF = (typeof f === 'number' && isFinite(f)) ? f : 1;
+    applyRainDensity();
+  }
+
   return {
+    setRainDensity: setRainDensity,
     init: init,
     update: update,
     reset: reset,

@@ -51,6 +51,7 @@ load('js/crafting.js');
 load('js/world/world.js');
 load('js/systems/save.js');
 load('js/systems/furnace.js');
+load('js/systems/settings.js');
 
 var V = sandbox.window.Voxel;
 var W = V.Config.WORLD_W, H = V.Config.WORLD_H, D = V.Config.WORLD_D;
@@ -501,6 +502,27 @@ check('斜推方向保持', Math.abs(diag.x - 0.6) < 1e-9 &&
   Math.abs(diag.y + 0.8) < 1e-9 && diag.mag === 1 && diag.sprint);
 var tiny = TU.axes(1, 1, 0);     // 半径非法防御
 check('非法半径安全归零', tiny.mag === 0);
+
+console.log('性能预设');
+var PP = V.Config.PERF_PRESETS;
+check('预设三档齐全', !!PP.smooth && !!PP.balanced && !!PP.high);
+check('流畅=30fps 低分辨率低密度', PP.smooth.fpsCap === 30 &&
+  PP.smooth.res <= 0.6 && PP.smooth.particleDensity <= 0.5 && PP.smooth.mobDensity <= 0.5);
+check('均衡=60fps 中配', PP.balanced.fpsCap === 60 && PP.balanced.res === 0.8 &&
+  PP.balanced.rainDensity === 0.7);
+check('高画质=原生满配', PP.high.fpsCap === 0 && PP.high.res === 1 &&
+  PP.high.particleDensity === 1 && PP.high.mobDensity === 1);
+(function () {
+  var bad = [];
+  ['smooth', 'balanced', 'high'].forEach(function (name) {
+    for (var k in PP[name]) if (!(k in V.Settings.defaults)) bad.push(name + '.' + k);
+  });
+  check('预设键均在设置表内', bad.length === 0);
+})();
+check('桌面默认不限帧', V.Settings.defaults.fpsCap === 0);
+check('触屏默认均衡档(60fps/降密度)', V.Settings.touchDefaults.fpsCap === 60 &&
+  V.Settings.touchDefaults.res === 0.8);
+check('渲染分辨率下限 0.35', V.Settings.limits.res[0] === 0.35);
 
 console.log('光照系统');var tL0 = Date.now();
 V.World.initLight();

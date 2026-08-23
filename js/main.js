@@ -55,6 +55,7 @@ Voxel.Game = (function () {
   //  1) 全黑/透明 → 画布从未成功渲染（真渲染失败）
   //  2) 相机朝下看却整屏单一颜色 → 地形网格没被 GPU 画出来（Metal 驱动问题）
   function checkBlankCanvas() {
+    if (Voxel.Controls.touchMode()) return;   // 触屏禁用（GPU 回读代价高，且该诊断面向桌面驱动）
     if (state !== 'playing') return;
     var now = performance.now();
     if (now - lastBlankCheck < 3000) return;
@@ -1605,7 +1606,15 @@ Voxel.Game = (function () {
     frame(now);
   }
 
+  var lastFrameT = 0, framesExecuted = 0, lastLockHint = '';
+
   function frame(now) {
+    // 帧率上限节流（设置：原生/30/60）；被跳过的帧间隔自然并入下次 dt
+    var cap = (Voxel.Settings && Voxel.Settings.get('fpsCap')) || 0;
+    if (cap > 0 && now - lastFrameT < 1000 / cap - 1) return;
+    lastFrameT = now;
+    framesExecuted++;
+
     if (!lastT) lastT = now;
     var dt = (now - lastT) / 1000;
     lastT = now;
@@ -1616,9 +1625,12 @@ Voxel.Game = (function () {
       console.error(e);
       showError(String(e.message || e));
     }
-    // 鼠标未锁定时常驻提示
-    document.getElementById('lock-hint').style.display =
-      (state === 'playing' && !Voxel.Controls.isLocked()) ? 'block' : 'none';
+    // 鼠标未锁定时常驻提示（值变化才写 DOM，避免每帧样式赋值）
+    var hintShow = (state === 'playing' && !Voxel.Controls.isLocked()) ? 'block' : 'none';
+    if (hintShow !== lastLockHint) {
+      lastLockHint = hintShow;
+      document.getElementById('lock-hint').style.display = hintShow;
+    }
     checkBlankCanvas();
     updateErrorBanner();
   }
@@ -1864,6 +1876,7 @@ Voxel.Game = (function () {
       durAt: function (i) { syncDur(); return dur[i]; },
       setDur: function (i, v) { dur[i] = v; refreshInv(); },
       damageHeld: function () { damageHeldTool(1); },
+      frameCount: function () { return framesExecuted; },
       // 熔炉测试钩子
       openFurnaceAt: function (x, y, z) { openFurnace({ x: x, y: y, z: z }); },
       closeFurnace: closeFurnace,
@@ -1917,9 +1930,14 @@ Voxel.Game = (function () {
     Voxel.HUD.init();
     Voxel.MeshBuilder.init();
 
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, preserveDrawingBuffer: true });
-    // 渲染分辨率：基础 DPR（≤2）× 用户缩放（设置滑条，移动端可降载）
-    var baseDPR = Math.min(window.devicePixelRatio || 1, 2);
+    // preserveDrawingBuffer 仅捕获模式开启（测试像素采样）；常驻开启会拖慢移动端合成
+    var CAPTURE = !!(window.__CAPTURE__ || /[?&]capture=1/.test(location.search));
+    renderer = new THREE.WebGLRenderer({
+      canvas: canvas, antialias: false, preserveDrawingBuffer: CAPTURE
+    });
+    // 渲染分辨率：基础 DPR（桌面≤2 / 触屏≤1.5）× 用户缩放（设置滑条）
+    var baseDPR = Math.min(window.devicePixelRatio || 1,
+      (Voxel.Touch && Voxel.Touch.enabled) ? 1.5 : 2);
     function applyRes() {
       var r = Voxel.Settings ? Voxel.Settings.get('res') : 1;
       renderer.setPixelRatio(baseDPR * (r || 1));
@@ -2049,13 +2067,18 @@ Voxel.Game = (function () {
       if (setReturn === 'paused') document.getElementById('overlay-pause').classList.remove('hidden');
       else document.getElementById('overlay-start').classList.remove('hidden');
     }
+    var sliderSyncs = [];
     function bindSlider(key) {
       var input = document.getElementById('set-' + key);
       var label = document.getElementById('set-' + key + '-v');
       if (!input || !Voxel.Settings) return;
-      var v = Voxel.Settings.get(key);
-      input.value = v;
-      if (label) label.textContent = (key === 'fov' ? v : v.toFixed(2));
+      function sync() {
+        var v = Voxel.Settings.get(key);
+        input.value = v;
+        if (label) label.textContent = (key === 'fov' ? Math.round(v) : v.toFixed(2));
+      }
+      sync();
+      sliderSyncs.push(sync);
       input.addEventListener('input', function () {
         Voxel.Settings.set(key, +input.value);
         if (label) label.textContent = (key === 'fov' ? input.value : (+input.value).toFixed(2));
@@ -2063,6 +2086,41 @@ Voxel.Game = (function () {
     }
     bindSlider('sens'); bindSlider('volume'); bindSlider('fov'); bindSlider('fog');
     bindSlider('tsens'); bindSlider('res');
+    bindSlider('particleDensity'); bindSlider('rainDensity'); bindSlider('mobDensity');
+
+    // 帧率上限按钮组（原生/30/60）
+    var fpsBtns = document.querySelectorAll('#fps-cap-row button');
+    function syncFpsButtons() {
+      var cur = (Voxel.Settings ? Voxel.Settings.get('fpsCap') : 0) || 0;
+      for (var i = 0; i < fpsBtns.length; i++)
+        fpsBtns[i].classList.toggle('active', +fpsBtns[i].dataset.fps === cur);
+    }
+    for (var fbi = 0; fbi < fpsBtns.length; fbi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          Voxel.Settings.set('fpsCap', +btn.dataset.fps);
+          syncFpsButtons();
+        });
+      })(fpsBtns[fbi]);
+    }
+    syncFpsButtons();
+
+    // 性能预设一键应用
+    var presetBtns = document.querySelectorAll('#perf-preset-row button');
+    function applyPreset(name, label) {
+      var p = CFG.PERF_PRESETS && CFG.PERF_PRESETS[name];
+      if (!p) return;
+      for (var k in p) Voxel.Settings.set(k, p[k]);
+      sliderSyncs.forEach(function (fn) { fn(); });
+      syncFpsButtons();
+      if (Voxel.HUD && Voxel.HUD.toast) Voxel.HUD.toast('已应用性能预设：' + label);
+    }
+    for (var pbi = 0; pbi < presetBtns.length; pbi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () { applyPreset(btn.dataset.preset, btn.textContent); });
+      })(presetBtns[pbi]);
+    }
+
     // 触摸灵敏度滑条仅触控设备显示
     if (!Voxel.Controls.touchMode()) {
       var tr = document.getElementById('set-tsens-row');
@@ -2078,6 +2136,10 @@ Voxel.Game = (function () {
         if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
         else if (k === 'volume' && Voxel.Sound.setVolume) Voxel.Sound.setVolume(v);
         else if (k === 'res') applyRes();
+        else if (k === 'rainDensity' && Voxel.Weather && Voxel.Weather.setRainDensity)
+          Voxel.Weather.setRainDensity(v);
+        else if (k === 'mobDensity' && Voxel.Mobs && Voxel.Mobs.setDensity)
+          Voxel.Mobs.setDensity(v);
       });
       Voxel.Settings.applyAll();
     }

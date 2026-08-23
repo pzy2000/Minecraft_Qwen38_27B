@@ -462,6 +462,16 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 }
 .rh-text { margin: 14px 0 18px; font-size: 15px; line-height: 1.7; }
 
+/* 设置面板按钮组（帧率/预设） */
+.btn-row { display: inline-flex; gap: 8px; }
+.btn-row .btn { padding: 7px 14px; font-size: 13px; opacity: 0.65; }
+.btn-row .btn.active {
+  opacity: 1;
+  border-color: #ffd75e;
+  color: #ffe9a8;
+  background: rgba(120, 90, 30, 0.35);
+}
+
 /* 小屏适配：槽位与面板收缩，保证竖屏也可操作 */
 @media (max-width: 900px) {
   .slot { width: 40px !important; height: 40px !important; }
