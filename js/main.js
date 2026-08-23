@@ -37,6 +37,56 @@ Voxel.Game = (function () {
 
   function setState(s) { state = s; Game.state = s; }
 
+  // 移动浏览器同时存在 layout viewport 与 visual viewport；渲染、CSS 和触摸
+  // 必须共用当前真正可见的尺寸，避免地址栏展开后画面仍按“大视口”计算。
+  function viewportSize() {
+    var vv = window.visualViewport;
+    var w = vv && vv.width ? vv.width : window.innerWidth;
+    var h = vv && vv.height ? vv.height : window.innerHeight;
+    return {
+      width: Math.max(1, Math.round(w || document.documentElement.clientWidth || 1)),
+      height: Math.max(1, Math.round(h || document.documentElement.clientHeight || 1))
+    };
+  }
+
+  function syncViewportCss(size) {
+    size = size || viewportSize();
+    document.documentElement.style.setProperty('--app-width', size.width + 'px');
+    document.documentElement.style.setProperty('--app-height', size.height + 'px');
+    return size;
+  }
+
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  // quiet=true 用于自动尝试：失败时继续按浏览器可视区游玩，不打断进程。
+  function requestGameFullscreen(quiet) {
+    if (!(Voxel.Controls && Voxel.Controls.touchMode && Voxel.Controls.touchMode()))
+      return Promise.resolve(false);
+    if (fullscreenElement()) return Promise.resolve(true);
+    var root = document.documentElement;
+    var fn = root.requestFullscreen || root.webkitRequestFullscreen;
+    if (!fn) {
+      if (!quiet && Voxel.HUD) Voxel.HUD.toast('当前浏览器不支持网页全屏，已使用自适应画面');
+      return Promise.resolve(false);
+    }
+    try {
+      return Promise.resolve(fn.call(root)).then(function () {
+        setTimeout(onResize, 0);
+        return true;
+      }, function () {
+        if (!quiet && Voxel.HUD) Voxel.HUD.toast('浏览器未允许全屏，仍可继续游戏');
+        setTimeout(onResize, 0);
+        return false;
+      });
+    } catch (e) {
+      if (!quiet && Voxel.HUD) Voxel.HUD.toast('浏览器未允许全屏，仍可继续游戏');
+      setTimeout(onResize, 0);
+      return Promise.resolve(false);
+    }
+  }
+
   function showError(msg) {
     lastErrT = performance.now();
     var el = document.getElementById('error-banner');
@@ -107,6 +157,7 @@ Voxel.Game = (function () {
   // ---------- 世界流程 ----------
 
   function startWorld(s, sd, featured) {
+    requestGameFullscreen(true);
     Voxel.Sound.unlock();
     featuredPending = featured || null;
     saveData = sd || null;
@@ -1804,9 +1855,11 @@ Voxel.Game = (function () {
   }
 
   function onResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    var size = syncViewportCss();
+    if (!camera || !renderer) return;
+    camera.aspect = size.width / size.height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(size.width, size.height);
   }
 
   var Game = {
@@ -1829,6 +1882,7 @@ Voxel.Game = (function () {
     setTouchAim: setTouchAim,
     setDigHold: setDigHold,
     touchTap: touchTap,
+    viewportSize: viewportSize,
     startFeatured: startFeatured,
     openManual: openManual,
     closeManual: closeManual,
@@ -1877,6 +1931,7 @@ Voxel.Game = (function () {
       setDur: function (i, v) { dur[i] = v; refreshInv(); },
       damageHeld: function () { damageHeldTool(1); },
       frameCount: function () { return framesExecuted; },
+      requestFullscreen: requestGameFullscreen,
       // 熔炉测试钩子
       openFurnaceAt: function (x, y, z) { openFurnace({ x: x, y: y, z: z }); },
       closeFurnace: closeFurnace,
@@ -1927,6 +1982,7 @@ Voxel.Game = (function () {
 
   function init() {
     canvas = document.getElementById('game');
+    var initialViewport = syncViewportCss();
     Voxel.HUD.init();
     Voxel.MeshBuilder.init();
 
@@ -1940,14 +1996,15 @@ Voxel.Game = (function () {
       (Voxel.Touch && Voxel.Touch.enabled) ? 1.5 : 2);
     function applyRes() {
       var r = Voxel.Settings ? Voxel.Settings.get('res') : 1;
+      var size = syncViewportCss();
       renderer.setPixelRatio(baseDPR * (r || 1));
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(size.width, size.height);
     }
     applyRes();
 
     scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x87ceeb, CFG.FOG_NEAR, CFG.FOG_FAR);
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1200);
+    camera = new THREE.PerspectiveCamera(75, initialViewport.width / initialViewport.height, 0.1, 1200);
     camera.rotation.order = 'YXZ';
 
     highlight = new THREE.LineSegments(
@@ -2021,6 +2078,10 @@ Voxel.Game = (function () {
       if (state === 'playing' && !Voxel.Controls.isLocked()) tryLock();
     });
     window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    document.addEventListener('fullscreenchange', onResize);
+    document.addEventListener('webkitfullscreenchange', onResize);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
     window.addEventListener('beforeunload', function () { doSave(true); });
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
@@ -2049,10 +2110,34 @@ Voxel.Game = (function () {
         if (Voxel.Featured && Voxel.Featured.hide) Voxel.Featured.hide();
       });
     }
-    document.getElementById('btn-resume').addEventListener('click', resume);
+    document.getElementById('btn-resume').addEventListener('click', function () {
+      requestGameFullscreen(true);
+      resume();
+    });
+    var fullscreenBtn = document.getElementById('btn-fullscreen');
+    if (fullscreenBtn) {
+      fullscreenBtn.style.display = Voxel.Controls.touchMode() ? 'block' : 'none';
+      fullscreenBtn.addEventListener('click', function () { requestGameFullscreen(false); });
+    }
     document.getElementById('btn-save').addEventListener('click', function () { doSave(false); });
-    document.getElementById('btn-respawn').addEventListener('click', resume);
+    document.getElementById('btn-respawn').addEventListener('click', function () {
+      requestGameFullscreen(true);
+      resume();
+    });
     document.getElementById('btn-menu').addEventListener('click', gotoMenu);
+
+    // 所有可由触屏打开的面板都提供可见关闭入口，并复用原有状态机收尾逻辑。
+    var closeBindings = [
+      ['btn-inv-close', function () { toggleInv(false); }],
+      ['btn-craft-close', closeCrafting],
+      ['btn-furnace-close', closeFurnace],
+      ['btn-chest-close', closeChest],
+      ['btn-manual-close', closeManual]
+    ];
+    for (var cbi = 0; cbi < closeBindings.length; cbi++) {
+      var closeEl = document.getElementById(closeBindings[cbi][0]);
+      if (closeEl) closeEl.addEventListener('click', closeBindings[cbi][1]);
+    }
 
     // ---- 设置面板 ----
     var setReturn = 'menu';
@@ -2127,6 +2212,8 @@ Voxel.Game = (function () {
       if (tr) tr.style.display = 'none';
     }
     document.getElementById('btn-set-close').addEventListener('click', closeSettings);
+    var settingsClose = document.getElementById('btn-settings-close');
+    if (settingsClose) settingsClose.addEventListener('click', closeSettings);
     document.getElementById('btn-settings').addEventListener('click', function () { openSettings('paused'); });
     document.getElementById('btn-settings-menu').addEventListener('click', function () { openSettings('menu'); });
 

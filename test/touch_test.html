@@ -19,21 +19,21 @@
   <div id="dmg-dir"><i></i></div><div id="sleep-fade"></div>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel">
-  <div class="inv-title">背包</div>
+  <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
   <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
   <div id="inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
   <div class="inv-tip"></div>
 </div></div>
 <div id="crafting" class="hidden"><div class="panel craft-panel">
-  <div class="inv-title">工作台</div>
+  <div class="panel-titlebar"><div class="inv-title">工作台</div><button id="btn-craft-close" class="panel-close" aria-label="关闭工作台">×</button></div>
   <div class="craft-row"><div id="craft-grid"></div><div class="craft-arrow">→</div><div id="craft-result" class="slot result"></div></div>
   <div id="craft-inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
   <button id="btn-manual" class="btn">查看合成手册</button>
 </div></div>
 <div id="furnace" class="hidden"><div class="panel furnace-panel">
-  <div class="inv-title">熔炉</div>
+  <div class="panel-titlebar"><div class="inv-title">熔炉</div><button id="btn-furnace-close" class="panel-close" aria-label="关闭熔炉">×</button></div>
   <div class="furnace-row">
     <div class="furnace-col"><div id="fur-in" class="slot"></div><div id="fur-flame"><i></i></div><div id="fur-fuel" class="slot"></div></div>
     <div class="furnace-arrow"><span>➜</span><div class="fur-track"><i id="fur-prog"></i></div></div>
@@ -43,12 +43,12 @@
   <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
 </div></div>
 <div id="chest" class="hidden"><div class="panel chest-panel">
-  <div class="inv-title">箱子</div>
+  <div class="panel-titlebar"><div class="inv-title">箱子</div><button id="btn-chest-close" class="panel-close" aria-label="关闭箱子">×</button></div>
   <div id="chest-grid"></div><div id="chest-inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
 </div></div>
 <div id="manual" class="hidden"><div class="panel manual-panel">
-  <div class="inv-title">合成手册</div><div id="manual-list"></div><div class="inv-tip"></div>
+  <div class="panel-titlebar"><div class="inv-title">合成手册</div><button id="btn-manual-close" class="panel-close" aria-label="关闭合成手册">×</button></div><div id="manual-list"></div><div class="inv-tip"></div>
 </div></div>
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
@@ -58,10 +58,10 @@
   <div id="start-hint" class="hint"></div>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
-  <button id="btn-resume"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
+  <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
 </div></div>
 <div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
-<div id="overlay-settings" class="overlay hidden"><div class="panel"><h2></h2>
+<div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel"><div class="panel-titlebar"><h2></h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
   <input id="set-sens" type="range"><span id="set-sens-v"></span>
   <input id="set-volume" type="range"><span id="set-volume-v"></span>
   <input id="set-fov" type="range"><span id="set-fov-v"></span>
@@ -109,6 +109,13 @@
 <script src="../js/ui/featured.js"></script>
 <script src="../js/ui/touch.js"></script>
 <script src="../js/ui/hud.js"></script>
+<script>
+  window.__fullscreenRequests = 0;
+  document.documentElement.requestFullscreen = function () {
+    window.__fullscreenRequests++;
+    return Promise.resolve();
+  };
+</script>
 <script src="../js/main.js"></script>
 <script>
   // 触控专项测试：runner 通过 evaluateOnNewDocument 注入 __FORCE_TOUCH__，
@@ -173,6 +180,7 @@
 
   function stepA() {
     wait(400, function () {
+      check('进入世界自动请求全屏', window.__fullscreenRequests >= 1);
       var cap = doc.querySelector('.touch-capture');
       check('捕获层已显示', !!cap && cap.style.display !== 'none' && cap.style.display !== '');
       var jb = doc.querySelector('.touch-btn-main');
@@ -372,10 +380,14 @@
       pev('pointerup', 16, c.x, c.y);
       wait(250, function () {
         check('轻点工作台打开合成面板', Voxel.Game.state === 'crafting');
-        ensurePlaying(function () {
-          check('Esc 关闭回 playing', Voxel.Game.state === 'playing');
-          stepG();
-        });
+        var T = Voxel.Game._test;
+        var plankBefore = T.countInv(10);
+        T.setCraft(0, 10);
+        doc.getElementById('btn-craft-close').click();
+        check('工作台关闭按钮回到 playing', Voxel.Game.state === 'playing' &&
+          doc.getElementById('crafting').classList.contains('hidden'));
+        check('工作台关闭归还合成格材料', T.countInv(10) === plankBefore + 1);
+        stepG();
       });
     });
   }
@@ -389,8 +401,13 @@
 
       pb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 20, pointerType: 'touch' }));
       check('暂停按钮打开菜单', Voxel.Game.state === 'paused');
-      Voxel.Game.onKey('KeyP');
-      check('恢复 playing', Voxel.Game.state === 'playing');
+      var fs0 = window.__fullscreenRequests;
+      doc.getElementById('btn-fullscreen').click();
+      check('暂停菜单全屏按钮发起请求且保持暂停',
+        window.__fullscreenRequests === fs0 + 1 && Voxel.Game.state === 'paused');
+      doc.getElementById('btn-resume').click();
+      check('恢复按钮自动请求全屏并回到 playing',
+        window.__fullscreenRequests === fs0 + 2 && Voxel.Game.state === 'playing');
 
       fb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 21, pointerType: 'touch' }));
       fb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 21, pointerType: 'touch' }));
@@ -424,6 +441,11 @@
           bb.dataset.pre = Voxel.Game.state;
           bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 24, pointerType: 'touch' }));
           check('背包按钮打开背包 [pre=' + bb.dataset.pre + ']', Voxel.Game.state === 'inventory');
+          doc.getElementById('btn-inv-close').click();
+          check('背包关闭按钮回到 playing', Voxel.Game.state === 'playing' &&
+            doc.getElementById('inventory').classList.contains('hidden'));
+          bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 25, pointerType: 'touch' }));
+          check('背包按钮再次打开背包', Voxel.Game.state === 'inventory');
           bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 25, pointerType: 'touch' }));
           check('再按关闭背包', Voxel.Game.state === 'playing');
 
@@ -450,11 +472,81 @@
       slotEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 30 }));
       doc.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 30 }));
       check('pointer 点击拾取到手持', T.held() === 10 && T.heldCount() === 3);
-      slotEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 31 }));
-      doc.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 31 }));
-      check('pointer 点击放回原格', !T.held() && T.inv()[0] === 10 && T.cnt()[0] === 3);
-      Voxel.Game.onKey('KeyE');
+      doc.getElementById('btn-inv-close').click();
+      check('背包关闭时手持物安全归还', Voxel.Game.state === 'playing' &&
+        !T.held() && T.countInv(10) === 3);
+      stepI();
+    });
+  }
 
+  // 9) 所有容器/手册/设置都能靠可见按钮退出，且内容语义保持不变
+  function stepI() {
+    var T = Voxel.Game._test;
+    var p = Voxel.Player.pos();
+    var x = Math.max(2, Math.min(252, Math.floor(p.x) + 2));
+    var y = Math.max(2, Math.min(61, Math.floor(p.y)));
+    var z = Math.max(2, Math.min(252, Math.floor(p.z) + 2));
+
+    Voxel.World.set(x, y, z, 37);
+    T.openFurnaceAt(x, y, z);
+    var furnaceState = T.furnaceState();
+    if (furnaceState) furnaceState.in = { id: 3, n: 2 };
+    doc.getElementById('btn-furnace-close').click();
+    var savedFurnace = Voxel.World.getMeta(x, y, z);
+    check('熔炉关闭按钮保留内容并回到 playing', Voxel.Game.state === 'playing' &&
+      savedFurnace && savedFurnace.in && savedFurnace.in.n === 2);
+
+    Voxel.World.set(x + 1, y, z, 38);
+    T.openChestAt(x + 1, y, z);
+    var chestState = T.curChest();
+    if (chestState) chestState.items[0] = { id: 10, n: 2 };
+    doc.getElementById('btn-chest-close').click();
+    var savedChest = Voxel.World.getMeta(x + 1, y, z);
+    check('箱子关闭按钮保留内容并回到 playing', Voxel.Game.state === 'playing' &&
+      savedChest && savedChest.items[0] && savedChest.items[0].n === 2);
+
+    Voxel.Game.openManual();
+    check('合成手册已打开', !doc.getElementById('manual').classList.contains('hidden'));
+    doc.getElementById('btn-manual-close').click();
+    check('合成手册关闭按钮不改变 playing 状态', Voxel.Game.state === 'playing' &&
+      doc.getElementById('manual').classList.contains('hidden'));
+
+    Voxel.Game.onKey('KeyP');
+    doc.getElementById('btn-settings').click();
+    doc.getElementById('btn-settings-close').click();
+    check('设置顶部关闭返回暂停菜单', Voxel.Game.state === 'paused' &&
+      !doc.getElementById('overlay-pause').classList.contains('hidden'));
+    doc.getElementById('btn-settings').click();
+    doc.getElementById('btn-set-close').click();
+    check('设置底部返回仍返回暂停菜单', Voxel.Game.state === 'paused' &&
+      !doc.getElementById('overlay-pause').classList.contains('hidden'));
+    Voxel.Game.onKey('KeyP');
+    stepJ();
+  }
+
+  // 10) 全屏拒绝/不支持都必须安静降级，不能改变游戏状态
+  function stepJ() {
+    var T = Voxel.Game._test;
+    var root = doc.documentElement;
+    var originalRequest = root.requestFullscreen;
+    var originalWebkit = root.webkitRequestFullscreen;
+    root.requestFullscreen = function () { return Promise.reject(new Error('denied')); };
+    T.requestFullscreen(true).then(function (ok) {
+      check('全屏请求被拒绝时安全降级', ok === false && Voxel.Game.state === 'playing');
+      root.requestFullscreen = null;
+      root.webkitRequestFullscreen = null;
+      return T.requestFullscreen(true);
+    }).then(function (ok) {
+      check('浏览器无全屏 API 时安全降级', ok === false && Voxel.Game.state === 'playing');
+      root.requestFullscreen = originalRequest;
+      root.webkitRequestFullscreen = originalWebkit;
+
+      Voxel.Game.onKey('KeyP');
+      doc.getElementById('btn-menu').click();
+      doc.getElementById('btn-settings-menu').click();
+      doc.getElementById('btn-settings-close').click();
+      check('设置顶部关闭返回主菜单', Voxel.Game.state === 'menu' &&
+        !doc.getElementById('overlay-start').classList.contains('hidden'));
       check('主循环无异常帧', Object.keys(errCount).length === 0);
       report();
     });

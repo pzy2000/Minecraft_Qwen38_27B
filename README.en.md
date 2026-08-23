@@ -84,9 +84,15 @@ python3 -m http.server 8080
 | P | Pause menu (manual save / settings / key bindings / save and return to main menu) |
 | Esc | Release the mouse |
 
+## Mobile touch controls
+
+Touch devices enable a floating left-side movement stick, right-side look/tap/hold gestures, and on-screen jump, fly, pause, and inventory buttons automatically. Starting, continuing, resuming, respawning, or choosing a featured world attempts immersive fullscreen; if the browser rejects it, the game continues in a layout fitted to the currently visible browser viewport. Use **Enter fullscreen** in the pause menu to retry.
+
+Inventory, crafting table, furnace, chest, crafting handbook, and settings panels all have a pinned close button. On low-height landscape screens the panels use horizontal space first and keep any remaining overflow scrollable inside the panel, so no keyboard-only exit is required.
+
 ## Settings
 
-Open **Settings** from the main menu or pause menu: mouse sensitivity, volume, field of view (FOV), and fog distance. Changes apply immediately and are stored in this browser (localStorage).
+Open **Settings** from the main menu or pause menu to adjust input, audio, view distance, render resolution, frame-rate cap, and effect-density options. Changes apply immediately and are stored in this browser (localStorage).
 
 ## Features
 
@@ -178,7 +184,7 @@ node test/run_browser_tests.js     # Auto-detects Chrome/Edge/Chromium; you can 
 
 - No furnace/smelting (iron ore is used directly for iron tools); tools have no durability
 - Lighting is per-block flat light (no smooth interpolation); torches cannot be placed on walls
-- Single-player only; no mobile touch controls
+- Single-player only; immersive fullscreen depends on browser support, with an adaptive in-browser fallback
 - Generating the full 256×256 world takes about 1–2 seconds plus ~1 second for light init (progress bar shown); chunk meshes build incrementally
 
 ## Audio credits

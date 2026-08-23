@@ -48,12 +48,16 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/browser_test.html', re: '^TEST-PASS' },
     { file: 'test/touch_test.html', re: '^TOUCH-PASS', forceTouch: true },
     { file: 'test/render_check.html', re: '^RENDER-PASS' },
-    { file: 'test/render_check.html', re: '^RENDER-PASS', forceTouch: true }
+    { file: 'test/render_check.html', re: '^RENDER-PASS', forceTouch: true },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 293, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 390, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 740, height: 300, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 390, height: 740, deviceScaleFactor: 3, isMobile: true, hasTouch: true } }
   ];
 
   for (const t of targets) {
     const page = await browser.newPage();
-    await page.setViewport({ width: 960, height: 600 });
+    await page.setViewport(t.viewport || { width: 960, height: 600 });
     if (t.forceTouch)
       await page.evaluateOnNewDocument(() => { window.__FORCE_TOUCH__ = true; });
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
@@ -62,7 +66,8 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
       { timeout: 180000, polling: 500 }, t.re
     ).then(() => true).catch(() => false);
     const text = await page.$eval('#results, #out', el => el.textContent).catch(() => '');
-    console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
+    const vpLabel = t.viewport ? ` [${t.viewport.width}x${t.viewport.height}]` : '';
+    console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') + vpLabel + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
     console.log(text);
     allPass = allPass && ok;
     await page.close();

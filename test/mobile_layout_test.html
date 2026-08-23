@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>MOBILE-LAYOUT-RUNNING</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><div id="hotbar"></div></div>
+
+<div id="inventory" class="hidden"><div class="panel inv-panel">
+  <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
+  <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div class="slot result"></div></div>
+  <div id="inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas width="44" height="44"></canvas></div>
+  <div class="inv-tip">移动端说明文字必须可以滚动查看，不能把关闭按钮挤出屏幕。</div>
+</div></div>
+
+<div id="crafting" class="hidden"><div class="panel craft-panel">
+  <div class="panel-titlebar"><div class="inv-title">工作台</div><button id="btn-craft-close" class="panel-close" aria-label="关闭工作台">×</button></div>
+  <div class="craft-row"><div id="craft-grid"></div><div class="craft-arrow">→</div><div class="slot result"></div></div>
+  <div id="craft-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas width="44" height="44"></canvas></div>
+  <div class="inv-tip">工作台关闭入口始终可见。</div>
+  <button id="btn-manual" class="btn">查看合成手册</button>
+</div></div>
+
+<div id="furnace" class="hidden"><div class="panel furnace-panel">
+  <div class="panel-titlebar"><div class="inv-title">熔炉</div><button id="btn-furnace-close" class="panel-close" aria-label="关闭熔炉">×</button></div>
+  <div class="furnace-row"><div class="furnace-col"><div id="fur-in" class="slot"></div><div id="fur-flame"><i></i></div><div id="fur-fuel" class="slot"></div></div><div class="furnace-arrow"><span>➜</span><div class="fur-track"><i></i></div></div><div id="fur-out" class="slot result"></div></div>
+  <div id="fur-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas width="44" height="44"></canvas></div>
+  <div class="inv-tip">熔炉关闭入口始终可见。</div>
+</div></div>
+
+<div id="chest" class="hidden"><div class="panel chest-panel">
+  <div class="panel-titlebar"><div class="inv-title">箱子</div><button id="btn-chest-close" class="panel-close" aria-label="关闭箱子">×</button></div>
+  <div id="chest-grid"></div><div id="chest-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas width="44" height="44"></canvas></div>
+  <div class="inv-tip">箱子关闭入口始终可见。</div>
+</div></div>
+
+<div id="manual" class="hidden"><div class="panel manual-panel">
+  <div class="panel-titlebar"><div class="inv-title">合成手册</div><button id="btn-manual-close" class="panel-close" aria-label="关闭合成手册">×</button></div>
+  <div id="manual-list"></div><div class="inv-tip">手册底部说明。</div>
+</div></div>
+
+<div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel">
+  <div class="panel-titlebar"><h2>设置</h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
+  <div class="set-row"><label>鼠标灵敏度</label><input type="range"><span>1.00</span></div>
+  <div class="set-row"><label>音量</label><input type="range"><span>0.50</span></div>
+  <div class="set-row"><label>视场角</label><input type="range"><span>75</span></div>
+  <div class="set-row"><label>雾距</label><input type="range"><span>1.00</span></div>
+  <div class="set-row"><label>触摸灵敏度</label><input type="range"><span>1.00</span></div>
+  <div class="set-row"><label>渲染分辨率</label><input type="range"><span>0.55</span></div>
+  <div class="set-row"><label>帧率上限</label><span class="btn-row"><button class="btn small">30</button><button class="btn small">60</button></span></div>
+  <div class="set-row"><label>粒子密度</label><input type="range"><span>0.40</span></div>
+  <div class="set-row"><label>雨滴密度</label><input type="range"><span>0.40</span></div>
+  <div class="set-row"><label>生物数量</label><input type="range"><span>0.50</span></div>
+  <div class="set-row"><label>性能预设</label><span class="btn-row"><button class="btn small">流畅</button><button class="btn small">均衡</button></span></div>
+  <div class="hint">设置立即生效并自动保存。</div>
+  <button id="btn-set-close" class="btn primary">返回</button>
+</div></div>
+
+<pre id="results">RUNNING</pre>
+<script>
+(function () {
+  var out = [];
+  function check(name, ok) { out.push((ok ? 'ok   ' : 'FAIL ') + name); }
+  function slots(id, n) {
+    var root = document.getElementById(id);
+    for (var i = 0; i < n; i++) {
+      var d = document.createElement('div');
+      d.className = 'slot inv';
+      root.appendChild(d);
+    }
+  }
+  slots('inv-craft-grid', 4); slots('inv-grid', 36);
+  slots('craft-grid', 9); slots('craft-inv-grid', 36);
+  slots('fur-inv-grid', 36); slots('chest-grid', 27); slots('chest-inv-grid', 36);
+  for (var r = 0; r < 18; r++) {
+    var row = document.createElement('div');
+    row.className = 'recipe-row';
+    row.innerHTML = '<div class="recipe-name">配方 ' + (r + 1) + '</div><button class="btn craft-btn">合成</button>';
+    document.getElementById('manual-list').appendChild(row);
+  }
+
+  var vv = window.visualViewport;
+  var W = Math.round((vv && vv.width) || innerWidth);
+  var H = Math.round((vv && vv.height) || innerHeight);
+  document.documentElement.style.setProperty('--app-width', W + 'px');
+  document.documentElement.style.setProperty('--app-height', H + 'px');
+  var canvasRect = document.getElementById('game').getBoundingClientRect();
+  check('画布宽度等于可视区 (' + W + ')', Math.abs(canvasRect.width - W) <= 1);
+  check('画布高度等于可视区 (' + H + ')', Math.abs(canvasRect.height - H) <= 1);
+
+  var cases = [
+    ['inventory', 'btn-inv-close'], ['crafting', 'btn-craft-close'],
+    ['furnace', 'btn-furnace-close'], ['chest', 'btn-chest-close'],
+    ['manual', 'btn-manual-close'], ['overlay-settings', 'btn-settings-close']
+  ];
+  cases.forEach(function (c) {
+    var overlay = document.getElementById(c[0]);
+    var panel = overlay.querySelector('.panel');
+    var close = document.getElementById(c[1]);
+    overlay.classList.remove('hidden');
+    var pr = panel.getBoundingClientRect();
+    var cr = close.getBoundingClientRect();
+    check(c[0] + ' 面板完整限制在可视区',
+      pr.top >= -1 && pr.left >= -1 && pr.bottom <= H + 1 && pr.right <= W + 1);
+    if (W > H) check(c[0] + ' 横屏无需横向滚动', panel.scrollWidth <= panel.clientWidth + 1);
+    check(c[0] + ' 关闭按钮至少 44px 且完整可见',
+      cr.width >= 44 && cr.height >= 44 && cr.top >= -1 && cr.left >= -1 && cr.bottom <= H + 1 && cr.right <= W + 1);
+    var hit = document.elementFromPoint(cr.left + cr.width / 2, cr.top + cr.height / 2);
+    check(c[0] + ' 关闭按钮可命中', hit === close || close.contains(hit));
+    panel.scrollTop = panel.scrollHeight;
+    var csr = close.getBoundingClientRect();
+    check(c[0] + ' 滚动后关闭按钮仍可见', csr.top >= -1 && csr.bottom <= H + 1);
+    panel.scrollTop = 0;
+    overlay.classList.add('hidden');
+  });
+
+  var fails = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;
+  document.getElementById('results').textContent =
+    'viewport=' + W + 'x' + H + '\n' + out.join('\n');
+  document.title = fails ? 'MOBILE-LAYOUT-FAIL' : 'MOBILE-LAYOUT-PASS';
+})();
+</script>
+</body>
+</html>

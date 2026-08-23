@@ -60,6 +60,15 @@ Voxel.Touch = (function () {
     return (Voxel.Settings && Voxel.Settings.get('tsens')) || 1;
   }
 
+  function viewportSize() {
+    if (Voxel.Game && Voxel.Game.viewportSize) return Voxel.Game.viewportSize();
+    var vv = window.visualViewport;
+    return {
+      width: Math.max(1, Math.round((vv && vv.width) || window.innerWidth || 1)),
+      height: Math.max(1, Math.round((vv && vv.height) || window.innerHeight || 1))
+    };
+  }
+
   // ---- DOM 构建 ----
   function el(cls, css, html) {
     var d = document.createElement('div');
@@ -108,11 +117,14 @@ Voxel.Touch = (function () {
       try { return sessionStorage.getItem('rh_dismissed') === '1'; } catch (e) { return false; }
     }
     function update() {
-      var portrait = window.innerHeight > window.innerWidth;
+      var size = viewportSize();
+      var portrait = size.height > size.width;
       rh.classList.toggle('hidden', !portrait || dismissed());
     }
     update();
     window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', update);
     if (btn) btn.addEventListener('click', function () {
       try { sessionStorage.setItem('rh_dismissed', '1'); } catch (e) { }
       rh.classList.add('hidden');
@@ -162,7 +174,7 @@ Voxel.Touch = (function () {
     if (!Voxel.Game || Voxel.Game.state !== 'playing') return;
     e.preventDefault();
     var x = e.clientX, y = e.clientY;
-    var W = window.innerWidth;
+    var W = viewportSize().width;
     if (stickId === null && x < W * C.LEFT_ZONE_FRAC) {
       // 浮动摇杆：底座落在手指处
       stickId = e.pointerId;
@@ -226,8 +238,9 @@ Voxel.Touch = (function () {
         if (Voxel.Game) Voxel.Game.setDigHold(false);
       } else if (dist <= C.TAP_DIST && dt <= C.TAP_MS) {
         // 轻点：放置 / 交互 / 攻击（MCPE 手势流）
+        var size = viewportSize();
         if (Voxel.Game) Voxel.Game.touchTap(
-          sx / window.innerWidth, sy / window.innerHeight);
+          sx / size.width, sy / size.height);
       }
       if (Voxel.Game) Voxel.Game.setTouchAim(null);
     }
@@ -291,8 +304,9 @@ Voxel.Touch = (function () {
 
   // 触点 → 游戏内瞄准目标（归一化坐标交给 main 反投影）
   function aimAt(x, y) {
+    var size = viewportSize();
     if (Voxel.Game) Voxel.Game.setTouchAim(
-      x / window.innerWidth, y / window.innerHeight);
+      x / size.width, y / size.height);
   }
 
   // ---- 每帧同步：显隐与状态复位 ----

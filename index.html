@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>方块世界 VoxelCraft</title>
-<link rel="stylesheet" href="css/style.css?v=20260823e">
+<link rel="stylesheet" href="css/style.css?v=20260823f">
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -30,7 +30,10 @@
 <!-- 背包 -->
 <div id="inventory" class="hidden">
   <div class="panel inv-panel">
-    <div class="inv-title">背包</div>
+    <div class="panel-titlebar">
+      <div class="inv-title">背包</div>
+      <button id="btn-inv-close" class="panel-close" type="button" aria-label="关闭背包" title="关闭背包">×</button>
+    </div>
     <div class="craft-row">
       <div id="inv-craft-grid"></div>
       <div class="craft-arrow">→</div>
@@ -45,7 +48,10 @@
 <!-- 工作台 -->
 <div id="crafting" class="hidden">
   <div class="panel craft-panel">
-    <div class="inv-title">工作台</div>
+    <div class="panel-titlebar">
+      <div class="inv-title">工作台</div>
+      <button id="btn-craft-close" class="panel-close" type="button" aria-label="关闭工作台" title="关闭工作台">×</button>
+    </div>
     <div class="craft-row">
       <div id="craft-grid"></div>
       <div class="craft-arrow">→</div>
@@ -61,7 +67,10 @@
 <!-- 熔炉 -->
 <div id="furnace" class="hidden">
   <div class="panel furnace-panel">
-    <div class="inv-title">熔炉</div>
+    <div class="panel-titlebar">
+      <div class="inv-title">熔炉</div>
+      <button id="btn-furnace-close" class="panel-close" type="button" aria-label="关闭熔炉" title="关闭熔炉">×</button>
+    </div>
     <div class="furnace-row">
       <div class="furnace-col">
         <div id="fur-in" class="slot"></div>
@@ -80,7 +89,10 @@
 <!-- 箱子 -->
 <div id="chest" class="hidden">
   <div class="panel chest-panel">
-    <div class="inv-title">箱子</div>
+    <div class="panel-titlebar">
+      <div class="inv-title">箱子</div>
+      <button id="btn-chest-close" class="panel-close" type="button" aria-label="关闭箱子" title="关闭箱子">×</button>
+    </div>
     <div id="chest-grid"></div>
     <div id="chest-inv-grid"></div>
     <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
@@ -91,7 +103,10 @@
 <!-- 合成手册 -->
 <div id="manual" class="hidden">
   <div class="panel manual-panel">
-    <div class="inv-title">合成手册</div>
+    <div class="panel-titlebar">
+      <div class="inv-title">合成手册</div>
+      <button id="btn-manual-close" class="panel-close" type="button" aria-label="关闭合成手册" title="关闭合成手册">×</button>
+    </div>
     <div id="manual-list"></div>
     <div class="inv-tip">M 或 ESC 关闭</div>
   </div>
@@ -136,6 +151,7 @@
   <div class="panel">
     <h2>游戏暂停</h2>
     <button id="btn-resume" class="btn primary">继续游戏</button>
+    <button id="btn-fullscreen" class="btn">进入全屏</button>
     <button id="btn-save" class="btn">立即存档</button>
     <button id="btn-settings" class="btn">设置</button>
     <button id="btn-menu" class="btn">存档并回主菜单</button>
@@ -160,8 +176,11 @@
 
 <!-- 设置 -->
 <div id="overlay-settings" class="overlay hidden">
-  <div class="panel">
-    <h2>设置</h2>
+  <div class="panel settings-panel">
+    <div class="panel-titlebar">
+      <h2>设置</h2>
+      <button id="btn-settings-close" class="panel-close" type="button" aria-label="关闭设置" title="关闭设置">×</button>
+    </div>
     <div class="set-row"><label>鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05"><span id="set-sens-v"></span></div>
     <div class="set-row"><label>音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05"><span id="set-volume-v"></span></div>
     <div class="set-row"><label>视场角 (FOV)</label><input id="set-fov" type="range" min="60" max="100" step="1"><span id="set-fov-v"></span></div>
@@ -205,33 +224,33 @@
 </div>
 
 <script src="vendor/three.min.js"></script>
-<script src="js/config.js?v=20260823e"></script>
-<script src="js/assets.js?v=20260823e"></script>
-<script src="js/world/seed.js?v=20260823e"></script>
-<script src="js/world/noise.js?v=20260823e"></script>
-<script src="js/world/biomes.js?v=20260823e"></script>
-<script src="js/world/shaper.js?v=20260823e"></script>
-<script src="js/blocks.js?v=20260823e"></script>
-<script src="js/crafting.js?v=20260823e"></script>
-<script src="js/world/world.js?v=20260823e"></script>
-<script src="js/world/mesh.js?v=20260823e"></script>
-<script src="js/player/physics.js?v=20260823e"></script>
-<script src="js/player/controls.js?v=20260823e"></script>
-<script src="js/player/player.js?v=20260823e"></script>
-<script src="js/interact/raycast.js?v=20260823e"></script>
-<script src="js/systems/settings.js?v=20260823e"></script>
-<script src="js/systems/daynight.js?v=20260823e"></script>
-<script src="js/systems/weather.js?v=20260823e"></script>
-<script src="js/systems/sound.js?v=20260823e"></script>
-<script src="js/systems/furnace.js?v=20260823e"></script>
-<script src="js/systems/particles.js?v=20260823e"></script>
-<script src="js/entities/mobs.js?v=20260823e"></script>
-<script src="js/entities/drops.js?v=20260823e"></script>
-<script src="js/systems/save.js?v=20260823e"></script>
-<script src="js/ui/handitem.js?v=20260823e"></script>
-<script src="js/ui/featured.js?v=20260823e"></script>
-<script src="js/ui/touch.js?v=20260823e"></script>
-<script src="js/ui/hud.js?v=20260823e"></script>
-<script src="js/main.js?v=20260823e"></script>
+<script src="js/config.js?v=20260823f"></script>
+<script src="js/assets.js?v=20260823f"></script>
+<script src="js/world/seed.js?v=20260823f"></script>
+<script src="js/world/noise.js?v=20260823f"></script>
+<script src="js/world/biomes.js?v=20260823f"></script>
+<script src="js/world/shaper.js?v=20260823f"></script>
+<script src="js/blocks.js?v=20260823f"></script>
+<script src="js/crafting.js?v=20260823f"></script>
+<script src="js/world/world.js?v=20260823f"></script>
+<script src="js/world/mesh.js?v=20260823f"></script>
+<script src="js/player/physics.js?v=20260823f"></script>
+<script src="js/player/controls.js?v=20260823f"></script>
+<script src="js/player/player.js?v=20260823f"></script>
+<script src="js/interact/raycast.js?v=20260823f"></script>
+<script src="js/systems/settings.js?v=20260823f"></script>
+<script src="js/systems/daynight.js?v=20260823f"></script>
+<script src="js/systems/weather.js?v=20260823f"></script>
+<script src="js/systems/sound.js?v=20260823f"></script>
+<script src="js/systems/furnace.js?v=20260823f"></script>
+<script src="js/systems/particles.js?v=20260823f"></script>
+<script src="js/entities/mobs.js?v=20260823f"></script>
+<script src="js/entities/drops.js?v=20260823f"></script>
+<script src="js/systems/save.js?v=20260823f"></script>
+<script src="js/ui/handitem.js?v=20260823f"></script>
+<script src="js/ui/featured.js?v=20260823f"></script>
+<script src="js/ui/touch.js?v=20260823f"></script>
+<script src="js/ui/hud.js?v=20260823f"></script>
+<script src="js/main.js?v=20260823f"></script>
 </body>
 </html>

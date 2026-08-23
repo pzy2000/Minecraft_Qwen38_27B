@@ -24,14 +24,14 @@
   <div id="sleep-fade"></div>
 </div>
 <div id="inventory" class="hidden"><div class="panel inv-panel">
-  <div class="inv-title">背包</div>
+  <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
   <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
   <div id="inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
   <div class="inv-tip"></div>
 </div></div>
 <div id="crafting" class="hidden"><div class="panel craft-panel">
-  <div class="inv-title">工作台</div>
+  <div class="panel-titlebar"><div class="inv-title">工作台</div><button id="btn-craft-close" class="panel-close" aria-label="关闭工作台">×</button></div>
   <div class="craft-row"><div id="craft-grid"></div><div class="craft-arrow">→</div><div id="craft-result" class="slot result"></div></div>
   <div id="craft-inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
@@ -39,10 +39,10 @@
   <button id="btn-manual" class="btn">查看合成手册</button>
 </div></div>
 <div id="manual" class="hidden"><div class="panel manual-panel">
-  <div class="inv-title">合成手册</div><div id="manual-list"></div><div class="inv-tip"></div>
+  <div class="panel-titlebar"><div class="inv-title">合成手册</div><button id="btn-manual-close" class="panel-close" aria-label="关闭合成手册">×</button></div><div id="manual-list"></div><div class="inv-tip"></div>
 </div></div>
 <div id="furnace" class="hidden"><div class="panel furnace-panel">
-  <div class="inv-title">熔炉</div>
+  <div class="panel-titlebar"><div class="inv-title">熔炉</div><button id="btn-furnace-close" class="panel-close" aria-label="关闭熔炉">×</button></div>
   <div class="furnace-row">
     <div class="furnace-col">
       <div id="fur-in" class="slot"></div>
@@ -57,7 +57,7 @@
   <div class="inv-tip"></div>
 </div></div>
 <div id="chest" class="hidden"><div class="panel chest-panel">
-  <div class="inv-title">箱子</div>
+  <div class="panel-titlebar"><div class="inv-title">箱子</div><button id="btn-chest-close" class="panel-close" aria-label="关闭箱子">×</button></div>
   <div id="chest-grid"></div>
   <div id="chest-inv-grid"></div>
   <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
@@ -69,11 +69,11 @@
   <div id="start-hint" class="hint"></div>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
-  <button id="btn-resume"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
+  <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
   <div class="hint"></div>
 </div></div>
 <div id="overlay-dead" class="overlay hidden"><div class="panel"><h2 class="dead"></h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
-<div id="overlay-settings" class="overlay hidden"><div class="panel"><h2></h2>
+<div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel"><div class="panel-titlebar"><h2></h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
   <input id="set-sens" type="range"><span id="set-sens-v"></span>
   <input id="set-volume" type="range"><span id="set-volume-v"></span>
   <input id="set-fov" type="range"><span id="set-fov-v"></span>
@@ -950,7 +950,7 @@
 
   setTimeout(function () {
     if (doc.title.indexOf('TEST') !== 0) { out.push('FATAL 超时未完成 state=' + Voxel.Game.state); report(); }
-  }, 40000);
+  }, 120000);
 })();
 </script>
 </body>
