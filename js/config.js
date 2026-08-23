@@ -22,7 +22,20 @@ Voxel.Config = {
     FALL_SAFE: 13,      // 落地速度不超过此值不摔伤（约3格）
     FALL_DMG: 0.9,      // 每超出 1 单位落地速度的伤害
     AIR_MAX: 10,        // 水下憋气秒数
-    DROWN_DMG: 2        // 憋气耗尽后每秒伤害
+    DROWN_DMG: 2,       // 憋气耗尽后每秒伤害
+    FOOD_MAX: 20,       // 饥饿值上限（20 = 10 个鸡腿）
+    EXHAUST_PER_FOOD: 4,// 每 4 点疲惫消耗 1 饥饿
+    RATE_STILL: 0.03,   // 疲惫速率/秒：静止（基础代谢）
+    RATE_MOVE: 0.10,    // 移动
+    RATE_SPRINT: 0.35,  // 疾跑
+    RATE_SWIM: 0.22,    // 游泳
+    EXHAUST_JUMP: 0.08, // 每次跳跃额外疲惫
+    EXHAUST_DIG: 0.025, // 每挖一块
+    EXHAUST_ATTACK: 0.1,// 每次攻击
+    HEAL_FOOD_MIN: 18,  // 饥饿 ≥ 此值才回血
+    HEAL_EXHAUST: 1.5,  // 每回复 1 血的额外疲惫
+    STARVE_INTERVAL: 4, // 饥饿 0 时每 N 秒扣血
+    STARVE_DMG: 1       // 饥饿伤害（降到 1 血为止，不饿死）
   },
 
   // 生物
@@ -34,7 +47,9 @@ Voxel.Config = {
     ZOMBIE_SPEED: 2.0, SHEEP_SPEED: 1.2,
     HP_SHEEP: 4, HP_ZOMBIE: 10,
     HP_PIG: 6, HP_CHICKEN: 3, HP_RABBIT: 3,
-    WOOL_DROP: 1              // 击杀羊掉落的羊毛数量
+    WOOL_DROP: 1,             // 击杀羊掉落的羊毛数量
+    FLEE_TIME: 3.5,           // 被动生物受击后逃跑持续秒数
+    FLEE_MULT: 1.7            // 逃跑速度倍率
   },
 
   // 渲染
@@ -61,6 +76,6 @@ Voxel.Config = {
     FOG_NEAR_WET: 25, FOG_FAR_WET: 110       // 雨天雾距
   },
 
-  SAVE_KEY: 'voxelcraft_save_v3',   // v3：MultiNoise 群系 + 3D 密度场 + 64 位种子（v2 旧地形不兼容）
+  SAVE_KEY: 'voxelcraft_save_v4',   // v4：+方块实例元数据（熔炉/箱子）· 载入时自动迁移 v3 存档
   AUTOSAVE_INTERVAL: 30
 };

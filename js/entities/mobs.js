@@ -97,6 +97,19 @@ Voxel.Mobs = (function () {
     zombie: { make: makeZombie, hp: function () { return C.HP_ZOMBIE; }, speedMul: 1 }
   };
 
+  // 被动生物（受击逃跑 + 叫声）
+  var PASSIVE = { sheep: true, pig: true, chicken: true, rabbit: true };
+  // 击杀掉落 [物品ID, 数量]（null=不掉落）
+  var KILL_DROPS = {
+    sheep: [16, C.WOOL_DROP],
+    pig: [109, 1],        // 生猪排
+    chicken: [111, 1],    // 生鸡肉
+    rabbit: [113, 1]      // 生兔肉
+  };
+  // 叫声函数名（Sound 上的方法）
+  var VOICE = { sheep: 'sheep', pig: 'pig', chicken: 'chicken', rabbit: 'rabbit', zombie: 'zombie' };
+  var VOICE_HURT = { sheep: 'sheepHurt', pig: 'pigHurt', chicken: 'chickenHurt', rabbit: 'rabbitHurt' };
+
   // 各被动生物可生成的地表方块 + 是否允许出现在该群系（biomes.js 的 mobs 表）
   var PASSIVE_SURFACES = {
     sheep: [1, 18, 24],
@@ -124,8 +137,9 @@ Voxel.Mobs = (function () {
       moveTime: 0,
       attackCd: 0,
       flash: 0,
-      bleatTimer: 3 + Math.random() * 12,
-      growlTimer: 4 + Math.random() * 10,
+      fleeT: 0,                              // 受击逃跑剩余时间
+      fleeRepath: 0,                         // 逃跑方向刷新计时
+      voiceTimer: 4 + Math.random() * 10,    // 叫声计时
       dead: false
     };
     group.add(b.group);
@@ -154,9 +168,15 @@ Voxel.Mobs = (function () {
     m.vel.z += dir.z * 5;
     m.vel.y += 3;
     Voxel.Sound.hit();
-    if (m.type === 'sheep') {
-      var shp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z) : { vol: 1, pan: 0 };
-      Voxel.Sound.sheepHurt(shp.vol, shp.pan);
+    var sp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z) : { vol: 1, pan: 0 };
+    if (VOICE_HURT[m.type]) {
+      Voxel.Sound[VOICE_HURT[m.type]](sp.vol, sp.pan);
+    }
+    // 被动生物受击逃跑：转身背向玩家，加速逃离
+    if (PASSIVE[m.type]) {
+      m.fleeT = C.FLEE_TIME;
+      m.fleeRepath = 0;
+      m.moveTime = Math.max(m.moveTime, m.fleeT);
     }
     if (m.hp <= 0) kill(m);
   }
@@ -167,9 +187,9 @@ Voxel.Mobs = (function () {
     var p = m.pos.clone();
     p.y += m.h * 0.5;
     Voxel.Particles.burst(p, m.baseColors[0], 14);
-    // 羊掉落羊毛（方块 ID 16）
-    if (m.type === 'sheep' && Voxel.Game && Voxel.Game.onDrop) {
-      Voxel.Game.onDrop(16, C.WOOL_DROP);
+    var drop = KILL_DROPS[m.type];
+    if (drop && Voxel.Game && Voxel.Game.onDrop) {
+      Voxel.Game.onDrop(drop[0], drop[1]);
     }
     var i = list.indexOf(m);
     if (i >= 0) removeAt(i);
@@ -275,6 +295,22 @@ Voxel.Mobs = (function () {
         if (m.moveTime > 0) speed = (m.type === 'zombie' ? C.ZOMBIE_SPEED * 0.7 : C.SHEEP_SPEED) * m.speedMul;
       }
 
+      // 受击逃跑：背向玩家直线狂奔，周期性刷新方向（玩家移动时仍保持远离）
+      if (m.fleeT > 0) {
+        m.fleeT -= dt;
+        m.fleeRepath -= dt;
+        var Pl2 = Voxel.Player.pos();
+        var awayX = m.pos.x - Pl2.x, awayZ = m.pos.z - Pl2.z;
+        if (m.fleeRepath <= 0 || (awayX * awayX + awayZ * awayZ) < 0.01) {
+          m.fleeRepath = 0.25;
+          if ((awayX * awayX + awayZ * awayZ) < 0.01) { awayX = Math.cos(m.dir); awayZ = Math.sin(m.dir); }
+          // 移动方向 (-sin,-cos)；要朝 away 走 → dir = atan2(-ax, -az)，加随机扰动防卡墙死板
+          m.dir = Math.atan2(-awayX, -awayZ) + (Math.random() - 0.5) * 0.6;
+          m.moveTime = Math.max(m.moveTime, Math.min(m.fleeT, 1.2));
+        }
+        speed = C.SHEEP_SPEED * m.speedMul * C.FLEE_MULT;
+      }
+
       var sin = Math.sin(m.dir), cos = Math.cos(m.dir);
       m.vel.x = -sin * speed;
       m.vel.z = -cos * speed;
@@ -303,19 +339,13 @@ Voxel.Mobs = (function () {
       // 生物叫声（距离衰减 + 立体声定位，超 34 块静默）
       var sp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z)
         : { vol: Voxel.Sound.volAt(m.pos.x, m.pos.z), pan: 0 };
-      if (alive && sp.vol > 0) {
-        if (m.type === 'sheep') {
-          m.bleatTimer -= dt;
-          if (m.bleatTimer <= 0) {
-            m.bleatTimer = 12 + Math.random() * 18;
-            Voxel.Sound.sheep(sp.vol * 0.8, sp.pan);
-          }
-        } else if (m.type === 'zombie') {
-          m.growlTimer -= dt;
-          if (m.growlTimer <= 0) {
-            m.growlTimer = (speed > 0 && night) ? 4 + Math.random() * 5 : 6 + Math.random() * 8;
-            Voxel.Sound.zombie(sp.vol * 0.9, sp.pan);
-          }
+      if (alive && sp.vol > 0 && VOICE[m.type]) {
+        m.voiceTimer -= dt;
+        if (m.voiceTimer <= 0) {
+          // 逃跑时叫得更急
+          var panic = m.fleeT > 0;
+          m.voiceTimer = (panic ? 1.2 : 8) + Math.random() * (panic ? 2 : 14);
+          Voxel.Sound[VOICE[m.type]](sp.vol * 0.8, sp.pan);
         }
       }
 
@@ -374,6 +404,7 @@ Voxel.Mobs = (function () {
     damage: damage,
     clear: clear,
     list: list,
-    count: function () { return list.length; }
+    count: function () { return list.length; },
+    spawn: spawn
   };
 })();

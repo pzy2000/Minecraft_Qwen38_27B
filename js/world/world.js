@@ -12,6 +12,7 @@ Voxel.World = (function () {
   var shaper = null;     // 地形塑造器（样条 + 密度场）
   var climateAt = null;  // 气候采样器（MultiNoise 五维参数）
   var edits = {};        // "x,y,z" -> id（存档用）
+  var meta = {};         // "x,y,z" -> 方块实例元数据（熔炉/箱子内容等，存档用）
   var dirty = {};        // "cx,cz" -> true
   var dirtyQueue = [];
   var chunks = {};       // "cx,cz" -> {mesh, wmesh}
@@ -485,6 +486,8 @@ Voxel.World = (function () {
     if (x < 0 || x >= W || y < 0 || y >= H || z < 0 || z >= D) return;
     data[idx(x, y, z)] = id;
     edits[x + ',' + y + ',' + z] = id;
+    // 方块被清空时其元数据（熔炉/箱子内容等）一并清除
+    if (id === 0) delete meta[x + ',' + y + ',' + z];
     if (lightReady) {
       var R = LIGHT_RANGE;
       relightRegion(x - R, x + R, z - R, z + R);
@@ -519,6 +522,7 @@ Voxel.World = (function () {
     heights = new Int16Array(W * D);
     biomes = new Uint8Array(W * D);
     edits = {};
+    meta = {};
     dirty = {};
     dirtyQueue = [];
     chunks = {};
@@ -716,6 +720,15 @@ Voxel.World = (function () {
       return blkL[idx(x, y, z)];
     },
     getEdits: function () { return edits; },
+    // 方块实例元数据（熔炉/箱子内容等）
+    getMeta: function (x, y, z) { return meta[x + ',' + y + ',' + z] || null; },
+    setMeta: function (x, y, z, m) {
+      var k = x + ',' + y + ',' + z;
+      if (m) meta[k] = m;
+      else delete meta[k];
+    },
+    getAllMeta: function () { return meta; },
+    applyMeta: function (md) { meta = md || {}; },
     getSeed: function () { return seed; },
     size: function () { return { w: W, h: H, d: D }; }
   };

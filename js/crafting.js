@@ -2,8 +2,8 @@
 window.Voxel = window.Voxel || {};
 
 Voxel.Crafting = (function () {
-  // 方块 ID：4=橡木, 20=云杉木, 22=丛林木, 10=木板, 15=工作台, 16=羊毛, 17=床
-  // 物品 ID：100=木棍, 101-103=镐, 104-106=剑, 107=煤炭；19=火把(方块)
+  // 方块 ID：4=橡木, 20=云杉木, 22=丛林木, 10=木板, 15=工作台, 16=羊毛, 17=床, 3=石头/圆石
+  // 物品 ID：100=木棍, 101-103=镐, 104-106=剑, 107=煤炭, 108=铁锭；19=火把(方块), 37=熔炉(方块)
   // grid 为 3x3（行优先，0=空）；shapeless=true 时 inputs 为 {id: 数量}
   // shapeless 配方可用 alts 提供多组可替代材料（如任意原木合成木板）
   var RECIPES = [
@@ -12,6 +12,8 @@ Voxel.Crafting = (function () {
     { name: '床', grid: [16, 16, 16, 10, 10, 10, 0, 0, 0], result: 17, count: 1 },
     { name: '木棍', shapeless: true, inputs: { 10: 2 }, result: 100, count: 4 },
     { name: '火把', shapeless: true, inputs: { 107: 1, 100: 1 }, result: 19, count: 4 },
+    { name: '熔炉', grid: [3, 3, 3, 3, 0, 3, 3, 3, 3], result: 37, count: 1 },
+    { name: '箱子', grid: [10, 10, 10, 10, 0, 10, 10, 10, 10], result: 38, count: 1 },
     { name: '木镐', grid: [10, 10, 10, 0, 100, 0, 0, 100, 0], result: 101, count: 1 },
     { name: '石镐', grid: [3, 3, 3, 0, 100, 0, 0, 100, 0], result: 102, count: 1 },
     { name: '铁镐', grid: [9, 9, 9, 0, 100, 0, 0, 100, 0], result: 103, count: 1 },

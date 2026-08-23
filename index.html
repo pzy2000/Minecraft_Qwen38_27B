@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>方块世界 VoxelCraft</title>
-<link rel="stylesheet" href="css/style.css?v=20260823b">
+<link rel="stylesheet" href="css/style.css?v=20260823c">
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -14,6 +14,7 @@
   <div id="crosshair"></div>
   <div id="debug"></div>
   <canvas id="oxygen" width="212" height="20"></canvas>
+  <canvas id="hunger" width="212" height="20"></canvas>
   <canvas id="health" width="212" height="20"></canvas>
   <div id="hotbar"></div>
   <div id="toast"></div>
@@ -21,6 +22,7 @@
   <div id="lock-hint">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
   <div id="error-banner"></div>
   <div id="dmg-flash"></div>
+  <div id="uw-overlay"></div>
   <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
 </div>
@@ -36,7 +38,7 @@
     </div>
     <div id="inv-grid"></div>
     <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
-    <div class="inv-tip">拖拽或点击 拾取 / 放置 · 同类物品自动堆叠（×64）· 2×2 格可合成木板/工作台/木棍 · E 或 ESC 关闭 · M 合成手册</div>
+    <div class="inv-tip">拖拽或点击 拾取 / 放置 · Shift+点击 快搬 · 右键 拆半堆/逐个放 · Q 丢出（可捡回）· 同类自动堆叠（×64）· 2×2 格合成木板/工作台/木棍 · E 或 ESC 关闭 · M 手册</div>
   </div>
 </div>
 
@@ -53,6 +55,36 @@
     <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
     <div class="inv-tip">拖拽或点击 拾取 / 放置材料 · 点击结果格取出物品 · E 或 ESC 关闭</div>
     <button id="btn-manual" class="btn">查看合成手册</button>
+  </div>
+</div>
+
+<!-- 熔炉 -->
+<div id="furnace" class="hidden">
+  <div class="panel furnace-panel">
+    <div class="inv-title">熔炉</div>
+    <div class="furnace-row">
+      <div class="furnace-col">
+        <div id="fur-in" class="slot"></div>
+        <div id="fur-flame"><i></i></div>
+        <div id="fur-fuel" class="slot"></div>
+      </div>
+      <div class="furnace-arrow"><span>➜</span><div class="fur-track"><i id="fur-prog"></i></div></div>
+      <div id="fur-out" class="slot result"></div>
+    </div>
+    <div id="fur-inv-grid"></div>
+    <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
+    <div class="inv-tip">上=原料 下=燃料 · 右键拆半堆/逐个放 · Shift+点击 快取 · E 或 ESC 关闭（炉子继续烧）</div>
+  </div>
+</div>
+
+<!-- 箱子 -->
+<div id="chest" class="hidden">
+  <div class="panel chest-panel">
+    <div class="inv-title">箱子</div>
+    <div id="chest-grid"></div>
+    <div id="chest-inv-grid"></div>
+    <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
+    <div class="inv-tip">拖拽或点击 存取 · 右键 拆半堆/逐个放 · Shift+点击 快存快取 · E 或 ESC 关闭</div>
   </div>
 </div>
 
@@ -83,7 +115,7 @@
       <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
       <div><b>左键</b> 放置 <b>右键长按</b> 挖掘（对生物=攻击） <b>中键</b> 吸取方块</div>
       <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 背包（含 2×2 合成）· 对准<b>工作台/床</b>按 E 交互 <b>F</b> 飞行</div>
-      <div><b>M</b> 合成手册（一键合成） <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
+      <div><b>M</b> 合成手册（一键合成） <b>Q</b> 丢弃 <b>R</b> 吃东西 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
       <div style="margin-top:6px;color:#9ab">提示：先砍树合成木板→木棍，再合成木镐开采石头与煤；煤+木棍可合成火把照亮洞穴。</div>
     </div>
   </div>
@@ -111,8 +143,8 @@
     <div class="controls">
       <div><b>WASD</b> 移动 · <b>空格</b> 跳/上浮 · <b>Shift</b> 疾跑/下降</div>
       <div><b>左键</b> 放置 · <b>右键长按</b> 挖掘/攻击 · <b>中键</b> 吸取</div>
-      <div><b>E</b> 背包 / 工作台 / 床 · <b>F</b> 飞行 · <b>G</b> 天气</div>
-      <div><b>M</b> 合成手册 · <b>F3</b> 调试 · <b>P/Esc</b> 暂停</div>
+      <div><b>E</b> 背包 / 工作台 / 熔炉 / 床 · <b>F</b> 飞行 · <b>G</b> 天气 · <b>R</b> 进食</div>
+      <div><b>M</b> 合成手册 · <b>Q</b> 丢弃 · <b>R</b> 进食 · <b>F3</b> 调试 · <b>P/Esc</b> 暂停</div>
     </div>
   </div>
 </div>
@@ -149,30 +181,32 @@
 </div>
 
 <script src="vendor/three.min.js"></script>
-<script src="js/config.js?v=20260823b"></script>
-<script src="js/assets.js?v=20260823b"></script>
-<script src="js/world/seed.js?v=20260823b"></script>
-<script src="js/world/noise.js?v=20260823b"></script>
-<script src="js/world/biomes.js?v=20260823b"></script>
-<script src="js/world/shaper.js?v=20260823b"></script>
-<script src="js/blocks.js?v=20260823b"></script>
-<script src="js/crafting.js?v=20260823b"></script>
-<script src="js/world/world.js?v=20260823b"></script>
-<script src="js/world/mesh.js?v=20260823b"></script>
-<script src="js/player/physics.js?v=20260823b"></script>
-<script src="js/player/controls.js?v=20260823b"></script>
-<script src="js/player/player.js?v=20260823b"></script>
-<script src="js/interact/raycast.js?v=20260823b"></script>
-<script src="js/systems/settings.js?v=20260823b"></script>
-<script src="js/systems/daynight.js?v=20260823b"></script>
-<script src="js/systems/weather.js?v=20260823b"></script>
-<script src="js/systems/sound.js?v=20260823b"></script>
-<script src="js/systems/particles.js?v=20260823b"></script>
-<script src="js/entities/mobs.js?v=20260823b"></script>
-<script src="js/systems/save.js?v=20260823b"></script>
-<script src="js/ui/handitem.js?v=20260823b"></script>
-<script src="js/ui/featured.js?v=20260823b"></script>
-<script src="js/ui/hud.js?v=20260823b"></script>
-<script src="js/main.js?v=20260823b"></script>
+<script src="js/config.js?v=20260823c"></script>
+<script src="js/assets.js?v=20260823c"></script>
+<script src="js/world/seed.js?v=20260823c"></script>
+<script src="js/world/noise.js?v=20260823c"></script>
+<script src="js/world/biomes.js?v=20260823c"></script>
+<script src="js/world/shaper.js?v=20260823c"></script>
+<script src="js/blocks.js?v=20260823c"></script>
+<script src="js/crafting.js?v=20260823c"></script>
+<script src="js/world/world.js?v=20260823c"></script>
+<script src="js/world/mesh.js?v=20260823c"></script>
+<script src="js/player/physics.js?v=20260823c"></script>
+<script src="js/player/controls.js?v=20260823c"></script>
+<script src="js/player/player.js?v=20260823c"></script>
+<script src="js/interact/raycast.js?v=20260823c"></script>
+<script src="js/systems/settings.js?v=20260823c"></script>
+<script src="js/systems/daynight.js?v=20260823c"></script>
+<script src="js/systems/weather.js?v=20260823c"></script>
+<script src="js/systems/sound.js?v=20260823c"></script>
+<script src="js/systems/furnace.js?v=20260823c"></script>
+<script src="js/systems/particles.js?v=20260823c"></script>
+<script src="js/entities/mobs.js?v=20260823c"></script>
+<script src="js/entities/drops.js?v=20260823c"></script>
+<script src="js/systems/save.js?v=20260823c"></script>
+<script src="js/ui/handitem.js?v=20260823c"></script>
+<script src="js/ui/featured.js?v=20260823c"></script>
+<script src="js/ui/hud.js?v=20260823c"></script>
+<script src="js/main.js?v=20260823c"></script>
 </body>
 </html>

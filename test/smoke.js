@@ -50,6 +50,7 @@ load('js/blocks.js');
 load('js/crafting.js');
 load('js/world/world.js');
 load('js/systems/save.js');
+load('js/systems/furnace.js');
 
 var V = sandbox.window.Voxel;
 var W = V.Config.WORLD_W, H = V.Config.WORLD_H, D = V.Config.WORLD_D;
@@ -262,6 +263,8 @@ console.log('存档序列化往返');
 (function () {
   // applyEdits 只回放不记日志（见 world.js），先 set 一次确保增量日志有记录
   V.World.set(bx, by, bz, 10);
+  // 方块元数据随存档序列化（箱子示例）
+  V.World.setMeta(7, 8, 9, { type: 'chest', items: [{ id: 10, n: 5, dur: null }, null] });
   var inv = []; var cnt = [];
   for (var i = 0; i < 36; i++) { inv.push(0); cnt.push(0); }
   inv[0] = 10; cnt[0] = 64;   // 一组 64 木板
@@ -274,7 +277,8 @@ console.log('存档序列化往返');
     cnt: cnt,
     held: 10,
     heldCnt: 64,
-    bed: [12, 34, 56]
+    bed: [12, 34, 56],
+    dur: (function () { var d = []; for (var i = 0; i < 36; i++) d.push(null); d[1] = 55; return d; })()
   };
   check('Save.save 成功', V.Save.save(V.World, extra));
   var loaded = V.Save.load();
@@ -287,15 +291,55 @@ console.log('存档序列化往返');
     loaded.cnt[0] === 64 && loaded.cnt[5] === 3);
   check('held/heldCnt 往返', !!loaded && loaded.held === 10 && loaded.heldCnt === 64);
   check('bed 往返', !!loaded && !!loaded.bed && loaded.bed[0] === 12 && loaded.bed[1] === 34 && loaded.bed[2] === 56);
+  check('dur(工具耐久) 往返', !!loaded && !!loaded.dur && loaded.dur[1] === 55);
+  check('meta(箱子) 往返', !!loaded && !!loaded.meta && !!loaded.meta['7,8,9'] &&
+    loaded.meta['7,8,9'].items[0].n === 5);
   check('player 往返', !!loaded && !!loaded.player && loaded.player.hp === 17 &&
     loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
 })();
 
+console.log('熔炉烧炼');
+var FS = V.FurnaceSys;
+check('铁矿→铁锭', FS.resultId(9) === 108);
+check('生猪排→熟猪排', FS.resultId(109) === 110);
+check('生鸡肉→熟鸡肉', FS.resultId(111) === 112);
+check('生兔肉→熟兔肉', FS.resultId(113) === 114);
+check('沙子→玻璃', FS.resultId(6) === 13);
+check('不可烧制返回 0', FS.resultId(3) === 0);
+check('煤炭是燃料(40s)', FS.isFuel(107) && FS.fuelTime(107) === 40);
+check('木板/木棍/原木是燃料', FS.isFuel(10) && FS.isFuel(100) && FS.isFuel(4));
+check('石头不是燃料', !FS.isFuel(3));
+(function () {
+  // 完整烧制流程：2 铁矿 + 1 煤炭
+  var fur = { type: 'furnace', in: { id: 9, n: 2 }, fuel: { id: 107, n: 1 }, out: null, burnT: 0, burnMax: 0, prog: 0 };
+  FS.tickOne(fur, 1);
+  check('点火消耗 1 煤炭且同刻开始烧制', fur.burnT > 38 && fur.burnMax === 40 && !fur.fuel && fur.prog === 1);
+  FS.tickOne(fur, 4);   // 累计 t=5
+  check('5 秒产出第 1 个铁锭', !!fur.out && fur.out.id === 108 && fur.out.n === 1 && fur.in.n === 1 && fur.prog === 0);
+  FS.tickOne(fur, 4.9);
+  check('未到时间不产出', fur.out.n === 1 && fur.prog > 4.5);
+  FS.tickOne(fur, 0.2); // 累计 t=10.1
+  check('产出第 2 个铁锭后原料耗尽', fur.out.n === 2 && !fur.in);
+  var litAfter = FS.tickOne(fur, 30);
+  check('无输入后燃尽（本 tick 耗尽余焰）', litAfter === true && fur.burnT === 0);
+  check('下一 tick 已熄灭且进度回落', !FS.tickOne(fur, 1) && fur.burnT === 0 && fur.prog === 0);
+  FS.tickOne(fur, 3);
+  check('无输入不再点火', fur.burnT === 0 && !fur.fuel);
+})();
+(function () {
+  var fur2 = { type: 'furnace', in: { id: 6, n: 1 }, fuel: { id: 107, n: 1 }, out: { id: 108, n: 64 }, burnT: 0, burnMax: 0, prog: 0 };
+  FS.tickOne(fur2, 1);
+  check('输出格被占用则不点火不推进', fur2.burnT === 0 && fur2.prog === 0 && !!fur2.fuel);
+  var fur3 = { type: 'furnace', in: { id: 109, n: 3 }, fuel: { id: 100, n: 8 }, out: null, burnT: 0, burnMax: 0, prog: 0 };
+  for (var i = 0; i < 16; i++) FS.tickOne(fur3, 0.5);   // 木棍燃料 2.5s：烧完 1 件后熄火
+  check('木棍点燃可烧 1 件熟猪排', !!fur3.out && fur3.out.id === 110 && fur3.out.n >= 1);
+})();
+
 console.log('合成配方测试');
 var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
-check('配方数量=11', Craft.recipes.length === 11);
+check('配方数量=13', Craft.recipes.length === 13);
 
 g = g9(); g[0] = 4;
 var m = Craft.match(g);
@@ -339,6 +383,11 @@ check('2 羊毛不匹配', !Craft.match(g));
 
 g = g9(); g[0] = 16; g[1] = 16; g[2] = 16; g[3] = 10; g[4] = 10; g[5] = 10; g[6] = 4;
 check('格子有杂物不匹配', !Craft.match(g));
+
+g = g9();
+for (var gi = 0; gi < 9; gi++) if (gi !== 4) g[gi] = 3;
+m = Craft.match(g);
+check('8 石头环 → 熔炉', !!m && m.result === 37 && m.count === 1);
 
 g = g9(); g[0] = 4;
 m = Craft.match(g);

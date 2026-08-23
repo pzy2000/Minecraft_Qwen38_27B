@@ -484,6 +484,55 @@ Voxel.Sound = (function () {
       if (play('zombie_0', v * 0.65, 0.82 + Math.random() * 0.36, pan)) return;
       toneVib('sawtooth', 85 + Math.random() * 15, 60, 0.6 + Math.random() * 0.3, v * 0.3, 3.5, 18, 350);
     },
+    // 猪哼（程序化）：短促两段低哼
+    pig: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02) return;
+      var f = 95 + Math.random() * 25;
+      toneVib('sawtooth', f, f * 0.72, 0.11, v * 0.3, 22, 12, 480);
+      setTimeout(function () { toneVib('sawtooth', f * 1.12, f * 0.8, 0.09, v * 0.24, 22, 10, 480); }, 110);
+    },
+    pigHurt: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02) return;
+      toneVib('sawtooth', 190 + Math.random() * 40, 120, 0.14, v * 0.34, 26, 20, 700);
+    },
+    // 鸡咯（程序化）：短促高频咯咯
+    chicken: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02) return;
+      var n2 = 2 + ((Math.random() * 2) | 0);
+      for (var i = 0; i < n2; i++) {
+        (function (k) {
+          setTimeout(function () {
+            tone('square', 640 + Math.random() * 160, 380, 0.055, v * 0.16);
+          }, k * 130);
+        })(i);
+      }
+    },
+    chickenHurt: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02) return;
+      tone('square', 900 + Math.random() * 200, 500, 0.12, v * 0.22);
+      noiseHit(1800, 1.2, 0.08, v * 0.15);
+    },
+    // 兔子尖叫（程序化）：轻短上滑哨音
+    rabbit: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0)) * 0.55;
+      if (v <= 0.02) return;
+      tone('sine', 780 + Math.random() * 140, 1250 + Math.random() * 250, 0.08, v * 0.3);
+    },
+    rabbitHurt: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0)) * 0.7;
+      if (v <= 0.02) return;
+      tone('sine', 1400 + Math.random() * 300, 900, 0.11, v * 0.34);
+    },
+    // 进食咀嚼：两声闷响 + 收尾吞咽
+    eat: function () {
+      noiseHit(320 + Math.random() * 120, 1.1, 0.07, 0.22);
+      setTimeout(function () { noiseHit(280 + Math.random() * 120, 1.1, 0.06, 0.2); }, 140);
+      setTimeout(function () { tone('sine', 180, 90, 0.09, 0.16); }, 300);
+    },
     // 头部浸水：闷音 + 水下环境声
     setUnderwater: setUnderwater,
     hit: function () {

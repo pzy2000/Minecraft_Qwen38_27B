@@ -3,6 +3,8 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Save = (function () {
   var KEY = Voxel.Config.SAVE_KEY;
+  // 历史存档键（载入时自动迁移到当前 KEY）
+  var LEGACY_KEYS = ['voxelcraft_save_v3'];
 
   function save(world, extra) {
     try {
@@ -17,6 +19,8 @@ Voxel.Save = (function () {
         held: extra.held,
         heldCnt: extra.heldCnt,
         bed: extra.bed,
+        dur: extra.dur,
+        meta: world.getAllMeta(),
         edits: world.getEdits()
       };
       localStorage.setItem(KEY, JSON.stringify(obj));
@@ -30,7 +34,18 @@ Voxel.Save = (function () {
   function load() {
     try {
       var s = localStorage.getItem(KEY);
-      return s ? JSON.parse(s) : null;
+      if (s) return JSON.parse(s);
+      // 旧版本键迁移（v3 → 当前）：字段缺失处由加载方兜底
+      for (var i = 0; i < LEGACY_KEYS.length; i++) {
+        s = localStorage.getItem(LEGACY_KEYS[i]);
+        if (s) {
+          var obj = JSON.parse(s);
+          localStorage.setItem(KEY, JSON.stringify(obj));
+          localStorage.removeItem(LEGACY_KEYS[i]);
+          return obj;
+        }
+      }
+      return null;
     } catch (e) {
       return null;
     }

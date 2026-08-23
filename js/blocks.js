@@ -18,7 +18,13 @@ Voxel.Blocks = (function () {
     TERRACOTTA: 43, TERRACOTTA_YELLOW: 44, TERRACOTTA_BROWN: 45,
     RED_SAND: 46, ICE: 47,
     ACACIA_LOG_SIDE: 48, ACACIA_LOG_TOP: 49, ACACIA_LEAVES: 50,
-    BIRCH_LOG_SIDE: 51, BIRCH_LOG_TOP: 52, BIRCH_LEAVES: 53
+    BIRCH_LOG_SIDE: 51, BIRCH_LOG_TOP: 52, BIRCH_LEAVES: 53,
+    INGOT: 58,
+    MEAT_RAW: 59, MEAT_COOKED: 60,
+    CHICKEN_RAW: 61, CHICKEN_COOKED: 62,
+    RABBIT_RAW: 63, RABBIT_COOKED: 64,
+    FURNACE_TOP: 65, FURNACE_SIDE: 66, FURNACE_FRONT: 67,
+    CHEST_TOP: 68, CHEST_SIDE: 69, CHEST_FRONT: 70
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -62,18 +68,29 @@ Voxel.Blocks = (function () {
     { name: '白桦木', solid: true, opaque: true, tiles: [T.BIRCH_LOG_TOP, T.BIRCH_LOG_SIDE, T.BIRCH_LOG_TOP], sound: 'wood', color: 0xd7cdb4, hard: 1.6 },
     { name: '白桦树叶', solid: true, opaque: true, tiles: [T.BIRCH_LEAVES, T.BIRCH_LEAVES, T.BIRCH_LEAVES], sound: 'leaves', color: 0x74a644, hard: 0.35 },
     { name: '金合欢木', solid: true, opaque: true, tiles: [T.ACACIA_LOG_TOP, T.ACACIA_LOG_SIDE, T.ACACIA_LOG_TOP], sound: 'wood', color: 0x9a5b38, hard: 1.6 },
-    { name: '金合欢树叶', solid: true, opaque: true, tiles: [T.ACACIA_LEAVES, T.ACACIA_LEAVES, T.ACACIA_LEAVES], sound: 'leaves', color: 0x5f9426, hard: 0.35 }
+    { name: '金合欢树叶', solid: true, opaque: true, tiles: [T.ACACIA_LEAVES, T.ACACIA_LEAVES, T.ACACIA_LEAVES], sound: 'leaves', color: 0x5f9426, hard: 0.35 },
+    { name: '熔炉', solid: true, opaque: true, tiles: [T.FURNACE_TOP, T.FURNACE_FRONT, T.FURNACE_TOP], sound: 'stone', color: 0x6e6e70, hard: 4.5, pick: true },
+    { name: '箱子', solid: true, opaque: true, tiles: [T.CHEST_TOP, T.CHEST_FRONT, T.CHEST_TOP], sound: 'wood', color: 0xa8763f, hard: 2 }
   ];
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
+  // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
   defs[100] = { name: '木棍', item: true, solid: false, opaque: false, tiles: [T.STICK, T.STICK, T.STICK], sound: 'wood', color: 0x9a764a, icon: T.STICK };
-    defs[101] = { name: '木镐', item: true, solid: false, opaque: false, tiles: [T.PICK_WOOD, T.PICK_WOOD, T.PICK_WOOD], sound: 'wood', color: 0x9a764a, tool: 'pick', tier: 1, dmg: 2, icon: T.PICK_WOOD };
-    defs[102] = { name: '石镐', item: true, solid: false, opaque: false, tiles: [T.PICK_STONE, T.PICK_STONE, T.PICK_STONE], sound: 'stone', color: 0x8f8f92, tool: 'pick', tier: 2, dmg: 3, icon: T.PICK_STONE };
-    defs[103] = { name: '铁镐', item: true, solid: false, opaque: false, tiles: [T.PICK_IRON, T.PICK_IRON, T.PICK_IRON], sound: 'stone', color: 0xd8af87, tool: 'pick', tier: 3, dmg: 4, icon: T.PICK_IRON };
-    defs[104] = { name: '木剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_WOOD, T.SWORD_WOOD, T.SWORD_WOOD], sound: 'wood', color: 0x9a764a, tool: 'sword', dmg: 4, icon: T.SWORD_WOOD };
-    defs[105] = { name: '石剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_STONE, T.SWORD_STONE, T.SWORD_STONE], sound: 'stone', color: 0x8f8f92, tool: 'sword', dmg: 5, icon: T.SWORD_STONE };
-    defs[106] = { name: '铁剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_IRON, T.SWORD_IRON, T.SWORD_IRON], sound: 'stone', color: 0xd8af87, tool: 'sword', dmg: 6, icon: T.SWORD_IRON };
+    defs[101] = { name: '木镐', item: true, solid: false, opaque: false, tiles: [T.PICK_WOOD, T.PICK_WOOD, T.PICK_WOOD], sound: 'wood', color: 0x9a764a, tool: 'pick', tier: 1, dmg: 2, maxDur: 60, maxStack: 1, icon: T.PICK_WOOD };
+    defs[102] = { name: '石镐', item: true, solid: false, opaque: false, tiles: [T.PICK_STONE, T.PICK_STONE, T.PICK_STONE], sound: 'stone', color: 0x8f8f92, tool: 'pick', tier: 2, dmg: 3, maxDur: 132, maxStack: 1, icon: T.PICK_STONE };
+    defs[103] = { name: '铁镐', item: true, solid: false, opaque: false, tiles: [T.PICK_IRON, T.PICK_IRON, T.PICK_IRON], sound: 'stone', color: 0xd8af87, tool: 'pick', tier: 3, dmg: 4, maxDur: 251, maxStack: 1, icon: T.PICK_IRON };
+    defs[104] = { name: '木剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_WOOD, T.SWORD_WOOD, T.SWORD_WOOD], sound: 'wood', color: 0x9a764a, tool: 'sword', dmg: 4, maxDur: 60, maxStack: 1, icon: T.SWORD_WOOD };
+    defs[105] = { name: '石剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_STONE, T.SWORD_STONE, T.SWORD_STONE], sound: 'stone', color: 0x8f8f92, tool: 'sword', dmg: 5, maxDur: 132, maxStack: 1, icon: T.SWORD_STONE };
+    defs[106] = { name: '铁剑', item: true, solid: false, opaque: false, tiles: [T.SWORD_IRON, T.SWORD_IRON, T.SWORD_IRON], sound: 'stone', color: 0xd8af87, tool: 'sword', dmg: 6, maxDur: 251, maxStack: 1, icon: T.SWORD_IRON };
     defs[107] = { name: '煤炭', item: true, solid: false, opaque: false, tiles: [T.COAL, T.COAL, T.COAL], sound: 'stone', color: 0x3a3a3a, icon: T.COAL };
+    defs[108] = { name: '铁锭', item: true, solid: false, opaque: false, tiles: [T.INGOT, T.INGOT, T.INGOT], sound: 'stone', color: 0xd8af87, icon: T.INGOT };
+    // 食物（food=恢复的饥饿值，见饥饿系统）
+    defs[109] = { name: '生猪排', item: true, solid: false, opaque: false, tiles: [T.MEAT_RAW, T.MEAT_RAW, T.MEAT_RAW], sound: 'wool', color: 0xe88a8a, food: 3, icon: T.MEAT_RAW };
+    defs[110] = { name: '熟猪排', item: true, solid: false, opaque: false, tiles: [T.MEAT_COOKED, T.MEAT_COOKED, T.MEAT_COOKED], sound: 'wool', color: 0xb5764a, food: 8, icon: T.MEAT_COOKED };
+    defs[111] = { name: '生鸡肉', item: true, solid: false, opaque: false, tiles: [T.CHICKEN_RAW, T.CHICKEN_RAW, T.CHICKEN_RAW], sound: 'wool', color: 0xe8c8a8, food: 2, icon: T.CHICKEN_RAW };
+    defs[112] = { name: '熟鸡肉', item: true, solid: false, opaque: false, tiles: [T.CHICKEN_COOKED, T.CHICKEN_COOKED, T.CHICKEN_COOKED], sound: 'wool', color: 0xc9955a, food: 6, icon: T.CHICKEN_COOKED };
+    defs[113] = { name: '生兔肉', item: true, solid: false, opaque: false, tiles: [T.RABBIT_RAW, T.RABBIT_RAW, T.RABBIT_RAW], sound: 'wool', color: 0xc4756e, food: 3, icon: T.RABBIT_RAW };
+    defs[114] = { name: '熟兔肉', item: true, solid: false, opaque: false, tiles: [T.RABBIT_COOKED, T.RABBIT_COOKED, T.RABBIT_COOKED], sound: 'wool', color: 0xa8673f, food: 5, icon: T.RABBIT_COOKED };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -474,6 +491,108 @@ Voxel.Blocks = (function () {
       if ((x === 5 || x === 10) && y === 3) return [255, 140, 30, 180];
     });
 
+    // ---- 食物 / 铁锭图标 ----
+
+    drawTile(T.INGOT, function (x, y, r) {
+      // 斜置金属条：平行四边形锭身 + 高光边
+      var row = y - 4;
+      if (row < 0 || row > 7) return;
+      var x0 = 3 + ((7 - row) >> 1), x1 = x0 + 9;
+      if (x < x0 || x > x1) return;
+      if (row <= 1 || x === x1) return [240 + r() * 14, 214 + r() * 10, 176];   // 上/右高光
+      if (row >= 7 || x === x0) return [158, 118, 84];                          // 下/左阴影
+      var v = n(r, 0, 12);
+      return [216 + v, 175 + v, 135 + v];
+    });
+
+    function meatTile(raw, cooked, bone) {
+      return function (x, y, r) {
+        // 带骨肉排：椭圆肉身（左上-右下走向）+ 左下骨头
+        var dx = x - 9, dy = y - 7;
+        var inMeat = (dx * dx) * 0.09 + (dy * dy) * 0.16 <= 1;
+        if (bone && x >= 2 && x <= 4 && y >= 10 && y <= 13 && Math.abs((x - 3) + (y - 11.5)) < 2.6) {
+          var bv = n(r, 0, 10);
+          return [236 + bv, 228 + bv, 210];
+        }
+        if (!inMeat) return;
+        var v = n(r, 0, 18);
+        var c = cooked ? [181, 118, 74] : raw;
+        if (((x + y) % 7 === 0 && r() < 0.6)) {
+          // 熟肉深色烤痕 / 生肉浅色脂肪纹
+          return cooked ? [140 + v * 0.5, 88 + v * 0.5, 52] : [244, 208 + r() * 20, 200];
+        }
+        return [c[0] + v, c[1] + v * 0.8, c[2] + v * 0.8];
+      };
+    }
+    drawTile(T.MEAT_RAW, meatTile([226, 120, 120], false, false));
+    drawTile(T.MEAT_COOKED, meatTile([181, 118, 74], true, true));
+    drawTile(T.CHICKEN_RAW, function (x, y, r) {
+      // 整鸡：梨形身体 + 两腿棍
+      var dx = x - 8, dy = y - 6;
+      if (dx * dx * 0.08 + dy * dy * 0.14 <= 1) {
+        var v = n(r, 0, 14);
+        if (r() < 0.06) return [236, 196, 160];
+        return [230 + v, 196 + v, 164 + v];
+      }
+      if ((y >= 12 && y <= 15) && (x === 6 || x === 10)) return [232, 178, 106];   // 腿
+      if (y === 15 && (x === 5 || x === 11)) return [240, 200, 130];
+    });
+    drawTile(T.CHICKEN_COOKED, function (x, y, r) {
+      var dx = x - 8, dy = y - 6;
+      if (dx * dx * 0.08 + dy * dy * 0.14 <= 1) {
+        var v = n(r, 0, 14);
+        if ((x + y) % 6 === 0 && r() < 0.55) return [150 + v * 0.5, 96 + v * 0.5, 50];
+        return [198 + v, 138 + v, 78 + v];
+      }
+      if ((y >= 12 && y <= 15) && (x === 6 || x === 10)) return [220, 170, 100];
+    });
+    drawTile(T.RABBIT_RAW, meatTile([192, 110, 104], false, true));
+    drawTile(T.RABBIT_COOKED, meatTile([168, 103, 63], true, true));
+
+    // ---- 功能方块（熔炉/箱子） ----
+
+    function stoneBlock(x, y, r) {
+      var v = n(r, 0, 20);
+      if (r() < 0.06) v -= 20;
+      return [126 + v, 126 + v, 128 + v];
+    }
+    drawTile(T.FURNACE_TOP, stoneBlock);
+    drawTile(T.FURNACE_SIDE, function (x, y, r) { return stoneBlock(x, y, r); });
+    drawTile(T.FURNACE_FRONT, function (x, y, r) {
+      // 石面 + 下部炉口：燃烧口黑洞与格栅
+      if (y >= 9 && y <= 13 && x >= 4 && x <= 11) {
+        if (y === 9 || x === 4 || x === 11) return [70, 70, 74];           // 口沿
+        if ((y === 12 || y === 13) && ((x % 2) === 0)) return [54, 54, 58]; // 格栅
+        return [22, 20, 20];                                               // 黑洞
+      }
+      return stoneBlock(x, y, r);
+    });
+
+    drawTile(T.CHEST_TOP, function (x, y, r) {
+      var v = n(r, 0, 14);
+      if (x === 0 || y === 0 || x === 15 || y === 15) return [96 + v, 68 + v, 38];
+      return [164 + v, 118 + v, 66 + v];
+    });
+    drawTile(T.CHEST_SIDE, function (x, y, r) {
+      var v = n(r, 0, 14);
+      if (x === 0 || x === 15) return [96 + v, 68 + v, 38];
+      if (y === 5) return [88 + v * 0.5, 62 + v * 0.5, 34];                // 盖缝
+      if (y < 5) return [176 + v, 128 + v, 72 + v];                        // 盖
+      return [160 + v, 114 + v, 62 + v];                                   // 身
+    });
+    drawTile(T.CHEST_FRONT, function (x, y, r) {
+      var v = n(r, 0, 14);
+      if (x === 0 || x === 15) return [96 + v, 68 + v, 38];
+      if (y === 5) return [88 + v * 0.5, 62 + v * 0.5, 34];
+      if (y < 5) return [176 + v, 128 + v, 72 + v];
+      // 锁扣
+      if (x >= 7 && x <= 8 && y >= 7 && y <= 10) {
+        if (x === 7 && y > 7) return [150, 150, 158];
+        return [210, 210, 220];
+      }
+      return [160 + v, 114 + v, 62 + v];
+    });
+
     ctx.putImageData(img, 0, 0);
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
@@ -513,6 +632,11 @@ Voxel.Blocks = (function () {
     attackDmg: function (heldId) {
       var d = defs[heldId];
       return (d && d.dmg) ? d.dmg : 2;
+    },
+    // 工具耐久上限（非工具返回 0）
+    maxDur: function (id) {
+      var d = defs[id];
+      return (d && d.maxDur) || 0;
     },
     // 镐对可加速方块的倍率
     PICK_MULT: [1, 4, 7, 10],

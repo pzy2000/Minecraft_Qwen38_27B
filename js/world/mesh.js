@@ -88,11 +88,34 @@ Voxel.MeshBuilder = (function () {
     tmpUV[1] = 1 - (r * 16 + 0.5 + (1 - uy) * 15) / 256;
   }
 
+  // 单顶点平滑光照：对面朝格 N 及其两个侧邻、角邻共 4 格采样（不透明格不参与平均，
+  // 但通过 AO 因子变暗）；返回该顶点的天光/块光与 AO 等级
+  function vertexLight(x, y, z, F, au, av, aw, bu, bv, bw) {
+    var bx = x + F.n[0], by = y + F.n[1], bz = z + F.n[2];
+    var ox1 = bx + au, oy1 = by + av, oz1 = bz + aw;
+    var ox2 = bx + bu, oy2 = by + bv, oz2 = bz + bw;
+    var oxc = bx + au + bu, oyc = by + av + bv, ozc = bz + aw + bw;
+    var s1 = B.isOpaque(G(ox1, oy1, oz1)) ? 1 : 0;
+    var s2 = B.isOpaque(G(ox2, oy2, oz2)) ? 1 : 0;
+    var sc = B.isOpaque(G(oxc, oyc, ozc)) ? 1 : 0;
+    var aoIdx = (s1 && s2) ? 3 : s1 + s2 + sc;
+    var sky = GSky(bx, by, bz), blk = GBlk(bx, by, bz), n = 1;
+    if (!s1) { sky += GSky(ox1, oy1, oz1); blk += GBlk(ox1, oy1, oz1); n++; }
+    if (!s2) { sky += GSky(ox2, oy2, oz2); blk += GBlk(ox2, oy2, oz2); n++; }
+    if (!sc && !(s1 && s2)) { sky += GSky(oxc, oyc, ozc); blk += GBlk(oxc, oyc, ozc); n++; }
+    vLight.ls = sky / (n * 15);
+    vLight.lb = blk / (n * 15);
+    vLight.ao = aoIdx;
+    return vLight;
+  }
+  var vLight = { ls: 0, lb: 0, ao: 0 };
+
   // 发射一个面：yBot/yTop 为底/顶边绝对高度，uvLo/uvHi 为纹理 V 范围
   // （整块=y..y+1/0..1；床=y..y+0.5/0..1；邻居为床时只发上半面 y+0.5..y+1/0.5..1）
-  // ls/lb: 面所朝格子的天光/块光（0~1）
+  // ls/lb: 面所朝格子的天光/块光（兜底值）
   function emitFace(t, F, tile, x, y, z, yBot, yTop, uvLo, uvHi, ls, lb) {
     var base = t.pos.length / 3;
+    var aoArr = [0, 0, 0, 0];
     for (var k = 0; k < 4; k++) {
       var corner = F.c[k];
       t.pos.push(x + corner[0], y + (corner[1] ? yTop - y : yBot - y), z + corner[2]);
@@ -107,15 +130,18 @@ Voxel.MeshBuilder = (function () {
       var bu = (uvy ? F.v[0] : -F.v[0]);
       var bv = (uvy ? F.v[1] : -F.v[1]);
       var bw = (uvy ? F.v[2] : -F.v[2]);
-      var s1 = B.isOpaque(G(x + F.n[0] + au, y + F.n[1] + av, z + F.n[2] + aw)) ? 1 : 0;
-      var s2 = B.isOpaque(G(x + F.n[0] + bu, y + F.n[1] + bv, z + F.n[2] + bw)) ? 1 : 0;
-      var sc = B.isOpaque(G(x + F.n[0] + au + bu, y + F.n[1] + av + bv, z + F.n[2] + aw + bw)) ? 1 : 0;
-      var ao = (s1 && s2) ? 3 : s1 + s2 + sc;
-      var shade = F.b * AO[ao];
+      var vl = vertexLight(x, y, z, F, au, av, aw, bu, bv, bw);
+      aoArr[k] = vl.ao;
+      var shade = F.b * AO[vl.ao];
       t.col.push(shade, shade, shade);
-      t.lgt.push(ls, lb);
+      t.lgt.push(vl.ls, vl.lb);
     }
-    t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    // AO 各向异性：按对角和选择四边形剖分对角线，避免遮蔽插值出现三角面痕迹
+    if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
+      t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    } else {
+      t.idx.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+    }
   }
 
   // 火把等十字面片：两条对角竖 quad × 正反两面

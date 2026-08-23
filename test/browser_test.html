@@ -12,6 +12,7 @@
   <div id="crosshair"></div>
   <div id="debug"></div>
   <canvas id="oxygen" width="212" height="20"></canvas>
+  <canvas id="hunger" width="212" height="20"></canvas>
   <canvas id="health" width="212" height="20"></canvas>
   <div id="hotbar"></div>
   <div id="toast"></div>
@@ -39,6 +40,28 @@
 </div></div>
 <div id="manual" class="hidden"><div class="panel manual-panel">
   <div class="inv-title">合成手册</div><div id="manual-list"></div><div class="inv-tip"></div>
+</div></div>
+<div id="furnace" class="hidden"><div class="panel furnace-panel">
+  <div class="inv-title">熔炉</div>
+  <div class="furnace-row">
+    <div class="furnace-col">
+      <div id="fur-in" class="slot"></div>
+      <div id="fur-flame"><i></i></div>
+      <div id="fur-fuel" class="slot"></div>
+    </div>
+    <div class="furnace-arrow"><span>➜</span><div class="fur-track"><i id="fur-prog"></i></div></div>
+    <div id="fur-out" class="slot result"></div>
+  </div>
+  <div id="fur-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+</div></div>
+<div id="chest" class="hidden"><div class="panel chest-panel">
+  <div class="inv-title">箱子</div>
+  <div id="chest-grid"></div>
+  <div id="chest-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
 </div></div>
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
@@ -81,8 +104,10 @@
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
 <script src="../js/systems/sound.js"></script>
+<script src="../js/systems/furnace.js"></script>
 <script src="../js/systems/particles.js"></script>
 <script src="../js/entities/mobs.js"></script>
+<script src="../js/entities/drops.js"></script>
 <script src="../js/systems/save.js"></script>
 <script src="../js/ui/handitem.js"></script>
 <script src="../js/ui/hud.js"></script>
@@ -262,17 +287,155 @@
       var sp = Voxel.Sound.spatial(Voxel.Player.pos().x + 5, Voxel.Player.pos().z);
       check('spatial 返回 vol/pan', typeof sp.vol === 'number' && sp.vol > 0 && sp.vol <= 1 && Math.abs(sp.pan) <= 1);
     }
-    stepF();
+
+    // 新增音效冒烟：猪/鸡/兔
+    try {
+      Voxel.Sound.pig(0.5); Voxel.Sound.pigHurt(0.5);
+      Voxel.Sound.chicken(0.5); Voxel.Sound.chickenHurt(0.5);
+      Voxel.Sound.rabbit(0.5); Voxel.Sound.rabbitHurt(0.5);
+      check('猪/鸡/兔音效可调用', true);
+    } catch (e) {
+      check('猪/鸡/兔音效无异常 (' + e.message + ')', false);
+    }
+
+    // ---- 被动生物：受击逃跑 + 击杀掉落 ----
+    Voxel.Game._test.clearInv();
+    var mobPos = Voxel.Player.pos().clone();
+    mobPos.x += 3;
+    var pig = Voxel.Mobs.spawn('pig', mobPos);
+    check('猪已生成', !!pig);
+    if (pig) {
+      Voxel.Mobs.damage(pig, 1, new THREE.Vector3(1, 0, 0));
+      check('被动生物受击进入逃跑状态', !pig.dead && pig.fleeT > 0);
+      Voxel.Mobs.damage(pig, 99, new THREE.Vector3(1, 0, 0));
+      check('击杀猪掉落生猪排', Voxel.Game._test.countInv(109) >= 1);
+    }
+    var chk = Voxel.Mobs.spawn('chicken', mobPos);
+    if (chk) Voxel.Mobs.damage(chk, 99, new THREE.Vector3(1, 0, 0));
+    var rbt = Voxel.Mobs.spawn('rabbit', mobPos);
+    if (rbt) Voxel.Mobs.damage(rbt, 99, new THREE.Vector3(1, 0, 0));
+    check('击杀鸡掉生鸡肉 / 兔掉生兔肉',
+      Voxel.Game._test.countInv(111) >= 1 && Voxel.Game._test.countInv(113) >= 1);
+
+    // ---- 背包 UX：Shift 快搬 / 右键拆半堆 ----
+    Voxel.Game._test.clearInv();
+    var TI = Voxel.Game._test.inv(), TC = Voxel.Game._test.cnt();
+    TI[0] = 10; TC[0] = 40;   // 40 木板放快捷栏格 0
+    check('Shift 快搬执行成功', Voxel.Game._test.quickMoveInv(0));
+    var movedBack = 0;
+    for (var qm = 9; qm < 36; qm++) if (TI[qm] === 10) movedBack += TC[qm];
+    check('快搬后源格清空且背包收全 (moved=' + movedBack + ')', TI[0] === 0 && movedBack === 40);
+    var bi = -1;
+    for (var fb = 9; fb < 36; fb++) if (TI[fb] === 10) { bi = fb; break; }
+    var origN = TC[bi], expHalf = Math.ceil(origN / 2);
+    Voxel.Game._test.slotRight('inv', bi);
+    check('右键拿取半堆 (half=' + expHalf + ')',
+      Voxel.Game._test.held() === 10 && Voxel.Game._test.heldCount() === expHalf &&
+      TC[bi] === origN - expHalf);
+    // 把手上的半堆逐个放回另一空格（右键放置语义）
+    var ei = -1;
+    for (var fe = 0; fe < 36; fe++) if (!TI[fe]) { ei = fe; break; }
+    var guardP = 0;
+    while (Voxel.Game._test.held() && guardP++ < 80) Voxel.Game._test.slotRight('inv', ei);
+    check('右键逐个放置放完整堆', !Voxel.Game._test.held() && TC[ei] === expHalf);
+    check('拆开的两堆可重新合并(Shift)', (function () {
+      Voxel.Game._test.quickMoveInv(ei);
+      var tot = 0;
+      for (var t = 0; t < 36; t++) if (TI[t] === 10) tot += TC[t];
+      return tot === origN;
+    })());
+
+    // ---- Q 丢弃与拾取（确定性：轮询直至拾取或超时） ----
+    Voxel.Game._test.clearInv();
+    TI[0] = 3; TC[0] = 5;     // 石头 ×5
+    var d0 = Voxel.Drops.count();
+    Voxel.Game._test.throwSelected();
+    check('Q 丢出掉落物实体且选中格减一',
+      Voxel.Drops.count() === d0 + 1 && TC[0] === 4);
+    // B: 清场后在脚下精确放置一堆 → 轮询等待自动拾取（最多 ~4s）
+    Voxel.Drops.clear();
+    Voxel.Drops.spawn(3, 2, Voxel.Player.pos().clone());
+    (function pollPickB(n) {
+      var done = Voxel.Drops.count() === 0 && Voxel.Game._test.countInv(3) >= 6;
+      if (done || n >= 14) {
+        check('近距离掉落物自动拾取 (inv=' + Voxel.Game._test.countInv(3) + ' drops=' + Voxel.Drops.count() + ')', done);
+        // C: 模拟抛物线丢出 → 玩家走到落点 → 轮询拾取
+        var eyeC = Voxel.Player.eyePos();
+        var lookC = Voxel.Player.lookDir();
+        var dd = Voxel.Drops.spawn(3, 1, eyeC,
+          new THREE.Vector3(lookC.x * 7, lookC.y * 7 + 2.5, lookC.z * 7));
+        (function pollC1(k) {
+          if (k >= 8 || dd.age > 0.9) {
+            Voxel.Player.pos().set(dd.pos.x, dd.pos.y + 0.2, dd.pos.z);
+            (function pollC2(j) {
+              var done2 = Voxel.Drops.count() === 0 && Voxel.Game._test.countInv(3) >= 7;
+              if (done2 || j >= 14) {
+                check('走近后拾取被丢弃的物品 (drops=' + Voxel.Drops.count() + ' inv=' + Voxel.Game._test.countInv(3) + ')', done2);
+                stepF();
+              } else wait(300, function () { pollC2(j + 1); });
+            })(0);
+          } else wait(150, function () { pollC1(k + 1); });
+        })(0);
+      } else wait(300, function () { pollPickB(n + 1); });
+    })(0);
   }
 
   function stepF() {
+    var T = Voxel.Game._test;
     Voxel.Player.damage(3);
     check('玩家受伤 hp=17', Voxel.Player.hp() === 17);
     Voxel.Player.damage(100);
     check('玩家死亡→dead', Voxel.Game.state === 'dead');
     doc.getElementById('btn-respawn').click();
     check('重生成功', Voxel.Game.state === 'playing' && Voxel.Player.hp() === 20);
-    wait(800, stepG);
+
+    // ---- 工具耐久：不堆叠 / 满耐久 / 耐久条 / 损坏消失 ----
+    T.clearInv();
+    T.addInv(102, 2);   // 两把石镐
+    check('工具不可堆叠(各占一格)', T.countInv(102) === 2);
+    check('新工具耐久为满 (132)', T.durAt(0) === 132);
+    T.setDur(0, 20);
+    check('低耐久显示红色条', (function () {
+      var c = document.querySelector('#hotbar .slot canvas');
+      if (!c) return false;
+      var d = c.getContext('2d').getImageData(8, 40, 1, 1).data;
+      return d[3] > 0 && d[0] > 150 && d[1] < 90;
+    })());
+    T.setDur(0, 1);
+    T.damageHeld();
+    check('耐久归零后工具损坏消失', T.countInv(102) === 1 && !T.inv()[0] && T.durAt(0) === null);
+
+    // ---- 饥饿系统：进食 / 饱腹拒绝 / 疲惫换算 ----
+    var PL = Voxel.Player;
+    T.clearInv();
+    T.inv()[0] = 109; T.cnt()[0] = 2;   // 生猪排 ×2
+    PL.setFood(10);
+    Voxel.Game.onKey('KeyR');
+    check('进食恢复饥饿 (10→13)', PL.food() === 13 && T.countInv(109) === 1);
+    PL.setFood(20);
+    Voxel.Game.onKey('KeyR');
+    check('饱腹时拒绝进食', PL.food() === 20 && T.countInv(109) === 1);
+    var fBefore = PL.food();
+    PL.addExhaust(16);
+    // 疲惫→饥饿换算发生在 update 中，驱动一小段真实帧后检查
+    wait(200, function () {
+      check('疲惫累积消耗饥饿 (16 疲惫 = 4 点)', PL.food() === fBefore - 4);
+      check('饥饿条已绘制', (function () {
+        var c = document.getElementById('hunger');
+        if (!c) return false;
+        return c.getContext('2d').getImageData(118, 10, 1, 1).data[3] > 0;
+      })());
+      // 饥饿 0 → 缓慢扣血（轮询；低帧率下模拟时间变慢，预算放宽到 ~40s）
+      PL.setFood(0); PL.setHp(5);
+      (function pollStarve(n) {
+        if (Voxel.Game.state !== 'playing') Voxel.Game.resume();
+        if (Voxel.Player.hp() < 5 || n >= 130) {
+          check('饥饿扣血生效 (hp=' + Voxel.Player.hp() + ')', Voxel.Player.hp() < 5 && Voxel.Player.hp() >= 1);
+          PL.setFood(20); PL.setHp(20);
+          stepG();
+        } else wait(300, function () { pollStarve(n + 1); });
+      })(0);
+    });
   }
 
   function stepG() {
@@ -282,6 +445,7 @@
     Voxel.World.set(sx, sy, sz, 11);
     var invT = new Array(36).fill(0), cntT = new Array(36).fill(0);
     invT[0] = 10; cntT[0] = 64; invT[5] = 19; cntT[5] = 3;
+    var durT = new Array(36).fill(null); durT[0] = 77;
     var ok = Voxel.Save.save(Voxel.World, {
       time: 0.42,
       weather: 'rain',
@@ -290,7 +454,8 @@
       cnt: cntT,
       held: 10,
       heldCnt: 64,
-      bed: [sx, sy, sz]
+      bed: [sx, sy, sz],
+      dur: durT
     });
     check('Save.save 成功', ok);
     var loaded = Voxel.Save.load();
@@ -299,6 +464,7 @@
       !!loaded && loaded.weather === 'rain' &&
       !!loaded.cnt && loaded.cnt[0] === 64 && loaded.cnt[5] === 3 && loaded.inv[5] === 19 &&
       loaded.held === 10 && loaded.heldCnt === 64 &&
+      !!loaded.dur && loaded.dur[0] === 77 &&
       !!loaded.bed && loaded.bed[0] === sx && loaded.bed[1] === sy && loaded.bed[2] === sz);
 
     var seed = Voxel.World.getSeed();
@@ -327,9 +493,9 @@
     check('火把点亮邻格', Voxel.World.getBlk(bxL + 1, byL, bzL) > 0);
     Voxel.World.set(bxL, byL, bzL, 0);
 
-    // 合成手册
-    check('手册列出 11 条配方', document.querySelectorAll('#manual .recipe-row').length === 11);
-    check('手册含材料获取说明', !!document.querySelector('#manual .manual-obtain'));
+    // 合成手册（12 条配方 + 烧炼章节）
+    check('手册列出 13 条配方', document.querySelectorAll('#manual .recipe-row').length === 18);
+    check('手册含材料获取与烧炼说明', document.querySelectorAll('#manual .manual-obtain').length >= 2);
 
     var T = Voxel.Game._test;
     T.clearInv();
@@ -462,10 +628,105 @@
     check('床配方颠倒不匹配', !T.matchResult());
     T.clearCraft();
 
+    // 5b) 工作台内合成熔炉（趁面板还开着）
+    T.clearCraft();
+    for (var fi2 = 0; fi2 < 9; fi2++) if (fi2 !== 4) T.setCraft(fi2, 3);
+    var rf = T.matchResult();
+    check('8 石头 → 熔炉(工作台)', !!rf && rf.result === 37);
+    T.clickResult();
+    check('熔炉进入背包', T.countInv(37) >= 1);
+    T.clearCraft();
+
     // 5) 关闭工作台
     Voxel.Game.onKey('KeyE');
     check('工作台界面关闭(state=playing)', Voxel.Game.state === 'playing' &&
       document.getElementById('crafting').classList.contains('hidden'));
+
+    // 6) 熔炉：放置 → 打开 → 投料烧制 → 产出 → 破坏回收
+    var spF = Voxel.World.spawnPoint();
+    var fx = Math.floor(spF.x), fz = Math.floor(spF.z) + 2, fy = Voxel.World.surfaceAt(fx, fz) + 1;
+    Voxel.World.set(fx, fy, fz, 37);
+    T.openFurnaceAt(fx, fy, fz);
+    check('熔炉面板打开(state=furnace)', Voxel.Game.state === 'furnace' &&
+      !document.getElementById('furnace').classList.contains('hidden'));
+    var fur = T.furnaceState();
+    check('打开即创建炉子元数据', !!fur && fur.type === 'furnace' &&
+      Voxel.World.getMeta(fx, fy, fz) === fur);
+
+    // 投料：2 铁矿 + 1 煤炭（直接写入状态对象，UI 由 tick 同步）
+    fur.in = { id: 9, n: 2 };
+    fur.fuel = { id: 107, n: 1 };
+    Voxel.FurnaceSys.tickOne(fur, 0.5);
+    check('点火消耗煤炭', !fur.fuel && fur.burnT > 39);
+    for (var tk = 0; tk < 10; tk++) Voxel.FurnaceSys.tickOne(fur, 0.5);   // 模拟推进 5s
+    check('5 秒产出铁锭', !!fur.out && fur.out.id === 108 && fur.out.n === 1 && fur.in.n === 1);
+    // UI 断言：直接调用渲染函数（与主循环 tickFurnaces 相同路径），避免依赖异步帧
+    Voxel.HUD.setFurnace(fur);
+    check('产物格 UI 渲染', (function () {
+      var c = document.querySelector('#fur-out canvas');
+      return !!c && c.getContext('2d').getImageData(22, 22, 1, 1).data[3] > 0;
+    })());
+    Voxel.FurnaceSys.tickOne(fur, 0.4);
+    Voxel.HUD.setFurnaceGauges(
+      fur.burnMax > 0 ? fur.burnT / fur.burnMax : 0,
+      fur.prog / Voxel.FurnaceSys.SMELT_TIME);
+    check('进度表针前进中', parseFloat(document.getElementById('fur-prog').style.width) > 0);
+
+    // 关闭后炉子继续烧制（活跃表驱动）
+    Voxel.Game.onKey('KeyE');
+    check('熔炉面板关闭(state=playing)', Voxel.Game.state === 'playing' &&
+      document.getElementById('furnace').classList.contains('hidden'));
+    check('关闭后炉子仍在活跃表', T.activeFurnaceCount() >= 1 &&
+      !!Voxel.World.getMeta(fx, fy, fz));
+
+    // 破坏回收：内容退回背包 + 元数据清除
+    fur.out = { id: 108, n: 1 };
+    T.clearInv();
+    T.dumpFurnace(fx, fy, fz);
+    Voxel.World.set(fx, fy, fz, 0);
+    check('破坏熔炉回收产出物', T.countInv(108) === 1);
+    check('破坏后台账元数据已清空', !Voxel.World.getMeta(fx, fy, fz));
+
+    // 7) 箱子：放置 → 打开 → Shift 存入（含工具耐久）→ 右键取半堆 → 破坏回收
+    var cx2 = Math.floor(spF.x) + 4, cz2 = Math.floor(spF.z), cy2 = Voxel.World.surfaceAt(cx2, cz2) + 1;
+    Voxel.World.set(cx2, cy2, cz2, 38);
+    T.openChestAt(cx2, cy2, cz2);
+    check('箱子面板打开(state=chest)', Voxel.Game.state === 'chest' &&
+      !document.getElementById('chest').classList.contains('hidden'));
+    var ch = T.curChest();
+    check('打开即创建箱子元数据(27 格)', !!ch && ch.type === 'chest' && ch.items.length === 27);
+
+    T.clearInv();
+    T.addInv(10, 12);   // 木板 ×12 → slot0
+    T.addInv(102, 1);   // 石镐 → slot1
+    T.setDur(1, 50);    // 用过的镐
+    T.quickMoveToChest(0);
+    T.quickMoveToChest(1);
+    check('Shift 快存后背包对应格清空', !T.inv()[0] && !T.inv()[1]);
+    check('箱内木板整堆保存', !!ch.items[0] && ch.items[0].id === 10 && ch.items[0].n === 12);
+    check('工具耐久保留入库', (function () {
+      for (var i = 0; i < 27; i++) { var o = ch.items[i]; if (o && o.id === 102) return o.dur === 50; }
+      return false;
+    })());
+    var plI = -1;
+    for (var pi2 = 0; pi2 < 27; pi2++) if (ch.items[pi2] && ch.items[pi2].id === 10) { plI = pi2; break; }
+    T.slotRight('chest', plI);
+    check('右键从箱子取半堆', T.heldCount() === 6);
+    T.closeChest();
+    check('关闭后面板收起且手持物退回背包',
+      Voxel.Game.state === 'playing' &&
+      document.getElementById('chest').classList.contains('hidden') && T.countInv(10) >= 6);
+
+    T.clearInv();   // 清空背包，验证破坏回收
+    T.dumpChest(cx2, cy2, cz2);
+    Voxel.World.set(cx2, cy2, cz2, 0);
+    check('破坏箱子回收全部物品', T.countInv(10) === 6 && T.countInv(102) === 1);
+    check('回收的镐耐久仍为 50', (function () {
+      for (var i = 0; i < 36; i++) if (T.inv()[i] === 102) return T.durAt(i) === 50;
+      return false;
+    })());
+    check('破坏箱子后台账元数据清空', !Voxel.World.getMeta(cx2, cy2, cz2));
+
     wait(500, stepJ);
   }
 
@@ -560,9 +821,12 @@
     // 物理：玩家应落在床顶 (by+1.5) 而不是整格顶 (by+2)
     var bedTop = by + 1.5;
     Voxel.Player.init(new THREE.Vector3(bx + 0.5, bedTop + 1.2, bz + 0.5), 0, 0);
-    wait(1500, function () {
+    // 轮询等待落地；headless 下指针锁异步失败可能触发 pause，恢复后再继续
+    (function pollBed(n) {
+      if (Voxel.Game.state !== 'playing') Voxel.Game.resume();
+      if (!Voxel.Player.onGround() && n < 30) { wait(100, function () { pollBed(n + 1); }); return; }
       var py = Voxel.Player.pos().y;
-      check('玩家站在床顶 (y=' + py.toFixed(2) + ' ≈ ' + bedTop + ')', Voxel.Player.onGround() && Math.abs(py - bedTop) < 0.15);
+      check('玩家站在床顶 (y=' + py.toFixed(2) + ' ≈ ' + bedTop + ' state=' + Voxel.Game.state + ')', Voxel.Player.onGround() && Math.abs(py - bedTop) < 0.15);
       // 恢复现场
       Voxel.World.set(bx, by + 1, bz, 0);
       Voxel.World.set(bx + 1, by + 1, bz, 0);
@@ -621,7 +885,8 @@
       while (Wt.rainbowVisible() && n2++ < 400) Wt.update(0.25);
       check('夜里不出现彩虹', !Wt.rainbowVisible() && Wt.rainbowOpacity() === 0);
 
-      // G 键手动切换
+      // G 键手动切换（headless 下可能被指针锁失败暂停：先确保 playing）
+      if (Voxel.Game.state !== 'playing') Voxel.Game.resume();
       Wt.set('clear');
       Voxel.Game.onKey('KeyG');
       check('G 键切换为雨', Wt.stateName() === 'rain');

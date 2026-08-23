@@ -14,6 +14,9 @@ Voxel.Player = (function () {
   var bedPos = null;                 // 床重生点
   var kbx = 0, kbz = 0, kbT = 0;     // 受击击退
   var lastCause = '';                // 最近一次受伤原因
+  var headInWater = false;           // 头部浸水（水下滤镜/雾用）
+  var food = C.FOOD_MAX;             // 饥饿值
+  var exhaust = 0, starveT = 0;      // 疲惫累积 / 饥饿扣血计时
   var ent = { w: C.W, h: C.H, onGround: false, pos: null, vel: null };
 
   function update(dt) {
@@ -66,11 +69,11 @@ Voxel.Player = (function () {
     } else if (inWater) {
       vel.y -= C.SWIM_GRAVITY * dt;
       if (vel.y < -3) vel.y = -3;
-      if (K['Space']) vel.y = C.SWIM_UP;
+      if (K['Space']) { vel.y = C.SWIM_UP; addExhaust(C.EXHAUST_JUMP * 0.5); }
     } else {
       vel.y -= C.GRAVITY * dt;
       if (vel.y < C.MAX_FALL) vel.y = C.MAX_FALL;
-      if (K['Space'] && onGround) { vel.y = C.JUMP; Voxel.Sound.jump(); }
+      if (K['Space'] && onGround) { vel.y = C.JUMP; Voxel.Sound.jump(); addExhaust(C.EXHAUST_JUMP); }
     }
 
     ent.pos = pos;
@@ -90,6 +93,7 @@ Voxel.Player = (function () {
 
     // 头部浸水：闷音 + 水下环境声 + 憋气/溺水
     var headIn = Voxel.World.get(Math.floor(pos.x), Math.floor(pos.y + C.EYE), Math.floor(pos.z)) === 7;
+    headInWater = headIn;
     Voxel.Sound.setUnderwater(headIn);
     if (headIn) {
       air -= dt;
@@ -115,6 +119,22 @@ Voxel.Player = (function () {
         }
       }
     } else bubbleTimer = 0;
+
+    // 饥饿：按活动强度累积疲惫 → 消耗饥饿值；饥饿 0 时缓慢扣血（降到 1 为止）
+    var movingNow = (vel.x * vel.x + vel.z * vel.z) > 0.5 && !flying;
+    var rate = C.RATE_STILL;
+    if (movingNow) rate = sprint ? C.RATE_SPRINT : C.RATE_MOVE;
+    if (inWater) rate = Math.max(rate, C.RATE_SWIM);
+    addExhaust(rate * dt);
+    while (exhaust >= C.EXHAUST_PER_FOOD && food > 0) {
+      exhaust -= C.EXHAUST_PER_FOOD;
+      food--;
+    }
+    if (food <= 0 && hp > 1) {
+      starveT += dt;
+      if (starveT >= C.STARVE_INTERVAL) { starveT = 0; damage(C.STARVE_DMG, 'starve'); }
+    } else starveT = 0;
+    if (Voxel.HUD && Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
 
     // 脚步声（按脚下材质）
     var moving = (vel.x * vel.x + vel.z * vel.z) > 4;
@@ -153,6 +173,9 @@ Voxel.Player = (function () {
     prevInWater = false;
     air = C.AIR_MAX;
     drownT = 0;
+    food = C.FOOD_MAX;
+    exhaust = 0;
+    starveT = 0;
     Voxel.Sound.setUnderwater(false);
     if (yaw !== undefined) Voxel.Controls.setYaw(yaw);
     if (pitch !== undefined) Voxel.Controls.setPitch(pitch);
@@ -178,6 +201,9 @@ Voxel.Player = (function () {
     hp = C.HP;
     air = C.AIR_MAX;
     drownT = 0;
+    food = C.FOOD_MAX;
+    exhaust = 0;
+    starveT = 0;
     flying = false;
     Voxel.HUD.drawHealth(hp);
   }
@@ -214,6 +240,19 @@ Voxel.Player = (function () {
     Voxel.HUD.drawHealth(hp);
   }
 
+  // ---- 饥饿 ----
+  function addExhaust(x) { exhaust += x; }
+  function eat(n) {
+    var before = food;
+    food = Math.min(C.FOOD_MAX, food + n);
+    return food - before;   // 实际吃下的饥饿值
+  }
+  function setFood(v) {
+    food = Math.max(0, Math.min(C.FOOD_MAX, v));
+    exhaust = Math.min(exhaust, C.EXHAUST_PER_FOOD);
+    if (Voxel.HUD && Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
+  }
+
   return {
     init: init,
     initAtSpawn: initAtSpawn,
@@ -236,6 +275,11 @@ Voxel.Player = (function () {
     },
     hp: function () { return hp; },
     setHp: function (v) { hp = v; },
+    headIn: function () { return headInWater; },
+    food: function () { return food; },
+    setFood: setFood,
+    eat: eat,
+    addExhaust: addExhaust,
     flying: function () { return flying; },
     setFlying: function (v) { flying = !!v; },
     onGround: function () { return onGround; },
