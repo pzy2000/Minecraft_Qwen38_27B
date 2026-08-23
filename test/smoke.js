@@ -103,6 +103,23 @@ check('跃迁成本有界且随距离计算', GA.fuelCost(galA.catalog[0], galA.
 var hydrated = GA.hydrate({ rootSeed: galA.rootSeed, currentId: 'planet-2', discovered: { 'planet-2': true }, ship: { fuel: 27, maxFuel: 100 }, worlds: { 'planet-0': { edits: { '1,2,3': 4 } } } }, galA.rootSeed);
 check('星系状态可恢复', hydrated.currentId === 'planet-2' && hydrated.ship.fuel === 27 &&
   hydrated.worlds['planet-0'].edits['1,2,3'] === 4);
+(function () {
+  // 模拟 v4 → 首次载入 v5：main 会把旧世界种子固化到起始行星和迁移标记。
+  var legacySeed = '12345';
+  var migrated = GA.create(legacySeed);
+  migrated.legacyStartSeed = legacySeed;
+  GA.find(migrated, 'planet-0').seed = legacySeed;
+  var secondLoad = GA.hydrate(JSON.parse(JSON.stringify(migrated)), legacySeed);
+  check('旧存档两跳迁移后仍使用原世界种子',
+    secondLoad.legacyStartSeed === legacySeed && GA.find(secondLoad, 'planet-0').seed === legacySeed);
+
+  // 兼容修复上线前已保存过一次的 v5：当时 catalog 有覆写种子但没有显式标记。
+  var oldMigrated = GA.create(legacySeed);
+  GA.find(oldMigrated, 'planet-0').seed = legacySeed;
+  var recovered = GA.hydrate(JSON.parse(JSON.stringify(oldMigrated)), legacySeed);
+  check('无迁移标记的既有 v5 存档可恢复旧底图',
+    recovered.legacyStartSeed === legacySeed && GA.find(recovered, 'planet-0').seed === legacySeed);
+})();
 
 console.log('噪声测试');
 var noise = V.Noise.create(42);

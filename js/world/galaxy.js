@@ -78,6 +78,21 @@ Voxel.Galaxy = (function () {
   function hydrate(saved, fallbackSeed) {
     var fresh = create((saved && saved.rootSeed) || fallbackSeed);
     if (!saved) return fresh;
+    // v4 及更早版本只有一个世界种子。迁移到 v5 时，起始行星必须永久沿用
+    // 旧种子，否则下一次 hydrate 会重新派生 planet-0，导致原 edits/meta 被套到
+    // 完全不同的底图上。兼容两种形态：
+    // 1) 新代码写入的显式 legacyStartSeed；
+    // 2) 旧迁移代码已保存过一次、catalog 中 planet-0 被覆写但尚无标记。
+    var freshStart = find(fresh, 'planet-0');
+    var savedStart = saved.catalog ? find(saved, 'planet-0') : null;
+    var legacyStart = saved.legacyStartSeed;
+    if (legacyStart === undefined && savedStart && freshStart && savedStart.seed !== freshStart.seed)
+      legacyStart = savedStart.seed;
+    if (legacyStart !== undefined && legacyStart !== null && freshStart) {
+      legacyStart = rootString(legacyStart);
+      fresh.legacyStartSeed = legacyStart;
+      freshStart.seed = legacyStart;
+    }
     fresh.currentId = find(fresh, saved.currentId) ? saved.currentId : 'planet-0';
     fresh.discovered = saved.discovered || fresh.discovered;
     fresh.ship = saved.ship || fresh.ship;

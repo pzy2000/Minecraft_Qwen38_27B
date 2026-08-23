@@ -173,8 +173,12 @@ Voxel.Game = (function () {
     } else {
       ensureGalaxy((sd && sd.galaxy && sd.galaxy.rootSeed) || s || Voxel.SeedUtil.random(), sd && sd.galaxy);
       // v4 及更早的单世界存档把原世界直接作为起始行星，避免迁移后地形/编辑错位。
-      if (sd && !sd.galaxy && sd.seed !== undefined)
-        currentWorld.seed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(sd.seed));
+      if (sd && !sd.galaxy && sd.seed !== undefined) {
+        var legacyStartSeed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(sd.seed));
+        currentWorld.seed = legacyStartSeed;
+        // 随 galaxy 一起持久化；后续每次 hydrate 都据此恢复原底图种子。
+        galaxyState.legacyStartSeed = legacyStartSeed;
+      }
     }
     featuredPending = featured || null;
     saveData = sd || null;
