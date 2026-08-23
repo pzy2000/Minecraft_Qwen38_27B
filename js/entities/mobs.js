@@ -272,7 +272,7 @@ Voxel.Mobs = (function () {
     Voxel.Particles.burst(p, m.baseColors[0], 14);
     var drop = KILL_DROPS[m.type];
     if (drop && Voxel.Game && Voxel.Game.onDrop) {
-      Voxel.Game.onDrop(drop[0], drop[1]);
+      Voxel.Game.onDrop(drop[0], drop[1], p);
     }
     var i = list.indexOf(m);
     if (i >= 0) removeAt(i);

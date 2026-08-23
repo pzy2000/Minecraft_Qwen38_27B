@@ -623,9 +623,13 @@ Voxel.Game = (function () {
     var eye = Voxel.Player.eyePos();
     var d = Voxel.Player.lookDir();
     var vel = new THREE.Vector3(d.x * 7, d.y * 7 + 2.5, d.z * 7);
-    Voxel.Drops.spawn(id, 1, eye, vel, dur[sel]);
+    if (!Voxel.Drops.spawn(id, 1, eye, vel, dur[sel])) {
+      Voxel.HUD.toast('暂时无法丢弃物品，请稍后重试');
+      return false;
+    }
     decSel();
     Voxel.Sound.select();
+    return true;
   }
 
   // 掉落物磁吸拾取回调（Drops 实体调用），返回实际拾取数
@@ -639,22 +643,49 @@ Voxel.Game = (function () {
   function addToInvWithDur(id, n, d) {
     var md = Voxel.Blocks.maxDur(id);
     if (!md) return addInv(id, n);
-    for (var i = 0; i < 36; i++) {
+    n = Math.max(0, Math.floor(Number(n) || 0));
+    var added = 0;
+    for (var i = 0; i < 36 && added < n; i++) {
       if (inv[i]) continue;
       inv[i] = id; cnt[i] = 1;
       dur[i] = (typeof d === 'number' && d > 0 && d <= md) ? d : md;
-      refreshInv();
-      return n;
+      added++;
     }
-    return 0;
+    if (added > 0) refreshInv();
+    return added;
+  }
+
+  // 将背包装不下的余量实体化；统一保留数量、真实位置与工具耐久。
+  function spawnRemainder(id, n, pos, d) {
+    if (!id || !(n > 0) || !Voxel.Drops || !Voxel.Drops.spawn) return null;
+    var origin = pos && typeof pos.clone === 'function' ? pos.clone() : null;
+    if (!origin && Voxel.Player && Voxel.Player.pos) {
+      origin = Voxel.Player.pos().clone();
+      origin.y += 0.25;
+    }
+    if (!origin) return null;
+    var vel = new THREE.Vector3((Math.random() - 0.5) * 2, 2.2, (Math.random() - 0.5) * 2);
+    return Voxel.Drops.spawn(id, n, origin, vel, d);
   }
 
   // 把手持物安全退回背包（关闭面板时）
   function stowHeld() {
     if (!heldItem) return;
     var got = addToInvWithDur(heldItem, heldCnt, heldDur);
-    if (got < heldCnt) Voxel.HUD.toast('背包已满，部分物品丢失了！');
+    var remaining = heldCnt - got;
+    if (remaining > 0) {
+      var feet = Voxel.Player.pos().clone();
+      feet.y += 0.25;
+      if (!spawnRemainder(heldItem, remaining, feet, heldDur)) {
+        // 极端情况下掉落实体系统尚未初始化：余量继续留在手上，绝不静默清空。
+        heldCnt = remaining;
+        Voxel.HUD.toast('背包空间不足，余下物品仍保留在手中');
+        return false;
+      }
+      Voxel.HUD.toast('背包空间不足，余下 ' + remaining + ' 件物品已掉落在脚边');
+    }
     heldItem = 0; heldCnt = 0; heldDur = null;
+    return true;
   }
 
   // ---------- 触控瞄准（MCPE 手势流）：射线来自屏幕触点或准星 ----------
@@ -818,9 +849,20 @@ Voxel.Game = (function () {
     if (t.id === 37) dumpContainerContents(t.x, t.y, t.z, ['in', 'fuel', 'out']);
     if (t.id === 38) dumpChest(t.x, t.y, t.z);
     Voxel.World.set(t.x, t.y, t.z, 0);
-    addInv(dropId, 1);
+    var blockPos = new THREE.Vector3(t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    var bodyGot = addInv(dropId, 1);
+    if (bodyGot < 1) {
+      if (spawnRemainder(dropId, 1, blockPos)) {
+        Voxel.HUD.toast('背包空间不足，' + Voxel.Blocks.name(dropId) + '已掉落在方块位置');
+      } else {
+        // 正常游戏中 Drops 已初始化；若仍失败，恢复一个空容器本体，保证物品守恒。
+        Voxel.World.set(t.x, t.y, t.z, t.id);
+        Voxel.HUD.toast('方块掉落生成失败，容器本体已在原位恢复');
+        return;
+      }
+    }
     Voxel.Sound.dig(def.sound);
-    Voxel.Particles.burst(new THREE.Vector3(t.x + 0.5, t.y + 0.5, t.z + 0.5), def.color, 10);
+    Voxel.Particles.burst(blockPos, def.color, 10);
     Voxel.Player.addExhaust(C.EXHAUST_DIG);
     damageHeldTool(1);   // 挖掘损耗工具耐久
     spawnFallersAbove(t.x, t.y, t.z);   // 上方沙/砾失去支撑 → 下落
@@ -914,13 +956,19 @@ Voxel.Game = (function () {
     Voxel.Sound.select();
   }
 
-  // 生物掉落 → 背包
-  function onDrop(id, n) {
+  // 生物掉落 → 背包；放不下的余量保留在真实死亡位置。
+  function onDrop(id, n, pos, d) {
     n = n || 1;
-    var got = addInv(id, n);
+    var got = addToInvWithDur(id, n, d);
+    var remaining = n - got;
     if (got >= n) Voxel.HUD.toast('获得 ' + Voxel.Blocks.name(id) + (n > 1 ? ' ×' + n : ''));
-    else if (got > 0) Voxel.HUD.toast('获得 ' + Voxel.Blocks.name(id) + ' ×' + got + '（背包空间不足）');
-    else Voxel.HUD.toast('背包已满！掉落物丢失了');
+    else if (spawnRemainder(id, remaining, pos, d)) {
+      if (got > 0) Voxel.HUD.toast('获得 ' + Voxel.Blocks.name(id) + ' ×' + got + '，余下 ×' + remaining + ' 留在死亡位置');
+      else Voxel.HUD.toast('背包已满，掉落物已留在死亡位置');
+    } else {
+      Voxel.HUD.toast('背包空间不足，掉落物仍留在死亡位置');
+    }
+    return got;
   }
 
   // ---------- 合成 ----------
@@ -944,14 +992,25 @@ Voxel.Game = (function () {
 
   function closeCrafting() {
     if (state !== 'crafting') return;
-    if (heldItem) stowHeld();
-    returnGridToInv(craftGrid);
+    if (heldItem && stowHeld() === false) {
+      refreshInv();
+      Voxel.HUD.drawHeld(heldItem);
+      refreshCraft();
+      return false;
+    }
+    if (!returnGridToInv(craftGrid)) {
+      refreshInv();
+      Voxel.HUD.drawHeld(heldItem);
+      refreshCraft();
+      return false;
+    }
     refreshInv();
     Voxel.HUD.drawHeld(0);
-      document.getElementById('crafting').classList.add('hidden');
-      document.body.classList.remove('panel-open');
-      setState('playing');
+    document.getElementById('crafting').classList.add('hidden');
+    document.body.classList.remove('panel-open');
+    setState('playing');
     tryLock();
+    return true;
   }
 
   // 格子统一读写：inv 有堆叠数量；合成格每格固定 1 个；
@@ -1120,14 +1179,27 @@ Voxel.Game = (function () {
     refreshInvCraft();
   }
 
-  // 关闭面板时把合成格里的物品退回背包（堆叠收纳，空间足够）
+  // 关闭面板时把合成格退回背包；余量落在脚边，生成失败则保留格子并拒绝关闭。
   function returnGridToInv(grid) {
-    var changed = false;
+    var complete = true;
+    var dropped = 0;
+    var feet = Voxel.Player.pos().clone();
+    feet.y += 0.25;
     for (var g = 0; g < grid.length; g++) {
       if (!grid[g]) continue;
-      if (addInv(grid[g], 1) > 0) { grid[g] = 0; changed = true; }
+      var id = grid[g];
+      if (addInv(id, 1) > 0) {
+        grid[g] = 0;
+      } else if (spawnRemainder(id, 1, feet)) {
+        grid[g] = 0;
+        dropped++;
+      } else {
+        complete = false;
+      }
     }
-    return changed;
+    if (dropped > 0) Voxel.HUD.toast('背包空间不足，合成格余下物品已掉落在脚边');
+    if (!complete) Voxel.HUD.toast('掉落物生成失败，合成格已保留，请重试关闭');
+    return complete;
   }
 
   // ---------- 拖拽（点击拾取仍可用：按下未移动即拾取到手持） ----------
@@ -1429,7 +1501,11 @@ Voxel.Game = (function () {
 
   function closeFurnace() {
     if (state !== 'furnace') return;
-    if (heldItem) stowHeld();
+    if (heldItem && stowHeld() === false) {
+      refreshInv();
+      Voxel.HUD.drawHeld(heldItem);
+      return false;
+    }
     // 炉内物品保留在方块元数据中，继续烧制
     refreshInv();
     Voxel.HUD.drawHeld(0);
@@ -1437,6 +1513,7 @@ Voxel.Game = (function () {
     document.body.classList.remove('panel-open');
     setState('playing');
     tryLock();
+    return true;
   }
 
   // 挖掉熔炉：内容退回背包，放不下的变成掉落物
@@ -1480,7 +1557,11 @@ Voxel.Game = (function () {
 
   function closeChest() {
     if (state !== 'chest') return;
-    stowHeld();
+    if (heldItem && stowHeld() === false) {
+      refreshInv();
+      Voxel.HUD.drawHeld(heldItem);
+      return false;
+    }
     refreshInv();
     Voxel.HUD.drawHeld(0);
     curChest = null;   // 箱内物品保留在方块元数据中
@@ -1488,6 +1569,7 @@ Voxel.Game = (function () {
     document.body.classList.remove('panel-open');
     setState('playing');
     tryLock();
+    return true;
   }
 
   // 挖掉箱子：27 格内容退回背包（保留工具耐久），放不下变成掉落物
@@ -1561,14 +1643,25 @@ Voxel.Game = (function () {
       refreshInvCraft();
       Voxel.Controls.exitLock();
     } else if (!open && state === 'inventory') {
-      if (heldItem) stowHeld();
-      returnGridToInv(invCraftGrid);
+      if (heldItem && stowHeld() === false) {
+        refreshInv();
+        Voxel.HUD.drawHeld(heldItem);
+        refreshInvCraft();
+        return false;
+      }
+      if (!returnGridToInv(invCraftGrid)) {
+        refreshInv();
+        Voxel.HUD.drawHeld(heldItem);
+        refreshInvCraft();
+        return false;
+      }
       refreshInv();
       Voxel.HUD.drawHeld(0);
       document.getElementById('inventory').classList.add('hidden');
       document.body.classList.remove('panel-open');
       setState('playing');
       tryLock();
+      return true;
     }
   }
 
@@ -2208,6 +2301,7 @@ Voxel.Game = (function () {
       matchResult: function () { return Voxel.Crafting.match(craftGrid); },
       clickResult: onResultClick,
       openCrafting: openCrafting,
+      closeCrafting: closeCrafting,
       invCraft: function () { return invCraftGrid; },
       setInvCraft: function (i, id) { invCraftGrid[i] = id; refreshInvCraft(); },
       clearInvCraft: function () { for (var k2 = 0; k2 < 4; k2++) invCraftGrid[k2] = 0; refreshInvCraft(); },
@@ -2221,11 +2315,13 @@ Voxel.Game = (function () {
       digHeld: function () { return !!mouseDown[2]; },
       crackVisible: function () { return !!(crackMesh && crackMesh.visible); },
       digProgress: function () { return { t: digT, p: digProg, need: digNeed }; },
+      finishDig: finishDig,
       // 掉落物 / 背包交互测试钩子
       dropCount: function () { return Voxel.Drops.count(); },
       quickMoveInv: function (i) { var r = quickMoveInv(i); if (r) syncSlots('inv'); return r; },
       slotRight: onSlotRight,
-      throwSelected: function () { throwSelected(); },
+      throwSelected: throwSelected,
+      toggleInv: toggleInv,
       durAt: function (i) { syncDur(); return dur[i]; },
       setDur: function (i, v) { dur[i] = v; refreshInv(); },
       damageHeld: function () { damageHeldTool(1); },

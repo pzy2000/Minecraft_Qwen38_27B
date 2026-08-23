@@ -819,6 +819,142 @@
       Voxel.Game.state === 'playing' &&
       document.getElementById('chest').classList.contains('hidden') && T.countInv(10) >= 6);
 
+    // 8) 容器/生物掉落守恒：满包时不得删除 held 或击杀掉落。
+    var ocx = cx2 + 3, ocz = cz2, ocy = Voxel.World.surfaceAt(ocx, ocz) + 1;
+    Voxel.World.set(ocx, ocy, ocz, 38);
+
+    function fillInventory(id, n) {
+      T.clearInv();
+      for (var fi = 0; fi < 36; fi++) {
+        T.inv()[fi] = id;
+        T.cnt()[fi] = n;
+      }
+    }
+    function openOverflowChest() {
+      T.openChestAt(ocx, ocy, ocz);
+      return T.curChest();
+    }
+    function droppedCount(id) {
+      var total = 0;
+      for (var di = 0; di < Voxel.Drops.list.length; di++)
+        if (Voxel.Drops.list[di].id === id) total += Voxel.Drops.list[di].n;
+      return total;
+    }
+
+    // 36 格全满：从箱子取出半堆后关闭，held 必须清空但数量全部变为脚边 Drops。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    var overflowChest = openOverflowChest();
+    overflowChest.items = new Array(27).fill(null);
+    overflowChest.items[0] = { id: 10, n: 11, dur: null };
+    T.slotRight('chest', 0); // 向上取半：held=6，箱内=5
+    check('满包关箱前 held 拿到 6 个木板', T.held() === 10 && T.heldCount() === 6 && overflowChest.items[0].n === 5);
+    T.closeChest();
+    var fullDrop = Voxel.Drops.list[0];
+    check('满 36 格关箱后 held 已清空', !T.held() && T.heldCount() === 0);
+    check('满包 held 余量生成 Drops 而非消失', Voxel.Drops.count() === 1 && !!fullDrop &&
+      fullDrop.id === 10 && fullDrop.n === 6 && fullDrop.dur === null);
+    check('满包关箱前后 id/n 守恒', overflowChest.items[0].n + fullDrop.n === 11);
+
+    // 背包只有同类堆的 2 格容量：先收 2，剩余 3 个落地。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    T.inv()[7] = 10; T.cnt()[7] = 62;
+    overflowChest = openOverflowChest();
+    overflowChest.items = new Array(27).fill(null);
+    overflowChest.items[0] = { id: 10, n: 9, dur: null };
+    T.slotRight('chest', 0); // held=5，箱内=4
+    T.closeChest();
+    var partialDrop = Voxel.Drops.list[0];
+    check('普通堆先填满背包的部分容量', T.cnt()[7] === 64 && !T.held());
+    check('普通堆放不下的余量落地', Voxel.Drops.count() === 1 && !!partialDrop &&
+      partialDrop.id === 10 && partialDrop.n === 3 && partialDrop.dur === null);
+    check('部分入包+箱内+落地数量守恒', T.cnt()[7] + overflowChest.items[0].n + partialDrop.n === 62 + 9);
+
+    // 工具不可堆叠：满包关箱时应以掉落实体保留损坏后的耐久。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    overflowChest = openOverflowChest();
+    overflowChest.items = new Array(27).fill(null);
+    overflowChest.items[0] = { id: 102, n: 1, dur: 37 };
+    T.slotRight('chest', 0);
+    check('受损工具已从箱子取到 held', T.held() === 102 && T.heldCount() === 1);
+    T.closeChest();
+    var toolDrop = Voxel.Drops.list[0];
+    check('满包关箱后受损工具以 Drops 保留', !T.held() && Voxel.Drops.count() === 1 &&
+      !!toolDrop && toolDrop.id === 102 && toolDrop.n === 1 && toolDrop.dur === 37);
+
+    // 满包生物掉落：使用显式死亡坐标，断言实体不会出现在玩家身上或直接消失。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    var ppDrop = Voxel.Player.pos();
+    var deathPos = new THREE.Vector3(ppDrop.x + 12, ppDrop.y + 3, ppDrop.z - 9);
+    Voxel.Game.onDrop(16, 2, deathPos);
+    var mobDrop = Voxel.Drops.list[0];
+    check('满包 Game.onDrop 生成掉落实体', Voxel.Drops.count() === 1 && !!mobDrop &&
+      mobDrop.id === 16 && mobDrop.n === 2 && mobDrop.dur === null);
+    check('生物掉落位置等于死亡位置', !!mobDrop && mobDrop.pos.distanceTo(deathPos) < 1e-6);
+
+    Voxel.Drops.clear();
+    Voxel.World.set(ocx, ocy, ocz, 0);
+
+    // 9) 容器内容占掉最后一个空格后，箱子方块本体仍必须入包或落地。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    T.inv()[35] = 0; T.cnt()[35] = 0; // 仅留 1 个空格，将被箱内木板占用
+    var bcx = ocx + 3, bcz = ocz, bcy = Voxel.World.surfaceAt(bcx, bcz) + 1;
+    var bodyChest = { type: 'chest', items: new Array(27).fill(null) };
+    bodyChest.items[0] = { id: 10, n: 5, dur: null };
+    Voxel.World.set(bcx, bcy, bcz, 38);
+    Voxel.World.setMeta(bcx, bcy, bcz, bodyChest);
+    T.finishDig({ x: bcx, y: bcy, z: bcz, id: 38 });
+    check('仅一空格时箱内不可合并内容先完整入包', T.countInv(10) + droppedCount(10) === 5);
+    check('内容占满最后空格后箱子本体未消失', T.countInv(38) + droppedCount(38) === 1);
+    check('箱子本体容量不足时在原方块位置落地', droppedCount(38) === 1 &&
+      Voxel.Drops.list.some(function (d) {
+        return d.id === 38 && d.pos.distanceTo(new THREE.Vector3(bcx + 0.5, bcy + 0.5, bcz + 0.5)) < 1e-6;
+      }));
+    check('箱子破坏后方块与元数据已清除', Voxel.World.get(bcx, bcy, bcz) === 0 && !Voxel.World.getMeta(bcx, bcy, bcz));
+
+    // 10) 3×3 工作台合成格：满包关闭时每格材料转为 Drops 后才清格。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    T.openCrafting();
+    T.clearCraft();
+    T.setCraft(0, 10);
+    T.setCraft(1, 100);
+    T.setCraft(8, 16);
+    check('满包工作台关闭成功', T.closeCrafting() !== false && Voxel.Game.state === 'playing');
+    check('3×3 合成格关闭后全部清空', T.craft().every(function (id) { return id === 0; }));
+    check('3×3 合成材料全部转成 Drops 且 id/n 守恒', Voxel.Drops.count() === 3 &&
+      droppedCount(10) === 1 && droppedCount(100) === 1 && droppedCount(16) === 1);
+
+    // 11) 背包 2×2 合成格走相同的安全关闭路径。
+    Voxel.Drops.clear();
+    fillInventory(3, 64);
+    T.toggleInv(true);
+    T.clearInvCraft();
+    T.setInvCraft(0, 10);
+    T.setInvCraft(3, 16);
+    check('满包背包合成面板关闭成功', T.toggleInv(false) === true && Voxel.Game.state === 'playing');
+    check('2×2 合成格关闭后全部清空', T.invCraft().every(function (id) { return id === 0; }));
+    check('2×2 合成材料全部转成 Drops 且 id/n 守恒', Voxel.Drops.count() === 2 &&
+      droppedCount(10) === 1 && droppedCount(16) === 1);
+
+    // 12) Q 丢弃的实体创建失败时，原格数量与工具耐久必须原样保留。
+    Voxel.Drops.clear();
+    T.clearInv();
+    Voxel.Game.onKey('Digit1');
+    T.inv()[0] = 102; T.cnt()[0] = 1; T.setDur(0, 41);
+    var realSpawn = Voxel.Drops.spawn;
+    Voxel.Drops.spawn = function () { return null; };
+    var throwOK = T.throwSelected();
+    Voxel.Drops.spawn = realSpawn;
+    check('Q spawn 失败返回 false 且不生成 Drops', throwOK === false && Voxel.Drops.count() === 0);
+    check('Q spawn 失败不扣物品数量', T.inv()[0] === 102 && T.cnt()[0] === 1);
+    check('Q spawn 失败保留工具耐久', T.durAt(0) === 41);
+
+    Voxel.Drops.clear();
     T.clearInv();   // 清空背包，验证破坏回收
     T.dumpChest(cx2, cy2, cz2);
     Voxel.World.set(cx2, cy2, cz2, 0);
