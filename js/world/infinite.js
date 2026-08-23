@@ -21,6 +21,7 @@ window.Voxel = window.Voxel || {};
   var DATA_RADIUS = Math.max(RENDER_RADIUS + 1, (CFG.STREAM_DATA_RADIUS || (RENDER_RADIUS + 1)) | 0);
   var KEEP_RADIUS = Math.max(DATA_RADIUS + 1, (CFG.STREAM_KEEP_RADIUS || (DATA_RADIUS + 2)) | 0);
   var FEATURE_RADIUS = 4;
+  var BLOCK_LIGHT_RANGE = 15;
 
   var planetMode = true;
   var profile = null;
@@ -567,15 +568,27 @@ window.Voxel = window.Voxel || {};
     markCoreEdgeMeshes();
   }
 
-  function recomputeBlockLightAround(cx0, cz0) {
+  function addLightTarget(targets, cx, cz) {
+    if (coreChunk(cx, cz)) return;
+    var k = key(cx, cz);
+    if (!targets[k]) targets[k] = [cx, cz];
+  }
+
+  // 多个 edit/核心边带变化共用一次 union BFS，避免逐 edit 重复清空、扫描同一 3×3 区域。
+  function recomputeBlockLightBatch(targets, forceCoreOverlay) {
     var region = Object.create(null), chunks = [];
-    var touchesCore = adjacentToCore(cx0, cz0);
-    for (var dx = -1; dx <= 1; dx++) for (var dz = -1; dz <= 1; dz++) {
-      var ch = extra[key(cx0 + dx, cz0 + dz)];
-      if (!ch || !ch.ready) continue;
-      region[key(ch.cx, ch.cz)] = ch;
-      chunks.push(ch);
-      if (adjacentToCore(ch.cx, ch.cz)) touchesCore = true;
+    var touchesCore = !!forceCoreOverlay;
+    for (var tk in targets) {
+      if (!own(targets, tk)) continue;
+      var center = targets[tk], cx0 = center[0], cz0 = center[1];
+      if (adjacentToCore(cx0, cz0)) touchesCore = true;
+      for (var dx = -1; dx <= 1; dx++) for (var dz = -1; dz <= 1; dz++) {
+        var ch = extra[key(cx0 + dx, cz0 + dz)];
+        if (!ch || !ch.ready) continue;
+        var ck = key(ch.cx, ch.cz);
+        if (!region[ck]) { region[ck] = ch; chunks.push(ch); }
+        if (adjacentToCore(ch.cx, ch.cz)) touchesCore = true;
+      }
     }
     if (!chunks.length) {
       if (touchesCore) recomputeCoreOverlay();
@@ -626,6 +639,12 @@ window.Voxel = window.Voxel || {};
     }
     for (var c4 = 0; c4 < chunks.length; c4++) queueMesh(chunks[c4].cx, chunks[c4].cz);
     if (touchesCore) recomputeCoreOverlay();
+  }
+
+  function recomputeBlockLightAround(cx0, cz0) {
+    var targets = Object.create(null);
+    addLightTarget(targets, cx0, cz0);
+    recomputeBlockLightBatch(targets, adjacentToCore(cx0, cz0));
   }
 
   function applyChunkEdits(ch) {
@@ -897,17 +916,25 @@ window.Voxel = window.Voxel || {};
     return ch && ch.ready ? getFromChunk(ch, x, y, z) : 12;
   }
 
-  function refreshCoreSeamAt(x, z) {
-    var targets = [];
-    if (x === 0) targets.push([-1, floorDiv(z, CS)]);
-    if (x === W - 1) targets.push([CORE_CX, floorDiv(z, CS)]);
-    if (z === 0) targets.push([floorDiv(x, CS), -1]);
-    if (z === D - 1) targets.push([floorDiv(x, CS), CORE_CZ]);
-    for (var i = 0; i < targets.length; i++) {
-      var ch = extra[key(targets[i][0], targets[i][1])];
-      if (ch && ch.ready) recomputeBlockLightAround(ch.cx, ch.cz);
+  // 收集一个核心格在 15 格块光程内可能影响的所有外围区块；四边与四角统一处理。
+  function collectCoreLightTargets(targets, x, z) {
+    var touched = false;
+    var minCx = floorDiv(x - BLOCK_LIGHT_RANGE, CS);
+    var maxCx = floorDiv(x + BLOCK_LIGHT_RANGE, CS);
+    var minCz = floorDiv(z - BLOCK_LIGHT_RANGE, CS);
+    var maxCz = floorDiv(z + BLOCK_LIGHT_RANGE, CS);
+    for (var cx = minCx; cx <= maxCx; cx++) for (var cz = minCz; cz <= maxCz; cz++) {
+      if (coreChunk(cx, cz)) continue;
+      touched = true;
+      addLightTarget(targets, cx, cz);
     }
-    if (targets.length) recomputeCoreOverlay();
+    return touched;
+  }
+
+  function refreshCoreLightBandAt(x, z) {
+    var targets = Object.create(null);
+    var touchesCoreSeam = collectCoreLightTargets(targets, x, z);
+    if (touchesCoreSeam) recomputeBlockLightBatch(targets, true);
   }
 
   function set(x, y, z, id) {
@@ -915,9 +942,11 @@ window.Voxel = window.Voxel || {};
     if (!validXYZ(x, y, z) || id < 0 || id > 255 || (id !== 0 && !Voxel.Blocks.defs[id])) return;
     if (!planetMode || inCore(x, z)) {
       FiniteWorld.set(x, y, z, id);
-      if (planetMode && (x === 0 || x === W - 1 || z === 0 || z === D - 1)) {
-        refreshCoreSeamAt(x, z);
-        markNeighborhood(floorDiv(x, CS), floorDiv(z, CS));
+      if (planetMode) {
+        if (FiniteWorld.lightReady()) refreshCoreLightBandAt(x, z);
+        // 方块面剔除只在几何边界需要跨核心/外围失效；光照的 15 格带由上方批量处理。
+        if (x === 0 || x === W - 1 || z === 0 || z === D - 1)
+          markNeighborhood(floorDiv(x, CS), floorDiv(z, CS));
       }
       return;
     }
@@ -972,7 +1001,9 @@ window.Voxel = window.Voxel || {};
 
   function applyEdits(ed) {
     if (!ed) return;
-    var core = Object.create(null), touched = Object.create(null), coreSeams = [];
+    var core = Object.create(null), touched = Object.create(null);
+    var lightTargets = Object.create(null), coreLightTouched = false;
+    var coreBoundaryChunks = Object.create(null);
     for (var k in ed) {
       if (!own(ed, k)) continue;
       var p = k.split(',');
@@ -982,7 +1013,13 @@ window.Voxel = window.Voxel || {};
         (id !== 0 && !Voxel.Blocks.defs[id])) continue;
       if (!planetMode || inCore(x, z)) {
         core[k] = id;
-        if (planetMode && (x === 0 || x === W - 1 || z === 0 || z === D - 1)) coreSeams.push([x, z]);
+        if (planetMode) {
+          if (FiniteWorld.lightReady() && collectCoreLightTargets(lightTargets, x, z)) coreLightTouched = true;
+          if (x === 0 || x === W - 1 || z === 0 || z === D - 1) {
+            var bcx = floorDiv(x, CS), bcz = floorDiv(z, CS);
+            coreBoundaryChunks[key(bcx, bcz)] = [bcx, bcz];
+          }
+        }
       }
       else {
         indexExtraEdit(x, y, z, id);
@@ -993,15 +1030,20 @@ window.Voxel = window.Voxel || {};
       }
     }
     FiniteWorld.applyEdits(core);
-    for (var si = 0; si < coreSeams.length; si++) refreshCoreSeamAt(coreSeams[si][0], coreSeams[si][1]);
+    for (var bk in coreBoundaryChunks) {
+      if (!own(coreBoundaryChunks, bk)) continue;
+      var bp = coreBoundaryChunks[bk];
+      markNeighborhood(bp[0], bp[1]);
+    }
     for (var ck2 in touched) {
       var ch2 = extra[ck2];
       if (ch2 && ch2.ready) {
         relight(ch2);
-        recomputeBlockLightAround(ch2.cx, ch2.cz);
+        addLightTarget(lightTargets, ch2.cx, ch2.cz);
         markNeighborhood(ch2.cx, ch2.cz);
       }
     }
+    recomputeBlockLightBatch(lightTargets, coreLightTouched);
   }
 
   function getEdits() {
@@ -1056,11 +1098,12 @@ window.Voxel = window.Voxel || {};
     FiniteWorld.initLight();
     if (!planetMode) return;
     // 极少数调用顺序可能先生成外围、后初始化核心光照；补做接缝导入。
+    var targets = Object.create(null);
     for (var k in extra) {
       var ch = extra[k];
-      if (ch.ready && adjacentToCore(ch.cx, ch.cz)) recomputeBlockLightAround(ch.cx, ch.cz);
+      if (ch.ready && adjacentToCore(ch.cx, ch.cz)) addLightTarget(targets, ch.cx, ch.cz);
     }
-    recomputeCoreOverlay();
+    recomputeBlockLightBatch(targets, true);
   }
 
   var InfiniteWorld = {

@@ -1491,17 +1491,19 @@ Voxel.Game = (function () {
     var parts = spec.split(':');
     var to = parts[0], tIdx = +parts[1];
     if (to !== 'inv' && to !== 'craft' && to !== 'icraft' &&
-      to !== 'fin' && to !== 'ffuel' && to !== 'fout') return;
+      to !== 'fin' && to !== 'ffuel' && to !== 'fout' && to !== 'chest') return;
+    // pointerdown 后面板状态可能已变化；真正写槽前重新验证来源和目标。
+    if (!slotStateOk(d.from) || !slotStateOk(to)) return;
     if (d.fromHand) {
       // 手持物拖放
-      handToSlot(to, tIdx);
+      if (!handToSlot(to, tIdx)) return;
       refreshInv();
       Voxel.HUD.drawHeld(heldItem);
       refreshPanel(to);
       return;
     }
     if (to === d.from && tIdx === d.idx) return; // 丢回原格：取消
-    transferSlots(d.from, d.idx, to, tIdx);
+    if (!transferSlots(d.from, d.idx, to, tIdx)) return;
     Voxel.Sound.select();
     refreshInv();
     refreshPanel(d.from);
@@ -1595,18 +1597,21 @@ Voxel.Game = (function () {
   }
 
   // 推进所有炉子；面板打开时同步 UI 表针
+  function refreshFurnacePanel(f) {
+    if (!f) return;
+    Voxel.HUD.setFurnace(f);
+    Voxel.HUD.setFurnaceGauges(
+      f.burnMax > 0 ? f.burnT / f.burnMax : 0,
+      f.prog / Voxel.FurnaceSys.SMELT_TIME);
+  }
+
   function tickFurnaces(dt) {
     for (var k in activeFurnaces) {
       var p = k.split(',');
       if (Voxel.World.get(+p[0], +p[1], +p[2]) !== 37) { delete activeFurnaces[k]; continue; }
       Voxel.FurnaceSys.tickOne(activeFurnaces[k], dt);
     }
-    if (state === 'furnace' && curFurnace) {
-      Voxel.HUD.setFurnace(curFurnace);
-      Voxel.HUD.setFurnaceGauges(
-        curFurnace.burnMax > 0 ? curFurnace.burnT / curFurnace.burnMax : 0,
-        curFurnace.prog / Voxel.FurnaceSys.SMELT_TIME);
-    }
+    if (state === 'furnace' && curFurnace) refreshFurnacePanel(curFurnace);
   }
 
   function openFurnace(hit) {
@@ -1619,8 +1624,7 @@ Voxel.Game = (function () {
     document.getElementById('furnace').classList.remove('hidden');
     refreshInv();
     Voxel.HUD.drawHeld(heldItem);
-    Voxel.HUD.setFurnace(f);
-    Voxel.HUD.setFurnaceGauges(0, 0);
+    refreshFurnacePanel(f);
     Voxel.Controls.exitLock();
   }
 
@@ -2247,7 +2251,7 @@ Voxel.Game = (function () {
   }
 
   function frameBody(dt) {
-    var startedPlaying = state === 'playing';
+    var startedState = state;
     frames++;
     fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
@@ -2286,15 +2290,16 @@ Voxel.Game = (function () {
       if (Voxel.World.isReady() && Voxel.World.focusMeshed()) enterWorld();
     }
 
-    // 加载完成并在本帧中刚进入 playing 时不消费加载帧 dt；从下一渲染帧开始累计。
-    if (state === 'playing' && startedPlaying) {
+    // playing 与 furnace 共用同一个 60Hz 累计器；加载完成并在本帧中刚切换状态时
+    // 不消费旧状态的 dt。furnace 只推进炉子，不推进玩家、Mob、掉落物等世界系统。
+    if ((startedState === 'playing' || startedState === 'furnace') && state === startedState) {
       simAccumulator += dt;
       var fixedStepsThisFrame = 0;
-      while (state === 'playing' && simAccumulator + STEP_EPSILON >= FIXED_DT &&
+      while (state === startedState && simAccumulator + STEP_EPSILON >= FIXED_DT &&
         fixedStepsThisFrame < MAX_FIXED_STEPS) {
         simAccumulator -= FIXED_DT;
         if (simAccumulator < 0 && simAccumulator > -STEP_EPSILON) simAccumulator = 0;
-        fixedUpdate(FIXED_DT);
+        if (startedState === 'playing') fixedUpdate(FIXED_DT);
         fixedStepsThisFrame++;
         fixedStepsTotal++;
       }
@@ -2309,49 +2314,53 @@ Voxel.Game = (function () {
       }
       var simulationDt = fixedStepsThisFrame * FIXED_DT;
 
-      if (!mouseDown[2] && (digT || digProg)) stopDig();
+      if (startedState === 'furnace') {
+        if (simulationDt > 0) tickFurnaces(simulationDt);
+      } else if (state === 'playing') {
+        if (!mouseDown[2] && (digT || digProg)) stopDig();
 
-      // 玩法时钟与物理使用同一实际模拟时长；纯视觉动画仍使用渲染 dt。
-      if (state === 'playing' && simulationDt > 0) {
-        processWater(simulationDt);
-        tickFurnaces(simulationDt);
-        Voxel.DayNight.update(simulationDt);
-        Voxel.Weather.update(simulationDt);
-      }
-      if (Voxel.DayNight.updateCamera) Voxel.DayNight.updateCamera(camera.position);
-      Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
-      Voxel.Particles.update(dt);
-      if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
-      updateHighlight();
-
-      // 第一人称手持物是纯视觉反馈，按渲染帧平滑推进。
-      if (Voxel.HandItem) {
-        var pv = Voxel.Player.vel();
-        Voxel.HandItem.setId(inv[sel]);
-        Voxel.HandItem.update(dt, Math.abs(pv.x) + Math.abs(pv.z) > 0.5);
-      }
-
-      // 回血属于玩法计时，使用 simulationDt；6 秒受击宽限仍由单调墙钟判定。
-      var hp = Voxel.Player.hp();
-      if (hp < lastHp) lastDmgT = performance.now() / 1000;
-      lastHp = hp;
-      var canRegen = Voxel.Player.food !== undefined &&
-        Voxel.Player.food() >= C.HEAL_FOOD_MIN;
-      if (hp > 0 && hp < C.HP && canRegen && performance.now() / 1000 - lastDmgT > 6) {
-        regenT += simulationDt;
-        if (regenT >= 4) {
-          regenT = 0;
-          Voxel.Player.heal(1);
-          Voxel.Player.addExhaust(C.HEAL_EXHAUST);
+        // 玩法时钟与物理使用同一实际模拟时长；纯视觉动画仍使用渲染 dt。
+        if (simulationDt > 0) {
+          processWater(simulationDt);
+          tickFurnaces(simulationDt);
+          Voxel.DayNight.update(simulationDt);
+          Voxel.Weather.update(simulationDt);
         }
-      } else regenT = 0;
+        if (Voxel.DayNight.updateCamera) Voxel.DayNight.updateCamera(camera.position);
+        Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
+        Voxel.Particles.update(dt);
+        if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
+        updateHighlight();
 
-      // 自动保存是基础设施墙钟，不因过载时主动丢弃模拟步而停止。
-      autosaveT += dt;
-      if (autosaveT >= CFG.AUTOSAVE_INTERVAL) {
-        autosaveT = 0;
-        doSave(true);
-        Voxel.HUD.toast('已自动存档');
+        // 第一人称手持物是纯视觉反馈，按渲染帧平滑推进。
+        if (Voxel.HandItem) {
+          var pv = Voxel.Player.vel();
+          Voxel.HandItem.setId(inv[sel]);
+          Voxel.HandItem.update(dt, Math.abs(pv.x) + Math.abs(pv.z) > 0.5);
+        }
+
+        // 回血属于玩法计时，使用 simulationDt；6 秒受击宽限仍由单调墙钟判定。
+        var hp = Voxel.Player.hp();
+        if (hp < lastHp) lastDmgT = performance.now() / 1000;
+        lastHp = hp;
+        var canRegen = Voxel.Player.food !== undefined &&
+          Voxel.Player.food() >= C.HEAL_FOOD_MIN;
+        if (hp > 0 && hp < C.HP && canRegen && performance.now() / 1000 - lastDmgT > 6) {
+          regenT += simulationDt;
+          if (regenT >= 4) {
+            regenT = 0;
+            Voxel.Player.heal(1);
+            Voxel.Player.addExhaust(C.HEAL_EXHAUST);
+          }
+        } else regenT = 0;
+
+        // 自动保存是基础设施墙钟，不因过载时主动丢弃模拟步而停止。
+        autosaveT += dt;
+        if (autosaveT >= CFG.AUTOSAVE_INTERVAL) {
+          autosaveT = 0;
+          doSave(true);
+          Voxel.HUD.toast('已自动存档');
+        }
       }
     }
 
@@ -2719,7 +2728,11 @@ Voxel.Game = (function () {
     if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
     // 移动端常不触发 beforeunload；hidden/pagehide 是主要持久化时机。
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden') saveForLifecycle();
+      if (document.visibilityState === 'hidden') {
+        // 后台暂停 rAF 时不能在回到熔炉面板后补算隐藏期间的墙钟时间。
+        if (state === 'furnace') { simAccumulator = 0; lastT = null; }
+        saveForLifecycle();
+      }
     });
     window.addEventListener('pagehide', saveForLifecycle);
     window.addEventListener('beforeunload', saveForLifecycle);

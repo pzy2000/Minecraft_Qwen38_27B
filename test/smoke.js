@@ -21,8 +21,14 @@ var sandbox = {
   Int16Array: Int16Array,
   Float32Array: Float32Array,
   THREE: {
-    Vector3: function (x, y, z) { this.x = x || 0; this.y = y || 0; this.z = z || 0; }
+    Vector3: function (x, y, z) { this.x = x || 0; this.y = y || 0; this.z = z || 0; },
+    Group: function () { this.children = []; this.parent = null; }
   }
+};
+sandbox.THREE.Group.prototype.add = function (o) { this.children.push(o); o.parent = this; };
+sandbox.THREE.Group.prototype.remove = function (o) {
+  var i = this.children.indexOf(o); if (i >= 0) this.children.splice(i, 1);
+  if (o) o.parent = null;
 };
 sandbox.window = sandbox;
 
@@ -263,7 +269,28 @@ console.log('无限世界区块与旧边界回归');
 
   // legacy 256 核心与无限外围使用不同的数据/光照后端，接缝必须双向传播。
   // 核心沿用旧启动协议，必须先完成一次 initLight；外围区块则在 ensure 时已单独点亮。
-  if (!V.World.lightReady()) V.World.initLight();
+  if (!V.World.lightReady()) {
+    // 地形生成时已有一轮dirty；先用轻量MeshBuilder桩排空，再验证initLight会把64个
+    // 核心区块全部重新标脏，因为顶点光是在建网格时烘焙的。
+    var finiteForDirty = IT.finiteWorld;
+    var oldMeshBuilder = V.MeshBuilder;
+    var dirtyBuilds = 0;
+    var fakeScene = {
+      add: function (o) { o.parent = this; },
+      remove: function (o) { if (o) o.parent = null; }
+    };
+    V.MeshBuilder = {
+      build: function () { dirtyBuilds++; return {}; },
+      opaqueMat: function () { return null; },
+      waterMat: function () { return null; }
+    };
+    finiteForDirty.buildMeshes(256, fakeScene); // 排空生成期dirty
+    dirtyBuilds = 0;
+    V.World.initLight();
+    finiteForDirty.buildMeshes(256, fakeScene);
+    check('initLight 后64个核心网格全部重新dirty', dirtyBuilds === (W / CS) * (D / CS));
+    V.MeshBuilder = oldMeshBuilder;
+  }
   var coreRestore = [];
   for (var coreX = 254; coreX <= 257; coreX++) {
     coreRestore.push([coreX, V.World.get(coreX, lightY, lightZ)]);
@@ -281,6 +308,113 @@ console.log('无限世界区块与旧边界回归');
   check('移除核心火把后外围接缝熄灭', V.World.getBlk(256, lightY, lightZ) === 0);
   for (var ci = 0; ci < coreRestore.length; ci++)
     V.World.set(coreRestore[ci][0], lightY, lightZ, coreRestore[ci][1]);
+
+  // finite importBorder 的x/z范围必须独立：火把在重算区x负边界外一格，且中心x/z
+  // 刻意取200/40（非对角）。无关set/applyEdits重算区域后，边界光不能被擦掉。
+  var FW = IT.finiteWorld;
+  var ibY = H - 1, ibZ = 40, ibTorchX = 184, ibProbeX = 185, ibCenterX = 200;
+  var ibRestore = {};
+  [ibTorchX, ibProbeX, ibCenterX].forEach(function (x) {
+    ibRestore[x + ',' + ibY + ',' + ibZ] = FW.get(x, ibY, ibZ);
+  });
+  var ibClear = {};
+  ibClear[ibTorchX + ',' + ibY + ',' + ibZ] = 0;
+  ibClear[ibProbeX + ',' + ibY + ',' + ibZ] = 0;
+  ibClear[ibCenterX + ',' + ibY + ',' + ibZ] = 0;
+  FW.applyEdits(ibClear);
+  FW.set(ibTorchX, ibY, ibZ, 19);
+  check('finite非对角边界火把初始照亮重算区', FW.getBlk(ibTorchX, ibY, ibZ) === 14 &&
+    FW.getBlk(ibProbeX, ibY, ibZ) === 13);
+  FW.set(ibCenterX, ibY, ibZ, 0);
+  check('finite非对角火把光经无关set重算后不熄', FW.getBlk(ibProbeX, ibY, ibZ) === 13);
+  var ibReplay = {}; ibReplay[ibCenterX + ',' + ibY + ',' + ibZ] = 0;
+  FW.applyEdits(ibReplay);
+  check('finite非对角火把光经无关applyEdits后不熄', FW.getBlk(ibProbeX, ibY, ibZ) === 13);
+  FW.applyEdits(ibRestore);
+
+  // 核心右边界的真实光程控制：x243到首外围x256曼哈顿距13，应剩1级；
+  // x242距离14及保守收集带边界x241/x240/x239均不得产生幽灵光，移除后也为0。
+  V.World.ensureChunk(8, 3);
+  var bandZ = 96, bandY = H - 1, bandProbeX = 256;
+  var bandRestore = {}, bandClear = {};
+  for (var bandX = 239; bandX <= 243; bandX++) {
+    var bk = bandX + ',' + bandY + ',' + bandZ;
+    bandRestore[bk] = V.World.get(bandX, bandY, bandZ); bandClear[bk] = 0;
+  }
+  var bpKey = bandProbeX + ',' + bandY + ',' + bandZ;
+  bandRestore[bpKey] = V.World.get(bandProbeX, bandY, bandZ); bandClear[bpKey] = 0;
+  V.World.applyEdits(bandClear);
+  V.World.set(243, bandY, bandZ, 19);
+  check('核心距首外围13格的火把跨缝剩1级光', V.World.getBlk(bandProbeX, bandY, bandZ) === 1);
+  V.World.set(243, bandY, bandZ, 0);
+  check('移除距缝13格火把后外围熄灭', V.World.getBlk(bandProbeX, bandY, bandZ) === 0);
+  V.World.set(242, bandY, bandZ, 19);
+  check('核心距首外围14格的火把不越过真实光程', V.World.getBlk(bandProbeX, bandY, bandZ) === 0);
+  V.World.set(242, bandY, bandZ, 0);
+  var bandThresholds = [241, 240, 239]; // 距核心最后格14/15/16
+  var noGhost = true;
+  for (var bt = 0; bt < bandThresholds.length; bt++) {
+    V.World.set(bandThresholds[bt], bandY, bandZ, 19);
+    if (V.World.getBlk(bandProbeX, bandY, bandZ) !== 0) noGhost = false;
+    V.World.set(bandThresholds[bt], bandY, bandZ, 0);
+    if (V.World.getBlk(bandProbeX, bandY, bandZ) !== 0) noGhost = false;
+  }
+  check('核心距边14/15/16放置和移除均无跨缝幽灵光', noGhost);
+  V.World.applyEdits(bandRestore);
+
+  // 四边与四角一次批量放置/移除，既覆盖union重光，也避免逐点全核心扫描拖慢CI。
+  var seamCases = [
+    { t: [250, 96], p: [256, 96], name: '右' },
+    { t: [5, 96], p: [-1, 96], name: '左' },
+    { t: [96, 250], p: [96, 256], name: '后' },
+    { t: [96, 5], p: [96, -1], name: '前' },
+    { t: [2, 2], p: [-1, -1], name: '左前角' },
+    { t: [253, 2], p: [256, -1], name: '右前角' },
+    { t: [2, 253], p: [-1, 256], name: '左后角' },
+    { t: [253, 253], p: [256, 256], name: '右后角' }
+  ];
+  // 每条边只需对应外围块；角光额外加载两个side块。避免3×3泛加载拖慢CI。
+  var ensuredSeamChunks = {};
+  function ensureSeamChunk(cx, cz) {
+    var ck = cx + ',' + cz;
+    if (!ensuredSeamChunks[ck]) { V.World.ensureChunk(cx, cz); ensuredSeamChunks[ck] = true; }
+  }
+  for (var sc = 0; sc < seamCases.length; sc++) {
+    var pcx = IT.floorDiv(seamCases[sc].p[0]), pcz = IT.floorDiv(seamCases[sc].p[1]);
+    ensureSeamChunk(pcx, pcz);
+    var xOutside = pcx < 0 || pcx >= W / CS;
+    var zOutside = pcz < 0 || pcz >= D / CS;
+    if (xOutside && zOutside) {
+      ensureSeamChunk(pcx, pcz < 0 ? 0 : D / CS - 1);
+      ensureSeamChunk(pcx < 0 ? 0 : W / CS - 1, pcz);
+    }
+  }
+  var seamRestore = {}, seamClear = {}, seamPlace = {}, seamRemove = {};
+  for (var sc2 = 0; sc2 < seamCases.length; sc2++) {
+    var tc = seamCases[sc2].t, pc = seamCases[sc2].p;
+    var tk = tc[0] + ',' + bandY + ',' + tc[1];
+    var pk = pc[0] + ',' + bandY + ',' + pc[1];
+    seamRestore[tk] = V.World.get(tc[0], bandY, tc[1]);
+    seamRestore[pk] = V.World.get(pc[0], bandY, pc[1]);
+    seamClear[tk] = 0; seamClear[pk] = 0;
+    seamPlace[tk] = 19; seamRemove[tk] = 0;
+  }
+  V.World.applyEdits(seamClear);
+  V.World.applyEdits(seamPlace);
+  var allSeamsLit = true;
+  for (var sc3 = 0; sc3 < seamCases.length; sc3++) {
+    var probe = seamCases[sc3].p;
+    if (V.World.getBlk(probe[0], bandY, probe[1]) !== 8) allSeamsLit = false;
+  }
+  check('核心火把批量跨四边/四角传播为8级光', allSeamsLit);
+  V.World.applyEdits(seamRemove);
+  var allSeamsDark = true;
+  for (var sc4 = 0; sc4 < seamCases.length; sc4++) {
+    var darkProbe = seamCases[sc4].p;
+    if (V.World.getBlk(darkProbe[0], bandY, darkProbe[1]) !== 0) allSeamsDark = false;
+  }
+  check('批量移除四边/四角核心火把后跨缝光全熄', allSeamsDark);
+  V.World.applyEdits(seamRestore);
 
   // 外围修改既要跨卸载/再加载保留，也要能通过 edits 在一次完整重载后恢复。
   var editX = 300, editZ = -17;
@@ -634,6 +768,19 @@ check('石头不是燃料', !FS.isFuel(3));
   var fur3 = { type: 'furnace', in: { id: 109, n: 3 }, fuel: { id: 100, n: 8 }, out: null, burnT: 0, burnMax: 0, prog: 0 };
   for (var i = 0; i < 16; i++) FS.tickOne(fur3, 0.5);   // 木棍燃料 2.5s：烧完 1 件后熄火
   check('木棍点燃可烧 1 件熟猪排', !!fur3.out && fur3.out.id === 110 && fur3.out.n >= 1);
+})();
+(function () {
+  // 固定 60Hz 的 300 步在二进制浮点下会略小于 5；epsilon 必须让边界正常产出。
+  var fixed = { type: 'furnace', in: { id: 9, n: 2 }, fuel: { id: 107, n: 1 }, out: null, burnT: 0, burnMax: 0, prog: 0 };
+  for (var i = 0; i < 300; i++) FS.tickOne(fixed, 1 / 60);
+  check('300×1/60 固定步恰好产出且浮点余量归零',
+    !!fixed.out && fixed.out.id === 108 && fixed.out.n === 1 && fixed.in.n === 1 && fixed.prog === 0);
+
+  var overshoot = { type: 'furnace', in: { id: 9, n: 2 }, fuel: null, out: null, burnT: 10, burnMax: 10, prog: 4.9 };
+  FS.tickOne(overshoot, 0.2);
+  check('烧制越界后保留合法进度余量且单 tick 只产一件',
+    !!overshoot.out && overshoot.out.n === 1 && overshoot.in.n === 1 &&
+    Math.abs(overshoot.prog - 0.1) < 1e-9);
 })();
 
 console.log('合成配方测试');

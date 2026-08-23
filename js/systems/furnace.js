@@ -20,6 +20,7 @@ Voxel.FurnaceSys = (function () {
     4: 15, 20: 15, 22: 15, 33: 15, 35: 15   // 各类原木
   };
   var SMELT_TIME = 5;          // 每件烧制秒数
+  var SMELT_EPSILON = 1e-9;    // 300 × 1/60 等固定步累加的浮点容差
   var MAX_STACK = Voxel.Blocks.MAX_STACK || 64;
 
   function resultId(id) { return SMELT[id] || 0; }
@@ -57,8 +58,10 @@ Voxel.FurnaceSys = (function () {
       f.burnT = Math.max(0, f.burnT - dt);
       if (canSmelt(f)) {
         f.prog += dt;
-        if (f.prog >= SMELT_TIME) {
-          f.prog = 0;
+        if (f.prog + SMELT_EPSILON >= SMELT_TIME) {
+          // 单 tick 最多产出一件；合法 overshoot 留给下一 tick，epsilon 内负余量归零。
+          f.prog -= SMELT_TIME;
+          if (f.prog < SMELT_EPSILON) f.prog = 0;
           var rid = resultId(f.in.id);
           if (!f.out || !f.out.n) f.out = { id: rid, n: 1 };
           else f.out.n++;

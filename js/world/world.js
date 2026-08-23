@@ -172,7 +172,7 @@ Voxel.World = (function () {
     if (rx0 === 0 && rx1 === W - 1 && rz0 === 0 && rz1 === D - 1) return;
     for (var x = rx0 - 1; x <= rx1 + 1; x++) {
       if (x < 0 || x >= W) continue;
-      for (var zz = rx0 - 1; zz <= rz1 + 1; zz++) {
+      for (var zz = rz0 - 1; zz <= rz1 + 1; zz++) {
         if (zz < 0 || zz >= D) continue;
         if (x >= rx0 && x <= rx1 && zz >= rz0 && zz <= rz1) continue;
         for (var y = 0; y < H; y++) {
@@ -187,6 +187,9 @@ Voxel.World = (function () {
     if (!skyL) { skyL = new Uint8Array(W * H * D); blkL = new Uint8Array(W * H * D); }
     lightReady = true;
     relightRegion(0, W - 1, 0, D - 1);
+    // 顶点光在建网格时烘焙；任何全核心重光后都必须让全部核心区块重建。
+    for (var cx = 0; cx < W / CS; cx++)
+      for (var cz = 0; cz < D / CS; cz++) markChunkDirty(cx, cz);
   }
 
   function idx(x, y, z) { return x + W * (y + H * z); }

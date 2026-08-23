@@ -1044,24 +1044,61 @@
     T.setHeld(0, 0, null);
     T.clearInv();
 
-    // 投料：2 铁矿 + 1 煤炭（直接写入状态对象，UI 由 tick 同步）
+    // 投料：2 铁矿 + 1 煤炭。用合成时间戳驱动真实 Game._frame，覆盖面板打开时的
+    // 后台烧制、真实表针、存档快照和关闭/重开后续烧，而不是直接调用 FurnaceSys。
     fur.in = { id: 9, n: 2 };
     fur.fuel = { id: 107, n: 1 };
-    Voxel.FurnaceSys.tickOne(fur, 0.5);
-    check('点火消耗煤炭', !fur.fuel && fur.burnT > 39);
-    for (var tk = 0; tk < 10; tk++) Voxel.FurnaceSys.tickOne(fur, 0.5);   // 模拟推进 5s
-    check('5 秒产出铁锭', !!fur.out && fur.out.id === 108 && fur.out.n === 1 && fur.in.n === 1);
-    // UI 断言：直接调用渲染函数（与主循环 tickFurnaces 相同路径），避免依赖异步帧
-    Voxel.HUD.setFurnace(fur);
+    var furnaceBase = 2000000;
+    var furnaceOldCap = Voxel.Settings.get('fpsCap');
+    var furnaceOldDrops = Voxel.Drops.snapshot();
+    var furnacePlayerPos = Voxel.Player.pos().clone();
+    Voxel.Drops.restore([{
+      id: 3, n: 1, dur: null,
+      pos: [furnacePlayerPos.x + 20, Voxel.Config.WORLD_H + 10, furnacePlayerPos.z + 20],
+      vel: [0, 0, 0], age: 9
+    }]);
+    autoFrameEnabled = false;
+    try {
+      Voxel.Settings.set('fpsCap', 0);
+      T.resetFrameClock(furnaceBase);
+      for (var ft1 = 1; ft1 <= 60; ft1++) Voxel.Game._frame(furnaceBase + ft1 * 1000 / 60);
+      check('熔炉打开时合成1秒时间戳会点火并推进约1秒', !fur.fuel && fur.burnT > 38.8 &&
+        fur.burnT < 39.2 && fur.prog > 0.98 && fur.prog < 1.02 && !fur.out);
+      check('熔炉真实火焰/进度表针同步前进',
+        parseFloat(document.querySelector('#fur-flame i').style.height) > 90 &&
+        parseFloat(document.getElementById('fur-prog').style.width) >= 19 &&
+        parseFloat(document.getElementById('fur-prog').style.width) <= 21);
+      check('熔炉面板合成时间不推进玩家或掉落物',
+        Voxel.Player.pos().distanceTo(furnacePlayerPos) < 0.000001 &&
+        Voxel.Drops.snapshot().length === 1 && Math.abs(Voxel.Drops.snapshot()[0].age - 9) < 0.000001);
+
+      var furnaceKey = fx + ',' + fy + ',' + fz;
+      check('熔炉打开且烧制中可保存进度供刷新恢复', T.saveNow() === true &&
+        Voxel.Save.load().meta[furnaceKey] && Voxel.Save.load().meta[furnaceKey].prog > 0.98 &&
+        Voxel.Save.load().meta[furnaceKey].prog < 1.02);
+
+      T.closeFurnace();
+      T.openFurnaceAt(fx, fy, fz);
+      fur = T.furnaceState();
+      check('关闭再打开熔炉不重置进度/表针', !!fur && fur.prog > 0.98 && fur.prog < 1.02 &&
+        parseFloat(document.getElementById('fur-prog').style.width) >= 19);
+
+      // 再推进4秒，累计5秒应真实产出1个铁锭。
+      T.resetFrameClock(furnaceBase + 1000);
+      for (var ft2 = 1; ft2 <= 240; ft2++)
+        Voxel.Game._frame(furnaceBase + 1000 + ft2 * 1000 / 60);
+      check('熔炉打开时合成累计5秒产出铁锭', !!fur.out && fur.out.id === 108 &&
+        fur.out.n === 1 && fur.in && fur.in.n === 1 && Math.abs(fur.prog) < 0.02);
+    } finally {
+      Voxel.Settings.set('fpsCap', furnaceOldCap);
+      Voxel.Drops.restore(furnaceOldDrops);
+      T.resetFrameClock(performance.now());
+      autoFrameEnabled = true;
+    }
     check('产物格 UI 渲染', (function () {
       var c = document.querySelector('#fur-out canvas');
       return !!c && c.getContext('2d').getImageData(22, 22, 1, 1).data[3] > 0;
     })());
-    Voxel.FurnaceSys.tickOne(fur, 0.4);
-    Voxel.HUD.setFurnaceGauges(
-      fur.burnMax > 0 ? fur.burnT / fur.burnMax : 0,
-      fur.prog / Voxel.FurnaceSys.SMELT_TIME);
-    check('进度表针前进中', parseFloat(document.getElementById('fur-prog').style.width) > 0);
 
     // 关闭后炉子继续烧制（活跃表驱动）
     Voxel.Game.onKey('KeyE');
@@ -1087,6 +1124,31 @@
     var ch = T.curChest();
     check('打开即创建箱子元数据(27 格)', !!ch && ch.type === 'chest' && ch.items.length === 27);
     check('箱子面板打开时仍可安全存档', T.saveNow() === true && !!Voxel.Save.load());
+
+    // 真实 pointer drag：受损工具 背包→箱子→箱内重排→背包，数量和耐久全程守恒。
+    T.clearInv();
+    T.addInv(102, 1); T.setDur(0, 37);
+    var invToolEl = document.querySelector('#chest-inv-grid [data-slot="inv:0"]');
+    var chest0El = document.querySelector('#chest-grid [data-slot="chest:0"]');
+    var chest5El = document.querySelector('#chest-grid [data-slot="chest:5"]');
+    var inv10El = document.querySelector('#chest-inv-grid [data-slot="inv:10"]');
+    check('箱子真实drag测试槽位DOM齐全', !!invToolEl && !!chest0El && !!chest5El && !!inv10El);
+    if (invToolEl && chest0El && chest5El && inv10El) {
+      dragTo(invToolEl.getBoundingClientRect(), chest0El.getBoundingClientRect());
+      check('真实drag 背包受损工具→箱子保留耐久并清源格', !T.inv()[0] && T.durAt(0) === null &&
+        ch.items[0] && ch.items[0].id === 102 && ch.items[0].n === 1 && ch.items[0].dur === 37);
+
+      dragTo(chest0El.getBoundingClientRect(), chest5El.getBoundingClientRect());
+      check('真实drag 箱内重排保留数量/耐久', !ch.items[0] && ch.items[5] &&
+        ch.items[5].id === 102 && ch.items[5].n === 1 && ch.items[5].dur === 37);
+
+      dragTo(chest5El.getBoundingClientRect(), inv10El.getBoundingClientRect());
+      var pointerToolTotal = T.countInv(102);
+      for (var pti = 0; pti < ch.items.length; pti++)
+        if (ch.items[pti] && ch.items[pti].id === 102) pointerToolTotal += ch.items[pti].n;
+      check('真实drag 箱子→背包总量=1且耐久仍为37', pointerToolTotal === 1 &&
+        T.inv()[10] === 102 && T.cnt()[10] === 1 && T.durAt(10) === 37 && !ch.items[5]);
+    }
 
     T.clearInv();
     T.addInv(10, 12);   // 木板 ×12 → slot0
