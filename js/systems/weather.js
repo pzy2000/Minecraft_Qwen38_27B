@@ -5,6 +5,8 @@ Voxel.Weather = (function () {
   var scene = null, cam = null;
   var state = 'clear';
   var spaceMode = false;
+  var worldProfile = null;
+  var rngState = 0x6d2b79f5;
   var intensity = 0;      // 当前雨量 0~1（平滑过渡）
   var target = 0;
   var timer = 0;          // 距下次自动切换的秒数
@@ -13,7 +15,7 @@ Voxel.Weather = (function () {
   var thunderT = -1;      // 雷鸣延迟
   var boltT = 0;          // 闪电枝可见倒计时
   var lightningT = 0;     // 雷暴时下次闪电倒计时
-  var windA = Math.random() * Math.PI * 2;
+  var windA = 0;
   var rainFadeT = 0;      // 雨后彩虹窗口（秒）
   var rainbowT = -1;      // 彩虹计时（<0 未激活）
 
@@ -30,6 +32,7 @@ Voxel.Weather = (function () {
   var C_RAIN_TOP_NIGHT = new THREE.Color(0x0d1016);
   var C_RAIN_TINT = new THREE.Color(0.62, 0.66, 0.72);
   var C_CLOUD_GRAY = new THREE.Color(0x5a646e);
+  var C_PRECIP = new THREE.Color(0x9fc0e8);
   var C_WHITE = new THREE.Color(0xffffff);
   var tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
   var RAINBOW_COLORS = [0xff3b30, 0xff9500, 0xffe135, 0x34c759, 0x32ade6, 0x0a84ff, 0xaf52de];
@@ -37,7 +40,21 @@ Voxel.Weather = (function () {
   var rainDensityF = 1;        // 雨滴密度倍率（设置项，setDrawRange 实时生效）
   var rainVisibleN = 0;        // 实际模拟/绘制的雨丝数
 
-  function rand(a, b) { return a + Math.random() * (b - a); }
+  function seedRng(seed) {
+    var s = 0;
+    try {
+      s = Voxel.SeedUtil && Voxel.SeedUtil.derive32
+        ? Voxel.SeedUtil.derive32(String(seed || 'weather-default'), 0x71e47) : 0;
+    } catch (e) { s = 0; }
+    rngState = (s >>> 0) || 0x6d2b79f5;
+  }
+
+  function random() {
+    rngState = (Math.imul(rngState, 1664525) + 1013904223) >>> 0;
+    return rngState / 4294967296;
+  }
+
+  function rand(a, b) { return a + random() * (b - a); }
 
   function duration(s) {
     var W = Voxel.Config.WEATHER;
@@ -47,7 +64,7 @@ Voxel.Weather = (function () {
   }
 
   function pickNext() {
-    var r = Math.random();
+    var r = random();
     if (state === 'clear') return r < 0.55 ? 'rain' : (r < 0.8 ? 'storm' : 'clear');
     if (state === 'rain') return r < 0.55 ? 'clear' : (r < 0.8 ? 'storm' : 'rain');
     return r < 0.7 ? 'clear' : 'rain';
@@ -60,8 +77,8 @@ Voxel.Weather = (function () {
     if (s === 'storm') lightningT = rand(1, 3);
     else lightningT = 0;
     if (toast && Voxel.HUD) {
-      if (s === 'rain') Voxel.HUD.toast('开始下雨了…');
-      else if (s === 'storm') Voxel.HUD.toast('雷阵雨来了！');
+      if (s === 'rain') Voxel.HUD.toast('环境变化：' + label());
+      else if (s === 'storm') Voxel.HUD.toast('环境警报：' + label());
       else if (intensity > 0.3) Voxel.HUD.toast('天晴了');
     }
   }
@@ -73,7 +90,7 @@ Voxel.Weather = (function () {
     cv.width = 128; cv.height = 128;
     var c2 = cv.getContext('2d');
     for (var i = 0; i < 14; i++) {
-      var x = 20 + Math.random() * 88, y = 20 + Math.random() * 88, r = 14 + Math.random() * 30;
+      var x = 20 + random() * 88, y = 20 + random() * 88, r = 14 + random() * 30;
       var g = c2.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, 'rgba(255,255,255,0.85)');
       g.addColorStop(0.7, 'rgba(255,255,255,0.4)');
@@ -84,11 +101,31 @@ Voxel.Weather = (function () {
     return new THREE.CanvasTexture(cv);
   }
 
+  function resetLayout(seed) {
+    seedRng(seed);
+    windA = random() * Math.PI * 2;
+    var W = Voxel.Config.WEATHER;
+    if (dropY && dropXZ && dropSpd) {
+      for (var i = 0; i < dropY.length; i++) {
+        dropXZ[i * 2] = rand(-W.RAIN_BOX, W.RAIN_BOX);
+        dropXZ[i * 2 + 1] = rand(-W.RAIN_BOX, W.RAIN_BOX);
+        dropY[i] = rand(RAIN_BOT, RAIN_TOP);
+        dropSpd[i] = W.RAIN_SPEED * rand(0.85, 1.2);
+      }
+    }
+    for (var c = 0; c < clouds.length; c++) {
+      clouds[c].m.position.set(rand(-330, 330), rand(110, 138), rand(-330, 330));
+      clouds[c].baseOp = rand(0.22, 0.4);
+    }
+  }
+
   // ---------- 初始化 ----------
 
-  function init(scene) {
+  function init(sceneArg) {
+    if (scene && rain) return;
     var W = Voxel.Config.WEATHER;
-    scene = scene;
+    scene = sceneArg;
+    seedRng('weather-default');
 
     // 雨滴：线段池，跟随相机
     var n = W.RAIN_DROPS;
@@ -166,8 +203,8 @@ Voxel.Weather = (function () {
     a[0] = x; a[1] = topY; a[2] = z;
     for (var i = 1; i <= SEG; i++) {
       var t = i / SEG;
-      x += (Math.random() - 0.5) * 7 * (1 - t * 0.4);
-      z += (Math.random() - 0.5) * 7 * (1 - t * 0.4);
+      x += (random() - 0.5) * 7 * (1 - t * 0.4);
+      z += (random() - 0.5) * 7 * (1 - t * 0.4);
       a[i * 3] = x;
       a[i * 3 + 1] = topY + (sy - topY) * t;
       a[i * 3 + 2] = z;
@@ -181,11 +218,11 @@ Voxel.Weather = (function () {
     var W = Voxel.Config.WEATHER;
     var p = (Voxel.Player && Voxel.Player.hp() > 0) ? Voxel.Player.pos() : null;
     var sx, sz, sy0, strike = false;
-    if (p && Math.random() < W.STRIKE_CHANCE) {
+    if (p && random() < W.STRIKE_CHANCE) {
       sx = p.x; sz = p.z; sy0 = p.y; strike = true;
     } else {
-      var a = Math.random() * Math.PI * 2, r = rand(120, 380);
-      sx = Math.cos(a) * r; sz = Math.sin(a) * r; sy0 = 6 + Math.random() * 22;
+      var a = random() * Math.PI * 2, r = rand(120, 380);
+      sx = Math.cos(a) * r; sz = Math.sin(a) * r; sy0 = 6 + random() * 22;
       if (p) {
         var dx = p.x - sx, dz = p.z - sz;
         if (Math.sqrt(dx * dx + dz * dz) < W.STRIKE_RANGE) { sx = p.x; sz = p.z; sy0 = p.y; strike = true; }
@@ -194,7 +231,7 @@ Voxel.Weather = (function () {
     flash = 1;
     flash2 = 0.07;
     boltT = 0.13;
-    thunderT = 0.35 + Math.random() * 1.3;
+    thunderT = 0.35 + random() * 1.3;
     setBolt(sx, sy0, sz);
     if (strike && p) {
       Voxel.Player.damage(W.STRIKE_DMG, "lightning", p ? p.x + 0.01 : undefined, p ? p.z : undefined);
@@ -216,6 +253,7 @@ Voxel.Weather = (function () {
       for (var sc = 0; sc < clouds.length; sc++) clouds[sc].m.visible = false;
       if (Voxel.Sound && Voxel.Sound.rainSet) Voxel.Sound.rainSet(0);
       intensity = 0; target = 0; flash = 0;
+      syncVisualState();
       return;
     }
     for (var vc = 0; vc < clouds.length; vc++) clouds[vc].m.visible = true;
@@ -272,11 +310,11 @@ Voxel.Weather = (function () {
       m.position.x += wx * dt * 0.45;
       m.position.z += wz * dt * 0.45;
       var rx = m.position.x - cam.position.x;
-      if (rx > 340) m.position.x -= 680;
-      else if (rx < -340) m.position.x += 680;
+      if (rx > 340 || rx < -340)
+        m.position.x = cam.position.x + ((((rx + 340) % 680) + 680) % 680) - 340;
       var rz = m.position.z - cam.position.z;
-      if (rz > 340) m.position.z -= 680;
-      else if (rz < -340) m.position.z += 680;
+      if (rz > 340 || rz < -340)
+        m.position.z = cam.position.z + ((((rz + 340) % 680) + 680) % 680) - 340;
       m.material.opacity = cl.baseOp + (0.85 - cl.baseOp) * intensity;
       m.material.color.copy(C_WHITE).lerp(C_CLOUD_GRAY, intensity);
     }
@@ -294,7 +332,7 @@ Voxel.Weather = (function () {
     if (boltT > 0) { boltT -= dt; if (boltT <= 0) bolt.visible = false; }
     if (thunderT > 0) {
       thunderT -= dt;
-      if (thunderT <= 0) { thunderT = -1; if (Voxel.Sound && Voxel.Sound.thunder) Voxel.Sound.thunder(0.7 + Math.random() * 0.3); }
+      if (thunderT <= 0) { thunderT = -1; if (Voxel.Sound && Voxel.Sound.thunder) Voxel.Sound.thunder(0.7 + random() * 0.3); }
     }
 
     // 彩虹：雨刚停 + 太阳当空 → 淡入淡出
@@ -326,14 +364,48 @@ Voxel.Weather = (function () {
       }
     }
 
-    // 天气色调：雨天灰暗（乘到昼夜 tint 上）+ 闪电增亮
-    tintC.setRGB(1, 1, 1).lerp(C_RAIN_TINT, intensity * 0.9);
-    if (flash > 0) { tintC.r += flash * 0.9; tintC.g += flash * 0.92; tintC.b += flash * 0.95; }
-    skyC.copy(C_RAIN_SKY_NIGHT).lerp(C_RAIN_SKY_DAY, DN.sunlight());
-    skyTopC.copy(C_RAIN_TOP_NIGHT).lerp(C_RAIN_TOP_DAY, DN.sunlight());
+    syncVisualState();
   }
 
   // ---------- 对外接口 ----------
+
+  function safeColor(value, fallback) {
+    return typeof value === 'number' && isFinite(value) ? value : fallback;
+  }
+
+  function syncVisualState() {
+    var sun = Voxel.DayNight && Voxel.DayNight.sunlight ? Voxel.DayNight.sunlight() : 1;
+    if (spaceMode) {
+      tintC.setRGB(1, 1, 1);
+      var stationTop = worldProfile && worldProfile.nightTop;
+      var stationHor = worldProfile && worldProfile.nightHorizon;
+      skyTopC.setHex(safeColor(stationTop, 0x030511));
+      skyC.setHex(safeColor(stationHor, 0x090d22));
+      return;
+    }
+    tintC.setRGB(1, 1, 1).lerp(C_RAIN_TINT, intensity * 0.9);
+    if (flash > 0) { tintC.r += flash * 0.9; tintC.g += flash * 0.92; tintC.b += flash * 0.95; }
+    skyC.copy(C_RAIN_SKY_NIGHT).lerp(C_RAIN_SKY_DAY, sun);
+    skyTopC.copy(C_RAIN_TOP_NIGHT).lerp(C_RAIN_TOP_DAY, sun);
+    if (rain && rain.material) rain.material.color.copy(C_PRECIP);
+    for (var i = 0; i < clouds.length; i++)
+      clouds[i].m.material.color.copy(C_WHITE).lerp(C_CLOUD_GRAY, intensity);
+  }
+
+  function setWorldProfile(profile) {
+    worldProfile = profile && typeof profile === 'object' ? profile : null;
+    var w = worldProfile && worldProfile.weather && typeof worldProfile.weather === 'object'
+      ? worldProfile.weather : {};
+    C_RAIN_TOP_DAY.setHex(safeColor(w.topDay, 0x454e58));
+    C_RAIN_SKY_DAY.setHex(safeColor(w.horizonDay, 0x525a63));
+    C_RAIN_TOP_NIGHT.setHex(safeColor(w.topNight, 0x0d1016));
+    C_RAIN_SKY_NIGHT.setHex(safeColor(w.horizonNight, 0x14181f));
+    C_RAIN_TINT.setHex(safeColor(w.tint, 0x9ea8b8));
+    C_CLOUD_GRAY.setHex(safeColor(w.cloud, 0x5a646e));
+    C_PRECIP.setHex(safeColor(w.precipitationColor, 0x9fc0e8));
+    resetLayout((worldProfile && worldProfile.seed) || 'weather-default');
+    syncVisualState();
+  }
 
   function reset() {
     state = 'clear';
@@ -348,15 +420,19 @@ Voxel.Weather = (function () {
       for (var b = 0; b < rainbowMats.length; b++) rainbowMats[b].opacity = 0;
     }
     if (Voxel.Sound && Voxel.Sound.rainSet) Voxel.Sound.rainSet(0);
+    tintC.setRGB(1, 1, 1);
+    syncVisualState();
   }
 
   function restore(name) {
     if (name === 'rain' || name === 'storm') setState(name, false);
     else reset();
+    syncVisualState();
   }
 
   function set(s) {
     if (s === 'clear' || s === 'rain' || s === 'storm') setState(s, false);
+    syncVisualState();
   }
 
   function next() {
@@ -366,7 +442,17 @@ Voxel.Weather = (function () {
   }
 
   function label() {
-    return state === 'clear' ? '晴' : (state === 'rain' ? '雨' : '雷雨');
+    if (state === 'clear') return '晴';
+    var kind = worldProfile && worldProfile.weather ? worldProfile.weather.precipitation : 'rain';
+    var names = {
+      dust: ['沙尘', '强沙暴'],
+      snow: ['降雪', '暴风雪'],
+      spores: ['孢子雨', '毒性风暴'],
+      ash: ['火山灰', '灰烬风暴'],
+      none: ['真空', '真空']
+    };
+    var pair = names[kind] || ['雨', '雷雨'];
+    return state === 'rain' ? pair[0] : pair[1];
   }
 
   function applyRainDensity() {
@@ -385,16 +471,21 @@ Voxel.Weather = (function () {
 
   function setSpaceMode(on) {
     spaceMode = !!on;
-    if (!spaceMode) return;
-    if (rain) rain.visible = false;
-    if (bolt) bolt.visible = false;
-    if (rainbow) rainbow.visible = false;
-    for (var i = 0; i < clouds.length; i++) clouds[i].m.visible = false;
+    if (spaceMode) {
+      intensity = 0; target = 0; flash = 0;
+      if (rain) rain.visible = false;
+      if (bolt) bolt.visible = false;
+      if (rainbow) rainbow.visible = false;
+      for (var i = 0; i < clouds.length; i++) clouds[i].m.visible = false;
+    }
+    syncVisualState();
   }
 
   return {
     setRainDensity: setRainDensity,
     setSpaceMode: setSpaceMode,
+    setWorldProfile: setWorldProfile,
+    syncVisualState: syncVisualState,
     init: init,
     update: update,
     reset: reset,
@@ -434,7 +525,19 @@ Voxel.Weather = (function () {
         Voxel.Player.damage(W.STRIKE_DMG, "lightning", p ? p.x + 0.01 : undefined, p ? p.z : undefined);
         if (Voxel.HUD) Voxel.HUD.toast('你被雷劈了！(-' + W.STRIKE_DMG + ')');
       },
-      triggerRainbow: function () { rainbowT = 0; rainFadeT = 90; }
+      triggerRainbow: function () { rainbowT = 0; rainFadeT = 90; },
+      layoutSignature: function () {
+        var values = [worldProfile && worldProfile.typeKey, windA];
+        for (var i = 0; dropY && i < Math.min(8, dropY.length); i++)
+          values.push(dropXZ[i * 2], dropXZ[i * 2 + 1], dropY[i], dropSpd[i]);
+        for (var c = 0; c < Math.min(4, clouds.length); c++)
+          values.push(clouds[c].m.position.x, clouds[c].m.position.y,
+            clouds[c].m.position.z, clouds[c].baseOp);
+        return JSON.stringify(values.map(function (v) {
+          return typeof v === 'number' ? Math.round(v * 1000000) / 1000000 : v;
+        }));
+      },
+      spaceMode: function () { return spaceMode; }
     }
   };
 })();

@@ -156,6 +156,7 @@
 <script src="../js/assets.js"></script>
 <script src="../js/world/seed.js"></script>
 <script src="../js/world/galaxy.js"></script>
+<script src="../js/systems/atmosphere_profiles.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/world/biomes.js"></script>
 <script src="../js/world/shaper.js"></script>
@@ -169,6 +170,7 @@
 <script src="../js/player/player.js"></script>
 <script src="../js/interact/raycast.js"></script>
 <script src="../js/systems/settings.js"></script>
+<script src="../js/systems/atmosphere.js"></script>
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
 <script src="../js/systems/sound.js"></script>
@@ -425,6 +427,50 @@
       doc.getElementById('scan-target').textContent.indexOf('无锁定目标') >= 0 &&
       doc.getElementById('scan-distance').textContent.trim() === '—');
     Voxel.Raycaster.cast = oldCast;
+  }
+
+  function atmosphereIntegrationRegression() {
+    var snap = Voxel.Atmosphere && Voxel.Atmosphere.snapshot ? Voxel.Atmosphere.snapshot() : null;
+    var stats = Voxel.Atmosphere && Voxel.Atmosphere.resourceStats ? Voxel.Atmosphere.resourceStats() : null;
+    var world = Voxel.Game._test.currentWorld();
+    var roots = [];
+    Voxel.Game.scene.traverse(function (o) {
+      if (o.userData && o.userData.system === 'atmosphere') roots.push(o);
+    });
+    check('真实游戏仅有一个与当前世界匹配的AtmosphereRoot', !!snap && !!world &&
+      roots.length === 1 && roots[0].name === 'AtmosphereRoot' && snap.typeKey === world.typeKey &&
+      snap.worldId === world.id);
+    check('繁茂行星接入穹顶/星场/日月/星环/类型签名',
+      snap.roles.indexOf('sky-dome') >= 0 && snap.roles.indexOf('stars') >= 0 &&
+      snap.roles.indexOf('sun') >= 0 && snap.roles.indexOf('moon') >= 0 &&
+      snap.roles.indexOf('ringed-landmark') >= 0 && snap.roles.indexOf('pollen') >= 0);
+    check('Atmosphere资源账本守恒且当前live有界', !!stats &&
+      ['geometries', 'materials', 'textures'].every(function (key) {
+        return stats.created[key] - stats.disposed[key] === stats.live[key] &&
+          stats.live[key] >= 0 && stats.live[key] <= 64;
+      }));
+    check('DayNight使用当前profile且天气继承类型标签',
+      Voxel.DayNight.profile && Voxel.DayNight.profile().typeKey === world.typeKey &&
+      Voxel.DayNight.ambientFloor() >= 0.08 && Voxel.DayNight.weatherMix() > 0 &&
+      Voxel.Weather.label() === '晴');
+    var weatherProfile = Voxel.DayNight.profile();
+    Voxel.Weather.setWorldProfile(weatherProfile);
+    var weatherSigA = Voxel.Weather._test.layoutSignature();
+    var oldRandom = Math.random, weatherNoGlobalRandom = true;
+    try {
+      Math.random = function () { throw new Error('Weather profile布局不得使用全局随机'); };
+      Voxel.Weather.setWorldProfile(weatherProfile);
+    } catch (e) { weatherNoGlobalRandom = false; }
+    finally { Math.random = oldRandom; }
+    check('天气布局同世界种子确定且不依赖Math.random', weatherNoGlobalRandom &&
+      weatherSigA === Voxel.Weather._test.layoutSignature());
+    var baseTop = Voxel.DayNight.topColor().clone();
+    var baseHorizon = Voxel.DayNight.horizonColor().clone();
+    for (var skyPass = 0; skyPass < 20; skyPass++)
+      Voxel.DayNight.applySky(new THREE.Color(0x333840), new THREE.Color(0x454b52));
+    check('最终天气色不会反写并逐帧污染profile基色',
+      Voxel.DayNight.topColor().equals(baseTop) && Voxel.DayNight.horizonColor().equals(baseHorizon));
+    Voxel.DayNight.applySky(baseTop, baseHorizon);
   }
 
   function slotAccessibilityRegression() {
@@ -914,6 +960,7 @@
     modalSemanticsRegression();
     accessibilitySemanticsRegression();
     telemetryRegression();
+    atmosphereIntegrationRegression();
     keyboardIsolationRegression();
     slotAccessibilityRegression();
 
@@ -1967,6 +2014,9 @@
     for (var ti = 0; ti < catalog.length; ti++) {
       if (catalog[ti].id !== beforeWorld.id && catalog[ti].kind === 'planet') { dest = catalog[ti]; break; }
     }
+    window.__travelOldAtmosphereRoot = Voxel.Game.scene.children.filter(function (o) {
+      return o.userData && o.userData.system === 'atmosphere';
+    })[0] || null;
     var accepted = !!dest && TT.requestTravel(dest.id, 'portal');
     check('跨世界临时格保留测试请求已接受', accepted);
     var travelPoll = 0;
@@ -1978,6 +2028,22 @@
           JSON.stringify(TT.craft()) === JSON.stringify([10, 0, 0, 0, 16, 0, 0, 0, 100]));
         check('跨世界后 2x2 invCraftGrid 保留', arrived &&
           JSON.stringify(TT.invCraft()) === JSON.stringify([4, 0, 0, 20]));
+        var atmo = Voxel.Atmosphere.snapshot();
+        var signature = { lush: 'pollen', arid: 'dust', frozen: 'aurora', toxic: 'spores',
+          volcanic: 'ash', oceanic: 'sea-mist' }[dest.typeKey];
+        var atmoRoots = Voxel.Game.scene.children.filter(function (o) {
+          return o.userData && o.userData.system === 'atmosphere';
+        });
+        check('跨行星立即切换类型天空并释放旧root', arrived && atmo.typeKey === dest.typeKey &&
+          atmo.roles.indexOf(signature) >= 0 && atmo.roles.indexOf('ringed-landmark') >= 0 &&
+          atmoRoots.length === 1 && window.__travelOldAtmosphereRoot &&
+          window.__travelOldAtmosphereRoot.parent === null);
+        delete window.__travelOldAtmosphereRoot;
+        Voxel.Weather.set('rain');
+        var expectedWeather = { arid: '沙尘', frozen: '降雪', toxic: '孢子雨',
+          volcanic: '火山灰', oceanic: '雨', lush: '雨' }[dest.typeKey];
+        check('目标行星天气标签保留类型身份', Voxel.Weather.label() === expectedWeather);
+        Voxel.Weather.set('clear');
         TT.setHeld(0, 0, null); TT.clearCraft(); TT.clearInvCraft();
         TT.saveNow();
         wait(300, stepLifecycleBed);

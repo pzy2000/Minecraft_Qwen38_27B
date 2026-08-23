@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ATMOSPHERE-RUNNING</title>
+<style>
+  body { margin: 0; background: #08101d; color: #b9ffd1; font: 12px/1.5 monospace; }
+  #results { white-space: pre-wrap; padding: 16px; }
+</style>
+</head>
+<body>
+<pre id="results">RUNNING...</pre>
+<script src="../vendor/three.min.js"></script>
+<script src="../js/world/seed.js"></script>
+<script src="../js/systems/atmosphere_profiles.js"></script>
+<script src="../js/systems/atmosphere.js"></script>
+<script>
+(function () {
+  'use strict';
+  var out = [];
+  var failures = 0;
+  var TYPES = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'station'];
+  var PLANET_ROLES = ['sky-dome', 'sun', 'moon', 'stars'];
+  var SIGNATURE = {
+    lush: 'pollen',
+    arid: 'dust',
+    frozen: 'aurora',
+    toxic: 'spores',
+    volcanic: 'ash',
+    oceanic: 'sea-mist',
+    station: 'station-stars'
+  };
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1600);
+  var P = window.Voxel && Voxel.AtmosphereProfiles;
+  var A = window.Voxel && Voxel.Atmosphere;
+
+  function check(name, ok, detail) {
+    out.push((ok ? 'ok   ' : 'FAIL ') + name + (detail ? ' :: ' + detail : ''));
+    if (!ok) failures++;
+  }
+
+  function failFast(message) {
+    check(message, false);
+    report();
+    throw new Error(message);
+  }
+
+  function report() {
+    document.getElementById('results').textContent =
+      '=== ' + (failures ? failures + ' FAILED' : 'ATMOSPHERE ALL PASS') + ' ===\n' + out.join('\n');
+    document.title = failures ? 'ATMOSPHERE-FAIL' : 'ATMOSPHERE-PASS';
+  }
+
+  function world(typeKey, seed) {
+    return {
+      id: typeKey === 'station' ? 'station-qa' : 'planet-' + typeKey,
+      kind: typeKey === 'station' ? 'station' : 'planet',
+      typeKey: typeKey,
+      seed: String(seed),
+      skyTop: typeKey === 'station' ? 0x030511 : 0x183e63,
+      horizon: typeKey === 'station' ? 0x090d22 : 0x6bbfa1
+    };
+  }
+
+  function roots() {
+    return scene.children.filter(function (o) {
+      return o && o.userData && o.userData.system === 'atmosphere';
+    });
+  }
+
+  function root() {
+    var r = roots();
+    return r.length === 1 ? r[0] : null;
+  }
+
+  function roleObjects(r) {
+    var map = {};
+    if (!r) return map;
+    r.traverse(function (o) {
+      var role = o && o.userData && o.userData.role;
+      if (!role) return;
+      if (!map[role]) map[role] = [];
+      map[role].push(o);
+    });
+    return map;
+  }
+
+  function roleCounts(r) {
+    var objects = roleObjects(r), counts = {};
+    Object.keys(objects).sort().forEach(function (key) { counts[key] = objects[key].length; });
+    return counts;
+  }
+
+  function hasRole(r, role) {
+    var objects = roleObjects(r);
+    return !!(objects[role] && objects[role].length);
+  }
+
+  function roleVisible(r, role) {
+    var objects = roleObjects(r)[role] || [];
+    return objects.some(function (o) {
+      if (o.visible === false) return false;
+      if (o.material) {
+        var mats = Array.isArray(o.material) ? o.material : [o.material];
+        if (mats.every(function (m) { return m && m.transparent && Number(m.opacity) <= 0.001; })) return false;
+      }
+      return true;
+    });
+  }
+
+  function objectMetrics(r) {
+    var metrics = { objects: 0, drawables: 0, vertices: 0 };
+    if (!r) return metrics;
+    r.traverse(function (o) {
+      metrics.objects++;
+      if (o.isMesh || o.isPoints || o.isLine || o.isLineSegments) metrics.drawables++;
+      var pos = o.geometry && o.geometry.attributes && o.geometry.attributes.position;
+      if (pos) metrics.vertices += pos.count || (pos.array ? pos.array.length / 3 : 0);
+      if (o.isInstancedMesh && typeof o.count === 'number') metrics.vertices += o.count;
+    });
+    return metrics;
+  }
+
+  function textureContract(r) {
+    var ok = true, checked = 0;
+    ['sun', 'moon', 'ringed-landmark'].forEach(function (role) {
+      (roleObjects(r)[role] || []).forEach(function (o) {
+        var map = o.material && o.material.map;
+        var image = map && map.image;
+        if (!image || !(image.width > 0) || !(image.height > 0) || image.width > 128 || image.height > 64) {
+          ok = false; return;
+        }
+        var data = image.data;
+        if (!data && image.getContext) {
+          try { data = image.getContext('2d').getImageData(0, 0, image.width, image.height).data; }
+          catch (e) { ok = false; return; }
+        }
+        if (!data) { ok = false; return; }
+        var last = (image.width * image.height - 1) * 4 + 3;
+        var topRight = (image.width - 1) * 4 + 3;
+        var bottomLeft = ((image.height - 1) * image.width) * 4 + 3;
+        if (data[3] !== 0 || data[topRight] !== 0 || data[bottomLeft] !== 0 || data[last] !== 0) ok = false;
+        checked++;
+      });
+    });
+    return { ok: ok, checked: checked };
+  }
+
+  function finiteTree(value, seen) {
+    if (typeof value === 'number') return isFinite(value);
+    if (!value || typeof value !== 'object') return true;
+    seen = seen || [];
+    if (seen.indexOf(value) >= 0) return true;
+    seen.push(value);
+    if (Array.isArray(value)) return value.every(function (v) { return finiteTree(v, seen); });
+    return Object.keys(value).every(function (k) { return finiteTree(value[k], seen); });
+  }
+
+  function finiteObject(r) {
+    var ok = true;
+    if (!r) return false;
+    r.traverse(function (o) {
+      ['position', 'rotation', 'scale', 'quaternion'].forEach(function (key) {
+        var v = o[key];
+        if (!v) return;
+        Object.keys(v).forEach(function (part) {
+          if (typeof v[part] === 'number' && !isFinite(v[part])) ok = false;
+        });
+      });
+      if (o.material) {
+        var mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach(function (m) {
+          if (m && typeof m.opacity === 'number' && !isFinite(m.opacity)) ok = false;
+        });
+      }
+      var pos = o.geometry && o.geometry.attributes && o.geometry.attributes.position;
+      if (pos && pos.array) for (var i = 0; i < pos.array.length; i++)
+        if (!isFinite(pos.array[i])) { ok = false; break; }
+    });
+    return ok;
+  }
+
+  function transformSignature(r, roles) {
+    var rows = [];
+    var objects = roleObjects(r);
+    roles.forEach(function (role) {
+      (objects[role] || []).forEach(function (o, i) {
+        var mat = o.material && !Array.isArray(o.material) ? o.material : null;
+        rows.push([
+          role, i,
+          o.position.x, o.position.y, o.position.z,
+          o.rotation.x, o.rotation.y, o.rotation.z,
+          o.scale.x, o.scale.y, o.scale.z,
+          o.visible !== false,
+          mat && typeof mat.opacity === 'number' ? mat.opacity : null
+        ].map(function (v) { return typeof v === 'number' ? Number(v.toFixed(6)) : v; }));
+      });
+    });
+    return JSON.stringify(rows);
+  }
+
+  function anchorEquals(r, p) {
+    if (!r) return false;
+    return Math.abs(r.position.x - p.x) < 1e-5 &&
+      Math.abs(r.position.y - p.y) < 1e-5 &&
+      Math.abs(r.position.z - p.z) < 1e-5;
+  }
+
+  function snapshot() { return A.snapshot(); }
+  function stats() { return A.resourceStats(); }
+
+  function load(typeKey, seed, density, reducedMotion) {
+    A.loadWorld(world(typeKey, seed), {
+      density: density === undefined ? 1 : density,
+      reducedMotion: !!reducedMotion
+    });
+    return { root: root(), snap: snapshot() };
+  }
+
+  function updateAt(position, time, reducedDt) {
+    camera.position.copy(position);
+    var angle = time * Math.PI * 2;
+    var elevation = Math.sin(angle);
+    var sunlight = time === 0.75 ? 0 : (time === 0.25 ? 1 : Math.max(0, elevation));
+    A.update(reducedDt || 0, camera, {
+      time: time,
+      sunlight: sunlight,
+      dusk: Math.max(0, 1 - Math.abs(elevation) / 0.5),
+      isNight: sunlight < 0.4
+    });
+  }
+
+  function resourceInvariant(s) {
+    if (!s || !s.created || !s.disposed || !s.live) return false;
+    return ['roots', 'geometries', 'materials', 'textures'].every(function (k) {
+      return Number.isFinite(s.created[k]) && Number.isFinite(s.disposed[k]) && Number.isFinite(s.live[k]) &&
+        s.created[k] - s.disposed[k] === s.live[k] && s.live[k] >= 0;
+    });
+  }
+
+  function boundedLive(s) {
+    return s.live.roots <= 1 && s.live.geometries <= 64 && s.live.materials <= 64 && s.live.textures <= 16;
+  }
+
+  function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+
+  function run() {
+    if (!P || !A) return failFast('AtmosphereProfiles/Atmosphere API缺失');
+    ['keys', 'profileFor', 'create'].forEach(function (name) {
+      if (typeof P[name] !== 'function') failFast('AtmosphereProfiles.' + name + '缺失');
+    });
+    ['init', 'loadWorld', 'update', 'setDensity', 'setReducedMotion', 'clear',
+      'snapshot', 'resourceStats'].forEach(function (name) {
+      if (typeof A[name] !== 'function') failFast('Atmosphere.' + name + '缺失');
+    });
+
+    var keys = P.keys().slice().sort();
+    check('Profiles完整覆盖7个typeKey', sameJson(keys, TYPES.slice().sort()), keys.join(','));
+    TYPES.forEach(function (type) {
+      var a = P.profileFor(type, 'PROFILE-SEED');
+      var b = P.profileFor(type, 'PROFILE-SEED');
+      var c = P.create(world(type, 'PROFILE-SEED'));
+      check(type + ' profile同seed确定且有限', sameJson(a, b) && finiteTree(a));
+      check(type + ' create返回对应profile', c && c.typeKey === type && finiteTree(c));
+    });
+
+    A.init(scene);
+    var initStats1 = stats();
+    A.init(scene);
+    var initStats2 = stats();
+    check('init两次不叠加root', roots().length <= 1);
+    check('init两次不增加live资源', sameJson(initStats1.live, initStats2.live));
+    A.clear();
+
+    TYPES.forEach(function (type) {
+      var first = load(type, 'SAME-SEED', 1, false);
+      var firstRoot = first.root;
+      var firstHash = first.snap.geometryHash;
+      var firstRoles = roleCounts(firstRoot);
+      var second = load(type, 'SAME-SEED', 1, false);
+      check(type + ' load后恰有1个稳定root', roots().length === 1 && !!second.root &&
+        second.root.userData.system === 'atmosphere' && second.root.userData.typeKey === type);
+      check(type + ' 同seed roles/hash确定', sameJson(firstRoles, roleCounts(second.root)) &&
+        firstHash === second.snap.geometryHash && !!firstHash);
+      check(type + ' 重载后旧root脱离scene', firstRoot && firstRoot.parent === null);
+      var third = load(type, 'DIFFERENT-SEED', 1, false);
+      check(type + ' 不同seed geometryHash变化', third.snap.geometryHash !== firstHash);
+
+      var oldRandom = Math.random;
+      var randomSafe = true;
+      try {
+        // THREE 的只读 MathUtils.generateUUID 内部也调用全局随机；只对白名单 UUID
+        // 基础设施返回固定值，Atmosphere 自身若调用 Math.random 仍立即抛错。
+        var uuidRandom = 0;
+        Math.random = function () {
+          var stack = String((new Error()).stack || '');
+          if (/vendor\/three\.min\.js/i.test(stack)) {
+            uuidRandom = (uuidRandom + 0.1732050807) % 1;
+            return uuidRandom;
+          }
+          throw new Error('Atmosphere构建不得使用Math.random');
+        };
+        load(type, 'NO-GLOBAL-RANDOM', 1, false);
+      } catch (e) { randomSafe = false; }
+      finally { Math.random = oldRandom; }
+      check(type + ' 构建不依赖Math.random', randomSafe);
+
+      var r = root();
+      var roles = roleCounts(r);
+      check(type + ' 包含required signature role ' + SIGNATURE[type], !!roles[SIGNATURE[type]]);
+      if (type === 'station') {
+        check('station无sun/moon/planet signature', !PLANET_ROLES.some(function (role) {
+          return role !== 'stars' && hasRole(r, role);
+        }) && !hasRole(r, 'stars') && hasRole(r, 'station-stars'));
+      } else {
+        check(type + ' 包含通用planet roles', PLANET_ROLES.every(function (role) { return hasRole(r, role); }));
+        var tex = textureContract(r);
+        check(type + ' 保留星环且像素天体纹理有透明角/尺寸有界',
+          hasRole(r, 'ringed-landmark') && tex.ok && tex.checked >= 3, JSON.stringify(tex));
+        var budget = objectMetrics(r);
+        check(type + ' 天空drawables<=7且celestial<=4', budget.drawables <= 7 &&
+          snapshot().counts.celestial <= 4, JSON.stringify(budget));
+      }
+      check(type + ' scene对象与snapshot均finite', finiteObject(r) && finiteTree(snapshot()));
+
+      updateAt(new THREE.Vector3(128, 40, 128), 0.25, 0);
+      var noon = snapshot(), noonRoot = root();
+      if (type === 'station') {
+        check('station正午仍仅显示deep stars', roleVisible(noonRoot, 'station-stars') &&
+          !hasRole(noonRoot, 'sun') && !hasRole(noonRoot, 'moon'));
+      } else {
+        // 多月球按独立phase运行，正午允许有月亮仍在地平线上；硬契约只要求主恒星可见、星场熄弱。
+        check(type + ' 正午sun可见/stars弱', roleVisible(noonRoot, 'sun') &&
+          !roleVisible(noonRoot, 'stars'));
+      }
+      updateAt(new THREE.Vector3(128, 40, 128), 0.75, 0);
+      var midnight = snapshot(), midnightRoot = root();
+      if (type === 'station') {
+        check('station午夜对象拓扑不变', sameJson(roleCounts(noonRoot), roleCounts(midnightRoot)) &&
+          roleVisible(midnightRoot, 'station-stars'));
+      } else {
+        check(type + ' 午夜sun隐藏/moon与stars可见', !roleVisible(midnightRoot, 'sun') &&
+          roleVisible(midnightRoot, 'moon') && roleVisible(midnightRoot, 'stars'));
+      }
+      check(type + ' noon/midnight snapshot均finite', finiteTree(noon) && finiteTree(midnight));
+
+      var Apos = new THREE.Vector3(128, 40, 128);
+      var Bpos = new THREE.Vector3(-4096.5, 92, 8192.25);
+      var Cpos = new THREE.Vector3(100000, 64, -100000);
+      updateAt(Apos, 0.25, 0);
+      var aTransform = transformSignature(root(), Object.keys(roleCounts(root())));
+      check(type + ' 相机A绝对跟随', anchorEquals(root(), Apos));
+      updateAt(Bpos, 0.25, 0);
+      check(type + ' 相机B绝对跟随', anchorEquals(root(), Bpos) && finiteObject(root()));
+      updateAt(Cpos, 0.25, 0);
+      check(type + ' 相机C超远坐标仍finite', anchorEquals(root(), Cpos) && finiteObject(root()));
+      updateAt(Apos, 0.25, 0);
+      check(type + ' A→B→C→A无累积漂移', anchorEquals(root(), Apos) &&
+        transformSignature(root(), Object.keys(roleCounts(root()))) === aTransform);
+
+      var density = [];
+      [0.4, 0.7, 1].forEach(function (value) {
+        var loaded = load(type, 'DENSITY-SEED', value, false);
+        var metrics = objectMetrics(loaded.root);
+        var snap = loaded.snap;
+        density.push({
+          particles: snap.counts && Number.isFinite(snap.counts.particles) ? snap.counts.particles : metrics.vertices,
+          vertices: snap.counts && Number.isFinite(snap.counts.vertices) ? snap.counts.vertices : metrics.vertices,
+          drawables: snap.counts && Number.isFinite(snap.counts.drawables) ? snap.counts.drawables : metrics.drawables
+        });
+        check(type + ' density ' + value + ' 保留signature', hasRole(loaded.root, SIGNATURE[type]));
+      });
+      check(type + ' density .4/.7/1 counts单调',
+        density[0].particles <= density[1].particles && density[1].particles <= density[2].particles &&
+        density[0].vertices <= density[1].vertices && density[1].vertices <= density[2].vertices &&
+        density[0].drawables <= density[1].drawables && density[1].drawables <= density[2].drawables,
+        JSON.stringify(density));
+
+      if (type === 'lush') {
+        var runtimeHigh = load(type, 'RUNTIME-QUALITY', 1, false);
+        var highMetrics = objectMetrics(runtimeHigh.root);
+        var highRoot = runtimeHigh.root;
+        var densityChanged = A.setDensity(0.4);
+        var runtimeLow = root();
+        var lowMetrics = objectMetrics(runtimeLow);
+        check('setDensity运行时重建且释放旧root', densityChanged === true && roots().length === 1 &&
+          highRoot.parent === null && hasRole(runtimeLow, SIGNATURE[type]) && lowMetrics.vertices <= highMetrics.vertices);
+        check('setReducedMotion运行时切换生效且不重建root', A.setReducedMotion(true) === true && root() === runtimeLow);
+      }
+
+      var reduced = load(type, 'REDUCED-SEED', 0.4, true);
+      updateAt(Apos, 0.75, 0);
+      var beforeMotion = transformSignature(reduced.root, [SIGNATURE[type]]);
+      var beforeHash = snapshot().geometryHash;
+      updateAt(Apos, 0.75, 10);
+      var afterMotion = transformSignature(root(), [SIGNATURE[type]]);
+      check(type + ' reducedMotion更新不漂移', beforeMotion === afterMotion &&
+        beforeHash === snapshot().geometryHash);
+      check(type + ' reducedMotion静态signature仍可见', roleVisible(root(), SIGNATURE[type]));
+    });
+
+    var priorRoot = null;
+    var stressOK = true;
+    for (var round = 0; round < 20; round++) {
+      for (var i = 0; i < TYPES.length; i++) {
+        var loaded = load(TYPES[i], 'STRESS-' + round + '-' + TYPES[i], 0.7, false);
+        var s = stats();
+        if (roots().length !== 1 || !loaded.root || (priorRoot && priorRoot.parent !== null) ||
+          !resourceInvariant(s) || !boundedLive(s)) stressOK = false;
+        priorRoot = loaded.root;
+      }
+    }
+    check('20轮全type跨世界始终1 root/旧root脱离/live有界/资源守恒', stressOK,
+      JSON.stringify(stats()));
+
+    A.clear();
+    var clear1 = stats();
+    var rootsAfterClear = roots().length;
+    A.clear();
+    var clear2 = stats();
+    check('clear后root=0且live资源=0', rootsAfterClear === 0 &&
+      clear1.live.roots === 0 &&
+      clear1.live.geometries === 0 && clear1.live.materials === 0 && clear1.live.textures === 0 &&
+      resourceInvariant(clear1));
+    check('clear两次幂等且不重复dispose', sameJson(clear1, clear2));
+
+    report();
+  }
+
+  try { run(); }
+  catch (e) {
+    if (!failures) check('未捕获异常', false, e && e.stack ? e.stack : String(e));
+    report();
+  }
+})();
+</script>
+</body>
+</html>

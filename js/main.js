@@ -536,6 +536,16 @@ Voxel.Game = (function () {
     Voxel.Mobs.clear();
     Voxel.Drops.clear();
     Voxel.Particles.clear();
+    var reducedAtmosphere = false;
+    try { reducedAtmosphere = !!window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e0) { }
+    if (Voxel.DayNight && Voxel.DayNight.loadWorld) {
+      Voxel.DayNight.loadWorld(currentWorld, {
+        density: Voxel.Settings ? Voxel.Settings.get('particleDensity') : 1,
+        reducedMotion: reducedAtmosphere
+      });
+    }
+    if (Voxel.Weather.setWorldProfile)
+      Voxel.Weather.setWorldProfile(Voxel.DayNight.profile ? Voxel.DayNight.profile() : null);
     Voxel.Weather.reset();
     if (Voxel.Weather.setSpaceMode) Voxel.Weather.setSpaceMode(currentWorld.kind === 'station');
     for (var fi = 0; fi < fallers.length; fi++) {
@@ -639,7 +649,9 @@ Voxel.Game = (function () {
       invCraftGrid = restoreCraftGrid(saveData.invCraftGrid, 4);
       var savedTime = Number(saveData.time);
       Voxel.DayNight.setTime(isFinite(savedTime) ? savedTime : 0.3);
+      Voxel.DayNight.update(0);
       Voxel.Weather.restore(saveData.weather);
+      if (Voxel.Weather.syncVisualState) Voxel.Weather.syncVisualState();
       var savedBed = Array.isArray(saveData.bed) && saveData.bed.length === 3
         ? [Number(saveData.bed[0]), Number(saveData.bed[1]), Number(saveData.bed[2])] : null;
       if (savedBed && savedBed.every(function (v) { return isFinite(v); }))
@@ -671,6 +683,9 @@ Voxel.Game = (function () {
       Voxel.HUD.toast('已抵达 ' + currentWorld.name + ' · ' + currentWorld.typeName);
     } else {
       // 新世界：背包/手持/合成格/选中格/床重生点全部清空
+      Voxel.DayNight.setTime(0.3);
+      Voxel.DayNight.update(0);
+      Voxel.Weather.reset();
       inv = []; cnt = [];
       for (var i1 = 0; i1 < 36; i1++) { inv.push(0); cnt.push(0); }
       dur = [];
@@ -705,6 +720,7 @@ Voxel.Game = (function () {
     }
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.hideWarp();
+    if (Voxel.DayNight.updateCamera && camera) Voxel.DayNight.updateCamera(camera.position);
     setState('playing');
     // 世界真正可玩后才提交当前 worldId；跃迁/新世界中途退出仍保留上一个一致存档。
     doSave(true);
@@ -2705,13 +2721,9 @@ Voxel.Game = (function () {
     Voxel.Drops.applyTint(_tint);
     if (Voxel.HandItem) Voxel.HandItem.applyTint(_tint);
     if (fallMat) fallMat.color.copy(_tint);
-    _skyTop.copy(Voxel.DayNight.topColor()).lerp(Voxel.Weather.getSkyTop(), wF * 0.85);
-    _sky.copy(Voxel.DayNight.horizonColor()).lerp(Voxel.Weather.getSky(), wF * 0.85);
-    var spaceEnv = Voxel.SpaceTravel && Voxel.SpaceTravel.environment ? Voxel.SpaceTravel.environment() : null;
-    if (spaceEnv) {
-      _skyTop.lerp(new THREE.Color(spaceEnv.top), currentWorld && currentWorld.kind === 'station' ? 0.92 : 0.42);
-      _sky.lerp(new THREE.Color(spaceEnv.horizon), currentWorld && currentWorld.kind === 'station' ? 0.92 : 0.34);
-    }
+    var weatherMix = Voxel.DayNight.weatherMix ? Voxel.DayNight.weatherMix() : 0.75;
+    _skyTop.copy(Voxel.DayNight.topColor()).lerp(Voxel.Weather.getSkyTop(), wF * weatherMix);
+    _sky.copy(Voxel.DayNight.horizonColor()).lerp(Voxel.Weather.getSky(), wF * weatherMix);
     if (wFlash > 0) {
       _skyTop.r += wFlash * 0.9; _skyTop.g += wFlash * 0.92; _skyTop.b += wFlash * 0.95;
       _sky.r += wFlash * 0.85; _sky.g += wFlash * 0.88; _sky.b += wFlash * 0.95;
@@ -2738,7 +2750,9 @@ Voxel.Game = (function () {
 
     // 双通道光照：天光随昼夜（保留月光下限），块光（火把）恒定
     if (Voxel.MeshBuilder.setSun) {
-      Voxel.MeshBuilder.setSun(Math.max(0.2, Voxel.DayNight.sunlight()));
+      Voxel.MeshBuilder.setSun(Math.max(
+        Voxel.DayNight.ambientFloor ? Voxel.DayNight.ambientFloor() : 0.2,
+        Voxel.DayNight.sunlight()));
       Voxel.MeshBuilder.setEnv(_sky, fogNear, fogFar);
     }
 
@@ -3014,6 +3028,18 @@ Voxel.Game = (function () {
     document.addEventListener('keydown', handleModalKeydown, true);
     Voxel.Controls.init(canvas);
     if (Voxel.Touch && Voxel.Touch.init) Voxel.Touch.init();
+    try {
+      var atmosphereMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+      var syncAtmosphereMotion = function () {
+        if (Voxel.DayNight && Voxel.DayNight.setReducedMotion)
+          Voxel.DayNight.setReducedMotion(!!atmosphereMotionQuery.matches);
+      };
+      syncAtmosphereMotion();
+      if (atmosphereMotionQuery.addEventListener)
+        atmosphereMotionQuery.addEventListener('change', syncAtmosphereMotion);
+      else if (atmosphereMotionQuery.addListener)
+        atmosphereMotionQuery.addListener(syncAtmosphereMotion);
+    } catch (atmosphereMotionError) { }
 
     Game.scene = scene;
     Game.camera = camera;
@@ -3333,6 +3359,8 @@ Voxel.Game = (function () {
         if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
         else if (k === 'volume' && Voxel.Sound.setVolume) Voxel.Sound.setVolume(v);
         else if (k === 'res') applyRes();
+        else if (k === 'particleDensity' && Voxel.DayNight && Voxel.DayNight.setDensity)
+          Voxel.DayNight.setDensity(v);
         else if (k === 'rainDensity' && Voxel.Weather && Voxel.Weather.setRainDensity)
           Voxel.Weather.setRainDensity(v);
         else if (k === 'mobDensity' && Voxel.Mobs && Voxel.Mobs.setDensity)

@@ -50,6 +50,7 @@ function check(name, cond) {
 load('js/config.js');
 load('js/world/seed.js');
 load('js/world/galaxy.js');
+load('js/systems/atmosphere_profiles.js');
 load('js/world/noise.js');
 load('js/world/biomes.js');
 load('js/world/shaper.js');
@@ -137,6 +138,126 @@ var invalidCollections = GA.hydrate({
 }, galA.rootSeed);
 check('非对象 discovered/worlds 安全回退', invalidCollections.discovered['planet-0'] === true &&
   Object.keys(invalidCollections.worlds).length === 0);
+
+console.log('七类大气与天体描述');
+var AP = V.AtmosphereProfiles;
+var atmosphereKeys = AP.keys();
+var expectedAtmosphereKeys = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'station'];
+var expectedSignatures = {
+  lush: 'pollen', arid: 'dust', frozen: 'aurora', toxic: 'spores',
+  volcanic: 'ash', oceanic: 'sea-mist', station: 'station-stars'
+};
+var expectedTopology = {
+  lush: [1, 2], arid: [2, 2], frozen: [1, 3], toxic: [1, 1],
+  volcanic: [2, 1], oceanic: [1, 2], station: [0, 0]
+};
+
+function atmosphereColor(v) {
+  return typeof v === 'number' && isFinite(v) && Math.floor(v) === v && v >= 0 && v <= 0xffffff;
+}
+
+function atmospherePair(v) { return !!v && atmosphereColor(v.top) && atmosphereColor(v.horizon); }
+
+function atmosphereBody(v, role) {
+  return !!v && v.role === role && typeof v.style === 'string' && !!v.style &&
+    typeof v.size === 'number' && isFinite(v.size) && v.size >= 4 && v.size <= 128 &&
+    atmosphereColor(v.color) && typeof v.phase === 'number' && isFinite(v.phase) && v.phase >= 0 && v.phase < 1 &&
+    typeof v.inclination === 'number' && isFinite(v.inclination) && Math.abs(v.inclination) <= 1.2 &&
+    Number.isInteger(v.cyclesPerDay) && v.cyclesPerDay > 0;
+}
+
+function atmosphereProfileValid(p) {
+  if (!p || p.role !== 'sky-dome' || typeof p.typeKey !== 'string' || typeof p.seed !== 'string') return false;
+  if (!atmospherePair(p.day) || !atmospherePair(p.dusk) || !atmospherePair(p.night) ||
+    !atmosphereColor(p.tintDay) || !atmosphereColor(p.tintNight)) return false;
+  if (![p.ambientFloor, p.exponent, p.weatherMix].every(function (n) { return typeof n === 'number' && isFinite(n); }) ||
+    p.ambientFloor < 0 || p.ambientFloor > 1 || p.exponent <= 0 || p.weatherMix < 0 || p.weatherMix > 1) return false;
+  var w = p.weather;
+  if (!w || !atmosphereColor(w.topDay) || !atmosphereColor(w.horizonDay) ||
+    !atmosphereColor(w.topNight) || !atmosphereColor(w.horizonNight) || !atmosphereColor(w.tint) ||
+    !atmosphereColor(w.cloud) || !atmosphereColor(w.precipitationColor) || typeof w.precipitation !== 'string') return false;
+  if (!p.stars || p.stars.role !== 'stars' || !Number.isInteger(p.stars.count) || p.stars.count < 64 ||
+    p.stars.count > 768 || !atmosphereColor(p.stars.color) || !atmosphereColor(p.stars.secondaryColor)) return false;
+  if (!p.nebula || !atmosphereColor(p.nebula.colorA) || !atmosphereColor(p.nebula.colorB) ||
+    typeof p.nebula.opacity !== 'number' || !isFinite(p.nebula.opacity) || p.nebula.opacity <= 0 || p.nebula.opacity > 1 ||
+    typeof p.nebula.rotation !== 'number' || !isFinite(p.nebula.rotation) || p.nebula.rotation < 0 ||
+    p.nebula.rotation >= Math.PI * 2 || !Number.isInteger(p.nebula.seed) || p.nebula.seed < 0) return false;
+  if (!Array.isArray(p.suns) || !p.suns.every(function (b) { return atmosphereBody(b, 'sun'); }) ||
+    !Array.isArray(p.moons) || !p.moons.every(function (b) { return atmosphereBody(b, 'moon'); })) return false;
+  var l = p.landmark, ring = l && l.ring;
+  if (!l || l.role !== 'ringed-landmark' || typeof l.style !== 'string' || !l.style ||
+    typeof l.size !== 'number' || !isFinite(l.size) || l.size < 8 || l.size > 128 || !atmosphereColor(l.color) ||
+    typeof l.phase !== 'number' || !isFinite(l.phase) || l.phase < 0 || l.phase >= 1 ||
+    typeof l.inclination !== 'number' || !isFinite(l.inclination) || Math.abs(l.inclination) > 1.2 ||
+    !ring || !atmosphereColor(ring.color) || typeof ring.inner !== 'number' || !isFinite(ring.inner) ||
+    typeof ring.outer !== 'number' || !isFinite(ring.outer) || ring.inner <= 0 || ring.outer <= ring.inner ||
+    typeof ring.opacity !== 'number' || !isFinite(ring.opacity) || ring.opacity <= 0 || ring.opacity > 1 ||
+    typeof ring.tilt !== 'number' || !isFinite(ring.tilt) || Math.abs(ring.tilt) > 1.3) return false;
+  return !!p.particles && p.particles.role === p.signatureRole && Number.isInteger(p.particles.count) &&
+    p.particles.count >= 0 && atmosphereColor(p.particles.color) && Number.isInteger(p.variantHash) && p.variantHash >= 0;
+}
+
+check('大气描述键精确覆盖6行星+空间站', JSON.stringify(atmosphereKeys) === JSON.stringify(expectedAtmosphereKeys));
+var atmosphereProfiles = {};
+for (var api = 0; api < atmosphereKeys.length; api++) {
+  var atmosphereKey = atmosphereKeys[api];
+  var atmosphereWorld = {
+    id: atmosphereKey === 'station' ? 'station-0' : 'planet-' + api,
+    kind: atmosphereKey === 'station' ? 'station' : 'planet',
+    typeKey: atmosphereKey,
+    seed: 'atmosphere-seed-' + atmosphereKey
+  };
+  var atmosphereProfile = AP.create(atmosphereWorld);
+  atmosphereProfiles[atmosphereKey] = atmosphereProfile;
+  check(atmosphereKey + '大气/天体字段完整且数值有界', atmosphereProfileValid(atmosphereProfile) &&
+    atmosphereProfile.typeKey === atmosphereKey && atmosphereProfile.worldId === atmosphereWorld.id &&
+    atmosphereProfile.station === (atmosphereKey === 'station'));
+  check(atmosphereKey + '拓扑与类型签名固定', atmosphereProfile.suns.length === expectedTopology[atmosphereKey][0] &&
+    atmosphereProfile.moons.length === expectedTopology[atmosphereKey][1] &&
+    atmosphereProfile.signatureRole === expectedSignatures[atmosphereKey] &&
+    atmosphereProfile.particles.role === expectedSignatures[atmosphereKey]);
+}
+
+var planetAtmosphereKeys = atmosphereKeys.slice(0, 6);
+check('所有行星均有星云/日月/多天体/星环', planetAtmosphereKeys.every(function (key) {
+  var p = atmosphereProfiles[key];
+  return p.nebula.opacity > 0 && p.suns.length >= 1 && p.moons.length >= 1 &&
+    p.suns.length + p.moons.length + 1 >= 3 && p.landmark.ring.outer > p.landmark.ring.inner;
+}));
+check('空间站无日月且有星空/带环母星', atmosphereProfiles.station.suns.length === 0 &&
+  atmosphereProfiles.station.moons.length === 0 && atmosphereProfiles.station.signatureRole === 'station-stars' &&
+  atmosphereProfiles.station.landmark.style === 'station-parent-ringed');
+check('六类行星的大气基色与签名均唯一',
+  new Set(planetAtmosphereKeys.map(function (key) {
+    var p = atmosphereProfiles[key]; return p.day.top + ':' + p.day.horizon + ':' + p.night.top;
+  })).size === 6 && new Set(atmosphereKeys.map(function (key) { return atmosphereProfiles[key].signatureRole; })).size === 7);
+check('类型标志特征与规格一致',
+  atmosphereProfiles.frozen.signatureRole === 'aurora' &&
+  atmosphereProfiles.toxic.landmark.style === 'banded-ringed' &&
+  atmosphereProfiles.volcanic.moons[0].style === 'black-disc' &&
+  atmosphereProfiles.oceanic.landmark.style === 'large-ringed-ocean' &&
+  atmosphereProfiles.oceanic.landmark.ring.outer - atmosphereProfiles.oceanic.landmark.ring.inner > 0.8);
+
+var deterministicAtmosphereA = AP.profileFor('arid', 'same-atmosphere-seed');
+var deterministicAtmosphereB = AP.profileFor('arid', 'same-atmosphere-seed');
+var variedAtmosphere = AP.profileFor('arid', 'different-atmosphere-seed');
+check('同type+seed描述字节级确定', JSON.stringify(deterministicAtmosphereA) === JSON.stringify(deterministicAtmosphereB));
+check('异seed改变参数签名但不改类型拓扑', deterministicAtmosphereA.variantHash !== variedAtmosphere.variantHash &&
+  deterministicAtmosphereA.suns.length === variedAtmosphere.suns.length &&
+  deterministicAtmosphereA.moons.length === variedAtmosphere.moons.length &&
+  deterministicAtmosphereA.signatureRole === variedAtmosphere.signatureRole);
+check('未知行星类型安全回退lush', AP.profileFor('unknown-type', 'fallback-seed').typeKey === 'lush');
+
+var savedRandom = sandbox.Math.random;
+var noGlobalRandomProfile = null;
+try {
+  sandbox.Math.random = function () { throw new Error('AtmosphereProfiles must not use global randomness'); };
+  noGlobalRandomProfile = AP.create({ id: 'planet-deterministic', kind: 'planet', typeKey: 'frozen', seed: 'no-random-seed' });
+} finally {
+  sandbox.Math.random = savedRandom;
+}
+check('全局随机被禁用时仍可生成完整大气', atmosphereProfileValid(noGlobalRandomProfile) &&
+  noGlobalRandomProfile.signatureRole === 'aurora');
 
 console.log('HUD 数值防御');
 var HT = V.HUD._test;

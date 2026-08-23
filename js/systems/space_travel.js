@@ -274,21 +274,8 @@ Voxel.SpaceTravel = (function () {
       box(g, [1.1, 4.2, 1.1], [px, 2.1, pz], 0x354867);
       box(g, [1.45, 0.45, 1.45], [px, 4.45, pz], i % 2 ? 0xf16dff : 0x53e8ff, i % 2 ? 0x6b236f : 0x176b88);
     }
-    // 像素星空：空间站拥有独立的深空参照，避免平台悬在纯色背景中。
-    var positions = [], s = Voxel.SeedUtil.derive32(world.seed, 0xd001) || 1;
-    function rnd() { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }
-    for (var j = 0; j < 520; j++) {
-      var theta = rnd() * Math.PI * 2;
-      var u = rnd() * 2 - 1;
-      var rad = 150 + rnd() * 180;
-      var rr = Math.sqrt(1 - u * u) * rad;
-      positions.push(Math.cos(theta) * rr, u * rad, Math.sin(theta) * rr);
-    }
-    var geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    var stars = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xcfe9ff, size: 1.45, sizeAttenuation: true, fog: false }));
-    stars.position.y = 20;
-    g.add(stars);
+    // 深空星场、远方母星与星环由 Atmosphere 单点拥有；这里仅生成空间站建筑，
+    // 避免与全局天空叠加第二套不跟随相机的 Points。
     return g;
   }
 
@@ -301,6 +288,7 @@ Voxel.SpaceTravel = (function () {
       });
     }
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false;
+    galaxy = null; world = null;
     scanOnline = false;
     resetScanTarget();
     setScanOffline();

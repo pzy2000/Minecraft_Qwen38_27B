@@ -95,7 +95,9 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       expectedWorld: Voxel.Game._test.currentWorld().name,
       expectedBiome: Voxel.Biomes.name(Voxel.World.biomeAt(
         Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z)))
-    }
+    },
+    atmosphere: Voxel.Atmosphere.snapshot(),
+    atmosphereStats: Voxel.Atmosphere.resourceStats()
   }));
   check('起始星系包含 7 个天体', first.count === 7);
   check('起始世界是行星且生成飞船', first.kind === 'planet' && first.ship);
@@ -113,6 +115,13 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     first.hud, first.coord, first.fuelText, first.scan.world, first.scan.position,
     first.scan.biome, first.scan.environment, first.scan.target, first.scan.distance
   ]));
+  check('起始行星加载唯一类型天空与星云/日月/星环', first.atmosphere.typeKey === 'lush' &&
+    ['sky-dome', 'stars', 'sun', 'moon', 'ringed-landmark', 'pollen'].every(role =>
+      first.atmosphere.roles.includes(role)) && first.atmosphere.counts.celestial <= 4);
+  check('起始Atmosphere资源账本守恒且live有界',
+    ['geometries', 'materials', 'textures'].every(key =>
+      first.atmosphereStats.created[key] - first.atmosphereStats.disposed[key] === first.atmosphereStats.live[key] &&
+      first.atmosphereStats.live[key] >= 0 && first.atmosphereStats.live[key] <= 64));
 
   const targetTelemetry = await page.evaluate(async () => {
     const root = document.getElementById('scan-terminal');
@@ -198,6 +207,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     if (d) d.age = 12.5;
     Voxel.SpaceTravel.setScanTarget('block', '跨世界残留测试', 8.8);
     Voxel.SpaceTravel.update(0, 0);
+    // 从真实雨天离场，验证空间站第一帧不会继承来源世界的灰色天气 tint。
+    Voxel.Weather.set('rain');
+    Voxel.Weather.update(Voxel.Config.WEATHER.TRANSITION + 0.1);
+    const sourceWeatherTint = Voxel.Weather.getTint().getHex();
     const ok = Voxel.Game.requestTravel('station-0', 'ship');
     const beforePagehide = Voxel.Save.load();
     window.dispatchEvent(typeof PageTransitionEvent === 'function'
@@ -208,11 +221,13 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       sourceId,
       state: Voxel.Game.state,
       pending: Voxel.Game._test.travelPending(),
+      sourceWeatherTint,
       beforePagehide,
       afterPagehide
     };
   });
   check('飞船接受空间站跃迁请求', firstDeparture.ok === true);
+  check('离场前雨天确实产生非中性天气tint', firstDeparture.sourceWeatherTint !== 0xffffff);
   check('跃迁动画期间保持明确 pending 事务', firstDeparture.state === 'warping' &&
     firstDeparture.pending && firstDeparture.pending.fromId === 'planet-0' &&
     firstDeparture.pending.toId === 'station-0');
@@ -235,6 +250,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     drops: Voxel.Drops.snapshot(),
     savedCurrent: (Voxel.Save.load().galaxy || {}).currentId,
     actionHint: Voxel.SpaceTravel.actionHint(),
+    atmosphere: Voxel.Atmosphere.snapshot(),
+    atmosphereStats: Voxel.Atmosphere.resourceStats(),
+    weatherTint: [Voxel.Weather.getTint().r, Voxel.Weather.getTint().g, Voxel.Weather.getTint().b],
+    weatherIntensity: Voxel.Weather.intensity(),
     scan: {
       status: document.getElementById('scan-terminal').dataset.status,
       kind: document.getElementById('scan-terminal').dataset.targetKind,
@@ -259,6 +278,14 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     station.scan.environment === '真空 · 人工重力' && noLeak(Object.values(station.scan)));
   check('空间站航行终端提示与只读遥测终端保持独立', /航行终端/.test(station.actionHint) &&
     /打开星图/.test(station.actionHint) && station.scan.target === '无锁定目标');
+  check('空间站切换为唯一deep-space天空且无行星日月/重复星场',
+    station.atmosphere.typeKey === 'station' && station.atmosphere.roles.includes('deep-space-dome') &&
+    station.atmosphere.roles.includes('station-stars') && station.atmosphere.roles.includes('ringed-landmark') &&
+    !['sky-dome', 'stars', 'sun', 'moon'].some(role => station.atmosphere.roles.includes(role)));
+  check('雨天跃迁空间站后天气tint立即中性且资源仍守恒',
+    station.weatherIntensity === 0 && station.weatherTint.every(v => Math.abs(v - 1) < 1e-9) &&
+    ['geometries', 'materials', 'textures'].every(key =>
+      station.atmosphereStats.created[key] - station.atmosphereStats.disposed[key] === station.atmosphereStats.live[key]));
 
   await page.evaluate(() => Voxel.World.set(130, 24, 130, 13));
   const returnDeparture = await page.evaluate(() => {
@@ -278,6 +305,7 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   const backOnPlanet = await page.evaluate(() => ({
     fuel: Voxel.Game._test.galaxy().ship.fuel,
     drops: Voxel.Drops.snapshot(),
+    atmosphere: Voxel.Atmosphere.snapshot(),
     scan: {
       kind: document.getElementById('scan-terminal').dataset.targetKind,
       world: document.getElementById('scan-world').textContent,
@@ -299,6 +327,9 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     backOnPlanet.scan.biome === backOnPlanet.scan.expectedBiome &&
     backOnPlanet.scan.biome !== '空间站平台' && backOnPlanet.scan.environment !== '真空 · 人工重力' &&
     backOnPlanet.scan.target === '无锁定目标' && noLeak(Object.values(backOnPlanet.scan)));
+  check('返航行星第一帧恢复lush天空且不残留station roles', backOnPlanet.atmosphere.typeKey === 'lush' &&
+    backOnPlanet.atmosphere.roles.includes('sky-dome') && backOnPlanet.atmosphere.roles.includes('pollen') &&
+    !backOnPlanet.atmosphere.roles.includes('station-stars'));
 
   const portalJump = await page.evaluate(() => ({
     ok: Voxel.Game.requestTravel('station-0', 'portal'),
@@ -328,6 +359,16 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   await waitWorld('station-0');
   check('多次离场后空间站修改仍保留',
     await page.evaluate(() => Voxel.World.get(130, 24, 130)) === 13);
+  const finalAtmosphere = await page.evaluate(() => ({
+    roots: Voxel.Game.scene.children.filter(o => o.userData && o.userData.system === 'atmosphere').length,
+    snap: Voxel.Atmosphere.snapshot(),
+    stats: Voxel.Atmosphere.resourceStats()
+  }));
+  check('多次往返后天空仍单root且live资源有界', finalAtmosphere.roots === 1 &&
+    finalAtmosphere.snap.typeKey === 'station' &&
+    ['geometries', 'materials', 'textures'].every(key =>
+      finalAtmosphere.stats.created[key] - finalAtmosphere.stats.disposed[key] === finalAtmosphere.stats.live[key] &&
+      finalAtmosphere.stats.live[key] <= 64));
 
   await page.evaluate(() => {
     Voxel.Game.onKey('KeyP');
