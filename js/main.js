@@ -17,6 +17,7 @@ Voxel.Game = (function () {
   var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2（每格 1 个）
   var manualOpen = false;
   var saveData = null, pendingEdits = null, featuredPending = null;
+  var pendingTravel = null, travelSerial = 0;
   var worldReplacePending = null, worldReplaceReturnFocus = null, worldReplaceReturnState = null;
   var galaxyState = null, currentWorld = null, travelStats = null;
   var mouseDown = [false, false, false];
@@ -334,6 +335,13 @@ Voxel.Game = (function () {
     Voxel.World.init(currentWorld.seed, currentWorld);
     // 载入方块元数据（熔炉/箱子内容），并重建活跃炉表
     Voxel.World.applyMeta(saveData ? saveData.meta : null);
+    if (Voxel.Drops && Voxel.Drops.restore) {
+      var savedDrops = saveData && Array.isArray(saveData.drops) ? saveData.drops : null;
+      // 兼容只在 galaxy 世界快照中保存掉落物的中间版本。
+      if (!savedDrops && saveData && saveData.galaxy && saveData.galaxy.worlds && currentWorld)
+        savedDrops = saveData.galaxy.worlds[currentWorld.id] && saveData.galaxy.worlds[currentWorld.id].drops;
+      Voxel.Drops.restore(savedDrops || []);
+    }
     rebuildActiveFurnaces();
     setState('loading');
     showOverlay('overlay-loading');
@@ -366,7 +374,9 @@ Voxel.Game = (function () {
     var pitch = w.overview ? -0.8 : -0.15;
     var py = w.overview ? Math.max(sy + 1.2, 90) : sy + 1.2;
     if (!(sy > 0) && !w.overview) py = 33.2;
-    Voxel.Player.init(new THREE.Vector3(spot.x + 0.5, py, spot.z + 0.5), 0.75, pitch);
+    var landing = new THREE.Vector3(spot.x + 0.5, py, spot.z + 0.5);
+    Voxel.Player.setSpawn(landing);
+    Voxel.Player.init(landing, 0.75, pitch);
     if (w.overview) Voxel.Player.setFlying(true);
     Voxel.Controls.setYaw(0.75);
     Voxel.Controls.setPitch(pitch);
@@ -389,6 +399,7 @@ Voxel.Game = (function () {
   function enterWorld() {
     hideOverlays();
     lastBlankCheck = performance.now(); // 进入后 3 秒内不做空白自检
+    if (Voxel.Player.setSpawn) Voxel.Player.setSpawn(Voxel.World.spawnPoint());
     craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
     invCraftGrid = [0, 0, 0, 0];
     if (saveData) {
@@ -412,7 +423,9 @@ Voxel.Game = (function () {
       invCraftGrid = restoreCraftGrid(saveData.invCraftGrid, 4);
       Voxel.DayNight.setTime(saveData.time || 0.3);
       Voxel.Weather.restore(saveData.weather);
+      Voxel.Player.setBed(saveData.bed ? new THREE.Vector3(saveData.bed[0], saveData.bed[1], saveData.bed[2]) : null);
       var p = saveData.player;
+      var savedDead = !!(p && typeof p.hp === 'number' && isFinite(p.hp) && p.hp <= 0);
       if (p && p.pos && p.pos.length === 3) {
         var vx = +p.pos[0], vy = +p.pos[1], vz = +p.pos[2];
         var vyaw = +p.yaw, vpitch = +p.pitch;
@@ -423,11 +436,12 @@ Voxel.Game = (function () {
           if (!isFinite(vpitch)) vpitch = 0;
           Voxel.Player.init(new THREE.Vector3(vx, vy, vz), vyaw, vpitch);
           Voxel.Player.setFlying(!!p.fly);
-          Voxel.Player.setHp(p.hp || C.HP);
+          Voxel.Player.setHp(typeof p.hp === 'number' && isFinite(p.hp) ? p.hp : C.HP);
           if (typeof p.food === 'number' && isFinite(p.food)) Voxel.Player.setFood(p.food);
         }
       } else Voxel.Player.initAtSpawn();
-      Voxel.Player.setBed(saveData.bed ? new THREE.Vector3(saveData.bed[0], saveData.bed[1], saveData.bed[2]) : null);
+      // 死亡画面无法跨页面恢复；重载死亡存档时按床/当前世界出生点安全重生。
+      if (savedDead) Voxel.Player.respawn();
       if (travelStats) {
         Voxel.Player.setHp(travelStats.hp);
         Voxel.Player.setFood(travelStats.food);
@@ -471,6 +485,17 @@ Voxel.Game = (function () {
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.hideWarp();
     setState('playing');
+    // 世界真正可玩后才提交当前 worldId；跃迁/新世界中途退出仍保留上一个一致存档。
+    doSave(true);
+  }
+
+  function dropsSnapshot() {
+    try {
+      return Voxel.Drops && Voxel.Drops.snapshot ? Voxel.Drops.snapshot() : [];
+    } catch (e) {
+      console.warn('掉落物快照失败', e);
+      return [];
+    }
   }
 
   function currentSnapshot() {
@@ -485,7 +510,8 @@ Voxel.Game = (function () {
         pos: [p.x, p.y, p.z], yaw: Voxel.Controls.yaw(), pitch: Voxel.Controls.pitch(),
         fly: Voxel.Player.flying(), hp: Voxel.Player.hp(), food: Voxel.Player.food()
       },
-      bed: bed ? [bed.x, bed.y, bed.z] : null
+      bed: bed ? [bed.x, bed.y, bed.z] : null,
+      drops: dropsSnapshot()
     };
   }
 
@@ -496,7 +522,8 @@ Voxel.Game = (function () {
 
   function doSave(silent) {
     if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
-      state !== 'furnace' && state !== 'chest' && state !== 'dead') return false;
+      state !== 'furnace' && state !== 'chest' && state !== 'starmap' && state !== 'sleeping' &&
+      state !== 'dead') return false;
     var p = Voxel.Player.pos();
     var bed = Voxel.Player.getBed();
     storeCurrentWorld();
@@ -520,11 +547,20 @@ Voxel.Game = (function () {
       invCraftGrid: invCraftGrid,
       bed: bed ? [bed.x, bed.y, bed.z] : null,
       dur: dur,
+      drops: dropsSnapshot(),
       meta: Voxel.World.getAllMeta(),
       galaxy: galaxyState
     });
     if (ok && !silent) Voxel.HUD.toast('游戏已存档');
     return ok;
+  }
+
+  var lifecycleSaveBusy = false;
+  function saveForLifecycle() {
+    if (lifecycleSaveBusy) return false;
+    lifecycleSaveBusy = true;
+    try { return doSave(true); }
+    finally { lifecycleSaveBusy = false; }
   }
 
   // ---------- 背包堆叠辅助 ----------
@@ -1747,10 +1783,13 @@ Voxel.Game = (function () {
 
   function resume() {
     if (state !== 'paused' && state !== 'dead') return;
-    if (state === 'dead') Voxel.Player.respawn();
+    var wasDead = state === 'dead';
+    if (wasDead) Voxel.Player.respawn();
     document.getElementById('overlay-dead').classList.add('hidden');
     document.getElementById('overlay-pause').classList.add('hidden');
     setState('playing');
+    // 重生位置、已失效床位清理和恢复后的生命状态立即落盘。
+    if (wasDead) doSave(true);
     tryLock();
   }
 
@@ -1786,22 +1825,27 @@ Voxel.Game = (function () {
   }
 
   function requestTravel(destinationId, mode) {
-    if (state !== 'playing' && state !== 'starmap') return false;
+    if ((state !== 'playing' && state !== 'starmap') || pendingTravel) return false;
+    var travelOriginState = state;
     var dest = Voxel.Galaxy.find(galaxyState, destinationId);
     if (!dest || !currentWorld || dest.id === currentWorld.id) return false;
+    var cost = 0;
     if (mode !== 'portal') {
-      var cost = Voxel.Galaxy.fuelCost(currentWorld, dest);
+      cost = Voxel.Galaxy.fuelCost(currentWorld, dest);
       if (galaxyState.ship.fuel < cost) {
         Voxel.HUD.toast('跃迁能量不足：需要 ' + cost + '%，请先前往空间站补给');
         return false;
       }
-      galaxyState.ship.fuel -= cost;
     }
 
-    storeCurrentWorld();
+    // 先提交完全一致的源世界。跃迁动画/目标加载期间页面退出时，可靠回到源世界，
+    // 不会写出“源世界 meta/edits + 目标 currentId”的混合存档。
+    if (!doSave(true)) {
+      Voxel.HUD.toast('保存源世界失败，已取消跃迁；请检查浏览器存储空间');
+      return false;
+    }
+
     travelStats = { hp: Voxel.Player.hp(), food: Voxel.Player.food() };
-    galaxyState.currentId = dest.id;
-    galaxyState.discovered[dest.id] = true;
     var snap = galaxyState.worlds[dest.id] || {};
     var transit = {
       seed: dest.seed,
@@ -1812,15 +1856,34 @@ Voxel.Game = (function () {
       held: heldItem, heldCnt: heldCnt, heldDur: heldDur,
       craftGrid: craftGrid.slice(), invCraftGrid: invCraftGrid.slice(),
       bed: snap.bed || null,
-      meta: snap.meta || {}, edits: snap.edits || {},
+      meta: snap.meta || {}, edits: snap.edits || {}, drops: snap.drops || [],
       galaxy: galaxyState
     };
+    var from = currentWorld;
+    var tx = { serial: ++travelSerial, fromId: from.id, toId: dest.id };
+    pendingTravel = tx;
     document.getElementById('overlay-starmap').classList.add('hidden');
     setState('warping');
     Voxel.Controls.exitLock();
-    if (Voxel.SpaceTravel) Voxel.SpaceTravel.showWarp(currentWorld, dest, mode);
-    var from = currentWorld;
+    try {
+      if (Voxel.SpaceTravel) Voxel.SpaceTravel.showWarp(currentWorld, dest, mode);
+    } catch (e) {
+      pendingTravel = null;
+      travelStats = null;
+      setState(travelOriginState);
+      if (travelOriginState === 'starmap')
+        document.getElementById('overlay-starmap').classList.remove('hidden');
+      else tryLock();
+      console.error('跃迁演出启动失败', e);
+      Voxel.HUD.toast('跃迁启动失败，仍停留在当前世界');
+      return false;
+    }
     setTimeout(function () {
+      if (pendingTravel !== tx || state !== 'warping') return;
+      pendingTravel = null;
+      galaxyState.ship.fuel = Math.max(0, galaxyState.ship.fuel - cost);
+      galaxyState.currentId = dest.id;
+      galaxyState.discovered[dest.id] = true;
       startWorld(dest.seed, transit, null, dest.id);
       Voxel.HUD.toast((mode === 'portal' ? '传送完成：' : '跃迁完成：') + from.name + ' → ' + dest.name);
     }, 900);
@@ -2084,16 +2147,24 @@ Voxel.Game = (function () {
     stopDig();
     var fade = document.getElementById('sleep-fade');
     if (fade) fade.classList.add('on');
-    sleepTimer = setTimeout(function () {
-      sleepTimer = null;
-      // 跳到清晨（t≈0.27 为上午）
-      Voxel.DayNight.setTime(0.27);
-      Voxel.DayNight.update(0);
-      if (fade) fade.classList.remove('on');
-      setState('playing');
-      tryLock();
-      Voxel.HUD.toast('你睡了一觉，天亮了');
-    }, 1100);
+    sleepTimer = setTimeout(finishSleep, 1100);
+    return true;
+  }
+
+  function finishSleep() {
+    if (state !== 'sleeping') return false;
+    if (sleepTimer) clearTimeout(sleepTimer);
+    sleepTimer = null;
+    // 跳到清晨（t≈0.27 为上午），完成后立即保存，避免刷新又回到夜晚。
+    Voxel.DayNight.setTime(0.27);
+    Voxel.DayNight.update(0);
+    var fade = document.getElementById('sleep-fade');
+    if (fade) fade.classList.remove('on');
+    setState('playing');
+    var saved = doSave(true);
+    tryLock();
+    Voxel.HUD.toast(saved ? '你睡了一觉，天亮了' : '天亮了，但自动存档失败，请手动保存');
+    return saved;
   }
 
   function loop(now) {
@@ -2397,6 +2468,17 @@ Voxel.Game = (function () {
         Voxel.HUD.setSelected(sel);
       },
       saveNow: function () { return doSave(true); },
+      lifecycleSave: saveForLifecycle,
+      useBedAt: function (x, y, z) { return useBed({ x: x, y: y, z: z, id: 17 }); },
+      sleepNow: sleep,
+      finishSleep: finishSleep,
+      travelPending: function () {
+        return pendingTravel ? {
+          serial: pendingTravel.serial,
+          fromId: pendingTravel.fromId,
+          toId: pendingTravel.toId
+        } : null;
+      },
       // 挖掘测试钩子
       beginDig: function () { mouseDown[2] = true; },
       endDig: function () { mouseDown[2] = false; stopDig(); },
@@ -2569,7 +2651,12 @@ Voxel.Game = (function () {
     document.addEventListener('fullscreenchange', onResize);
     document.addEventListener('webkitfullscreenchange', onResize);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
-    window.addEventListener('beforeunload', function () { doSave(true); });
+    // 移动端常不触发 beforeunload；hidden/pagehide 是主要持久化时机。
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') saveForLifecycle();
+    });
+    window.addEventListener('pagehide', saveForLifecycle);
+    window.addEventListener('beforeunload', saveForLifecycle);
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
       showError('图形上下文丢失，请刷新页面（F5）重试');

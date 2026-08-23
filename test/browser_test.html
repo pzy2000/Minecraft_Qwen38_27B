@@ -1276,11 +1276,107 @@
           JSON.stringify(TT.invCraft()) === JSON.stringify([4, 0, 0, 20]));
         TT.setHeld(0, 0, null); TT.clearCraft(); TT.clearInvCraft();
         TT.saveNow();
-        wait(300, stepReset);
+        wait(300, stepLifecycleBed);
         return;
       }
       wait(100, pollTravelTransient);
     })();
+  }
+
+  // 页面生命周期保存、睡眠落盘、固定世界出生点与床重生必须形成闭环。
+  function stepLifecycleBed() {
+    var T = Voxel.Game._test;
+    var worldSpawn = Voxel.World.spawnPoint().clone();
+    Voxel.Player.setSpawn(worldSpawn);
+
+    // Player.init 只改变当前位置，不能把任意传送/读档位置偷偷改成世界出生点。
+    Voxel.Player.init(new THREE.Vector3(worldSpawn.x + 9, worldSpawn.y + 6, worldSpawn.z + 9), 0, 0);
+    var fixedRespawn = Voxel.Player.respawn();
+    check('普通 Player.init 后仍回固定世界出生点', !!fixedRespawn &&
+      fixedRespawn.distanceTo(worldSpawn) < 0.001 && Voxel.Player.getSpawn().distanceTo(worldSpawn) < 0.001);
+
+    var bx = Math.floor(worldSpawn.x) + 3;
+    var bz = Math.floor(worldSpawn.z) + 3;
+    var groundY = Voxel.World.surfaceAt(bx, bz);
+    var bedY = groundY + 1;
+    var oldBed = Voxel.World.get(bx, bedY, bz);
+    var oldHead = Voxel.World.get(bx, bedY + 1, bz);
+    var oldHead2 = Voxel.World.get(bx, bedY + 2, bz);
+    Voxel.World.set(bx, bedY, bz, 17);
+    Voxel.World.set(bx, bedY + 1, bz, 0);
+    Voxel.World.set(bx, bedY + 2, bz, 0);
+
+    Voxel.DayNight.setTime(0.3);
+    T.useBedAt(bx, bedY, bz);
+    var bedPos = Voxel.Player.getBed();
+    var bedSaved = Voxel.Save.load();
+    check('白天使用床设置床上方重生点并立即保存', !!bedPos && !!bedSaved && !!bedSaved.bed &&
+      Math.abs(bedPos.x - (bx + 0.5)) < 0.001 && Math.abs(bedPos.y - (bedY + 1)) < 0.001 &&
+      bedSaved.bed[0] === bedPos.x && bedSaved.bed[1] === bedPos.y && bedSaved.bed[2] === bedPos.z);
+
+    // 真实 pagehide 事件必须走生命周期保存，而不依赖 beforeunload。
+    T.clearInv(); T.addInv(108, 7);
+    Voxel.DayNight.setTime(0.61);
+    Voxel.DayNight.update(0);
+    var pagehideEvent = typeof PageTransitionEvent === 'function'
+      ? new PageTransitionEvent('pagehide', { persisted: false }) : new Event('pagehide');
+    window.dispatchEvent(pagehideEvent);
+    var pagehideSaved = Voxel.Save.load();
+    check('pagehide 保存当前时间/背包/床', !!pagehideSaved && Math.abs(pagehideSaved.time - 0.61) < 0.002 &&
+      pagehideSaved.inv[0] === 108 && pagehideSaved.cnt[0] === 7 && !!pagehideSaved.bed &&
+      pagehideSaved.bed[0] === bedPos.x && pagehideSaved.bed[1] === bedPos.y);
+
+    // sleeping 状态同样可由页面隐藏安全保存，完成睡眠后清晨状态必须再次落盘。
+    Voxel.DayNight.setTime(0.75);
+    Voxel.DayNight.update(0);
+    T.useBedAt(bx, bedY, bz);
+    check('夜晚使用床进入 sleeping 且显示淡出层', Voxel.Game.state === 'sleeping' &&
+      doc.getElementById('sleep-fade').classList.contains('on'));
+    T.setHeld(102, 1, 23);
+    var hiddenSet = false;
+    try {
+      Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+      Object.defineProperty(doc, 'hidden', { value: true, configurable: true });
+      hiddenSet = true;
+    } catch (e) { }
+    doc.dispatchEvent(new Event('visibilitychange'));
+    var hiddenSaved = Voxel.Save.load();
+    check('页面隐藏时 sleeping 状态保存 heldDur', hiddenSet && !!hiddenSaved &&
+      hiddenSaved.held === 102 && hiddenSaved.heldCnt === 1 && hiddenSaved.heldDur === 23);
+    try {
+      Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+      Object.defineProperty(doc, 'hidden', { value: false, configurable: true });
+    } catch (e2) { }
+    T.setHeld(0, 0, null);
+    var sleepSaved = T.finishSleep();
+    var morning = Voxel.Save.load();
+    check('完成睡眠回到清晨并立即保存', sleepSaved === true && Voxel.Game.state === 'playing' &&
+      Math.abs(Voxel.DayNight.time() - 0.27) < 0.001 && !!morning && Math.abs(morning.time - 0.27) < 0.001 &&
+      !doc.getElementById('sleep-fade').classList.contains('on'));
+
+    // 有效床优先；床被破坏后必须清除失效床点并回固定世界出生点。
+    Voxel.Player.pos().set(worldSpawn.x + 12, worldSpawn.y + 8, worldSpawn.z + 12);
+    Voxel.Player.damage(999, '床重生测试');
+    check('床重生测试进入死亡状态', Voxel.Game.state === 'dead');
+    doc.getElementById('btn-respawn').click();
+    var atBed = Voxel.Player.pos().clone();
+    check('有效床在床上方安全重生', Voxel.Game.state === 'playing' &&
+      Math.abs(atBed.x - bedPos.x) < 0.001 && Math.abs(atBed.y - bedPos.y) < 0.001 &&
+      Math.abs(atBed.z - bedPos.z) < 0.001);
+
+    Voxel.World.set(bx, bedY, bz, 0);
+    Voxel.Player.damage(999, '失效床回退测试');
+    doc.getElementById('btn-respawn').click();
+    var fallback = Voxel.Player.pos().clone();
+    check('床被破坏后回固定世界出生点并清除失效床点', Voxel.Game.state === 'playing' &&
+      fallback.distanceTo(worldSpawn) < 0.001 && !Voxel.Player.getBed());
+
+    Voxel.World.set(bx, bedY, bz, oldBed);
+    Voxel.World.set(bx, bedY + 1, bz, oldHead);
+    Voxel.World.set(bx, bedY + 2, bz, oldHead2);
+    T.clearInv();
+    T.saveNow();
+    wait(300, stepReset);
   }
 
   // P0 回归：新建/精选世界必须先确认并保护已有存档。

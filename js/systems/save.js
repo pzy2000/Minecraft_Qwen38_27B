@@ -49,11 +49,16 @@ Voxel.Save = (function () {
         invCraftGrid: extra.invCraftGrid,
         bed: extra.bed,
         dur: extra.dur,
+        drops: Array.isArray(extra.drops) ? extra.drops : [],
         meta: world.getAllMeta(),
         edits: world.getEdits(),
         galaxy: extra.galaxy || null
       };
-      localStorage.setItem(KEY, JSON.stringify(obj));
+      var raw = JSON.stringify(obj);
+      if (!writeVerified(KEY, raw)) {
+        console.warn('存档写入后校验失败');
+        return false;
+      }
       return true;
     } catch (e) {
       console.warn('存档失败', e);

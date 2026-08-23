@@ -475,6 +475,10 @@ console.log('存档序列化往返');
     invCraftGrid: [4, 0, 20, 0],
     bed: [12, 34, 56],
     dur: (function () { var d = []; for (var i = 0; i < 36; i++) d.push(null); d[1] = 55; return d; })(),
+    drops: [
+      { id: 102, n: 1, dur: 37, pos: [11.5, 40.25, -7.5], vel: [1.25, 2.5, -0.75], age: 12.5 },
+      { id: 10, n: 4, dur: null, pos: [-3.5, 22, 8.5], vel: [0, 0, 0], age: 3 }
+    ],
     galaxy: galA
   };
   check('Save.save 成功', V.Save.save(V.World, extra));
@@ -494,6 +498,11 @@ console.log('存档序列化往返');
     loaded.invCraftGrid[0] === 4 && loaded.invCraftGrid[2] === 20);
   check('bed 往返', !!loaded && !!loaded.bed && loaded.bed[0] === 12 && loaded.bed[1] === 34 && loaded.bed[2] === 56);
   check('dur(工具耐久) 往返', !!loaded && !!loaded.dur && loaded.dur[1] === 55);
+  check('drops 往返保留数量/工具耐久/位置/速度/年龄', !!loaded && Array.isArray(loaded.drops) &&
+    loaded.drops.length === 2 && loaded.drops[0].id === 102 && loaded.drops[0].n === 1 &&
+    loaded.drops[0].dur === 37 && loaded.drops[0].pos[0] === 11.5 && loaded.drops[0].pos[2] === -7.5 &&
+    loaded.drops[0].vel[1] === 2.5 && loaded.drops[0].age === 12.5 &&
+    loaded.drops[1].id === 10 && loaded.drops[1].n === 4 && loaded.drops[1].dur === null);
   check('meta(箱子) 往返', !!loaded && !!loaded.meta && !!loaded.meta['7,8,9'] &&
     loaded.meta['7,8,9'].items[0].n === 5);
   check('player 往返', !!loaded && !!loaded.player && loaded.player.hp === 17 &&
@@ -507,10 +516,12 @@ console.log('存档序列化往返');
   delete oldShape.heldDur;
   delete oldShape.craftGrid;
   delete oldShape.invCraftGrid;
+  delete oldShape.drops;
   _store[V.Config.SAVE_KEY] = JSON.stringify(oldShape);
   var oldLoaded = V.Save.load();
   check('旧档缺失新增临时字段仍可载入', !!oldLoaded && oldLoaded.seed === loaded.seed &&
-    oldLoaded.heldDur === undefined && oldLoaded.craftGrid === undefined && oldLoaded.invCraftGrid === undefined);
+    oldLoaded.heldDur === undefined && oldLoaded.craftGrid === undefined && oldLoaded.invCraftGrid === undefined &&
+    oldLoaded.drops === undefined);
   _store[V.Config.SAVE_KEY] = currentRaw;
 
   // 第二次载入后立即再存档：旧修改必须继续留在账本，第三次载入仍可恢复。

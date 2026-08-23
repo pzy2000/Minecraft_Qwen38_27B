@@ -179,7 +179,6 @@ Voxel.Player = (function () {
   function init(p, yaw, pitch) {
     pos.copy(p);
     vel.set(0, 0, 0);
-    spawn.copy(p);
     onGround = false;
     flying = false;
     hp = C.HP;
@@ -194,23 +193,49 @@ Voxel.Player = (function () {
     if (pitch !== undefined) Voxel.Controls.setPitch(pitch);
   }
 
+  function setSpawn(v) {
+    if (!v || !isFinite(v.x) || !isFinite(v.y) || !isFinite(v.z)) return false;
+    spawn.copy(v);
+    return true;
+  }
+
   function initAtSpawn() {
-    init(Voxel.World.spawnPoint());
+    var sp = Voxel.World.spawnPoint();
+    setSpawn(sp);
+    init(sp);
   }
 
   // 床重生点：优先在床上重生（床被挖掉则回世界出生点）
   function setBed(v) { bedPos = v || null; }
   function getBed() { return bedPos; }
 
+  function canRespawnAt(v) {
+    return !!v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z) && v.y > 1 &&
+      !Voxel.Physics.aabbCollides(v.x, v.y, v.z, C.W, C.H) &&
+      Voxel.Physics.hasFloor(v.x, v.y, v.z, C.W);
+  }
+
   function respawn() {
     var sp = null;
-    if (bedPos && bedPos.y > 1 &&
-      Voxel.World.get(Math.floor(bedPos.x), Math.floor(bedPos.y), Math.floor(bedPos.z)) === 17)
+    // bedPos 保存的是床上方站立点，因此床块位于其正下方一格。
+    if (canRespawnAt(bedPos) &&
+      Voxel.World.get(Math.floor(bedPos.x), Math.floor(bedPos.y) - 1, Math.floor(bedPos.z)) === 17) {
       sp = bedPos.clone();
-    else if (spawn.y > 1) sp = spawn.clone();
-    else sp = Voxel.World.spawnPoint();
+    } else {
+      // 床被挖掉或上方受阻时清除失效重生点，回到当前世界的固定出生点。
+      bedPos = null;
+      if (canRespawnAt(spawn)) sp = spawn.clone();
+      else {
+        sp = Voxel.World.spawnPoint();
+        setSpawn(sp);
+      }
+    }
     pos.copy(sp);
     vel.set(0, 0, 0);
+    onGround = false;
+    inWater = false;
+    prevInWater = false;
+    headInWater = false;
     hp = C.HP;
     air = C.AIR_MAX;
     drownT = 0;
@@ -218,7 +243,13 @@ Voxel.Player = (function () {
     exhaust = 0;
     starveT = 0;
     flying = false;
+    kbx = 0; kbz = 0; kbT = 0;
+    lastCause = '';
+    Voxel.Sound.setUnderwater(false);
     Voxel.HUD.drawHealth(hp);
+    if (Voxel.HUD.drawAir) Voxel.HUD.drawAir(1);
+    if (Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
+    return sp.clone();
   }
 
   function damage(n, cause, sx, sz) {
@@ -269,6 +300,8 @@ Voxel.Player = (function () {
   return {
     init: init,
     initAtSpawn: initAtSpawn,
+    setSpawn: setSpawn,
+    getSpawn: function () { return spawn.clone(); },
     respawn: respawn,
     update: update,
     damage: damage,
