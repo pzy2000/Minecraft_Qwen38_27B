@@ -373,6 +373,19 @@ Voxel.Game = (function () {
     Voxel.HUD.toast('已进入精选世界：' + w.name + ' · 种子 ' + w.seed);
   }
 
+  // 合成格不保存逐格耐久，只恢复已注册的非耐久物品；旧档/损坏字段保持空格。
+  function restoreCraftGrid(raw, size) {
+    var out = [];
+    for (var i = 0; i < size; i++) out.push(0);
+    if (!Array.isArray(raw) || raw.length !== size) return out;
+    for (var j = 0; j < size; j++) {
+      var id = raw[j];
+      if (typeof id === 'number' && isFinite(id) && Math.floor(id) === id && id > 0 &&
+        Voxel.Blocks.defs[id] && !Voxel.Blocks.maxDur(id)) out[j] = id;
+    }
+    return out;
+  }
+
   function enterWorld() {
     hideOverlays();
     lastBlankCheck = performance.now(); // 进入后 3 秒内不做空白自检
@@ -390,6 +403,13 @@ Voxel.Game = (function () {
       }
       heldItem = saveData.held || 0;
       heldCnt = (saveData.heldCnt || 0) || (heldItem ? 1 : 0);
+      var heldMaxDur = Voxel.Blocks.maxDur(heldItem);
+      heldDur = heldMaxDur
+        ? ((typeof saveData.heldDur === 'number' && saveData.heldDur > 0 && saveData.heldDur <= heldMaxDur)
+          ? saveData.heldDur : heldMaxDur)
+        : null;
+      craftGrid = restoreCraftGrid(saveData.craftGrid, 9);
+      invCraftGrid = restoreCraftGrid(saveData.invCraftGrid, 4);
       Voxel.DayNight.setTime(saveData.time || 0.3);
       Voxel.Weather.restore(saveData.weather);
       var p = saveData.player;
@@ -415,10 +435,14 @@ Voxel.Game = (function () {
       }
       Voxel.HUD.toast('已抵达 ' + currentWorld.name + ' · ' + currentWorld.typeName);
     } else {
-      // 新世界：背包/手持/选中格/床重生点全部清空
+      // 新世界：背包/手持/合成格/选中格/床重生点全部清空
       inv = []; cnt = [];
       for (var i1 = 0; i1 < 36; i1++) { inv.push(0); cnt.push(0); }
-      heldItem = 0; heldCnt = 0; sel = 0;
+      dur = [];
+      for (var i1d = 0; i1d < 36; i1d++) dur.push(null);
+      craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      invCraftGrid = [0, 0, 0, 0];
+      heldItem = 0; heldCnt = 0; heldDur = null; sel = 0;
       Voxel.Player.initAtSpawn();
       Voxel.Player.setBed(null);
       // 新世界：显式重置视角（否则沿用上次残留的偏航/俯仰，可能正朝天看）
@@ -471,7 +495,8 @@ Voxel.Game = (function () {
   }
 
   function doSave(silent) {
-    if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' && state !== 'dead') return false;
+    if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
+      state !== 'furnace' && state !== 'chest' && state !== 'dead') return false;
     var p = Voxel.Player.pos();
     var bed = Voxel.Player.getBed();
     storeCurrentWorld();
@@ -490,6 +515,9 @@ Voxel.Game = (function () {
       cnt: cnt,
       held: heldItem,
       heldCnt: heldCnt,
+      heldDur: heldDur,
+      craftGrid: craftGrid,
+      invCraftGrid: invCraftGrid,
       bed: bed ? [bed.x, bed.y, bed.z] : null,
       dur: dur,
       meta: Voxel.World.getAllMeta(),
@@ -591,6 +619,7 @@ Voxel.Game = (function () {
     var id = inv[i];
     if (!id) return false;
     var n = cnt[i];
+    var sourceDur = dur[i];
     var lo = i < 9 ? 9 : 0, hi = i < 9 ? 36 : 9;
     var sm = stackMax(id), moved = 0;
     for (var j = lo; j < hi && moved < n; j++) {
@@ -604,12 +633,13 @@ Voxel.Game = (function () {
       if (!inv[j2]) {
         var put = Math.min(sm, n - moved);
         inv[j2] = id; cnt[j2] = put;
+        dur[j2] = Voxel.Blocks.maxDur(id) ? sourceDur : null;
         moved += put;
       }
     }
     if (moved <= 0) return false;
     cnt[i] -= moved;
-    if (cnt[i] <= 0) { inv[i] = 0; cnt[i] = 0; }
+    if (cnt[i] <= 0) { inv[i] = 0; cnt[i] = 0; dur[i] = null; }
     Voxel.Sound.select();
     return true;
   }
@@ -917,43 +947,48 @@ Voxel.Game = (function () {
     Voxel.HUD.toast('吃了' + def.name + '（饥饿 +' + got + '）');
   }
 
-  function pickBlock() {
-    if (state !== 'playing') return;
-    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), C.REACH);
-    if (!hit || hit.type !== 'block' || hit.id === 12) return;
-    var id = hit.id;
+  function pickBlockId(id) {
+    if (!id || id === 12) return false;
     // 快捷栏里已有 → 直接选中该格
     for (var i = 0; i < 9; i++) {
       if (inv[i] === id) {
         sel = i;
         Voxel.HUD.setSelected(sel);
         Voxel.Sound.select();
-        return;
+        return true;
       }
     }
     // 背包其他格有 → 与当前快捷栏格交换
     for (var j = 9; j < 36; j++) {
       if (inv[j] === id) {
-        var ti = inv[j], tc = cnt[j];
-        inv[j] = inv[sel]; cnt[j] = cnt[sel];
-        inv[sel] = ti; cnt[sel] = tc;
+        var ti = inv[j], tc = cnt[j], td = dur[j];
+        inv[j] = inv[sel]; cnt[j] = cnt[sel]; dur[j] = dur[sel];
+        inv[sel] = ti; cnt[sel] = tc; dur[sel] = td;
         refreshInv();
         Voxel.Sound.select();
-        return;
+        return true;
       }
     }
     // 都没有 → 放入当前空格；否则找第一个空快捷栏格（都不行才提示已满）
-    if (!inv[sel]) { inv[sel] = id; cnt[sel] = 1; }
+    if (!inv[sel]) { inv[sel] = id; cnt[sel] = 1; dur[sel] = null; }
     else {
       var placed = false;
       for (var k2 = 0; k2 < 9; k2++) {
-        if (!inv[k2]) { inv[k2] = id; cnt[k2] = 1; sel = k2; placed = true; break; }
+        if (!inv[k2]) { inv[k2] = id; cnt[k2] = 1; dur[k2] = null; sel = k2; placed = true; break; }
       }
-      if (!placed) { Voxel.HUD.toast('背包已满！'); return; }
+      if (!placed) { Voxel.HUD.toast('背包已满！'); return false; }
     }
     refreshInv();
     Voxel.HUD.setSelected(sel);
     Voxel.Sound.select();
+    return true;
+  }
+
+  function pickBlock() {
+    if (state !== 'playing') return false;
+    var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), Voxel.Player.lookDir(), C.REACH);
+    if (!hit || hit.type !== 'block') return false;
+    return pickBlockId(hit.id);
   }
 
   // 生物掉落 → 背包；放不下的余量保留在真实死亡位置。
@@ -1051,6 +1086,37 @@ Voxel.Game = (function () {
     return loc === 'inv' || loc === 'fin' || loc === 'ffuel' || loc === 'chest';
   }
 
+  function storesDur(loc) {
+    return loc === 'inv' || loc === 'chest';
+  }
+
+  function isDurableItem(id) {
+    return !!Voxel.Blocks.maxDur(id);
+  }
+
+  function normalizedItemDur(id, d) {
+    var md = Voxel.Blocks.maxDur(id);
+    if (!md) return null;
+    return (typeof d === 'number' && d > 0 && d <= md) ? d : md;
+  }
+
+  function rejectDurabilityLoss(loc, id) {
+    if (!isDurableItem(id) || storesDur(loc)) return false;
+    Voxel.HUD.toast('工具不能放入该槽位，以免丢失耐久');
+    return true;
+  }
+
+  function slotCapacity(loc, id) {
+    return isStackLoc(loc) ? stackMax(id) : 1;
+  }
+
+  // fout 永远只出不进；其余目标必须能完整保存数量与工具耐久。
+  function canStoreWhole(loc, id, n) {
+    if (!id) return true;
+    if (loc === 'fout' || rejectDurabilityLoss(loc, id)) return false;
+    return n > 0 && n <= slotCapacity(loc, id);
+  }
+
   // 手持 ↔ 格子交互（拾取/放置/合并/交换）。返回是否发生变化。
   // fout（熔炉产物格）只允许取出，不允许放入/并入。手持物经 heldDur 携带工具耐久。
   function handToSlot(loc, i) {
@@ -1058,16 +1124,19 @@ Voxel.Game = (function () {
     var changed = true;
     var stackable = isStackLoc(loc);
     if (loc === 'fout' && heldItem) return false;
+    if (heldItem && rejectDurabilityLoss(loc, heldItem)) return false;
     if (!heldItem) {
       if (!s.id) changed = false;
       else { // 拾取整格（合成格即 1 个）
-        heldItem = s.id; heldCnt = s.n; heldDur = s.d || null;
+        heldItem = s.id; heldCnt = s.n; heldDur = normalizedItemDur(s.id, s.d);
         slotSet(loc, i, 0, 0);
       }
     } else if (!s.id) {
       if (stackable) {      // 放置整手
-        slotSet(loc, i, heldItem, heldCnt, heldDur);
-        heldItem = 0; heldCnt = 0; heldDur = null;
+        var put = Math.min(slotCapacity(loc, heldItem), heldCnt);
+        slotSet(loc, i, heldItem, put, heldDur);
+        heldCnt -= put;
+        if (heldCnt <= 0) { heldItem = 0; heldCnt = 0; heldDur = null; }
       } else {              // 合成格只收 1 个，余量留在手上
         slotSet(loc, i, heldItem, 1);
         heldCnt--;
@@ -1088,10 +1157,10 @@ Voxel.Game = (function () {
         slotSet(loc, i, 0, 0);
       } else changed = false;
     } else {
-      if (stackable || heldCnt === 1) {
+      if ((stackable && heldCnt <= slotCapacity(loc, heldItem)) || (!stackable && heldCnt === 1)) {
         // 不同物品：整手 ↔ 整格交换（合成格按 1 个计）
         slotSet(loc, i, heldItem, stackable ? heldCnt : 1, heldDur);
-        heldItem = s.id; heldCnt = s.n; heldDur = s.d || null;
+        heldItem = s.id; heldCnt = s.n; heldDur = normalizedItemDur(s.id, s.d);
       } else changed = false;
     }
     if (changed) Voxel.Sound.select();
@@ -1102,7 +1171,7 @@ Voxel.Game = (function () {
     var s = slotGet(loc, i);
     var left = s.n - n;
     if (left <= 0) slotSet(loc, i, 0, 0);
-    else slotSet(loc, i, s.id, left);
+    else slotSet(loc, i, s.id, left, s.d);
   }
 
   // 拖放：源格 → 目标格（不经过手持）。产物格 fout 只出不进。
@@ -1111,10 +1180,13 @@ Voxel.Game = (function () {
     if (!src.id || (fl === tl && fi === ti)) return false;
     if (tl === 'fout') return false;
     var dst = slotGet(tl, ti);
-    var srcSt = isStackLoc(fl), dstSt = isStackLoc(tl);
+    var dstSt = isStackLoc(tl);
+    if (rejectDurabilityLoss(tl, src.id)) return false;
     if (!dst.id) {
-      if (dstSt) { slotSet(tl, ti, src.id, src.n, src.d); slotSet(fl, fi, 0, 0); }
-      else { slotSet(tl, ti, src.id, 1); decSlotBy(fl, fi, 1); }
+      var moveEmpty = Math.min(slotCapacity(tl, src.id), src.n);
+      if (!(moveEmpty > 0)) return false;
+      slotSet(tl, ti, src.id, moveEmpty, src.d);
+      decSlotBy(fl, fi, moveEmpty);
       return true;
     }
     if (src.id === dst.id) {
@@ -1127,11 +1199,10 @@ Voxel.Game = (function () {
       }
       return false;
     }
-    // 不同物：单物品格收不下超过 1 个的堆
-    if (!dstSt && dst.n > 1) return false;
-    // 整组交换（单物品格按 1 个计）
-    slotSet(tl, ti, src.id, dstSt ? src.n : 1, src.d);
-    slotSet(fl, fi, dst.id, srcSt ? dst.n : 1, dst.d);
+    // 不同物品只能原子交换：两边都必须完整容纳对方，不能截断任何一堆。
+    if (!canStoreWhole(tl, src.id, src.n) || !canStoreWhole(fl, dst.id, dst.n)) return false;
+    slotSet(tl, ti, src.id, src.n, src.d);
+    slotSet(fl, fi, dst.id, dst.n, dst.d);
     return true;
   }
 
@@ -1248,9 +1319,9 @@ Voxel.Game = (function () {
     }
     var s = slotGet(from, idx);
     if (!s.id) return;
-    var got = addInv(s.id, s.n);
+    var got = addToInvWithDur(s.id, s.n, s.d);
     if (got > 0) {
-      if (got < s.n) slotSet(from, idx, s.id, s.n - got);
+      if (got < s.n) slotSet(from, idx, s.id, s.n - got, s.d);
       else slotSet(from, idx, 0, 0);
       Voxel.Sound.select();
       syncSlots(from);
@@ -1264,6 +1335,7 @@ Voxel.Game = (function () {
   function onSlotRight(from, idx) {
     if (heldItem) {
       if (from === 'fout') return;
+      if (rejectDurabilityLoss(from, heldItem)) return false;
       var s = slotGet(from, idx);
       if (isStackLoc(from)) {
         if (!s.id) {
@@ -1288,7 +1360,7 @@ Voxel.Game = (function () {
       var take = Math.ceil(s2.n / 2);
       heldItem = s2.id;
       heldCnt = take;
-      heldDur = s2.d || null;
+      heldDur = normalizedItemDur(s2.id, s2.d);
       var left = s2.n - take;
       slotSet(from, idx, left > 0 ? s2.id : 0, left > 0 ? left : 0, left > 0 ? s2.d : null);
     } else {
@@ -1614,7 +1686,7 @@ Voxel.Game = (function () {
     }
     if (moved <= 0) return false;
     cnt[i] -= moved;
-    if (cnt[i] <= 0) { inv[i] = 0; cnt[i] = 0; }
+    if (cnt[i] <= 0) { inv[i] = 0; cnt[i] = 0; dur[i] = null; }
     Voxel.Sound.select();
     return true;
   }
@@ -1737,7 +1809,8 @@ Voxel.Game = (function () {
       weather: snap.weather || 'clear',
       player: snap.player || null,
       inv: inv.slice(), cnt: cnt.slice(), dur: dur.slice(),
-      held: heldItem, heldCnt: heldCnt,
+      held: heldItem, heldCnt: heldCnt, heldDur: heldDur,
+      craftGrid: craftGrid.slice(), invCraftGrid: invCraftGrid.slice(),
       bed: snap.bed || null,
       meta: snap.meta || {}, edits: snap.edits || {},
       galaxy: galaxyState
@@ -2289,7 +2362,7 @@ Voxel.Game = (function () {
       setInv: function (i, id) { inv[i] = id; cnt[i] = id ? 1 : 0; refreshInv(); },
       clearInv: function () {
         for (var i = 0; i < 36; i++) { inv[i] = 0; cnt[i] = 0; }
-        heldItem = 0; heldCnt = 0;
+        heldItem = 0; heldCnt = 0; heldDur = null;
         refreshInv();
       },
       // 按数量求和（堆叠后一格可能含多个）
@@ -2309,6 +2382,21 @@ Voxel.Game = (function () {
       clickInvResult: onInvResultClick,
       held: function () { return heldItem; },
       heldCount: function () { return heldCnt; },
+      heldDur: function () { return heldDur; },
+      setHeld: function (id, n, d) {
+        heldItem = id || 0;
+        heldCnt = heldItem ? Math.max(1, Math.floor(Number(n) || 1)) : 0;
+        heldDur = heldItem ? normalizedItemDur(heldItem, d) : null;
+        Voxel.HUD.drawHeld(heldItem);
+      },
+      transferSlots: transferSlots,
+      slotShift: onSlotShift,
+      pickBlockId: pickBlockId,
+      setSelected: function (i) {
+        sel = Math.max(0, Math.min(8, Math.floor(Number(i) || 0)));
+        Voxel.HUD.setSelected(sel);
+      },
+      saveNow: function () { return doSave(true); },
       // 挖掘测试钩子
       beginDig: function () { mouseDown[2] = true; },
       endDig: function () { mouseDown[2] = false; stopDig(); },

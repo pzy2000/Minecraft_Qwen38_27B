@@ -468,8 +468,11 @@ console.log('存档序列化往返');
     player: { pos: [1.5, 2.5, 3.5], yaw: 1.25, pitch: -0.3, fly: true, hp: 17 },
     inv: inv,
     cnt: cnt,
-    held: 10,
-    heldCnt: 64,
+    held: 102,
+    heldCnt: 1,
+    heldDur: 37,
+    craftGrid: [10, 0, 100, 0, 16, 0, 0, 0, 0],
+    invCraftGrid: [4, 0, 20, 0],
     bed: [12, 34, 56],
     dur: (function () { var d = []; for (var i = 0; i < 36; i++) d.push(null); d[1] = 55; return d; })(),
     galaxy: galA
@@ -483,7 +486,12 @@ console.log('存档序列化往返');
   check('inv 往返', !!loaded && !!loaded.inv && loaded.inv[0] === 10 && loaded.inv[5] === 19);
   check('cnt 往返(堆叠数量不丢失)', !!loaded && !!loaded.cnt && loaded.cnt.length === 36 &&
     loaded.cnt[0] === 64 && loaded.cnt[5] === 3);
-  check('held/heldCnt 往返', !!loaded && loaded.held === 10 && loaded.heldCnt === 64);
+  check('held/heldCnt 往返', !!loaded && loaded.held === 102 && loaded.heldCnt === 1);
+  check('heldDur 往返', !!loaded && loaded.heldDur === 37);
+  check('3x3 craftGrid 往返', !!loaded && Array.isArray(loaded.craftGrid) && loaded.craftGrid.length === 9 &&
+    loaded.craftGrid[0] === 10 && loaded.craftGrid[2] === 100 && loaded.craftGrid[4] === 16);
+  check('2x2 invCraftGrid 往返', !!loaded && Array.isArray(loaded.invCraftGrid) && loaded.invCraftGrid.length === 4 &&
+    loaded.invCraftGrid[0] === 4 && loaded.invCraftGrid[2] === 20);
   check('bed 往返', !!loaded && !!loaded.bed && loaded.bed[0] === 12 && loaded.bed[1] === 34 && loaded.bed[2] === 56);
   check('dur(工具耐久) 往返', !!loaded && !!loaded.dur && loaded.dur[1] === 55);
   check('meta(箱子) 往返', !!loaded && !!loaded.meta && !!loaded.meta['7,8,9'] &&
@@ -492,6 +500,18 @@ console.log('存档序列化往返');
     loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
   check('v5 星系状态随存档写入', !!loaded && loaded.v === 5 && loaded.galaxy.rootSeed === galA.rootSeed && loaded.galaxy.catalog.length === 7);
+
+  // 旧 v5 存档没有临时格/手持耐久字段，读取层不得因此拒绝整个存档。
+  var currentRaw = _store[V.Config.SAVE_KEY];
+  var oldShape = JSON.parse(currentRaw);
+  delete oldShape.heldDur;
+  delete oldShape.craftGrid;
+  delete oldShape.invCraftGrid;
+  _store[V.Config.SAVE_KEY] = JSON.stringify(oldShape);
+  var oldLoaded = V.Save.load();
+  check('旧档缺失新增临时字段仍可载入', !!oldLoaded && oldLoaded.seed === loaded.seed &&
+    oldLoaded.heldDur === undefined && oldLoaded.craftGrid === undefined && oldLoaded.invCraftGrid === undefined);
+  _store[V.Config.SAVE_KEY] = currentRaw;
 
   // 第二次载入后立即再存档：旧修改必须继续留在账本，第三次载入仍可恢复。
   V.World.init(loaded.seed);

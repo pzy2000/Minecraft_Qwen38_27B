@@ -77,6 +77,12 @@
 <div id="overlay-featured" class="overlay hidden"><div class="panel">
   <div id="featured-grid"></div><button id="btn-featured-back"></button>
 </div></div>
+<div id="overlay-starmap" class="overlay hidden"><div class="panel">
+  <div id="starmap-status"></div><div id="starmap-grid"></div>
+</div></div>
+<div id="overlay-warp" class="overlay hidden"><div class="panel">
+  <div id="warp-title"></div><div id="warp-sub"></div>
+</div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
   <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
   <div class="hint"></div>
@@ -143,6 +149,38 @@
 <script src="../js/ui/featured.js"></script>
 <script src="../js/ui/hud.js"></script>
 <script>window.requestAnimationFrame = function () { return 0; };</script>
+<script>
+// 模拟浏览器刷新前保存的临时交互状态，main.init 必须从真实 localStorage 恢复。
+(function () {
+  var galaxy = Voxel.Galaxy.create('12345');
+  var first = galaxy.catalog[0];
+  var inv = new Array(36).fill(0), cnt = new Array(36).fill(0), dur = new Array(36).fill(null);
+  var fixture = {
+    v: 5,
+    seed: first.seed,
+    time: 0.3,
+    weather: 'clear',
+    player: null,
+    inv: inv,
+    cnt: cnt,
+    held: 102,
+    heldCnt: 1,
+    heldDur: 29,
+    // 同时注入工具/非法 ID：载入层必须过滤，不得让不持久 dur 的物品进合成格。
+    craftGrid: [10, 102, 9999, 0, 16, -1, 0, 0, 0],
+    invCraftGrid: [4, 101, 9999, 20],
+    bed: null,
+    dur: dur,
+    meta: {},
+    edits: {},
+    galaxy: galaxy
+  };
+  localStorage.setItem(Voxel.Config.SAVE_KEY, JSON.stringify(fixture));
+  window.__transientSaveFixture = fixture;
+  window.__transientExpectedCraft = [10, 0, 0, 0, 16, 0, 0, 0, 0];
+  window.__transientExpectedInvCraft = [4, 0, 0, 20];
+})();
+</script>
 <script src="../js/main.js"></script>
 <script>
 // ---- 自动化测试：驱动真实游戏主循环 ----
@@ -205,8 +243,8 @@
     }
   }, 16);
 
-  // 1) 新世界 → 等待真实主循环进入 playing
-  doc.getElementById('btn-new').click();
+  // 1) 继续一份“刷新前含临时格”的真实存档 → 等待主循环进入 playing
+  doc.getElementById('btn-start').click();
   var waitN = 0;
   (function poll() {
     if (Voxel.Game.state === 'playing') return stepB();
@@ -219,6 +257,15 @@
   function stepB() {
     check('世界已生成', Voxel.World.isReady());
     check('状态=playing', Voxel.Game.state === 'playing');
+    var initT = Voxel.Game._test;
+    check('页面刷新后 held/heldDur 恢复', initT.held() === 102 && initT.heldCount() === 1 && initT.heldDur() === 29);
+    check('页面刷新后 3x3 craftGrid 恢复并过滤工具/非法ID', JSON.stringify(initT.craft()) ===
+      JSON.stringify(window.__transientExpectedCraft));
+    check('页面刷新后 2x2 invCraftGrid 恢复并过滤工具/非法ID', JSON.stringify(initT.invCraft()) ===
+      JSON.stringify(window.__transientExpectedInvCraft));
+    initT.setHeld(0, 0, null);
+    initT.clearCraft();
+    initT.clearInvCraft();
 
     // 帧率上限门控（_frame 直驱同样生效；同步执行无 harness 竞态）
     (function () {
@@ -507,6 +554,45 @@
     T.damageHeld();
     check('耐久归零后工具损坏消失', T.countInv(102) === 1 && !T.inv()[0] && T.durAt(0) === null);
 
+    // Shift 快搬必须把耐久与工具一起在快捷栏↔背包间移动。
+    T.clearInv();
+    T.inv()[0] = 102; T.cnt()[0] = 1; T.setDur(0, 47);
+    check('受损工具 Shift 快捷栏→背包成功', T.quickMoveInv(0) &&
+      !T.inv()[0] && T.durAt(0) === null && T.inv()[9] === 102 && T.durAt(9) === 47);
+    check('受损工具 Shift 背包→快捷栏耐久不变', T.quickMoveInv(9) &&
+      T.inv()[0] === 102 && T.durAt(0) === 47 && !T.inv()[9] && T.durAt(9) === null);
+
+    // 中键 pick 从背包交换到当前快捷格时，原工具的耐久要跟着原工具走。
+    T.clearInv();
+    T.setSelected(0);
+    T.inv()[0] = 102; T.cnt()[0] = 1; T.setDur(0, 44);
+    T.inv()[9] = 1; T.cnt()[9] = 1;
+    T.pickBlockId(1);
+    check('中键 pick 交换到目标方块', T.inv()[0] === 1 && T.cnt()[0] === 1 && T.durAt(0) === null);
+    check('中键 pick 后原工具/耐久同步移到背包', T.inv()[9] === 102 && T.cnt()[9] === 1 && T.durAt(9) === 44);
+
+    // 工具不能进入不持久 dur 的合成格。
+    T.clearCraft(); T.clearInvCraft();
+    check('工具 drag 进入 3x3 craft 被拒绝', T.transferSlots('inv', 9, 'craft', 0) === false &&
+      T.inv()[9] === 102 && T.durAt(9) === 44 && T.craft()[0] === 0);
+    check('工具 drag 进入 2x2 craft 被拒绝', T.transferSlots('inv', 9, 'icraft', 0) === false &&
+      T.inv()[9] === 102 && T.durAt(9) === 44 && T.invCraft()[0] === 0);
+
+    // 64 堆与已有不同物品的单物品合成格双向拖拽均必须原子拒绝。
+    T.clearInv(); T.clearCraft(); T.clearInvCraft();
+    T.inv()[0] = 10; T.cnt()[0] = 64;
+    T.setCraft(0, 16);
+    check('64 堆→已有不同物的 3x3 格被拒绝', T.transferSlots('inv', 0, 'craft', 0) === false &&
+      T.inv()[0] === 10 && T.cnt()[0] === 64 && T.craft()[0] === 16);
+    check('已有不同物的 3x3 格→64 堆反向交换被拒绝', T.transferSlots('craft', 0, 'inv', 0) === false &&
+      T.inv()[0] === 10 && T.cnt()[0] === 64 && T.craft()[0] === 16);
+    T.setInvCraft(0, 20);
+    check('64 堆→已有不同物的 2x2 格被拒绝', T.transferSlots('inv', 0, 'icraft', 0) === false &&
+      T.inv()[0] === 10 && T.cnt()[0] === 64 && T.invCraft()[0] === 20);
+    check('已有不同物的 2x2 格→64 堆反向交换被拒绝', T.transferSlots('icraft', 0, 'inv', 0) === false &&
+      T.inv()[0] === 10 && T.cnt()[0] === 64 && T.invCraft()[0] === 20);
+    T.clearCraft(); T.clearInvCraft();
+
     // ---- 饥饿系统：进食 / 饱腹拒绝 / 疲惫换算 ----
     var PL = Voxel.Player;
     T.clearInv();
@@ -554,8 +640,11 @@
       player: { pos: [sp.x, sp.y, sp.z], yaw: 1.1, pitch: -0.2, fly: false, hp: 19 },
       inv: invT,
       cnt: cntT,
-      held: 10,
-      heldCnt: 64,
+      held: 102,
+      heldCnt: 1,
+      heldDur: 55,
+      craftGrid: [10, 0, 100, 0, 16, 0, 0, 0, 0],
+      invCraftGrid: [4, 0, 20, 0],
       bed: [sx, sy, sz],
       dur: durT
     });
@@ -565,7 +654,9 @@
     check('Save.load 完整字段往返',
       !!loaded && loaded.weather === 'rain' &&
       !!loaded.cnt && loaded.cnt[0] === 64 && loaded.cnt[5] === 3 && loaded.inv[5] === 19 &&
-      loaded.held === 10 && loaded.heldCnt === 64 &&
+      loaded.held === 102 && loaded.heldCnt === 1 && loaded.heldDur === 55 &&
+      !!loaded.craftGrid && loaded.craftGrid.length === 9 && loaded.craftGrid[0] === 10 && loaded.craftGrid[4] === 16 &&
+      !!loaded.invCraftGrid && loaded.invCraftGrid.length === 4 && loaded.invCraftGrid[0] === 4 && loaded.invCraftGrid[2] === 20 &&
       !!loaded.dur && loaded.dur[0] === 77 &&
       !!loaded.bed && loaded.bed[0] === sx && loaded.bed[1] === sy && loaded.bed[2] === sz);
 
@@ -754,6 +845,21 @@
     var fur = T.furnaceState();
     check('打开即创建炉子元数据', !!fur && fur.type === 'furnace' &&
       Voxel.World.getMeta(fx, fy, fz) === fur);
+    check('炉子面板打开时仍可安全存档', T.saveNow() === true && !!Voxel.Save.load());
+
+    T.clearInv();
+    T.inv()[0] = 102; T.cnt()[0] = 1; T.setDur(0, 32);
+    check('受损工具 drag 进炉子原料格被拒绝', T.transferSlots('inv', 0, 'fin', 0) === false &&
+      T.inv()[0] === 102 && T.durAt(0) === 32 && !fur.in);
+    check('受损工具 drag 进炉子燃料格被拒绝', T.transferSlots('inv', 0, 'ffuel', 0) === false &&
+      T.inv()[0] === 102 && T.durAt(0) === 32 && !fur.fuel);
+    T.setHeld(102, 1, 32);
+    check('炉子面板内手持受损工具存档保留 heldDur', T.saveNow() === true &&
+      Voxel.Save.load().held === 102 && Voxel.Save.load().heldCnt === 1 && Voxel.Save.load().heldDur === 32);
+    T.slotRight('fin', 0);
+    check('受损工具从 held 右键放入炉槽也被拒绝', T.held() === 102 && T.heldDur() === 32 && !fur.in);
+    T.setHeld(0, 0, null);
+    T.clearInv();
 
     // 投料：2 铁矿 + 1 煤炭（直接写入状态对象，UI 由 tick 同步）
     fur.in = { id: 9, n: 2 };
@@ -797,6 +903,7 @@
       !document.getElementById('chest').classList.contains('hidden'));
     var ch = T.curChest();
     check('打开即创建箱子元数据(27 格)', !!ch && ch.type === 'chest' && ch.items.length === 27);
+    check('箱子面板打开时仍可安全存档', T.saveNow() === true && !!Voxel.Save.load());
 
     T.clearInv();
     T.addInv(10, 12);   // 木板 ×12 → slot0
@@ -810,6 +917,15 @@
       for (var i = 0; i < 27; i++) { var o = ch.items[i]; if (o && o.id === 102) return o.dur === 50; }
       return false;
     })());
+    var chestToolI = -1;
+    for (var cti = 0; cti < 27; cti++) if (ch.items[cti] && ch.items[cti].id === 102) { chestToolI = cti; break; }
+    T.slotShift('chest', chestToolI);
+    var shiftedToolI = -1;
+    for (var sti = 0; sti < 36; sti++) if (T.inv()[sti] === 102) { shiftedToolI = sti; break; }
+    check('箱子 Shift 取出受损工具保留耐久', shiftedToolI >= 0 && T.durAt(shiftedToolI) === 50 && !ch.items[chestToolI]);
+    T.quickMoveToChest(shiftedToolI);
+    check('工具 Shift 存回箱子后源格耐久已清理', !T.inv()[shiftedToolI] && T.durAt(shiftedToolI) === null &&
+      ch.items.some(function (o) { return !!o && o.id === 102 && o.dur === 50; }));
     var plI = -1;
     for (var pi2 = 0; pi2 < 27; pi2++) if (ch.items[pi2] && ch.items[pi2].id === 10) { plI = pi2; break; }
     T.slotRight('chest', plI);
@@ -1131,7 +1247,40 @@
       Voxel.Game.onKey('KeyG');
       check('G 键切换为雷雨', Wt.stateName() === 'storm');
       Wt.set('clear');
-      wait(800, stepReset);
+      wait(800, stepTravelTransient);
+  }
+
+  // 跨世界 transit 必须保留手持工具耐久和两组临时合成格。
+  function stepTravelTransient() {
+    var TT = Voxel.Game._test;
+    TT.setHeld(102, 1, 26);
+    TT.clearCraft(); TT.clearInvCraft();
+    TT.setCraft(0, 10); TT.setCraft(4, 16); TT.setCraft(8, 100);
+    TT.setInvCraft(0, 4); TT.setInvCraft(3, 20);
+    var beforeWorld = TT.currentWorld();
+    var catalog = TT.galaxy().catalog;
+    var dest = null;
+    for (var ti = 0; ti < catalog.length; ti++) {
+      if (catalog[ti].id !== beforeWorld.id && catalog[ti].kind === 'planet') { dest = catalog[ti]; break; }
+    }
+    var accepted = !!dest && TT.requestTravel(dest.id, 'portal');
+    check('跨世界临时格保留测试请求已接受', accepted);
+    var travelPoll = 0;
+    (function pollTravelTransient() {
+      var arrived = accepted && Voxel.Game.state === 'playing' && TT.currentWorld() && TT.currentWorld().id === dest.id;
+      if (arrived || travelPoll++ > 600) {
+        check('跨世界后 held/heldDur 保留', arrived && TT.held() === 102 && TT.heldCount() === 1 && TT.heldDur() === 26);
+        check('跨世界后 3x3 craftGrid 保留', arrived &&
+          JSON.stringify(TT.craft()) === JSON.stringify([10, 0, 0, 0, 16, 0, 0, 0, 100]));
+        check('跨世界后 2x2 invCraftGrid 保留', arrived &&
+          JSON.stringify(TT.invCraft()) === JSON.stringify([4, 0, 0, 20]));
+        TT.setHeld(0, 0, null); TT.clearCraft(); TT.clearInvCraft();
+        TT.saveNow();
+        wait(300, stepReset);
+        return;
+      }
+      wait(100, pollTravelTransient);
+    })();
   }
 
   // P0 回归：新建/精选世界必须先确认并保护已有存档。
@@ -1143,6 +1292,16 @@
     var saveKey = Voxel.Config.SAVE_KEY;
     var backupKey = saveKey + '_backup';
     var protectedRaw = localStorage.getItem(saveKey);
+    // 把待保护主档降成旧 v5 形态：工具 held 存在，但没有 heldDur/临时格字段。
+    // 最后恢复并继续该存档时，enterWorld 应补满耐久且把临时格默认为空。
+    var legacyProtected = JSON.parse(protectedRaw);
+    legacyProtected.held = 102;
+    legacyProtected.heldCnt = 1;
+    delete legacyProtected.heldDur;
+    delete legacyProtected.craftGrid;
+    delete legacyProtected.invCraftGrid;
+    protectedRaw = JSON.stringify(legacyProtected);
+    localStorage.setItem(saveKey, protectedRaw);
     var backupBefore = localStorage.getItem(backupKey);
     var replace = doc.getElementById('overlay-world-replace');
     var cancel = doc.getElementById('btn-world-replace-cancel');
@@ -1203,7 +1362,19 @@
         check('恢复按钮将旧档原始字节写回主槽', localStorage.getItem(saveKey) === protectedRaw);
         check('恢复后 Save.load 可读取原存档', !!Voxel.Save.load() &&
           Voxel.Save.load().seed === JSON.parse(protectedRaw).seed);
-        report();
+        doc.getElementById('btn-start').click();
+        var legacyPoll = 0;
+        (function pollLegacyDefaults() {
+          if (Voxel.Game.state === 'playing' || legacyPoll++ > 600) {
+            check('旧档缺 heldDur 时工具默认补满耐久', Voxel.Game.state === 'playing' &&
+              T2.held() === 102 && T2.heldCount() === 1 && T2.heldDur() === Voxel.Blocks.maxDur(102));
+            check('旧档缺临时格字段时默认全空', T2.craft().every(function (id) { return id === 0; }) &&
+              T2.invCraft().every(function (id) { return id === 0; }));
+            report();
+            return;
+          }
+          wait(100, pollLegacyDefaults);
+        })();
         return;
       }
       if (++n2 > 600) { check('新世界重载超时', false); report(); return; }
