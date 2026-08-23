@@ -65,8 +65,17 @@
 </div></div>
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
-  <button id="btn-start"></button><button id="btn-new"></button><button id="btn-settings-menu"></button><input id="seed-input" type="text" value="12345">
+  <button id="btn-start"></button><button id="btn-new"></button><button id="btn-featured"></button>
+  <button id="btn-restore-backup" class="hidden"></button><button id="btn-settings-menu"></button><input id="seed-input" type="text" value="12345">
   <div id="start-hint" class="hint"></div>
+</div></div>
+<div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog">
+  <h2 id="world-replace-title"></h2><p id="world-replace-message"></p><div id="world-replace-note"></div>
+  <div id="world-replace-error" class="hidden"></div>
+  <button id="btn-world-replace-cancel"></button><button id="btn-world-replace-confirm"></button>
+</div></div>
+<div id="overlay-featured" class="overlay hidden"><div class="panel">
+  <div id="featured-grid"></div><button id="btn-featured-back"></button>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
   <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
@@ -94,6 +103,17 @@
 
 <script src="../vendor/three.min.js"></script>
 <script src="../js/config.js"></script>
+<script>
+// 每个页面用例独立管理主/备份槽，避免 file:// 同源页面之间串档。
+(function () {
+  try {
+    var k = Voxel.Config.SAVE_KEY;
+    localStorage.removeItem(k);
+    localStorage.removeItem(k + '_backup');
+    localStorage.removeItem(k + '_backup_swap');
+  } catch (e) { }
+})();
+</script>
 <script src="../js/assets.js"></script>
 <script src="../js/world/seed.js"></script>
 <script src="../js/world/galaxy.js"></script>
@@ -120,6 +140,7 @@
 <script src="../js/entities/drops.js"></script>
 <script src="../js/systems/save.js"></script>
 <script src="../js/ui/handitem.js"></script>
+<script src="../js/ui/featured.js"></script>
 <script src="../js/ui/hud.js"></script>
 <script>window.requestAnimationFrame = function () { return 0; };</script>
 <script src="../js/main.js"></script>
@@ -977,16 +998,75 @@
       wait(800, stepReset);
   }
 
-  // P0 回归：新世界必须清空背包/手持
+  // P0 回归：新建/精选世界必须先确认并保护已有存档。
   function stepReset() {
     var T2 = Voxel.Game._test;
     T2.clearInv();
     T2.addInv(3, 5); // 背包塞 5 个石头
+
+    var saveKey = Voxel.Config.SAVE_KEY;
+    var backupKey = saveKey + '_backup';
+    var protectedRaw = localStorage.getItem(saveKey);
+    var backupBefore = localStorage.getItem(backupKey);
+    var replace = doc.getElementById('overlay-world-replace');
+    var cancel = doc.getElementById('btn-world-replace-cancel');
+    var confirm = doc.getElementById('btn-world-replace-confirm');
+    var stateBefore = Voxel.Game.state;
+    check('新建保护测试已有主存档', typeof protectedRaw === 'string' && protectedRaw.length > 0);
+    check('自定义确认对话框 DOM 齐全', !!replace && !!cancel && !!confirm);
+
+    // 新世界：点击只能打开自定义确认，取消后主档必须保持字节级不变。
     doc.getElementById('btn-new').click();
+    check('有存档时点击新世界显示自定义确认', !!replace && !replace.classList.contains('hidden'));
+    check('确认对话框进入独立状态', Voxel.Game.state === 'world-replace');
+    check('确认框显示时主档字节不变', localStorage.getItem(saveKey) === protectedRaw);
+    Voxel.Game.onKey('Enter');
+    check('确认框中 Enter 不能绕过确认开世界', Voxel.Game.state === 'world-replace' &&
+      !replace.classList.contains('hidden') && localStorage.getItem(saveKey) === protectedRaw);
+    cancel.click();
+    check('取消新世界后关闭确认框', replace.classList.contains('hidden'));
+    check('取消新世界后恢复原游戏状态', Voxel.Game.state === stateBefore);
+    check('取消新世界后主档字节完全一致', localStorage.getItem(saveKey) === protectedRaw);
+    check('取消新世界不改动备份槽', localStorage.getItem(backupKey) === backupBefore);
+
+    // 精选世界使用同一条保护路径；取消后同样不能修改主档。
+    var featuredBtn = doc.getElementById('btn-featured');
+    if (featuredBtn && Voxel.Featured) {
+      featuredBtn.click();
+      var card = doc.querySelector('.featured-card');
+      check('精选世界卡片已构建', !!card);
+      if (card) card.click();
+      check('有存档时点击精选卡显示确认', !replace.classList.contains('hidden') &&
+        doc.getElementById('world-replace-title').textContent.indexOf('精选') >= 0 &&
+        Voxel.Game.state === 'world-replace');
+      check('精选世界未确认前主档不变', localStorage.getItem(saveKey) === protectedRaw);
+      cancel.click();
+      check('取消精选世界后恢复原游戏状态', Voxel.Game.state === stateBefore);
+      check('取消精选世界后主档字节完全一致', localStorage.getItem(saveKey) === protectedRaw);
+      doc.getElementById('btn-featured-back').click();
+    } else {
+      check('精选世界保护路径可测', false);
+    }
+
+    // 确认后才允许归档并开始创建。
+    doc.getElementById('btn-new').click();
+    check('再次新建仍要求确认', !replace.classList.contains('hidden'));
+    confirm.click();
+    check('确认后才进入 loading', Voxel.Game.state === 'loading');
+    check('确认后旧主档精确进入备份槽', localStorage.getItem(backupKey) === protectedRaw && Voxel.Save.hasBackup());
+    check('备份成功后才清空主档槽', localStorage.getItem(saveKey) === null);
+
     var n2 = 0;
     (function poll2() {
       if (Voxel.Game.state === 'playing') {
         check('新世界背包已清空', T2.countInv(3) === 0 && !T2.held());
+        check('新世界进入后旧档仍可恢复', Voxel.Save.hasBackup() && localStorage.getItem(backupKey) === protectedRaw);
+        var restoreBtn = doc.getElementById('btn-restore-backup');
+        check('恢复上一存档按钮存在', !!restoreBtn);
+        if (restoreBtn) restoreBtn.click();
+        check('恢复按钮将旧档原始字节写回主槽', localStorage.getItem(saveKey) === protectedRaw);
+        check('恢复后 Save.load 可读取原存档', !!Voxel.Save.load() &&
+          Voxel.Save.load().seed === JSON.parse(protectedRaw).seed);
         report();
         return;
       }

@@ -53,9 +53,15 @@
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
   <button id="btn-start"></button><button id="btn-new"></button>
+  <button id="btn-restore-backup" class="hidden"></button>
   <button id="btn-settings-menu" class="btn"></button>
   <input id="seed-input" type="text" value="12345">
   <div id="start-hint" class="hint"></div>
+</div></div>
+<div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog">
+  <h2 id="world-replace-title"></h2><p id="world-replace-message"></p><div id="world-replace-note"></div>
+  <div id="world-replace-error" class="hidden"></div>
+  <button id="btn-world-replace-cancel"></button><button id="btn-world-replace-confirm"></button>
 </div></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel"><h2></h2>
   <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
@@ -83,6 +89,16 @@
 
 <script src="../vendor/three.min.js"></script>
 <script src="../js/config.js"></script>
+<script>
+(function () {
+  try {
+    var k = Voxel.Config.SAVE_KEY;
+    localStorage.removeItem(k);
+    localStorage.removeItem(k + '_backup');
+    localStorage.removeItem(k + '_backup_swap');
+  } catch (e) { }
+})();
+</script>
 <script src="../js/assets.js"></script>
 <script src="../js/world/seed.js"></script>
 <script src="../js/world/galaxy.js"></script>

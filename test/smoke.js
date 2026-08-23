@@ -505,6 +505,69 @@ console.log('存档序列化往返');
     loadedAgain.edits[bx + ',' + by + ',' + bz] === 10);
 })();
 
+console.log('存档归档与恢复保护');
+(function () {
+  var saveKey = V.Config.SAVE_KEY;
+  var backupKey = saveKey + '_backup';
+  var swapKey = backupKey + '_swap';
+  var primaryRaw = _store[saveKey];
+  delete _store[backupKey];
+  delete _store[swapKey];
+
+  check('归档测试前主档存在', typeof primaryRaw === 'string' && primaryRaw.length > 0);
+  check('无备份时 hasBackup=false', V.Save.hasBackup() === false);
+
+  // 故障注入：备份键写入失败时，archiveCurrent 绝不得删除或重写主档。
+  var originalSetItem = sandbox.localStorage.setItem;
+  var originalWarn = sandbox.console.warn;
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === backupKey) throw new Error('injected backup write failure');
+    return originalSetItem(k, v);
+  };
+  sandbox.console.warn = function () { };
+  var archiveFailed = V.Save.archiveCurrent();
+  sandbox.console.warn = originalWarn;
+  sandbox.localStorage.setItem = originalSetItem;
+  check('备份写入失败时 archiveCurrent=false', archiveFailed === false);
+  check('归档失败不清主档且字节完全一致', _store[saveKey] === primaryRaw);
+  check('归档失败不伪造可用备份', V.Save.hasBackup() === false && !Object.prototype.hasOwnProperty.call(_store, backupKey));
+
+  // 故障注入：removeItem 静默失效时也必须回滚刚写入的备份，保持双槽原状。
+  var originalRemoveItem = sandbox.localStorage.removeItem;
+  sandbox.localStorage.removeItem = function (k) {
+    if (k === saveKey) return;
+    return originalRemoveItem(k);
+  };
+  var removeFailed = V.Save.archiveCurrent();
+  sandbox.localStorage.removeItem = originalRemoveItem;
+  check('主档删除静默失败时 archiveCurrent=false', removeFailed === false);
+  check('主档删除失败后主档字节不变', _store[saveKey] === primaryRaw);
+  check('主档删除失败后备份槽回滚', !Object.prototype.hasOwnProperty.call(_store, backupKey));
+
+  check('成功归档当前存档', V.Save.archiveCurrent() === true);
+  check('成功归档后主档已移除', !Object.prototype.hasOwnProperty.call(_store, saveKey));
+  check('备份保留主档原始字节', _store[backupKey] === primaryRaw);
+  check('成功归档后 hasBackup=true', V.Save.hasBackup() === true);
+
+  // 模拟玩家已创建了另一个新档；恢复时旧档和当前档必须交换，以便再次恢复可撤销。
+  var replacement = JSON.parse(primaryRaw);
+  replacement.seed = '987654321';
+  replacement.time = 0.77;
+  var replacementRaw = JSON.stringify(replacement);
+  _store[saveKey] = replacementRaw;
+  check('恢复备份执行 swap', V.Save.restoreBackup() === true);
+  check('restore 后主档精确等于旧备份', _store[saveKey] === primaryRaw);
+  check('restore 后原当前档成为备份', _store[backupKey] === replacementRaw && V.Save.hasBackup() === true);
+  check('restore swap 成功后清理中转键', !Object.prototype.hasOwnProperty.call(_store, swapKey));
+  check('再次 restore 可撤销上一次恢复', V.Save.restoreBackup() === true &&
+    _store[saveKey] === replacementRaw && _store[backupKey] === primaryRaw);
+
+  // 不污染后续无关测试。
+  _store[saveKey] = primaryRaw;
+  delete _store[backupKey];
+  delete _store[swapKey];
+})();
+
 console.log('熔炉烧炼');
 var FS = V.FurnaceSys;
 check('铁矿→铁锭', FS.resultId(9) === 108);

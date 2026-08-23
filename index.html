@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=20260823f">
+<link rel="stylesheet" href="css/style.css?v=20260824d">
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -124,20 +124,37 @@
     <h1>星海方舟</h1>
     <div class="sub">STARBOUND VOXEL</div>
     <button id="btn-start" class="btn primary">继续游戏</button>
-    <button id="btn-new" class="btn">新世界</button>
+    <button id="btn-new" class="btn" aria-haspopup="dialog">新世界</button>
     <button id="btn-featured" class="btn">精选世界</button>
+    <button id="btn-restore-backup" class="btn restore hidden" type="button">恢复上一存档</button>
     <div class="seed-row">
       <input id="seed-input" type="text" maxlength="32" placeholder="星系种子（留空随机）" spellcheck="false">
       <button id="btn-seed-random" class="btn small">随机</button>
     </div>
     <button id="btn-settings-menu" class="btn">设置</button>
-    <div id="start-hint" class="hint">检测到存档，点击"继续游戏"载入</div>
+    <div id="start-hint" class="hint" role="status" aria-live="polite">检测到存档，点击"继续游戏"载入</div>
     <div class="controls">
       <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
       <div><b>左键</b> 放置 <b>右键长按</b> 挖掘（对生物=攻击） <b>中键</b> 吸取方块</div>
       <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
       <div><b>M</b> 合成手册（一键合成） <b>Q</b> 丢弃 <b>R</b> 吃东西 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
       <div style="margin-top:6px;color:#9ab">任务：探索种子星系，穿越随机传送门；在降落点附近登上飞船，使用跃迁引擎前往未知星球与空间站。</div>
+    </div>
+  </div>
+</div>
+
+<!-- 新建世界前保护当前存档的确认对话框 -->
+<div id="overlay-world-replace" class="overlay world-replace-overlay hidden">
+  <div class="panel world-replace-panel" role="alertdialog" aria-modal="true"
+       aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note">
+    <div class="world-replace-kicker">存档保护协议</div>
+    <h2 id="world-replace-title">创建新世界？</h2>
+    <p id="world-replace-message" class="world-replace-message">当前世界会先存入“上一存档”备份槽。</p>
+    <div id="world-replace-note" class="world-replace-note">备份成功后才会创建新世界；若备份失败，当前存档不会被清除。</div>
+    <div id="world-replace-error" class="world-replace-error hidden" role="alert" aria-live="assertive"></div>
+    <div class="world-replace-actions">
+      <button id="btn-world-replace-cancel" class="btn" type="button">取消</button>
+      <button id="btn-world-replace-confirm" class="btn primary" type="button">备份并创建</button>
     </div>
   </div>
 </div>
@@ -277,11 +294,11 @@
 <script src="js/systems/space_travel.js?v=20260824c"></script>
 <script src="js/entities/mobs.js?v=20260824c"></script>
 <script src="js/entities/drops.js?v=20260824c"></script>
-<script src="js/systems/save.js?v=20260823f"></script>
+<script src="js/systems/save.js?v=20260824d"></script>
 <script src="js/ui/handitem.js?v=20260823f"></script>
 <script src="js/ui/featured.js?v=20260823f"></script>
 <script src="js/ui/touch.js?v=20260823f"></script>
 <script src="js/ui/hud.js?v=20260823f"></script>
-<script src="js/main.js?v=20260824c"></script>
+<script src="js/main.js?v=20260824d"></script>
 </body>
 </html>

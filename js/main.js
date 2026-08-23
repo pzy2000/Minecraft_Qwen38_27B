@@ -17,6 +17,7 @@ Voxel.Game = (function () {
   var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2（每格 1 个）
   var manualOpen = false;
   var saveData = null, pendingEdits = null, featuredPending = null;
+  var worldReplacePending = null, worldReplaceReturnFocus = null, worldReplaceReturnState = null;
   var galaxyState = null, currentWorld = null, travelStats = null;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
@@ -139,7 +140,7 @@ Voxel.Game = (function () {
   }
 
   function hideOverlays() {
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-starmap', 'overlay-warp', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-warp', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
@@ -156,6 +157,141 @@ Voxel.Game = (function () {
   }
 
   // ---------- 世界流程 ----------
+
+  function savedSeedLabel(sd) {
+    if (!sd) return '';
+    if (sd.galaxy && sd.galaxy.rootSeed !== undefined) return String(sd.galaxy.rootSeed);
+    return sd.seed === undefined || sd.seed === null ? '未知' : String(sd.seed);
+  }
+
+  // 所有可能改变主/备份槽的操作都通过这里刷新主菜单，避免按钮与提示显示旧状态。
+  function syncMainMenu(message, isError) {
+    saveData = Voxel.Save.load();
+    var hasBackup = !!(Voxel.Save.hasBackup && Voxel.Save.hasBackup());
+    var startBtn = document.getElementById('btn-start');
+    var restoreBtn = document.getElementById('btn-restore-backup');
+    var hint = document.getElementById('start-hint');
+    if (startBtn) startBtn.textContent = saveData ? '继续游戏' : '开始游戏';
+    if (restoreBtn) {
+      restoreBtn.classList.toggle('hidden', !hasBackup);
+      restoreBtn.setAttribute('aria-hidden', hasBackup ? 'false' : 'true');
+    }
+    if (!hint) return;
+    hint.classList.toggle('is-error', !!isError);
+    if (message) {
+      hint.textContent = message;
+    } else if (saveData) {
+      hint.textContent = '检测到星际存档 · 星系种子 ' + savedSeedLabel(saveData) +
+        (hasBackup ? ' · 可恢复上一存档' : ' · 新建前会自动保留备份');
+    } else if (hasBackup) {
+      hint.textContent = '当前没有主存档 · 可恢复上一存档，或直接创建新世界';
+    } else {
+      hint.textContent = '将生成一个全新的随机世界';
+    }
+  }
+
+  function setWorldReplaceBusy(busy) {
+    var dialog = document.getElementById('overlay-world-replace');
+    var confirmBtn = document.getElementById('btn-world-replace-confirm');
+    var cancelBtn = document.getElementById('btn-world-replace-cancel');
+    if (dialog) dialog.setAttribute('aria-busy', busy ? 'true' : 'false');
+    if (confirmBtn) confirmBtn.disabled = !!busy;
+    if (cancelBtn) cancelBtn.disabled = !!busy;
+  }
+
+  function closeWorldReplaceDialog(restoreFocus) {
+    var overlay = document.getElementById('overlay-world-replace');
+    if (overlay) overlay.classList.add('hidden');
+    document.body.classList.remove('world-replace-open');
+    setWorldReplaceBusy(false);
+    var focusTarget = worldReplaceReturnFocus;
+    var returnState = worldReplaceReturnState || 'menu';
+    worldReplacePending = null;
+    worldReplaceReturnFocus = null;
+    worldReplaceReturnState = null;
+    setState(returnState);
+    if (restoreFocus && focusTarget && document.documentElement.contains(focusTarget)) {
+      setTimeout(function () { focusTarget.focus(); }, 0);
+    }
+  }
+
+  function openWorldReplaceDialog(options) {
+    var overlay = document.getElementById('overlay-world-replace');
+    if (!overlay || worldReplacePending || !options || typeof options.start !== 'function') return;
+    worldReplacePending = options;
+    worldReplaceReturnFocus = options.trigger || document.activeElement;
+    worldReplaceReturnState = state;
+    var title = document.getElementById('world-replace-title');
+    var message = document.getElementById('world-replace-message');
+    var error = document.getElementById('world-replace-error');
+    var confirmBtn = document.getElementById('btn-world-replace-confirm');
+    if (title) title.textContent = options.title || '创建新世界？';
+    if (message) message.textContent = options.message || '当前世界会先存入“上一存档”备份槽。';
+    if (confirmBtn) confirmBtn.textContent = options.confirmLabel || '备份并创建';
+    if (error) { error.textContent = ''; error.classList.add('hidden'); }
+    setWorldReplaceBusy(false);
+    overlay.classList.remove('hidden');
+    document.body.classList.add('world-replace-open');
+    setState('world-replace');
+    // 将初始焦点放在安全操作上，避免按回车误触覆盖流程。
+    setTimeout(function () {
+      var cancelBtn = document.getElementById('btn-world-replace-cancel');
+      if (cancelBtn) cancelBtn.focus();
+    }, 0);
+  }
+
+  function confirmWorldReplacement() {
+    if (!worldReplacePending) return;
+    var error = document.getElementById('world-replace-error');
+    setWorldReplaceBusy(true);
+    var archived = false;
+    try {
+      archived = !!(Voxel.Save.archiveCurrent && Voxel.Save.archiveCurrent());
+    } catch (e) {
+      archived = false;
+    }
+    if (!archived) {
+      if (error) {
+        error.textContent = '备份失败：当前存档未被清除。请检查浏览器存储空间后重试，或取消返回。';
+        error.classList.remove('hidden');
+      }
+      setWorldReplaceBusy(false);
+      var retryBtn = document.getElementById('btn-world-replace-confirm');
+      if (retryBtn) retryBtn.focus();
+      return;
+    }
+
+    // archiveCurrent 成功是清理主槽的硬前置；clear 在此后调用仅确保主槽为空。
+    Voxel.Save.clear();
+    var pending = worldReplacePending;
+    closeWorldReplaceDialog(false);
+    saveData = null;
+    galaxyState = null;
+    pending.start();
+  }
+
+  function restorePreviousSave() {
+    var restored = false;
+    try {
+      restored = !!(Voxel.Save.restoreBackup && Voxel.Save.restoreBackup());
+    } catch (e) {
+      restored = false;
+    }
+    if (!restored) {
+      syncMainMenu('恢复失败：上一存档不可用，当前存档未变更。', true);
+      return;
+    }
+    syncMainMenu();
+    var canSwapAgain = !!(Voxel.Save.hasBackup && Voxel.Save.hasBackup());
+    syncMainMenu('已恢复上一存档' + (saveData ? ' · 星系种子 ' + savedSeedLabel(saveData) : '') +
+      (canSwapAgain ? ' · 再次点击可切换回来' : ' · 可以继续游戏'), false);
+    var restoreBtn = document.getElementById('btn-restore-backup');
+    var startBtn = document.getElementById('btn-start');
+    setTimeout(function () {
+      if (restoreBtn && !restoreBtn.classList.contains('hidden')) restoreBtn.focus();
+      else if (startBtn) startBtn.focus();
+    }, 0);
+  }
 
   function ensureGalaxy(rootSeed, savedGalaxy) {
     if (savedGalaxy) galaxyState = Voxel.Galaxy.hydrate(savedGalaxy, rootSeed);
@@ -1459,15 +1595,8 @@ Voxel.Game = (function () {
     doSave(true);
     stopDig();
     manualCraftStop();
-    saveData = Voxel.Save.load();
     document.getElementById('overlay-pause').classList.add('hidden');
-    var hint = document.getElementById('start-hint');
-    if (saveData) {
-      hint.textContent = '检测到星际存档 · 星系种子 ' + (saveData.galaxy ? saveData.galaxy.rootSeed : saveData.seed);
-      document.getElementById('btn-start').textContent = '继续游戏';
-    } else {
-      hint.textContent = '将生成一个全新的随机世界';
-    }
+    syncMainMenu();
     showOverlay('overlay-start');
     setState('menu');
   }
@@ -1532,13 +1661,29 @@ Voxel.Game = (function () {
     return true;
   }
 
-  // 精选世界：清空存档并以固定种子创建（进入后自动传送到对应群系）
+  // 精选世界：已有存档时先确认并备份；无存档时直接创建。
   function startFeatured(idx) {
     var w = Voxel.Featured && Voxel.Featured.WORLDS[idx];
     if (!w) return;
-    Voxel.Save.clear();
-    galaxyState = null;
-    startWorld(w.seed, null, w);
+    var cards = document.querySelectorAll('.featured-card');
+    var trigger = cards && cards[idx] ? cards[idx] : document.activeElement;
+    function beginFeatured() {
+      galaxyState = null;
+      saveData = null;
+      startWorld(w.seed, null, w);
+    }
+    if (Voxel.Save.has()) {
+      openWorldReplaceDialog({
+        trigger: trigger,
+        title: '进入精选世界？',
+        message: '将创建精选世界“' + w.name + '”。当前世界会先存入“上一存档”备份槽。',
+        confirmLabel: '备份并进入',
+        start: beginFeatured
+      });
+    } else {
+      Voxel.Save.clear();
+      beginFeatured();
+    }
   }
 
   function onPlayerDead() {
@@ -1610,9 +1755,12 @@ Voxel.Game = (function () {
       else if (code === 'KeyM') openManual();
     } else if (state === 'starmap') {
       if (code === 'Escape' || code === 'KeyH' || code === 'KeyE') closeStarMap();
+    } else if (state === 'world-replace') {
+      // 对话框拥有独立状态；尤其不能让 Enter 落入主菜单的直接载入快捷键。
+      if (code === 'Escape') closeWorldReplaceDialog(true);
     } else if (state === 'menu') {
-      if (code === 'Enter') startWorld(saveData ? saveData.seed : null, saveData);
-      else if (code === 'KeyM') openManual();
+      // 主菜单按钮保留浏览器原生 Enter/Space 语义；全局 Enter 会抢在按钮 click 前绕过确认。
+      if (code === 'KeyM') openManual();
     }
   }
 
@@ -2246,6 +2394,19 @@ Voxel.Game = (function () {
     document.getElementById('btn-start').addEventListener('click', function () {
       startWorld(saveData ? saveData.seed : null, saveData);
     });
+    // Controls 会为游戏跳跃全局拦截 Space；菜单按钮需截断冒泡以保留原生键盘激活。
+    function preserveMenuButtonSpace(button) {
+      if (!button) return;
+      button.addEventListener('keydown', function (e) {
+        if (e.key === ' ') e.stopPropagation();
+      });
+    }
+    preserveMenuButtonSpace(document.getElementById('btn-start'));
+    preserveMenuButtonSpace(document.getElementById('btn-new'));
+    preserveMenuButtonSpace(document.getElementById('btn-featured'));
+    preserveMenuButtonSpace(document.getElementById('btn-restore-backup'));
+    preserveMenuButtonSpace(document.getElementById('btn-seed-random'));
+    preserveMenuButtonSpace(document.getElementById('btn-settings-menu'));
     var seedInput = document.getElementById('seed-input');
     if (document.getElementById('btn-seed-random') && seedInput) {
       document.getElementById('btn-seed-random').addEventListener('click', function () {
@@ -2253,18 +2414,95 @@ Voxel.Game = (function () {
       });
     }
     document.getElementById('btn-new').addEventListener('click', function () {
-      Voxel.Save.clear();
-      galaxyState = null;
       var sv = seedInput ? seedInput.value.trim() : '';
-      startWorld(sv === '' ? null : Voxel.SeedUtil.parse(sv), null);
+      var parsedSeed = sv === '' ? null : Voxel.SeedUtil.parse(sv);
+      function beginNewWorld() {
+        galaxyState = null;
+        saveData = null;
+        startWorld(parsedSeed, null);
+      }
+      if (Voxel.Save.has()) {
+        openWorldReplaceDialog({
+          trigger: document.getElementById('btn-new'),
+          title: '创建新世界？',
+          message: '将创建' + (sv === '' ? '一个随机世界' : '种子为 ' + sv + ' 的世界') +
+            '。当前世界会先存入“上一存档”备份槽。',
+          confirmLabel: '备份并创建',
+          start: beginNewWorld
+        });
+      } else {
+        Voxel.Save.clear();
+        beginNewWorld();
+      }
     });
+    var restoreBackupBtn = document.getElementById('btn-restore-backup');
+    if (restoreBackupBtn) restoreBackupBtn.addEventListener('click', restorePreviousSave);
+
+    var replaceOverlay = document.getElementById('overlay-world-replace');
+    var replaceCancel = document.getElementById('btn-world-replace-cancel');
+    var replaceConfirm = document.getElementById('btn-world-replace-confirm');
+    if (replaceCancel) replaceCancel.addEventListener('click', function () {
+      if (!replaceCancel.disabled) closeWorldReplaceDialog(true);
+    });
+    if (replaceConfirm) replaceConfirm.addEventListener('click', confirmWorldReplacement);
+    if (replaceOverlay) {
+      replaceOverlay.addEventListener('click', function (e) {
+        if (e.target === replaceOverlay && replaceCancel && !replaceCancel.disabled)
+          closeWorldReplaceDialog(true);
+      });
+      replaceOverlay.addEventListener('keydown', function (e) {
+        // Controls 的全局 keydown 监听位于 document；在对话框边界截断，避免任何菜单热键穿透。
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+          if (replaceCancel && !replaceCancel.disabled) closeWorldReplaceDialog(true);
+          e.preventDefault();
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        var focusable = replaceOverlay.querySelectorAll('button:not(:disabled)');
+        if (!focusable.length) { e.preventDefault(); return; }
+        var first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          last.focus(); e.preventDefault();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          first.focus(); e.preventDefault();
+        }
+      });
+    }
     if (document.getElementById('btn-featured')) {
-      document.getElementById('btn-featured').addEventListener('click', function () {
+      var featuredMenuBtn = document.getElementById('btn-featured');
+      featuredMenuBtn.addEventListener('click', function () {
         if (Voxel.Featured && Voxel.Featured.show) Voxel.Featured.show();
+        setTimeout(function () {
+          var firstCard = document.querySelector('.featured-card');
+          if (firstCard) firstCard.focus();
+        }, 0);
       });
       document.getElementById('btn-featured-back').addEventListener('click', function () {
         if (Voxel.Featured && Voxel.Featured.hide) Voxel.Featured.hide();
+        setTimeout(function () { featuredMenuBtn.focus(); }, 0);
       });
+      preserveMenuButtonSpace(document.getElementById('btn-featured-back'));
+
+      // featured.js 负责内容；这里补齐键盘语义，并让取消确认时能回到原卡片。
+      var featuredCards = document.querySelectorAll('.featured-card');
+      for (var fci = 0; fci < featuredCards.length; fci++) {
+        var featuredCard = featuredCards[fci];
+        featuredCard.setAttribute('role', 'button');
+        featuredCard.setAttribute('aria-haspopup', 'dialog');
+        featuredCard.tabIndex = 0;
+        if (Voxel.Featured && Voxel.Featured.WORLDS && Voxel.Featured.WORLDS[fci]) {
+          var featuredWorld = Voxel.Featured.WORLDS[fci];
+          featuredCard.setAttribute('aria-label', '创建精选世界：' + featuredWorld.name + '，' + featuredWorld.desc);
+        }
+        featuredCard.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            this.click();
+          }
+        });
+      }
     }
     document.getElementById('btn-resume').addEventListener('click', function () {
       requestGameFullscreen(true);
@@ -2393,14 +2631,7 @@ Voxel.Game = (function () {
       Voxel.Settings.applyAll();
     }
 
-    var sd = Voxel.Save.load();
-    if (sd) {
-      saveData = sd;
-      document.getElementById('start-hint').textContent = '检测到星际存档 · 星系种子 ' + (sd.galaxy ? sd.galaxy.rootSeed : sd.seed);
-    } else {
-      document.getElementById('btn-start').textContent = '开始游戏';
-      document.getElementById('start-hint').textContent = '将生成一个全新的随机世界';
-    }
+    syncMainMenu();
 
     setState('menu');
     requestAnimationFrame(loop);
