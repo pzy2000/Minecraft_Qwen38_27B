@@ -234,7 +234,9 @@
 
   // 手动驱动游戏主循环（无头环境下 rAF 可能不推进）
   var errCount = {};
+  var autoFrameEnabled = true;
   setInterval(function () {
+    if (!autoFrameEnabled) return;
     try { Voxel.Game._frame(performance.now()); }
     catch (e) {
       var k = e.message;
@@ -254,6 +256,201 @@
     setTimeout(poll, 100);
   })();
 
+  // 固定步进与FPS cap完全由合成时间戳驱动；不使用真实等待。
+  function fixedStepRegression() {
+    var T = Voxel.Game._test;
+    var hooksReady = typeof T.resetFrameClock === 'function' && typeof T.fixedStepCount === 'function' &&
+      typeof T.simAccumulator === 'function' && typeof T.droppedSimTime === 'function';
+    check('固定步进测试钩子齐全', hooksReady);
+    if (!hooksReady) return;
+
+    var STEP = 1 / 60;
+    var EPS = 1e-6;
+    var base = 1000000;
+    var oldCap = Voxel.Settings.get('fpsCap');
+    var oldRequestLock = Voxel.Controls.requestLock;
+    var oldExitLock = Voxel.Controls.exitLock;
+    var oldGenerateNext = Voxel.World.generateNext;
+    var oldBuildMeshes = Voxel.World.buildMeshes;
+    var oldDrops = Voxel.Drops.snapshot();
+    var oldTime = Voxel.DayNight.time();
+    var oldWeather = Voxel.Weather.stateName();
+    var oldPos = Voxel.Player.pos().clone();
+    var oldYaw = Voxel.Controls.yaw(), oldPitch = Voxel.Controls.pitch();
+    var oldFlying = Voxel.Player.flying();
+    var oldKeys = {
+      w: !!Voxel.Controls.keys.KeyW, a: !!Voxel.Controls.keys.KeyA,
+      s: !!Voxel.Controls.keys.KeyS, d: !!Voxel.Controls.keys.KeyD
+    };
+
+    function clearMoveKeys() {
+      Voxel.Controls.keys.KeyW = false; Voxel.Controls.keys.KeyA = false;
+      Voxel.Controls.keys.KeyS = false; Voxel.Controls.keys.KeyD = false;
+    }
+
+    function resetDeterministicState() {
+      clearMoveKeys();
+      Voxel.Player.init(new THREE.Vector3(oldPos.x, Voxel.Config.WORLD_H + 24, oldPos.z), 0, 0);
+      Voxel.Player.setFlying(true);
+      Voxel.DayNight.setTime(0.3);
+      Voxel.Weather.set('clear');
+      Voxel.Drops.restore([{
+        id: 102, n: 1, dur: 37,
+        pos: [oldPos.x + 20, Voxel.Config.WORLD_H + 20, oldPos.z + 20],
+        vel: [1.25, 0.5, -0.75], age: 4
+      }]);
+    }
+
+    function drive(intervals) {
+      resetDeterministicState();
+      Voxel.Settings.set('fpsCap', 0);
+      T.resetFrameClock(base);
+      var now = base;
+      for (var i = 0; i < intervals.length; i++) {
+        now += intervals[i];
+        Voxel.Game._frame(now);
+      }
+      var snap = Voxel.Drops.snapshot();
+      return {
+        steps: T.fixedStepCount(),
+        acc: T.simAccumulator(),
+        dropped: T.droppedSimTime(),
+        drop: snap[0] || null,
+        day: Voxel.DayNight.time()
+      };
+    }
+
+    autoFrameEnabled = false;
+    // 合成暂停/恢复只验证游戏时钟。禁止真实 Pointer Lock 异步事件在本同步
+    // 矩阵结束后再次触发 onLockChange(false)，否则会把后续独立用例误暂停。
+    Voxel.Controls.requestLock = function () { return true; };
+    Voxel.Controls.exitLock = function () { };
+    // 测试关注逻辑调度；避免数百个合成渲染帧顺带耗尽整个流式区块队列，
+    // 把无头浏览器时间浪费在与本断言无关的网格构建上。
+    Voxel.World.generateNext = function () { return 0; };
+    Voxel.World.buildMeshes = function () { return 0; };
+    try {
+      Voxel.Settings.set('fpsCap', 0);
+
+      // 两个120Hz半步必须累计，不能逐渲染帧丢掉余数。
+      resetDeterministicState();
+      T.resetFrameClock(base);
+      Voxel.Game._frame(base + 1000 / 120);
+      check('固定步：首个120Hz半步只进入累计器', T.fixedStepCount() === 0 &&
+        Math.abs(T.simAccumulator() - 1 / 120) < EPS);
+      Voxel.Game._frame(base + 2 * 1000 / 120);
+      check('固定步：两个120Hz半步合成一个60Hz逻辑步', T.fixedStepCount() === 1 &&
+        Math.abs(T.simAccumulator()) < EPS);
+
+      var hz120 = [], hz144 = [];
+      for (var h120 = 0; h120 < 120; h120++) hz120.push(1000 / 120);
+      for (var h144 = 0; h144 < 144; h144++) hz144.push(1000 / 144);
+      var r120 = drive(hz120);
+      var r144 = drive(hz144);
+      check('固定步：120Hz一秒执行60步且真实推进drop.age', r120.steps === 60 &&
+        r120.dropped === 0 && r120.acc >= 0 && r120.acc < STEP && !!r120.drop &&
+        Math.abs(r120.drop.age - 5) < EPS);
+      check('固定步：144Hz一秒执行60步且真实推进drop.age', r144.steps === 60 &&
+        r144.dropped === 0 && r144.acc >= 0 && r144.acc < STEP && !!r144.drop &&
+        Math.abs(r144.drop.age - 5) < EPS);
+
+      // 5/28/7/10ms为一组50ms，20组同样恰好一秒。
+      var mixed = [];
+      for (var mx = 0; mx < 20; mx++) mixed.push(5, 28, 7, 10);
+      var rMixed = drive(mixed);
+      var dropEquivalent = !!r120.drop && !!r144.drop && !!rMixed.drop &&
+        Math.abs(r120.drop.age - r144.drop.age) < EPS &&
+        Math.abs(r120.drop.age - rMixed.drop.age) < EPS &&
+        Math.abs(r120.drop.pos[0] - r144.drop.pos[0]) < EPS &&
+        Math.abs(r120.drop.pos[0] - rMixed.drop.pos[0]) < EPS &&
+        Math.abs(r120.drop.pos[1] - r144.drop.pos[1]) < EPS &&
+        Math.abs(r120.drop.pos[1] - rMixed.drop.pos[1]) < EPS &&
+        Math.abs(r120.drop.vel[1] - r144.drop.vel[1]) < EPS &&
+        Math.abs(r120.drop.vel[1] - rMixed.drop.vel[1]) < EPS;
+      check('固定步：相同总时长的120/144Hz/混合调度结果等价', rMixed.steps === 60 &&
+        rMixed.dropped === 0 && dropEquivalent && Math.abs(r120.day - r144.day) < EPS &&
+        Math.abs(r120.day - rMixed.day) < EPS);
+
+      // 1000ms输入裁到100ms：最多补5步，余下完整一步必须丢弃。
+      resetDeterministicState();
+      T.resetFrameClock(base);
+      Voxel.Game._frame(base + 1000);
+      var largeSteps = T.fixedStepCount(), largeDropped = T.droppedSimTime(), largeAcc = T.simAccumulator();
+      check('固定步：1000ms大帧最多补5步并丢弃完整积压', largeSteps === 5 &&
+        largeDropped > 0.015 && largeDropped < 0.018 && largeAcc >= 0 && largeAcc < STEP);
+      Voxel.Game._frame(base + 1000 + 1000 / 60);
+      check('固定步：大帧后的正常帧只新增1步', T.fixedStepCount() === largeSteps + 1 &&
+        T.simAccumulator() >= 0 && T.simAccumulator() < STEP);
+
+      // 暂停和面板都必须丢掉半步余量，非playing墙钟时间不得补算。
+      T.resetFrameClock(base);
+      Voxel.Game._frame(base + 1000 / 120);
+      Voxel.Game.onKey('KeyP');
+      var pausedSteps = T.fixedStepCount();
+      check('固定步：进入暂停立即清空半步余量', Voxel.Game.state === 'paused' &&
+        Math.abs(T.simAccumulator()) < EPS);
+      // 模拟浏览器后台停止rAF：暂停期间完全没有frame，恢复后的第一帧也只能重定基线。
+      Voxel.Game.onKey('KeyP');
+      Voxel.Game._frame(base + 10000);
+      check('固定步：暂停十秒且无rAF时恢复首帧不补算', Voxel.Game.state === 'playing' &&
+        T.fixedStepCount() === pausedSteps && Math.abs(T.simAccumulator()) < EPS);
+      Voxel.Game._frame(base + 10000 + 1000 / 120);
+      check('固定步：恢复后首个半步不继承暂停前余量', T.fixedStepCount() === pausedSteps &&
+        T.simAccumulator() > 0 && T.simAccumulator() < STEP);
+      Voxel.Game._frame(base + 10000 + 2 * 1000 / 120);
+      check('固定步：恢复后重新累计两个半步才推进', T.fixedStepCount() === pausedSteps + 1);
+
+      T.resetFrameClock(base);
+      Voxel.Game._frame(base + 1000 / 120);
+      T.toggleInv(true);
+      var panelSteps = T.fixedStepCount();
+      check('固定步：打开面板清空半步余量', Voxel.Game.state === 'inventory' &&
+        Math.abs(T.simAccumulator()) < EPS);
+      // 同样模拟面板打开期间浏览器没有任何帧回调。
+      T.toggleInv(false);
+      Voxel.Game._frame(base + 5000);
+      check('固定步：面板停留且无rAF时关闭首帧不补算', Voxel.Game.state === 'playing' &&
+        T.fixedStepCount() === panelSteps && Math.abs(T.simAccumulator()) < EPS);
+      Voxel.Game._frame(base + 5000 + 1000 / 120);
+      check('固定步：关闭面板后从零累计半步', T.fixedStepCount() === panelSteps &&
+        T.simAccumulator() > 0 && T.simAccumulator() < STEP);
+
+      // 144Hz输入下检查FPS cap相位；旧的now直赋实现会把60fps降到约48fps。
+      Voxel.Settings.set('fpsCap', 60);
+      // 从0起步刻意覆盖浮点整周期边界；旧的elapsed%interval在此会多放行到约66帧。
+      T.resetFrameClock(0);
+      var render0 = T.frameCount();
+      for (var c60 = 1; c60 <= 144; c60++) Voxel.Game._frame(c60 * 1000 / 144);
+      var rendered60 = T.frameCount() - render0;
+      check('帧控相位：144Hz输入下cap60实际渲染59–61帧', rendered60 >= 59 && rendered60 <= 61);
+
+      Voxel.Settings.set('fpsCap', 30);
+      T.resetFrameClock(0);
+      var render1 = T.frameCount();
+      for (var c30 = 1; c30 <= 144; c30++) Voxel.Game._frame(c30 * 1000 / 144);
+      var rendered30 = T.frameCount() - render1;
+      check('帧控相位：144Hz输入下cap30实际渲染29–31帧', rendered30 >= 29 && rendered30 <= 31);
+    } finally {
+      if (Voxel.Game.state === 'paused') Voxel.Game.onKey('KeyP');
+      if (Voxel.Game.state === 'inventory') T.toggleInv(false);
+      Voxel.Settings.set('fpsCap', oldCap);
+      Voxel.Controls.requestLock = oldRequestLock;
+      Voxel.Controls.exitLock = oldExitLock;
+      Voxel.World.generateNext = oldGenerateNext;
+      Voxel.World.buildMeshes = oldBuildMeshes;
+      Voxel.Drops.restore(oldDrops);
+      Voxel.DayNight.setTime(oldTime);
+      Voxel.Weather.restore(oldWeather);
+      clearMoveKeys();
+      Voxel.Controls.keys.KeyW = oldKeys.w; Voxel.Controls.keys.KeyA = oldKeys.a;
+      Voxel.Controls.keys.KeyS = oldKeys.s; Voxel.Controls.keys.KeyD = oldKeys.d;
+      Voxel.Player.init(oldPos, oldYaw, oldPitch);
+      Voxel.Player.setFlying(oldFlying);
+      T.resetFrameClock(performance.now());
+      autoFrameEnabled = true;
+    }
+  }
+
   function stepB() {
     check('世界已生成', Voxel.World.isReady());
     check('状态=playing', Voxel.Game.state === 'playing');
@@ -267,21 +464,7 @@
     initT.clearCraft();
     initT.clearInvCraft();
 
-    // 帧率上限门控（_frame 直驱同样生效；同步执行无 harness 竞态）
-    (function () {
-      var T0 = Voxel.Game._test;
-      Voxel.Settings.set('fpsCap', 30);
-      var t0 = performance.now(), fc0 = T0.frameCount(), k;
-      // 找到一个能放行的时间点（距上次执行 ≥33ms）
-      for (k = 1; k <= 5; k++) { Voxel.Game._frame(t0 + k * 50); if (T0.frameCount() > fc0) break; }
-      var fc1 = T0.frameCount();
-      check('帧控：大间隔放行', fc1 === fc0 + 1);
-      Voxel.Game._frame(t0 + k * 50 + 5);   // 仅 +5ms → 必须跳过
-      check('帧控：间隔不足被跳过', T0.frameCount() === fc1);
-      Voxel.Game._frame(t0 + k * 50 + 60);  // +60ms → 放行
-      check('帧控：恢复放行', T0.frameCount() === fc1 + 1);
-      Voxel.Settings.set('fpsCap', 0);
-    })();
+    fixedStepRegression();
     check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
 
     // 无限世界合成回归：在仍受垂直碰撞约束的 y=63 飞过旧 x=256 边界。

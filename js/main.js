@@ -31,14 +31,31 @@ Voxel.Game = (function () {
   var waterQ = [], waterT = 0;
   var fps = 0, frames = 0, fpsT = 0;
   var debug = false;
-  var lastT = 0;
+  // 逻辑固定 60Hz；渲染可按显示器 90/120/144Hz 独立运行。
+  var FIXED_DT = 1 / 60;
+  var MAX_FIXED_STEPS = 5;
+  var MAX_FRAME_DT = 0.1;
+  var STEP_EPSILON = 1e-9;
+  var CAP_EPSILON_MS = 0.001;
+  var simAccumulator = 0, fixedStepsTotal = 0, droppedSimTime = 0;
+  var lastT = null;
   var lastErrT = 0;
   var lastBlankCheck = 0;
   var uwFade = 0;   // 水下滤镜渐变系数 0~1
   var _uwColor = new THREE.Color(0x14507e);
   var _tint = new THREE.Color(), _sky = new THREE.Color(), _skyTop = new THREE.Color();
 
-  function setState(s) { state = s; Game.state = s; }
+  function setState(s) {
+    // 暂停、菜单、加载等墙钟时间绝不能在重新进入游戏时补算成物理步。
+    if ((state === 'playing') !== (s === 'playing')) {
+      simAccumulator = 0;
+      // 离开 playing 时先使墙钟基线失效；若暂停期间仍有渲染帧，frame() 会自然
+      // 建立最新基线。若后台完全无帧，恢复后的首帧只建基线而不会补算后台时间。
+      if (state === 'playing') lastT = null;
+    }
+    state = s;
+    Game.state = s;
+  }
 
   // 移动浏览器同时存在 layout viewport 与 visual viewport；渲染、CSS 和触摸
   // 必须共用当前真正可见的尺寸，避免地址栏展开后画面仍按“大视口”计算。
@@ -2172,19 +2189,36 @@ Voxel.Game = (function () {
     frame(now);
   }
 
-  var lastFrameT = 0, framesExecuted = 0, lastLockHint = '';
+  var lastFrameT = null, framesExecuted = 0, lastLockHint = '';
 
   function frame(now) {
-    // 帧率上限节流（设置：原生/30/60）；被跳过的帧间隔自然并入下次 dt
+    if (typeof now !== 'number' || !isFinite(now)) return;
+    // 时间戳倒退（测试重置/浏览器异常）时丢弃旧累计，绝不向系统传负 dt。
+    if ((lastFrameT !== null && now < lastFrameT) || (lastT !== null && now < lastT)) {
+      lastFrameT = now;
+      lastT = now;
+      simAccumulator = 0;
+    }
+
+    // 帧率上限节流（设置：原生/30/60）。保留 interval 相位余数，避免 144Hz 下
+    // 每三次 rAF 才画一帧而把“60fps”实际降成约 48fps。
     var cap = (Voxel.Settings && Voxel.Settings.get('fpsCap')) || 0;
-    if (cap > 0 && now - lastFrameT < 1000 / cap - 1) return;
-    lastFrameT = now;
+    if (cap > 0) {
+      var interval = 1000 / cap;
+      if (lastFrameT !== null) {
+        var elapsed = now - lastFrameT;
+        if (elapsed + CAP_EPSILON_MS < interval) return;
+        var intervals = Math.max(1, Math.floor((elapsed + CAP_EPSILON_MS) / interval));
+        lastFrameT += intervals * interval;
+      } else lastFrameT = now;
+    } else lastFrameT = now;
     framesExecuted++;
 
-    if (!lastT) lastT = now;
+    if (lastT === null) lastT = now;
     var dt = (now - lastT) / 1000;
     lastT = now;
-    if (dt > 0.1) dt = 0.1;
+    if (!isFinite(dt) || dt < 0) dt = 0;
+    if (dt > MAX_FRAME_DT) dt = MAX_FRAME_DT;
     try {
       frameBody(dt);
     } catch (e) {
@@ -2201,7 +2235,19 @@ Voxel.Game = (function () {
     updateErrorBanner();
   }
 
+  function fixedUpdate(step) {
+    var nowS = performance.now() / 1000;
+    if (mouseDown[0] && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
+    if (mouseDown[2]) tickDig(step);
+    else if (digT || digProg) stopDig();
+    Voxel.Player.update(step);
+    if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
+    Voxel.Drops.update(step);
+    updateFallers(step);
+  }
+
   function frameBody(dt) {
+    var startedPlaying = state === 'playing';
     frames++;
     fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
@@ -2240,52 +2286,59 @@ Voxel.Game = (function () {
       if (Voxel.World.isReady() && Voxel.World.focusMeshed()) enterWorld();
     }
 
-    if (state === 'playing') {
-      var acc = dt, step = 1 / 60, n = 0;
-      while (acc >= step && n < 5) {
-        var nowS = performance.now() / 1000;
-        if (mouseDown[0] && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
-        if (mouseDown[2]) tickDig(step);
-        else if (digT || digProg) stopDig();
-        Voxel.Player.update(step);
-        if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
-        Voxel.Drops.update(step);
-        updateFallers(step);
-        acc -= step;
-        n++;
+    // 加载完成并在本帧中刚进入 playing 时不消费加载帧 dt；从下一渲染帧开始累计。
+    if (state === 'playing' && startedPlaying) {
+      simAccumulator += dt;
+      var fixedStepsThisFrame = 0;
+      while (state === 'playing' && simAccumulator + STEP_EPSILON >= FIXED_DT &&
+        fixedStepsThisFrame < MAX_FIXED_STEPS) {
+        simAccumulator -= FIXED_DT;
+        if (simAccumulator < 0 && simAccumulator > -STEP_EPSILON) simAccumulator = 0;
+        fixedUpdate(FIXED_DT);
+        fixedStepsThisFrame++;
+        fixedStepsTotal++;
       }
-      if (n === 5) acc = 0;
+
+      // 卡顿后只补有限步；丢掉剩余完整步，保留不足一物理步的相位，防止死亡螺旋。
+      if (fixedStepsThisFrame === MAX_FIXED_STEPS && simAccumulator + STEP_EPSILON >= FIXED_DT) {
+        var overflowSteps = Math.floor((simAccumulator + STEP_EPSILON) / FIXED_DT);
+        var dropped = overflowSteps * FIXED_DT;
+        simAccumulator -= dropped;
+        if (simAccumulator < 0 && simAccumulator > -STEP_EPSILON) simAccumulator = 0;
+        droppedSimTime += dropped;
+      }
+      var simulationDt = fixedStepsThisFrame * FIXED_DT;
+
       if (!mouseDown[2] && (digT || digProg)) stopDig();
 
-      // 水的简化流动（节流处理）
-      processWater(dt);
-
-      // 熔炉烧制推进
-      tickFurnaces(dt);
-
-      Voxel.DayNight.update(dt);
+      // 玩法时钟与物理使用同一实际模拟时长；纯视觉动画仍使用渲染 dt。
+      if (state === 'playing' && simulationDt > 0) {
+        processWater(simulationDt);
+        tickFurnaces(simulationDt);
+        Voxel.DayNight.update(simulationDt);
+        Voxel.Weather.update(simulationDt);
+      }
       if (Voxel.DayNight.updateCamera) Voxel.DayNight.updateCamera(camera.position);
       Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
-      Voxel.Weather.update(dt);
       Voxel.Particles.update(dt);
-      if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(dt);
+      if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
       updateHighlight();
 
-      // 第一人称手持物
+      // 第一人称手持物是纯视觉反馈，按渲染帧平滑推进。
       if (Voxel.HandItem) {
         var pv = Voxel.Player.vel();
         Voxel.HandItem.setId(inv[sel]);
         Voxel.HandItem.update(dt, Math.abs(pv.x) + Math.abs(pv.z) > 0.5);
       }
 
-      // 回血：受击 6 秒后开始，且饥饿 ≥ 阈值；回血额外消耗疲惫
+      // 回血属于玩法计时，使用 simulationDt；6 秒受击宽限仍由单调墙钟判定。
       var hp = Voxel.Player.hp();
       if (hp < lastHp) lastDmgT = performance.now() / 1000;
       lastHp = hp;
       var canRegen = Voxel.Player.food !== undefined &&
         Voxel.Player.food() >= C.HEAL_FOOD_MIN;
       if (hp > 0 && hp < C.HP && canRegen && performance.now() / 1000 - lastDmgT > 6) {
-        regenT += dt;
+        regenT += simulationDt;
         if (regenT >= 4) {
           regenT = 0;
           Voxel.Player.heal(1);
@@ -2293,6 +2346,7 @@ Voxel.Game = (function () {
         }
       } else regenT = 0;
 
+      // 自动保存是基础设施墙钟，不因过载时主动丢弃模拟步而停止。
       autosaveT += dt;
       if (autosaveT >= CFG.AUTOSAVE_INTERVAL) {
         autosaveT = 0;
@@ -2496,6 +2550,18 @@ Voxel.Game = (function () {
       setDur: function (i, v) { dur[i] = v; refreshInv(); },
       damageHeld: function () { damageHeldTool(1); },
       frameCount: function () { return framesExecuted; },
+      resetFrameClock: function (nowMs) {
+        var t = Number(nowMs);
+        if (!isFinite(t)) t = 0;
+        lastT = t;
+        lastFrameT = t;
+        simAccumulator = 0;
+        fixedStepsTotal = 0;
+        droppedSimTime = 0;
+      },
+      fixedStepCount: function () { return fixedStepsTotal; },
+      simAccumulator: function () { return simAccumulator; },
+      droppedSimTime: function () { return droppedSimTime; },
       requestFullscreen: requestGameFullscreen,
       galaxy: function () { return galaxyState; },
       currentWorld: function () { return currentWorld; },

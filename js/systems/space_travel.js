@@ -5,6 +5,8 @@ Voxel.SpaceTravel = (function () {
   var scene = null, group = null, ship = null, portals = [];
   var galaxy = null, world = null, nearShip = false, portalCooldown = 0;
   var fuelEl = null, worldEl = null, coordEl = null, mapGrid = null;
+  var shipBaseY = 0;
+  var SHIP_BOB_AMPLITUDE = 0.06;
 
   function box(parent, size, pos, color, emissive) {
     var lit = new THREE.Color(color);
@@ -123,7 +125,7 @@ Voxel.SpaceTravel = (function () {
         if (o.material) o.material.dispose();
       });
     }
-    group = null; ship = null; portals = []; nearShip = false;
+    group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false;
   }
 
   function loadWorld(w, g) {
@@ -148,6 +150,7 @@ Voxel.SpaceTravel = (function () {
       var sPos = safeSurface(Math.round(sp.x + 9), Math.round(sp.z + 7));
       ship = makeShip();
       ship.position.set(sPos.x + 0.5, sPos.y + 0.05, sPos.z + 0.5);
+      shipBaseY = ship.position.y;
       ship.rotation.y = Math.PI * 0.25;
       group.add(ship);
     } else {
@@ -178,15 +181,18 @@ Voxel.SpaceTravel = (function () {
     mapGrid = document.getElementById('starmap-grid');
   }
 
-  function update(dt) {
+  function update(dt, renderDt) {
     if (!world || !galaxy || !group || !Voxel.Player) return;
+    if (typeof dt !== 'number' || !isFinite(dt) || dt < 0) dt = 0;
+    if (typeof renderDt !== 'number' || !isFinite(renderDt) || renderDt < 0) renderDt = dt;
     portalCooldown = Math.max(0, portalCooldown - dt);
     var p = Voxel.Player.pos();
     nearShip = world.kind === 'station' || !!(ship && ship.position.distanceTo(p) < 7.5);
-    if (ship) ship.position.y += Math.sin(performance.now() * 0.002) * 0.0015;
+    // 绝对基准上的正弦位移，与显示刷新率无关；旧 += 写法会在高刷屏累积漂移。
+    if (ship) ship.position.y = shipBaseY + Math.sin(performance.now() * 0.002) * SHIP_BOB_AMPLITUDE;
     for (var i = 0; i < portals.length; i++) {
       var o = portals[i];
-      o.userData.ring.rotation.z += dt * (i % 2 ? -0.8 : 0.8);
+      o.userData.ring.rotation.z += renderDt * (i % 2 ? -0.8 : 0.8);
       o.userData.field.material.opacity = 0.18 + Math.sin(performance.now() * 0.004 + i) * 0.06;
       if (portalCooldown <= 0) {
         var dx = p.x - o.position.x, dy = p.y - (o.position.y + 2), dz = p.z - o.position.z;
