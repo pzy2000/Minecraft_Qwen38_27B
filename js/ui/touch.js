@@ -78,25 +78,39 @@ Voxel.Touch = (function () {
     return d;
   }
 
+  function actionButton(cls, label, text) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls;
+    b.setAttribute('aria-label', label);
+    b.textContent = text;
+    return b;
+  }
+
   function buildDom() {
     if (domBuilt) return;
     domBuilt = true;
 
     capture = el('touch-capture');
+    capture.setAttribute('aria-hidden', 'true');
     capture.style.display = 'none';   // 首帧由 onFrame 按 playing 态显隐
     document.body.appendChild(capture);
 
     base = el('touch-stick-base');
     knob = el('touch-stick-knob');
+    base.setAttribute('aria-hidden', 'true');
+    knob.setAttribute('aria-hidden', 'true');
     base.appendChild(knob);
     base.style.display = 'none';
     document.body.appendChild(base);
 
-    btnJump = el('touch-btn touch-btn-main', '', '跳');
-    btnDescend = el('touch-btn touch-btn-sub descend', 'display:none', '降');
-    btnFly = el('touch-btn touch-btn-sub fly', '', '飞');
-    btnPause = el('touch-btn touch-btn-top pause', '', 'Ⅱ');
-    btnBag = el('touch-btn touch-btn-top bag', '', '包');
+    btnJump = actionButton('touch-btn touch-btn-main', '跳跃、游泳上浮或飞行上升', '跳');
+    btnDescend = actionButton('touch-btn touch-btn-sub descend', '飞行下降', '降');
+    btnDescend.style.display = 'none';
+    btnFly = actionButton('touch-btn touch-btn-sub fly', '切换飞行模式', '飞');
+    btnFly.setAttribute('aria-pressed', 'false');
+    btnPause = actionButton('touch-btn touch-btn-top pause', '暂停游戏', 'Ⅱ');
+    btnBag = actionButton('touch-btn touch-btn-top bag', '打开背包', '包');
     [btnJump, btnFly, btnPause, btnBag].forEach(function (b) { b.style.display = 'none'; });
     document.body.appendChild(btnJump);
     document.body.appendChild(btnDescend);
@@ -119,23 +133,33 @@ Voxel.Touch = (function () {
     function update() {
       var size = viewportSize();
       var portrait = size.height > size.width;
-      rh.classList.toggle('hidden', !portrait || dismissed());
+      if (portrait && !dismissed()) {
+        if (Voxel.Game && Voxel.Game.openRotateHint) Voxel.Game.openRotateHint();
+        else rh.classList.remove('hidden');
+      } else if (!rh.classList.contains('hidden')) {
+        if (Voxel.Game && Voxel.Game.closeRotateHint) Voxel.Game.closeRotateHint(true);
+        else rh.classList.add('hidden');
+      }
     }
-    update();
     window.addEventListener('resize', update);
     window.addEventListener('orientationchange', update);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', update);
     if (btn) btn.addEventListener('click', function () {
       try { sessionStorage.setItem('rh_dismissed', '1'); } catch (e) { }
-      rh.classList.add('hidden');
+      if (Voxel.Game && Voxel.Game.closeRotateHint) Voxel.Game.closeRotateHint(true);
+      else rh.classList.add('hidden');
     });
+    // Game.init 尾部会建立 menu 状态；延后一拍避免把初始 loading 误记为返回态。
+    setTimeout(update, 0);
   }
 
   // 按钮：注入虚拟按键 / 直接调用 Game.onKey（与键盘同一路径）
   function holdKey(btn, code) {
+    var lastPointerActivation = -Infinity;
     btn.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       e.stopPropagation();
+      lastPointerActivation = performance.now();
       Voxel.Controls.keys[code] = true;
       btn.classList.add('pressing');
     });
@@ -147,17 +171,33 @@ Voxel.Touch = (function () {
     btn.addEventListener('pointerup', release);
     btn.addEventListener('pointercancel', release);
     btn.addEventListener('pointerleave', release);
+    // 键盘/开关控制/屏幕阅读器通常只派发 click；短脉冲保证固定步能观察到按键。
+    btn.addEventListener('click', function (e) {
+      if (performance.now() - lastPointerActivation < 600) { e.preventDefault(); return; }
+      Voxel.Controls.keys[code] = true;
+      btn.classList.add('pressing');
+      setTimeout(function () {
+        Voxel.Controls.keys[code] = false;
+        btn.classList.remove('pressing');
+      }, 120);
+    });
   }
 
   function tapKey(btn, code) {
+    var lastPointerActivation = -Infinity;
     btn.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       e.stopPropagation();
+      lastPointerActivation = performance.now();
       btn.classList.add('pressing');
       if (Voxel.Game) Voxel.Game.onKey(code);
     });
     btn.addEventListener('pointerup', function () { btn.classList.remove('pressing'); });
     btn.addEventListener('pointercancel', function () { btn.classList.remove('pressing'); });
+    btn.addEventListener('click', function (e) {
+      if (performance.now() - lastPointerActivation < 600) { e.preventDefault(); return; }
+      if (Voxel.Game) Voxel.Game.onKey(code);
+    });
   }
 
   function bindButtons() {
@@ -327,8 +367,11 @@ Voxel.Touch = (function () {
     }
     if (show && Voxel.Player) {
       var fly = Voxel.Player.flying();
+      btnFly.setAttribute('aria-pressed', fly ? 'true' : 'false');
       if ((fly ? 'flex' : 'none') !== btnDescend.style.display)
         btnDescend.style.display = fly ? 'flex' : 'none';
+    } else if (btnFly) {
+      btnFly.setAttribute('aria-pressed', 'false');
     }
     lastState = state;
   }

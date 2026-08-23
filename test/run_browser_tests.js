@@ -52,12 +52,20 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 293, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 390, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 740, height: 300, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
-    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 390, height: 740, deviceScaleFactor: 3, isMobile: true, hasTouch: true } }
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 390, height: 740, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 320, height: 568, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    // 320x568 与 568x320 在 200% 缩放后的等效 CSS 可视区。
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 160, height: 284, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } }
   ];
 
   for (const t of targets) {
     const page = await browser.newPage();
     await page.setViewport(t.viewport || { width: 960, height: 600 });
+    if (t.reducedMotion)
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     if (t.forceTouch)
       await page.evaluateOnNewDocument(() => { window.__FORCE_TOUCH__ = true; });
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
@@ -67,7 +75,8 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     ).then(() => true).catch(() => false);
     const text = await page.$eval('#results, #out', el => el.textContent).catch(() => '');
     const vpLabel = t.viewport ? ` [${t.viewport.width}x${t.viewport.height}]` : '';
-    console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') + vpLabel + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
+    console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') +
+      (t.reducedMotion ? ' [reduced-motion]' : '') + vpLabel + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
     console.log(text);
     allPass = allPass && ok;
     await page.close();

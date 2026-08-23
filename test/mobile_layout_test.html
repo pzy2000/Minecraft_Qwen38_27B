@@ -8,7 +8,26 @@
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="hud"><div id="hotbar"></div></div>
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="space-hud"><div id="world-name">◆ 测试星域</div><div id="world-coord">坐标 0 / 0</div><div id="warp-fuel">跃迁 100%</div></div>
+  <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+  <canvas id="oxygen" width="212" height="20"></canvas>
+  <canvas id="hunger" width="212" height="20"></canvas>
+  <canvas id="health" width="212" height="20"></canvas>
+  <div id="hotbar"></div>
+</div>
+<div class="touch-btn touch-btn-main" style="display:flex">跳</div>
+<div class="touch-btn touch-btn-sub fly" style="display:flex">飞</div>
+<div class="touch-btn touch-btn-top pause" style="display:flex">Ⅱ</div>
+<div class="touch-btn touch-btn-top bag" style="display:flex">包</div>
+
+<!-- 动效与对比度探针不参与布局，仅用于 reduced-motion/样式回归。 -->
+<div id="rotate-hint" class="hidden"><div class="rh-icon">⟳</div></div>
+<div id="overlay-warp" class="overlay warp-overlay hidden"><div class="warp-stars"></div><div class="warp-track"><i></i></div></div>
+<div id="dmg-flash" class="go"></div>
+<div id="motion-card" class="featured-card hidden">动效卡片</div>
+<div id="contrast-fixture" class="seed-row hidden"><input placeholder="星系种子（留空随机）"></div>
 
 <div id="inventory" class="hidden"><div class="panel inv-panel">
   <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
@@ -55,31 +74,32 @@
   <div class="set-row"><label>雾距</label><input type="range"><span>1.00</span></div>
   <div class="set-row"><label>触摸灵敏度</label><input type="range"><span>1.00</span></div>
   <div class="set-row"><label>渲染分辨率</label><input type="range"><span>0.55</span></div>
-  <div class="set-row"><label>帧率上限</label><span class="btn-row"><button class="btn small">30</button><button class="btn small">60</button></span></div>
+  <div class="set-row"><span class="set-label">帧率上限</span><span class="btn-row"><button class="btn small">30</button><button class="btn small">60</button></span></div>
   <div class="set-row"><label>粒子密度</label><input type="range"><span>0.40</span></div>
   <div class="set-row"><label>雨滴密度</label><input type="range"><span>0.40</span></div>
   <div class="set-row"><label>生物数量</label><input type="range"><span>0.50</span></div>
-  <div class="set-row"><label>性能预设</label><span class="btn-row"><button class="btn small">流畅</button><button class="btn small">均衡</button></span></div>
+  <div class="set-row"><span class="set-label">性能预设</span><span class="btn-row"><button class="btn small">流畅</button><button class="btn small">均衡</button></span></div>
   <div class="hint">设置立即生效并自动保存。</div>
   <button id="btn-set-close" class="btn primary">返回</button>
 </div></div>
 
-<pre id="results">RUNNING</pre>
+<pre id="results" style="display:none">RUNNING</pre>
 <script>
 (function () {
   var out = [];
   function check(name, ok) { out.push((ok ? 'ok   ' : 'FAIL ') + name); }
-  function slots(id, n) {
+  function slots(id, n, cls) {
     var root = document.getElementById(id);
     for (var i = 0; i < n; i++) {
       var d = document.createElement('div');
-      d.className = 'slot inv';
+      d.className = 'slot' + (cls ? ' ' + cls : '');
       root.appendChild(d);
     }
   }
-  slots('inv-craft-grid', 4); slots('inv-grid', 36);
-  slots('craft-grid', 9); slots('craft-inv-grid', 36);
-  slots('fur-inv-grid', 36); slots('chest-grid', 27); slots('chest-inv-grid', 36);
+  slots('hotbar', 9);
+  slots('inv-craft-grid', 4, 'inv'); slots('inv-grid', 36, 'inv');
+  slots('craft-grid', 9, 'inv'); slots('craft-inv-grid', 36, 'inv');
+  slots('fur-inv-grid', 36, 'inv'); slots('chest-grid', 27, 'inv'); slots('chest-inv-grid', 36, 'inv');
   for (var r = 0; r < 18; r++) {
     var row = document.createElement('div');
     row.className = 'recipe-row';
@@ -96,10 +116,80 @@
   check('画布宽度等于可视区 (' + W + ')', Math.abs(canvasRect.width - W) <= 1);
   check('画布高度等于可视区 (' + H + ')', Math.abs(canvasRect.height - H) <= 1);
 
+  function inside(inner, outer) {
+    return inner.left >= outer.left - 1 && inner.top >= outer.top - 1 &&
+      inner.right <= outer.right + 1 && inner.bottom <= outer.bottom + 1;
+  }
+  function inViewport(r) {
+    return r.left >= -1 && r.top >= -1 && r.right <= W + 1 && r.bottom <= H + 1;
+  }
+  function hit(el) {
+    var r = el.getBoundingClientRect();
+    if (!inViewport(r)) return false;
+    var found = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return found === el || el.contains(found);
+  }
+  function overlapArea(a, b) {
+    var w = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+    var h = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+    return w * h;
+  }
+  function target44(name, el) {
+    var r = el.getBoundingClientRect();
+    check(name + ' 至少 44px', r.width >= 43.9 && r.height >= 43.9);
+  }
+  function scrollEnds(name, scroller) {
+    if (!scroller || !scroller.children.length) return;
+    var first = scroller.firstElementChild;
+    var last = scroller.lastElementChild;
+    scroller.scrollLeft = 0;
+    var sr0 = scroller.getBoundingClientRect();
+    var fr = first.getBoundingClientRect();
+    check(name + ' 首槽在起点完整可达', fr.left >= sr0.left - 1 && fr.right <= sr0.right + 1);
+    scroller.scrollLeft = scroller.scrollWidth;
+    var sr1 = scroller.getBoundingClientRect();
+    var lr = last.getBoundingClientRect();
+    check(name + ' 末槽滚动后完整可达', lr.left >= sr1.left - 1 && lr.right <= sr1.right + 1);
+    scroller.scrollLeft = 0;
+  }
+
+  var viewportRect = { left: 0, top: 0, right: W, bottom: H };
+  var hotbar = document.getElementById('hotbar');
+  check('hotbar 完整限制在可视区', inside(hotbar.getBoundingClientRect(), viewportRect));
+  check('hotbar 外层不扩张页面', document.documentElement.scrollWidth <= W + 1);
+  Array.prototype.forEach.call(hotbar.children, function (slot, i) { target44('hotbar 槽 ' + (i + 1), slot); });
+  scrollEnds('hotbar', hotbar);
+
+  var healthR = document.getElementById('health').getBoundingClientRect();
+  var hungerR = document.getElementById('hunger').getBoundingClientRect();
+  var spaceR = document.getElementById('space-hud').getBoundingClientRect();
+  var starBtn = document.getElementById('btn-starmap-hud');
+  var starR = starBtn.getBoundingClientRect();
+  check('生命与饥饿 HUD 不重叠', overlapArea(healthR, hungerR) === 0);
+  check('世界 HUD 与星图按钮不重叠', overlapArea(spaceR, starR) === 0);
+  check('生命/饥饿 HUD 均在可视区', inViewport(healthR) && inViewport(hungerR));
+  target44('星图按钮', starBtn);
+  check('星图按钮完整可见', inViewport(starR));
+
+  var topControls = [starBtn, document.querySelector('.touch-btn-top.pause'), document.querySelector('.touch-btn-top.bag')];
+  for (var ti = 0; ti < topControls.length; ti++) {
+    target44('顶部控制 ' + (ti + 1), topControls[ti]);
+    check('顶部控制 ' + (ti + 1) + ' 完整可见', inViewport(topControls[ti].getBoundingClientRect()));
+    for (var tj = ti + 1; tj < topControls.length; tj++)
+      check('顶部控制 ' + (ti + 1) + '/' + (tj + 1) + ' 不重叠',
+        overlapArea(topControls[ti].getBoundingClientRect(), topControls[tj].getBoundingClientRect()) === 0);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.touch-btn'), function (btn, i) {
+    target44('触摸动作 ' + (i + 1), btn);
+  });
+
   var cases = [
-    ['inventory', 'btn-inv-close'], ['crafting', 'btn-craft-close'],
-    ['furnace', 'btn-furnace-close'], ['chest', 'btn-chest-close'],
-    ['manual', 'btn-manual-close'], ['overlay-settings', 'btn-settings-close']
+    ['inventory', 'btn-inv-close', ['inv-grid']],
+    ['crafting', 'btn-craft-close', ['craft-inv-grid']],
+    ['furnace', 'btn-furnace-close', ['fur-inv-grid']],
+    ['chest', 'btn-chest-close', ['chest-grid', 'chest-inv-grid']],
+    ['manual', 'btn-manual-close', []],
+    ['overlay-settings', 'btn-settings-close', []]
   ];
   cases.forEach(function (c) {
     var overlay = document.getElementById(c[0]);
@@ -110,17 +200,58 @@
     var cr = close.getBoundingClientRect();
     check(c[0] + ' 面板完整限制在可视区',
       pr.top >= -1 && pr.left >= -1 && pr.bottom <= H + 1 && pr.right <= W + 1);
-    if (W > H) check(c[0] + ' 横屏无需横向滚动', panel.scrollWidth <= panel.clientWidth + 1);
+    check(c[0] + ' 外层面板无横向溢出', panel.scrollWidth <= panel.clientWidth + 1);
+    check(c[0] + ' 不扩张页面', document.documentElement.scrollWidth <= W + 1);
     check(c[0] + ' 关闭按钮至少 44px 且完整可见',
       cr.width >= 44 && cr.height >= 44 && cr.top >= -1 && cr.left >= -1 && cr.bottom <= H + 1 && cr.right <= W + 1);
-    var hit = document.elementFromPoint(cr.left + cr.width / 2, cr.top + cr.height / 2);
-    check(c[0] + ' 关闭按钮可命中', hit === close || close.contains(hit));
+    check(c[0] + ' 关闭按钮可命中', hit(close));
+    for (var gi = 0; gi < c[2].length; gi++) {
+      var scroller = document.getElementById(c[2][gi]);
+      var sgr = scroller.getBoundingClientRect();
+      check(c[2][gi] + ' 局部滚动器限制在面板内',
+        scroller.clientWidth <= panel.clientWidth + 1 &&
+        sgr.left >= pr.left - 1 && sgr.right <= pr.right + 1);
+      scrollEnds(c[2][gi], scroller);
+    }
+    Array.prototype.forEach.call(overlay.querySelectorAll('.slot, .btn, input[type="range"], .panel-close'), function (el, i) {
+      if (el.getBoundingClientRect().width > 0) target44(c[0] + ' 核心目标 ' + (i + 1), el);
+    });
     panel.scrollTop = panel.scrollHeight;
     var csr = close.getBoundingClientRect();
     check(c[0] + ' 滚动后关闭按钮仍可见', csr.top >= -1 && csr.bottom <= H + 1);
+    check(c[0] + ' 滚动后关闭按钮仍可命中', hit(close));
     panel.scrollTop = 0;
     overlay.classList.add('hidden');
   });
+
+  function rgb(s) {
+    var m = String(s).match(/[\d.]+/g);
+    return m ? [+m[0], +m[1], +m[2]] : [0, 0, 0];
+  }
+  function luminance(c) {
+    var v = c.map(function (x) {
+      x /= 255;
+      return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  }
+  function contrast(a, b) {
+    var x = luminance(a), y = luminance(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+  var contrastInput = document.querySelector('#contrast-fixture input');
+  check('种子 placeholder 对比度至少 4.5:1',
+    contrast(rgb(getComputedStyle(contrastInput, '::placeholder').color), rgb(getComputedStyle(contrastInput).backgroundColor)) >= 4.5);
+  var crossStyle = getComputedStyle(document.getElementById('crosshair'), '::before');
+  check('准星不依赖 difference 混合', crossStyle.mixBlendMode === 'normal');
+  check('准星具有深色描边', crossStyle.boxShadow !== 'none');
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    check('reduced-motion 旋转提示静止', getComputedStyle(document.querySelector('.rh-icon')).animationName === 'none');
+    check('reduced-motion 跃迁星空静止', getComputedStyle(document.querySelector('.warp-stars')).animationName === 'none');
+    check('reduced-motion 跃迁进度静止', getComputedStyle(document.querySelector('.warp-track i')).animationName === 'none');
+    check('reduced-motion 卡片无过渡', parseFloat(getComputedStyle(document.getElementById('motion-card')).transitionDuration || '0') === 0);
+  }
 
   var fails = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;
   document.getElementById('results').textContent =

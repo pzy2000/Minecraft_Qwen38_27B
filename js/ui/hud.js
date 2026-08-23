@@ -7,7 +7,10 @@ Voxel.HUD = (function () {
   var furInSlot = null, furFuelSlot = null, furOutSlot = null, furInvSlots = [];
   var chestSlots = [], chestInvSlots = [], chestHeldCanvas = null;
   var manualBtns = [];
-  var healthCtx, debugEl, toastEl, heldCanvas, craftHeldCanvas, resultCanvas, invResultCanvas, furHeldCanvas;
+  var healthCtx, debugEl, toastEl, heldCanvas, craftHeldCanvas, furHeldCanvas;
+  var resultSlot = null, invResultSlot = null;
+  var lastCraftGrid = [], lastInvCraftGrid = [];
+  var selectedHotbar = 0;
   var hungerCtx = null;
   var HEART = ['0110110', '1111111', '1111111', '0111110', '0011100', '0001000'];
   // 鸡腿：右上肉块 + 左下腿骨
@@ -20,17 +23,141 @@ Voxel.HUD = (function () {
     '1100000'
   ];
 
-  function makeSlot(cls, slotType, idx) {
-    var d = document.createElement('div');
+  function decorateCanvas(canvas) {
+    if (!canvas) return canvas;
+    canvas.setAttribute('aria-hidden', 'true');
+    canvas.setAttribute('focusable', 'false');
+    return canvas;
+  }
+
+  function slotName(prefix, idx, total) {
+    return prefix + '第 ' + (idx + 1) + '/' + total + ' 格';
+  }
+
+  function describeSlot(slot, id, count, dur, maxDur) {
+    if (!slot || !slot.el) return;
+    var text = slot.label + '，';
+    if (!id) text += '空';
+    else {
+      text += Voxel.Blocks.name(id) + '，数量 ' + (Math.max(1, Number(count) || 1));
+      if (maxDur && dur !== undefined && dur !== null)
+        text += '，耐久 ' + Math.max(0, Math.round(dur)) + '/' + maxDur;
+    }
+    slot.el.setAttribute('aria-label', text);
+  }
+
+  function renderSlot(slot, id, count, dur, maxDur) {
+    if (!slot) return;
+    drawIcon(slot.canvas, id, count, dur, maxDur);
+    describeSlot(slot, id, count, dur, maxDur);
+  }
+
+  function setRovingIndex(group, index, focusIt) {
+    if (!group || !group.items.length) return;
+    index = Math.max(0, Math.min(group.items.length - 1, index | 0));
+    group.index = index;
+    for (var i = 0; i < group.items.length; i++)
+      group.items[i].el.tabIndex = i === index ? 0 : -1;
+    var target = group.items[index].el;
+    if (focusIt) {
+      target.focus({ preventScroll: true });
+      if (target.scrollIntoView) {
+        try { target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+        catch (e) { target.scrollIntoView(); }
+      }
+    }
+  }
+
+  function moveRoving(slot, key) {
+    var group = slot && slot.roving;
+    if (!group) return false;
+    var index = group.items.indexOf(slot);
+    if (index < 0) return false;
+    var columns = group.columns;
+    var next = index;
+    if (key === 'ArrowLeft' && index % columns > 0) next--;
+    else if (key === 'ArrowRight' && index % columns < columns - 1 && index + 1 < group.items.length) next++;
+    else if (key === 'ArrowUp' && index - columns >= 0) next -= columns;
+    else if (key === 'ArrowDown' && index + columns < group.items.length) next += columns;
+    else return false;
+    setRovingIndex(group, next, true);
+    return true;
+  }
+
+  function slotKeydown(e, slot, action) {
+    if (e.isComposing || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (/^Arrow(Left|Right|Up|Down)$/.test(e.key)) {
+      if (moveRoving(slot, e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
+    var secondary = e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey);
+    var activate = e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar';
+    if (!activate && !secondary) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var quickMove = e.key === 'Enter' && e.shiftKey;
+    if (action) action();
+    else if (slot.hotbar && activate && !quickMove && Voxel.Game && Voxel.Game.selectHotbar)
+      Voxel.Game.selectHotbar(slot.index);
+    else if (Voxel.Game && Voxel.Game.onSlotKeyboard)
+      Voxel.Game.onSlotKeyboard(slot.type, slot.index, {
+        shift: quickMove,
+        secondary: secondary
+      });
+  }
+
+  function bindSlot(el, canvas, slotType, idx, label) {
+    if (el.tagName !== 'BUTTON') {
+      el.setAttribute('role', 'button');
+      el.tabIndex = -1;
+    } else {
+      el.type = 'button';
+      el.tabIndex = -1;
+    }
+    decorateCanvas(canvas);
+    var slot = { el: el, canvas: canvas, type: slotType || '', index: idx || 0, label: label };
+    describeSlot(slot, 0);
+    if (slotType) {
+      el.setAttribute('data-slot', slotType + ':' + idx);
+      el.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, slotType, idx); });
+      el.addEventListener('keydown', function (e) { slotKeydown(e, slot); });
+    }
+    return slot;
+  }
+
+  function setupRoving(container, items, columns, label, initialIndex) {
+    if (!container || !items.length) return null;
+    container.setAttribute('role', container.id === 'hotbar' ? 'toolbar' : 'group');
+    if (label) container.setAttribute('aria-label', label);
+    var group = { items: items, columns: Math.max(1, columns | 0), index: 0 };
+    for (var i = 0; i < items.length; i++) {
+      items[i].roving = group;
+      (function (slot, index) {
+        slot.el.addEventListener('focus', function () { setRovingIndex(group, index, false); });
+      })(items[i], i);
+    }
+    setRovingIndex(group, initialIndex || 0, false);
+    return group;
+  }
+
+  function bindActionSlot(el, canvas, label, action) {
+    var slot = bindSlot(el, canvas, '', 0, label);
+    el.addEventListener('keydown', function (e) { slotKeydown(e, slot, action); });
+    el.tabIndex = 0;
+    return slot;
+  }
+
+  function makeSlot(cls, slotType, idx, label) {
+    var d = document.createElement('button');
+    d.type = 'button';
     d.className = 'slot' + (cls ? ' ' + cls : '');
     var c = document.createElement('canvas');
     c.width = 44; c.height = 44;
     d.appendChild(c);
-    if (slotType) {
-      d.setAttribute('data-slot', slotType + ':' + idx);
-      d.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, slotType, idx); });
-    }
-    return { el: d, canvas: c };
+    return bindSlot(d, c, slotType, idx, label);
   }
 
   function buildManual() {
@@ -51,7 +178,7 @@ Voxel.HUD = (function () {
         left.className = 'recipe-single';
         var ib = document.createElement('div');
         ib.className = 'icon-box';
-        var ic = document.createElement('canvas');
+        var ic = decorateCanvas(document.createElement('canvas'));
         ic.width = 44; ic.height = 44;
         ib.appendChild(ic);
         left.appendChild(ib);
@@ -66,7 +193,7 @@ Voxel.HUD = (function () {
           var cell = document.createElement('div');
           cell.className = 'recipe-cell';
           if (r.grid[k]) {
-            var cv = document.createElement('canvas');
+            var cv = decorateCanvas(document.createElement('canvas'));
             cv.width = 44; cv.height = 44;
             cell.appendChild(cv);
             (function (c2, id) { drawIcon(c2, id); })(cv, r.grid[k]);
@@ -85,7 +212,7 @@ Voxel.HUD = (function () {
       res.className = 'recipe-result';
       var rb = document.createElement('div');
       rb.className = 'icon-box';
-      var rc = document.createElement('canvas');
+      var rc = decorateCanvas(document.createElement('canvas'));
       rc.width = 44; rc.height = 44;
       rb.appendChild(rc);
       res.appendChild(rb);
@@ -135,7 +262,7 @@ Voxel.HUD = (function () {
         sl.className = 'recipe-single';
         var sib = document.createElement('div');
         sib.className = 'icon-box';
-        var sic = document.createElement('canvas');
+        var sic = decorateCanvas(document.createElement('canvas'));
         sic.width = 44; sic.height = 44;
         sib.appendChild(sic);
         sl.appendChild(sib);
@@ -149,7 +276,7 @@ Voxel.HUD = (function () {
         sres.className = 'recipe-result';
         var srb = document.createElement('div');
         srb.className = 'icon-box';
-        var src2 = document.createElement('canvas');
+        var src2 = decorateCanvas(document.createElement('canvas'));
         src2.width = 44; src2.height = 44;
         srb.appendChild(src2);
         sres.appendChild(srb);
@@ -184,22 +311,18 @@ Voxel.HUD = (function () {
     var hotbarEl = document.getElementById('hotbar');
     for (var i = 0; i < 9; i++) {
       (function (idx) {
-        var d = document.createElement('div');
-        d.className = 'slot';
-        d.setAttribute('data-slot', 'inv:' + idx); // 快捷栏可拖拽（映射背包前 9 格）
-        d.addEventListener('pointerdown', function (ev) { Voxel.Game.onSlotDown(ev, 'inv', idx); });
-        var c = document.createElement('canvas');
-        c.width = 44; c.height = 44;
-        d.appendChild(c);
-        hotbarEl.appendChild(d);
-        slots.push({ el: d, canvas: c });
+        var s = makeSlot('', 'inv', idx, slotName('快捷栏', idx, 9));
+        s.hotbar = true;
+        s.el.setAttribute('aria-keyshortcuts', String(idx + 1));
+        hotbarEl.appendChild(s.el);
+        slots.push(s);
       })(i);
     }
 
     var grid = document.getElementById('inv-grid');
     for (var j = 0; j < 36; j++) {
       (function (idx) {
-        var s = makeSlot('inv', 'inv', idx);
+        var s = makeSlot('inv', 'inv', idx, slotName('背包', idx, 36));
         grid.appendChild(s.el);
         invSlots.push(s);
       })(j);
@@ -209,22 +332,24 @@ Voxel.HUD = (function () {
     var icgrid = document.getElementById('inv-craft-grid');
     for (var ic = 0; ic < 4; ic++) {
       (function (idx) {
-        var s = makeSlot('craft', 'icraft', idx);
+        var s = makeSlot('craft', 'icraft', idx, slotName('随身合成区', idx, 4));
         icgrid.appendChild(s.el);
         invCraftSlots.push(s);
       })(ic);
     }
     var icros = document.getElementById('inv-craft-result');
     icros.setAttribute('data-slot', 'inv-result');
-    invResultCanvas = document.createElement('canvas');
+    var invResultCanvas = decorateCanvas(document.createElement('canvas'));
     invResultCanvas.width = 44; invResultCanvas.height = 44;
     icros.appendChild(invResultCanvas);
-    icros.addEventListener('click', function () { Voxel.Game.onInvResultClick(); });
+    var takeInvResult = function () { Voxel.Game.onInvResultClick(); };
+    icros.addEventListener('click', takeInvResult);
+    invResultSlot = bindActionSlot(icros, invResultCanvas, '随身合成结果', takeInvResult);
 
     var cgrid = document.getElementById('craft-grid');
     for (var c2 = 0; c2 < 9; c2++) {
       (function (idx) {
-        var s = makeSlot('craft', 'craft', idx);
+        var s = makeSlot('craft', 'craft', idx, slotName('工作台合成区', idx, 9));
         cgrid.appendChild(s.el);
         craftSlots.push(s);
       })(c2);
@@ -232,15 +357,17 @@ Voxel.HUD = (function () {
 
     var cres = document.getElementById('craft-result');
     cres.setAttribute('data-slot', 'result');
-    resultCanvas = document.createElement('canvas');
+    var resultCanvas = decorateCanvas(document.createElement('canvas'));
     resultCanvas.width = 44; resultCanvas.height = 44;
     cres.appendChild(resultCanvas);
-    cres.addEventListener('click', function () { Voxel.Game.onResultClick(); });
+    var takeResult = function () { Voxel.Game.onResultClick(); };
+    cres.addEventListener('click', takeResult);
+    resultSlot = bindActionSlot(cres, resultCanvas, '工作台合成结果', takeResult);
 
     var cinv = document.getElementById('craft-inv-grid');
     for (var j2 = 0; j2 < 36; j2++) {
       (function (idx) {
-        var s = makeSlot('inv', 'inv', idx);
+        var s = makeSlot('inv', 'inv', idx, slotName('工作台背包', idx, 36));
         cinv.appendChild(s.el);
         craftInvSlots.push(s);
       })(j2);
@@ -250,35 +377,32 @@ Voxel.HUD = (function () {
     var fin = document.getElementById('fur-in');
     if (fin) {
       fin.setAttribute('data-slot', 'fin:0');
-      fin.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, 'fin', 0); });
-      var fc = document.createElement('canvas');
+      var fc = decorateCanvas(document.createElement('canvas'));
       fc.width = 44; fc.height = 44;
       fin.appendChild(fc);
-      furInSlot = fc;
+      furInSlot = bindSlot(fin, fc, 'fin', 0, '熔炉原料格');
     }
     var ffuel = document.getElementById('fur-fuel');
     if (ffuel) {
       ffuel.setAttribute('data-slot', 'ffuel:0');
-      ffuel.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, 'ffuel', 0); });
-      var fc2 = document.createElement('canvas');
+      var fc2 = decorateCanvas(document.createElement('canvas'));
       fc2.width = 44; fc2.height = 44;
       ffuel.appendChild(fc2);
-      furFuelSlot = fc2;
+      furFuelSlot = bindSlot(ffuel, fc2, 'ffuel', 0, '熔炉燃料格');
     }
     var fout = document.getElementById('fur-out');
     if (fout) {
       fout.setAttribute('data-slot', 'fout:0');
-      fout.addEventListener('pointerdown', function (e) { Voxel.Game.onSlotDown(e, 'fout', 0); });
-      var fc3 = document.createElement('canvas');
+      var fc3 = decorateCanvas(document.createElement('canvas'));
       fc3.width = 44; fc3.height = 44;
       fout.appendChild(fc3);
-      furOutSlot = fc3;
+      furOutSlot = bindSlot(fout, fc3, 'fout', 0, '熔炉产物格');
     }
     var fig = document.getElementById('fur-inv-grid');
     if (fig) {
       for (var j3 = 0; j3 < 36; j3++) {
         (function (idx) {
-          var s = makeSlot('inv', 'inv', idx);
+          var s = makeSlot('inv', 'inv', idx, slotName('熔炉背包', idx, 36));
           fig.appendChild(s.el);
           furInvSlots.push(s);
         })(j3);
@@ -290,26 +414,39 @@ Voxel.HUD = (function () {
     if (cgrid2) {
       for (var ci = 0; ci < 27; ci++) {
         (function (idx) {
-          var s = makeSlot('chest', 'chest', idx);
+          var s = makeSlot('chest', 'chest', idx, slotName('箱子', idx, 27));
           cgrid2.appendChild(s.el);
           chestSlots.push(s);
         })(ci);
       }
-      chestHeldCanvas = document.getElementById('chest-held');
+      chestHeldCanvas = decorateCanvas(document.getElementById('chest-held'));
     }
     var cig = document.getElementById('chest-inv-grid');
     if (cig) {
       for (var cj = 0; cj < 36; cj++) {
         (function (idx) {
-          var s = makeSlot('inv', 'inv', idx);
+          var s = makeSlot('inv', 'inv', idx, slotName('箱子背包', idx, 36));
           cig.appendChild(s.el);
           chestInvSlots.push(s);
         })(cj);
       }
     }
 
-    heldCanvas = document.getElementById('inv-held');
-    craftHeldCanvas = document.getElementById('craft-held');
+    setupRoving(hotbarEl, slots, 9, '快捷栏', selectedHotbar);
+    setupRoving(grid, invSlots, 9, '背包物品格', 0);
+    setupRoving(icgrid, invCraftSlots, 2, '随身合成格', 0);
+    setupRoving(cgrid, craftSlots, 3, '工作台合成格', 0);
+    setupRoving(cinv, craftInvSlots, 9, '工作台背包格', 0);
+    if (furInSlot && furFuelSlot && furOutSlot)
+      setupRoving(document.querySelector('#furnace .furnace-row'),
+        [furInSlot, furFuelSlot, furOutSlot], 1, '熔炉操作格', 0);
+    setupRoving(fig, furInvSlots, 9, '熔炉背包格', 0);
+    setupRoving(cgrid2, chestSlots, 9, '箱子物品格', 0);
+    setupRoving(cig, chestInvSlots, 9, '箱子背包格', 0);
+
+    heldCanvas = decorateCanvas(document.getElementById('inv-held'));
+    craftHeldCanvas = decorateCanvas(document.getElementById('craft-held'));
+    setSelected(selectedHotbar);
     healthCtx = document.getElementById('health').getContext('2d');
     var hEl = document.getElementById('hunger');
     if (hEl) hungerCtx = hEl.getContext('2d');
@@ -356,33 +493,42 @@ Voxel.HUD = (function () {
 
   function setInv(inv, cnt, dur) {
     for (var i = 0; i < 9; i++) {
-      drawIcon(slots[i].canvas, inv[i], cnt && cnt[i],
-        dur && dur[i], dur && dur[i] ? Voxel.Blocks.maxDur(inv[i]) : 0);
+      var hd = dur && dur[i];
+      renderSlot(slots[i], inv[i], cnt && cnt[i], hd, Voxel.Blocks.maxDur(inv[i]));
     }
     for (var j = 0; j < 36; j++) {
-      var dd = dur && dur[j], md = dd ? Voxel.Blocks.maxDur(inv[j]) : 0;
-      drawIcon(invSlots[j].canvas, inv[j], cnt && cnt[j], dd, md);
-      drawIcon(craftInvSlots[j].canvas, inv[j], cnt && cnt[j], dd, md);
-      if (furInvSlots[j]) drawIcon(furInvSlots[j].canvas, inv[j], cnt && cnt[j], dd, md);
+      var dd = dur && dur[j], md = Voxel.Blocks.maxDur(inv[j]);
+      renderSlot(invSlots[j], inv[j], cnt && cnt[j], dd, md);
+      renderSlot(craftInvSlots[j], inv[j], cnt && cnt[j], dd, md);
+      if (furInvSlots[j]) renderSlot(furInvSlots[j], inv[j], cnt && cnt[j], dd, md);
+      if (chestInvSlots[j]) renderSlot(chestInvSlots[j], inv[j], cnt && cnt[j], dd, md);
     }
   }
 
   function setCraftGrid(grid) {
-    for (var i = 0; i < 9; i++) drawIcon(craftSlots[i].canvas, grid[i]);
+    lastCraftGrid = grid ? grid.slice(0, 9) : [];
+    for (var i = 0; i < 9; i++) renderSlot(craftSlots[i], grid[i], grid[i] ? 1 : 0);
   }
 
   function setInvCraftGrid(grid) {
-    for (var i = 0; i < 4; i++) drawIcon(invCraftSlots[i].canvas, grid[i]);
+    lastInvCraftGrid = grid ? grid.slice(0, 4) : [];
+    for (var i = 0; i < 4; i++) renderSlot(invCraftSlots[i], grid[i], grid[i] ? 1 : 0);
   }
 
-  function drawResult(id) { drawIcon(resultCanvas, id); }
+  function drawResult(id) {
+    var matched = id && Voxel.Crafting ? Voxel.Crafting.match(lastCraftGrid) : null;
+    renderSlot(resultSlot, id, matched && matched.result === id ? matched.count : (id ? 1 : 0));
+  }
 
-  function drawInvResult(id) { drawIcon(invResultCanvas, id); }
+  function drawInvResult(id) {
+    var matched = id && Voxel.Crafting ? Voxel.Crafting.matchIn(lastInvCraftGrid, 2) : null;
+    renderSlot(invResultSlot, id, matched && matched.result === id ? matched.count : (id ? 1 : 0));
+  }
 
   function drawHeld(id) {
     drawIcon(heldCanvas, id);
     drawIcon(craftHeldCanvas, id);
-    if (furHeldCanvas === null) furHeldCanvas = document.getElementById('fur-held');
+    if (furHeldCanvas === null) furHeldCanvas = decorateCanvas(document.getElementById('fur-held'));
     if (furHeldCanvas) drawIcon(furHeldCanvas, id);
     if (chestHeldCanvas) drawIcon(chestHeldCanvas, id);
   }
@@ -390,9 +536,12 @@ Voxel.HUD = (function () {
   // 熔炉三格（f: {in,fuel,out} 各 {id,n}|null）
   function setFurnace(f) {
     if (!furInSlot) return;
-    drawIcon(furInSlot, f.in ? f.in.id : 0, f.in ? f.in.n : 0);
-    drawIcon(furFuelSlot, f.fuel ? f.fuel.id : 0, f.fuel ? f.fuel.n : 0);
-    drawIcon(furOutSlot, f.out ? f.out.id : 0, f.out ? f.out.n : 0);
+    renderSlot(furInSlot, f.in ? f.in.id : 0, f.in ? f.in.n : 0,
+      f.in ? f.in.dur : null, f.in ? Voxel.Blocks.maxDur(f.in.id) : 0);
+    renderSlot(furFuelSlot, f.fuel ? f.fuel.id : 0, f.fuel ? f.fuel.n : 0,
+      f.fuel ? f.fuel.dur : null, f.fuel ? Voxel.Blocks.maxDur(f.fuel.id) : 0);
+    renderSlot(furOutSlot, f.out ? f.out.id : 0, f.out ? f.out.n : 0,
+      f.out ? f.out.dur : null, f.out ? Voxel.Blocks.maxDur(f.out.id) : 0);
   }
 
   // 箱子 27 格（c.items[i] = {id,n,dur}|null）
@@ -400,9 +549,8 @@ Voxel.HUD = (function () {
     if (!chestSlots.length) return;
     for (var i = 0; i < chestSlots.length; i++) {
       var o = c && c.items ? c.items[i] : null;
-      var cv = chestSlots[i].canvas;
-      if (o) drawIcon(cv, o.id, o.n, o.dur, o.dur ? Voxel.Blocks.maxDur(o.id) : 0);
-      else drawIcon(cv, 0);
+      if (o) renderSlot(chestSlots[i], o.id, o.n, o.dur, Voxel.Blocks.maxDur(o.id));
+      else renderSlot(chestSlots[i], 0);
     }
   }
 
@@ -410,15 +558,37 @@ Voxel.HUD = (function () {
   function setFurnaceGauges(burn01, prog01) {
     var flame = document.getElementById('fur-flame');
     var prog = document.getElementById('fur-prog');
-    if (flame) flame.firstElementChild.style.height = Math.round(Math.max(0, Math.min(1, burn01)) * 100) + '%';
-    if (prog) prog.style.width = Math.round(Math.max(0, Math.min(1, prog01)) * 100) + '%';
+    var burn = Math.round(Math.max(0, Math.min(1, burn01)) * 100);
+    var progress = Math.round(Math.max(0, Math.min(1, prog01)) * 100);
+    if (flame) {
+      flame.firstElementChild.style.height = burn + '%';
+      flame.setAttribute('aria-valuenow', String(burn));
+    }
+    if (prog) {
+      prog.style.width = progress + '%';
+      if (prog.parentElement) prog.parentElement.setAttribute('aria-valuenow', String(progress));
+    }
   }
 
   function setSelected(i) {
-    for (var k = 0; k < 9; k++) slots[k].el.classList.toggle('selected', k === i);
+    selectedHotbar = Math.max(0, Math.min(8, i | 0));
+    for (var k = 0; k < 9; k++) {
+      var selected = k === selectedHotbar;
+      slots[k].el.classList.toggle('selected', selected);
+      slots[k].el.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    }
+    if (slots.length && slots[0].roving) setRovingIndex(slots[0].roving, selectedHotbar, false);
+    var current = slots[selectedHotbar] && slots[selectedHotbar].el;
+    if (current && current.scrollIntoView) {
+      try { current.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+      catch (e) { current.scrollIntoView(); }
+    }
   }
 
   function drawHealth(hp) {
+    var health = Math.max(0, Math.min(20, Number(hp) || 0));
+    healthCtx.canvas.setAttribute('aria-valuenow', String(health));
+    healthCtx.canvas.setAttribute('aria-valuetext', health + '/20');
     healthCtx.clearRect(0, 0, 212, 20);
     for (var i = 0; i < 10; i++) {
       var full = hp >= (10 - i) * 2;
@@ -436,6 +606,9 @@ Voxel.HUD = (function () {
   // 饥饿条：鸡腿从右往左排（镜像血量布局）
   function drawFood(f) {
     if (!hungerCtx) return;
+    var food = Math.max(0, Math.min(20, Number(f) || 0));
+    hungerCtx.canvas.setAttribute('aria-valuenow', String(food));
+    hungerCtx.canvas.setAttribute('aria-valuetext', food + '/20');
     hungerCtx.clearRect(0, 0, 212, 20);
     for (var i = 0; i < 10; i++) {
       var full = f >= (i + 1) * 2;
@@ -465,6 +638,9 @@ Voxel.HUD = (function () {
       airCtx = el.getContext('2d');
     }
     var cv = airCtx.canvas;
+    var air = Math.max(0, Math.min(10, Math.round((Number(frac) || 0) * 10)));
+    cv.setAttribute('aria-valuenow', String(air));
+    cv.setAttribute('aria-valuetext', air + '/10');
     if (frac >= 1) { airCtx.clearRect(0, 0, cv.width, cv.height); return; }
     airCtx.clearRect(0, 0, cv.width, cv.height);
     var full = Math.ceil(frac * 10);
@@ -532,7 +708,7 @@ Voxel.HUD = (function () {
 
   function startGhost(id) {
     if (!ghostEl) {
-      ghostEl = document.createElement('canvas');
+      ghostEl = decorateCanvas(document.createElement('canvas'));
       ghostEl.width = 44; ghostEl.height = 44;
       ghostEl.style.cssText = 'position:fixed;left:0;top:0;z-index:999;pointer-events:none;display:none;image-rendering:pixelated;';
       document.body.appendChild(ghostEl);

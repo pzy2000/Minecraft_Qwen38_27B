@@ -58,6 +58,9 @@ Voxel.Game = (function () {
     }
     state = s;
     Game.state = s;
+    if (Voxel.Touch && Voxel.Touch.onFrame) Voxel.Touch.onFrame(s);
+    // 无模态时也要随 menu/loading/playing 切换 HUD 与画布可达性。
+    if (typeof syncModalAccessibility === 'function') syncModalAccessibility();
   }
 
   // ---------- 统一模态层：状态、焦点、Tab/Escape、背景 inert ----------
@@ -66,7 +69,7 @@ Voxel.Game = (function () {
   var MODAL_LAYER_IDS = [
     'game', 'hud', 'btn-starmap-hud', 'inventory', 'crafting', 'furnace', 'chest', 'manual',
     'overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-featured',
-    'overlay-world-replace', 'overlay-starmap', 'overlay-settings'
+    'overlay-world-replace', 'overlay-starmap', 'overlay-settings', 'rotate-hint'
   ];
 
   function modalTop() { return modalStack.length ? modalStack[modalStack.length - 1] : null; }
@@ -93,7 +96,8 @@ Voxel.Game = (function () {
     var all = root.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])');
     var out = [];
     for (var i = 0; i < all.length; i++) {
-      if (!all[i].classList.contains('hidden') && all[i].getAttribute('aria-hidden') !== 'true') out.push(all[i]);
+      if (all[i].tabIndex >= 0 && !all[i].classList.contains('hidden') &&
+        all[i].getAttribute('aria-hidden') !== 'true') out.push(all[i]);
     }
     return out;
   }
@@ -108,8 +112,10 @@ Voxel.Game = (function () {
       // btn-starmap-hud 仍由下一项单独 inert。其他模态继续冻结整个 HUD。
       if (top && el.id === 'hud' && ['inventory', 'crafting', 'furnace', 'chest'].indexOf(top.state) >= 0)
         active = true;
-      el.inert = !!top && !active;
+      var idleGameLayer = !top && (el.id === 'game' || el.id === 'hud' || el.id === 'btn-starmap-hud');
+      el.inert = top ? !active : (idleGameLayer && state !== 'playing');
       if (top) el.setAttribute('aria-hidden', active ? 'false' : 'true');
+      else if (idleGameLayer && state !== 'playing') el.setAttribute('aria-hidden', 'true');
       else if (el.classList && el.classList.contains('hidden')) el.setAttribute('aria-hidden', 'true');
       else el.removeAttribute('aria-hidden');
     }
@@ -311,7 +317,7 @@ Voxel.Game = (function () {
     manualOpen = false;
     manualCraftStop();
     clearModalLayers();
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-settings', 'overlay-warp', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-settings', 'overlay-warp', 'rotate-hint', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
@@ -1577,6 +1583,35 @@ Voxel.Game = (function () {
     refreshExtra(from);
   }
 
+  function slotIndexValid(from, idx) {
+    if (idx !== Math.floor(idx) || idx < 0) return false;
+    if (from === 'inv') return idx < 36;
+    if (from === 'craft') return idx < 9;
+    if (from === 'icraft') return idx < 4;
+    if (from === 'chest') return idx < 27;
+    return (from === 'fin' || from === 'ffuel' || from === 'fout') && idx === 0;
+  }
+
+  // HUD 键盘槽位入口：Enter/Space 主操作、Shift+Enter 快搬、secondary 右键语义。
+  function onSlotKeyboard(from, idx, options) {
+    idx = Number(idx);
+    options = options || {};
+    if (!slotStateOk(from) || !slotIndexValid(from, idx)) return false;
+    var beforeSlot = slotGet(from, idx);
+    var before = [beforeSlot.id, beforeSlot.n, beforeSlot.d, heldItem, heldCnt, heldDur].join('|');
+    if (options.shift) onSlotShift(from, idx);
+    else if (options.secondary) onSlotRight(from, idx);
+    else {
+      if (!handToSlot(from, idx)) return false;
+      syncSlots(from);
+      refreshExtra(from);
+      return true;
+    }
+    var afterSlot = slotGet(from, idx);
+    var after = [afterSlot.id, afterSlot.n, afterSlot.d, heldItem, heldCnt, heldDur].join('|');
+    return before !== after;
+  }
+
   // 面板附属刷新（合成结果预览 / 熔炉槽位 / 箱子槽位）
   function refreshExtra(from) {
     if (from === 'craft') refreshCraft();
@@ -1919,6 +1954,16 @@ Voxel.Game = (function () {
     Voxel.Sound.select();
   }
 
+  function selectHotbar(index) {
+    index = Number(index);
+    if (index !== Math.floor(index) || index < 0 || index > 8) return false;
+    if (['playing', 'inventory', 'crafting', 'furnace', 'chest'].indexOf(state) < 0) return false;
+    sel = index;
+    Voxel.HUD.setSelected(sel);
+    Voxel.Sound.select();
+    return true;
+  }
+
   function onInvClick(idx) {
     if (state !== 'inventory' && state !== 'crafting') return;
     if (handToSlot('inv', idx)) {
@@ -2089,6 +2134,20 @@ Voxel.Game = (function () {
     if (state !== 'featured') return;
     if (Voxel.Featured && Voxel.Featured.hide) Voxel.Featured.hide();
     closeModalLayer('overlay-featured', true);
+  }
+
+  function openRotateHint(trigger) {
+    var top = modalTop();
+    if (top && top.id === 'rotate-hint') return true;
+    return !!openModalLayer({
+      id: 'rotate-hint', state: 'rotate', returnState: state, trigger: trigger,
+      initialFocus: '#btn-rotate-ok', onEscape: function () { closeRotateHint(true); }
+    });
+  }
+
+  function closeRotateHint(restoreFocus) {
+    if (!modalTop() || modalTop().id !== 'rotate-hint') return false;
+    return closeModalLayer('rotate-hint', restoreFocus !== false);
   }
 
   function startFeatured(idx) {
@@ -2479,7 +2538,10 @@ Voxel.Game = (function () {
       if (Voxel.World.isReady() && !Voxel.World.lightReady()) Voxel.World.initLight();
       if (Voxel.World.isReady()) Voxel.World.buildMeshes(6, scene);
       var p = Voxel.World.progress();
-      document.getElementById('loading-bar').style.width = (p * 100).toFixed(0) + '%';
+      var loadingBar = document.getElementById('loading-bar');
+      var loadingPct = Math.max(0, Math.min(100, Math.round(p * 100)));
+      loadingBar.style.width = loadingPct + '%';
+      loadingBar.setAttribute('aria-valuenow', String(loadingPct));
       document.getElementById('loading-text').textContent =
         p < 1 ? '正在生成 ' + (currentWorld ? currentWorld.name : '未知天体') + ' ' + ((p * 100) | 0) + '%' : '正在同步地表与导航信标...';
       if (Voxel.World.isReady() && Voxel.World.focusMeshed()) enterWorld();
@@ -2667,11 +2729,15 @@ Voxel.Game = (function () {
     onInvCraftClick: onInvCraftClick,
     onInvResultClick: onInvResultClick,
     onSlotDown: onSlotDown,
+    onSlotKeyboard: onSlotKeyboard,
+    selectHotbar: selectHotbar,
     onDrop: onDrop,
     pickupDrop: pickupDrop,
     requestTravel: requestTravel,
     openStarMap: openStarMap,
     closeStarMap: closeStarMap,
+    openRotateHint: openRotateHint,
+    closeRotateHint: closeRotateHint,
     // 触控接口（ui/touch.js 调用）
     setTouchAim: setTouchAim,
     setDigHold: setDigHold,
@@ -3109,6 +3175,7 @@ Voxel.Game = (function () {
       input.addEventListener('input', function () {
         Voxel.Settings.set(key, +input.value);
         if (label) label.textContent = (key === 'fov' ? input.value : (+input.value).toFixed(2));
+        if (typeof syncPresetButtons === 'function') syncPresetButtons();
       });
     }
     bindSlider('sens'); bindSlider('volume'); bindSlider('fov'); bindSlider('fog');
@@ -3119,14 +3186,17 @@ Voxel.Game = (function () {
     var fpsBtns = document.querySelectorAll('#fps-cap-row button');
     function syncFpsButtons() {
       var cur = (Voxel.Settings ? Voxel.Settings.get('fpsCap') : 0) || 0;
-      for (var i = 0; i < fpsBtns.length; i++)
+      for (var i = 0; i < fpsBtns.length; i++) {
         fpsBtns[i].classList.toggle('active', +fpsBtns[i].dataset.fps === cur);
+        fpsBtns[i].setAttribute('aria-pressed', +fpsBtns[i].dataset.fps === cur ? 'true' : 'false');
+      }
     }
     for (var fbi = 0; fbi < fpsBtns.length; fbi++) {
       (function (btn) {
         btn.addEventListener('click', function () {
           Voxel.Settings.set('fpsCap', +btn.dataset.fps);
           syncFpsButtons();
+          syncPresetButtons();
         });
       })(fpsBtns[fbi]);
     }
@@ -3134,14 +3204,26 @@ Voxel.Game = (function () {
 
     // 性能预设一键应用
     var presetBtns = document.querySelectorAll('#perf-preset-row button');
+    function syncPresetButtons() {
+      for (var i = 0; i < presetBtns.length; i++) {
+        var preset = CFG.PERF_PRESETS && CFG.PERF_PRESETS[presetBtns[i].dataset.preset];
+        var match = !!preset;
+        if (preset) for (var key in preset) {
+          if (Math.abs(Voxel.Settings.get(key) - preset[key]) > 1e-9) { match = false; break; }
+        }
+        presetBtns[i].setAttribute('aria-pressed', match ? 'true' : 'false');
+      }
+    }
     function applyPreset(name, label) {
       var p = CFG.PERF_PRESETS && CFG.PERF_PRESETS[name];
       if (!p) return;
       for (var k in p) Voxel.Settings.set(k, p[k]);
       sliderSyncs.forEach(function (fn) { fn(); });
       syncFpsButtons();
+      syncPresetButtons();
       if (Voxel.HUD && Voxel.HUD.toast) Voxel.HUD.toast('已应用性能预设：' + label);
     }
+    syncPresetButtons();
     for (var pbi = 0; pbi < presetBtns.length; pbi++) {
       (function (btn) {
         btn.addEventListener('click', function () { applyPreset(btn.dataset.preset, btn.textContent); });

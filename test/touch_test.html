@@ -81,7 +81,7 @@
   <div class="btn-row" id="perf-preset-row"><button class="btn small" data-preset="smooth">流畅</button><button class="btn small" data-preset="balanced">均衡</button><button class="btn small" data-preset="high">高画质</button></div>
   <button id="btn-set-close" class="btn"></button>
 </div></div>
-<div id="rotate-hint" class="hidden"><div class="rh-box"><div class="rh-icon">⟳</div><div class="rh-text"></div><button id="btn-rotate-ok" class="btn primary"></button></div></div>
+<div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div class="rh-icon">⟳</div><div id="rotate-title" class="rh-text"></div><button id="btn-rotate-ok" class="btn primary">仍要继续</button></div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
   <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
 </div></div>
@@ -204,10 +204,39 @@
       check('捕获层已显示', !!cap && cap.style.display !== 'none' && cap.style.display !== '');
       var jb = doc.querySelector('.touch-btn-main');
       check('跳跃按钮已显示', !!jb && jb.style.display === 'flex');
-      check('暂停/背包/飞行按钮存在',
-        !!doc.querySelector('.touch-btn-top.pause') && !!doc.querySelector('.touch-btn-top.bag') &&
-        !!doc.querySelector('.touch-btn-sub.fly'));
-      stepB();
+      var db = doc.querySelector('.touch-btn-sub.descend');
+      var fb = doc.querySelector('.touch-btn-sub.fly');
+      var pb = doc.querySelector('.touch-btn-top.pause');
+      var bb = doc.querySelector('.touch-btn-top.bag');
+      var actions = [jb, db, fb, pb, bb];
+      check('五个触控动作均为有名称的真实button', actions.every(function (el) {
+        return !!el && el.tagName === 'BUTTON' && !!el.getAttribute('aria-label');
+      }));
+      check('摇杆与捕获层是辅助技术隐藏的装饰',
+        cap.getAttribute('aria-hidden') === 'true' &&
+        doc.querySelector('.touch-stick-base').getAttribute('aria-hidden') === 'true' &&
+        doc.querySelector('.touch-stick-knob').getAttribute('aria-hidden') === 'true');
+      check('飞行按钮初始aria-pressed=false', fb.getAttribute('aria-pressed') === 'false');
+
+      // Rotate 使用与其余面板相同的modal栈；横屏resize与显式dismiss都精确返回。
+      Voxel.Game.openRotateHint();
+      wait(20, function () {
+        check('rotate modal初焦继续按钮并冻结背景', Voxel.Game.state === 'rotate' &&
+          doc.activeElement === doc.getElementById('btn-rotate-ok') && doc.getElementById('hud').inert === true);
+        window.dispatchEvent(new Event('resize'));
+        wait(20, function () {
+          check('横屏自动关闭rotate并精确回playing', Voxel.Game.state === 'playing' &&
+            doc.getElementById('rotate-hint').classList.contains('hidden'));
+          Voxel.Game.openRotateHint();
+          wait(20, function () {
+            doc.getElementById('btn-rotate-ok').click();
+            check('rotate显式dismiss关闭并记录本会话', Voxel.Game.state === 'playing' &&
+              doc.getElementById('rotate-hint').classList.contains('hidden') &&
+              sessionStorage.getItem('rh_dismissed') === '1');
+            stepB();
+          });
+        });
+      });
     });
   }
 
@@ -417,6 +446,25 @@
       var jb = doc.querySelector('.touch-btn-main');
       var fb = doc.querySelector('.touch-btn-sub.fly');
       var pb = doc.querySelector('.touch-btn-top.pause');
+      var dbClick = doc.querySelector('.touch-btn-sub.descend');
+      var bbClick = doc.querySelector('.touch-btn-top.bag');
+
+      // 辅助技术通常只派发click；五个动作都必须有不依赖PointerEvent的后备路径。
+      jb.click(); dbClick.click();
+      check('跳跃/下降button click后备注入虚拟按键',
+        Voxel.Controls.keys.Space === true && Voxel.Controls.keys.ShiftLeft === true);
+      Voxel.Controls.keys.Space = false; Voxel.Controls.keys.ShiftLeft = false;
+      fb.click(); Voxel.Touch.onFrame('playing');
+      check('飞行button click切换并同步aria-pressed',
+        Voxel.Player.flying() === true && fb.getAttribute('aria-pressed') === 'true');
+      fb.click(); Voxel.Touch.onFrame('playing');
+      pb.click();
+      check('暂停button click走辅助技术后备路径', Voxel.Game.state === 'paused');
+      doc.getElementById('btn-resume').click();
+      Voxel.Controls.setPitch(1.4); // 避开刚交互过的工作台，确保E语义走背包而非方块交互
+      bbClick.click();
+      check('背包button click走辅助技术后备路径', Voxel.Game.state === 'inventory');
+      doc.getElementById('btn-inv-close').click();
 
       pb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 20, pointerType: 'touch' }));
       check('暂停按钮打开菜单', Voxel.Game.state === 'paused');

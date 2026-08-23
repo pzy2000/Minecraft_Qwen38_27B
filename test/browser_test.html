@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>VOXEL BROWSER TEST</title>
 <link rel="stylesheet" href="../css/style.css">
 <style>body { background: #222; } #results { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
@@ -11,14 +12,14 @@
 <div id="hud">
   <div id="crosshair"></div>
   <div id="debug"></div>
-  <canvas id="oxygen" width="212" height="20"></canvas>
-  <canvas id="hunger" width="212" height="20"></canvas>
-  <canvas id="health" width="212" height="20"></canvas>
-  <div id="hotbar"></div>
-  <div id="toast"></div>
-  <div id="use-hint"></div>
+  <canvas id="oxygen" width="212" height="20" role="meter" aria-label="氧气" aria-valuemin="0" aria-valuemax="10" aria-valuenow="10"></canvas>
+  <canvas id="hunger" width="212" height="20" role="meter" aria-label="饥饿值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+  <canvas id="health" width="212" height="20" role="meter" aria-label="生命值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+  <div id="hotbar" role="toolbar" aria-label="快捷栏"></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="lock-hint"></div>
-  <div id="error-banner"></div>
+  <div id="error-banner" role="alert" aria-live="assertive" aria-atomic="true"></div>
   <div id="dmg-flash"></div>
   <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
@@ -46,10 +47,10 @@
   <div class="furnace-row">
     <div class="furnace-col">
       <div id="fur-in" class="slot"></div>
-      <div id="fur-flame"><i></i></div>
+      <div id="fur-flame" role="meter" aria-label="燃料余量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
       <div id="fur-fuel" class="slot"></div>
     </div>
-    <div class="furnace-arrow"><span>➜</span><div class="fur-track"><i id="fur-prog"></i></div></div>
+    <div class="furnace-arrow"><span aria-hidden="true">➜</span><div class="fur-track" role="progressbar" aria-label="烧制进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fur-prog" aria-hidden="true"></i></div></div>
     <div id="fur-out" class="slot result"></div>
   </div>
   <div id="fur-inv-grid"></div>
@@ -66,7 +67,7 @@
 <div id="overlay-start" class="overlay hidden"><div class="panel">
   <h1></h1><div class="sub"></div>
   <button id="btn-start"></button><button id="btn-new"></button><button id="btn-featured"></button>
-  <button id="btn-restore-backup" class="hidden"></button><button id="btn-settings-menu"></button><input id="seed-input" type="text" value="12345">
+  <button id="btn-restore-backup" class="hidden"></button><button id="btn-settings-menu"></button><label class="sr-only" for="seed-input">星系种子</label><input id="seed-input" type="text" value="12345">
   <div id="start-hint" class="hint"></div>
 </div></div>
 <div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note" aria-busy="false">
@@ -89,22 +90,22 @@
 </div></div>
 <div id="overlay-dead" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause"><h2 id="dead-title" class="dead">你死了</h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
 <div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="panel-titlebar"><h2 id="settings-title">设置</h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
-  <input id="set-sens" type="range"><span id="set-sens-v"></span>
-  <input id="set-volume" type="range"><span id="set-volume-v"></span>
-  <input id="set-fov" type="range"><span id="set-fov-v"></span>
-  <input id="set-fog" type="range"><span id="set-fog-v"></span>
-  <input id="set-tsens" type="range"><span id="set-tsens-v"></span>
-  <input id="set-res" type="range"><span id="set-res-v"></span>
-  <div class="btn-row" id="fps-cap-row"><button class="btn small" data-fps="0">原生</button><button class="btn small" data-fps="30">30</button><button class="btn small" data-fps="60">60</button></div>
-  <input id="set-particleDensity" type="range"><span id="set-particleDensity-v"></span>
-  <input id="set-rainDensity" type="range"><span id="set-rainDensity-v"></span>
-  <input id="set-mobDensity" type="range"><span id="set-mobDensity-v"></span>
-  <div class="btn-row" id="perf-preset-row"><button class="btn small" data-preset="smooth">流畅</button><button class="btn small" data-preset="balanced">均衡</button><button class="btn small" data-preset="high">高画质</button></div>
+  <label for="set-sens">鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05" aria-describedby="set-sens-v"><output id="set-sens-v" for="set-sens"></output>
+  <label for="set-volume">音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05" aria-describedby="set-volume-v"><output id="set-volume-v" for="set-volume"></output>
+  <label for="set-fov">视场角</label><input id="set-fov" type="range" min="60" max="100" step="1" aria-describedby="set-fov-v"><output id="set-fov-v" for="set-fov"></output>
+  <label for="set-fog">雾距</label><input id="set-fog" type="range" min="0.5" max="2" step="0.05" aria-describedby="set-fog-v"><output id="set-fog-v" for="set-fog"></output>
+  <label for="set-tsens">触摸灵敏度</label><input id="set-tsens" type="range" min="0.4" max="3" step="0.05" aria-describedby="set-tsens-v"><output id="set-tsens-v" for="set-tsens"></output>
+  <label for="set-res">渲染分辨率</label><input id="set-res" type="range" min="0.35" max="1" step="0.05" aria-describedby="set-res-v"><output id="set-res-v" for="set-res"></output>
+  <span id="fps-cap-label" class="set-label">帧率上限</span><div class="btn-row" id="fps-cap-row" role="group" aria-labelledby="fps-cap-label"><button class="btn small" data-fps="0" aria-pressed="false">原生</button><button class="btn small" data-fps="30" aria-pressed="false">30</button><button class="btn small" data-fps="60" aria-pressed="false">60</button></div>
+  <label for="set-particleDensity">粒子密度</label><input id="set-particleDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-particleDensity-v"><output id="set-particleDensity-v" for="set-particleDensity"></output>
+  <label for="set-rainDensity">雨滴密度</label><input id="set-rainDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-rainDensity-v"><output id="set-rainDensity-v" for="set-rainDensity"></output>
+  <label for="set-mobDensity">生物数量</label><input id="set-mobDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-mobDensity-v"><output id="set-mobDensity-v" for="set-mobDensity"></output>
+  <span id="perf-preset-label" class="set-label">性能预设</span><div class="btn-row" id="perf-preset-row" role="group" aria-labelledby="perf-preset-label"><button class="btn small" data-preset="smooth" aria-pressed="false">流畅</button><button class="btn small" data-preset="balanced" aria-pressed="false">均衡</button><button class="btn small" data-preset="high" aria-pressed="false">高画质</button></div>
   <button id="btn-set-close" class="btn"></button>
 </div></div>
 <div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div id="rotate-title">建议横屏游玩</div><button id="btn-rotate-ok"></button></div></div>
 <div id="overlay-loading" class="overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-labelledby="loading-title"><div class="panel"><h2 id="loading-title">方块世界</h2>
-  <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
+  <div id="loading-text"></div><div class="bar"><div id="loading-bar" role="progressbar" aria-label="世界生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
 </div></div>
 <pre id="results">RUNNING...</pre>
 
@@ -287,6 +288,155 @@
       loading.getAttribute('role') === 'status' && loading.getAttribute('aria-live') === 'polite' &&
       loading.getAttribute('aria-busy') === 'true' && warp.getAttribute('role') === 'status' &&
       warp.getAttribute('aria-live') === 'polite' && warp.getAttribute('aria-busy') === 'true');
+  }
+
+  function accessibilitySemanticsRegression() {
+    var viewport = doc.querySelector('meta[name="viewport"]');
+    var viewportText = viewport ? viewport.content : '';
+    check('视口允许用户缩放', !!viewport &&
+      viewportText.indexOf('user-scalable=no') < 0 && viewportText.indexOf('maximum-scale=1') < 0);
+
+    var seed = doc.getElementById('seed-input');
+    var seedLabel = doc.querySelector('label[for="seed-input"]');
+    check('种子输入框具有真实label', !!seed && !!seedLabel && seedLabel.textContent.trim().length > 0);
+
+    var ranges = ['sens', 'volume', 'fov', 'fog', 'tsens', 'res',
+      'particleDensity', 'rainDensity', 'mobDensity'];
+    var rangeNamesOK = true;
+    for (var i = 0; i < ranges.length; i++) {
+      var input = doc.getElementById('set-' + ranges[i]);
+      var output = doc.getElementById('set-' + ranges[i] + '-v');
+      var label = doc.querySelector('label[for="set-' + ranges[i] + '"]');
+      if (!input || !output || output.tagName !== 'OUTPUT' || !label ||
+        input.getAttribute('aria-describedby') !== output.id || output.getAttribute('for') !== input.id)
+        rangeNamesOK = false;
+    }
+    check('9个设置range具有label与output关联', rangeNamesOK);
+
+    function pressedStateOK(id, requireOne) {
+      var group = doc.getElementById(id);
+      if (!group || group.getAttribute('role') !== 'group') return false;
+      var labelId = group.getAttribute('aria-labelledby');
+      if (!labelId || !doc.getElementById(labelId)) return false;
+      var buttons = group.querySelectorAll('button');
+      var pressed = 0;
+      for (var j = 0; j < buttons.length; j++) {
+        var value = buttons[j].getAttribute('aria-pressed');
+        if (value !== 'true' && value !== 'false') return false;
+        if (value === 'true') pressed++;
+      }
+      return requireOne ? pressed === 1 : pressed <= 1;
+    }
+    check('FPS/性能预设按钮组具名称与aria-pressed',
+      pressedStateOK('fps-cap-row', true) && pressedStateOK('perf-preset-row', false));
+
+    Voxel.HUD.drawHealth(17);
+    Voxel.HUD.drawFood(13);
+    Voxel.HUD.drawAir(0.4);
+    Voxel.HUD.setFurnaceGauges(0.25, 0.6);
+    check('生命/饥饿/氧气meter同步aria-valuenow',
+      doc.getElementById('health').getAttribute('aria-valuenow') === '17' &&
+      doc.getElementById('hunger').getAttribute('aria-valuenow') === '13' &&
+      doc.getElementById('oxygen').getAttribute('aria-valuenow') === '4');
+    check('燃料meter与烧制/loading progressbar语义完整',
+      doc.getElementById('fur-flame').getAttribute('aria-valuenow') === '25' &&
+      doc.querySelector('.fur-track').getAttribute('aria-valuenow') === '60' &&
+      doc.querySelector('.fur-track').getAttribute('role') === 'progressbar' &&
+      doc.getElementById('loading-bar').getAttribute('role') === 'progressbar');
+    check('toast/use-hint使用polite status，错误使用assertive alert',
+      doc.getElementById('toast').getAttribute('role') === 'status' &&
+      doc.getElementById('toast').getAttribute('aria-live') === 'polite' &&
+      doc.getElementById('use-hint').getAttribute('role') === 'status' &&
+      doc.getElementById('error-banner').getAttribute('role') === 'alert' &&
+      doc.getElementById('error-banner').getAttribute('aria-live') === 'assertive');
+  }
+
+  function slotAccessibilityRegression() {
+    function press(target, keyName, extra) {
+      var init = { bubbles: true, cancelable: true, key: keyName,
+        code: keyName === ' ' ? 'Space' : keyName };
+      extra = extra || {};
+      for (var k in extra) init[k] = extra[k];
+      var ev = new KeyboardEvent('keydown', init);
+      target.dispatchEvent(ev);
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+      return ev;
+    }
+    function oneRoving(id) {
+      var root = doc.getElementById(id);
+      return !!root && root.getAttribute('role') && root.getAttribute('aria-label') &&
+        root.querySelectorAll('[data-slot][tabindex="0"]').length === 1;
+    }
+
+    var dynamic = doc.querySelectorAll('#hotbar > .slot, #inv-grid > .slot, #craft-grid > .slot, #chest-grid > .slot');
+    var dynamicOK = dynamic.length === 81;
+    for (var i = 0; i < dynamic.length; i++) {
+      if (dynamic[i].tagName !== 'BUTTON' || dynamic[i].type !== 'button' ||
+        !dynamic[i].getAttribute('aria-label') ||
+        !dynamic[i].querySelector('canvas[aria-hidden="true"]')) dynamicOK = false;
+    }
+    check('动态物品槽为有名真实button且canvas为装饰', dynamicOK);
+    check('每个物品网格仅有1个roving tabindex入口',
+      oneRoving('hotbar') && oneRoving('inv-grid') && oneRoving('inv-craft-grid') &&
+      oneRoving('craft-grid') && oneRoving('craft-inv-grid') && oneRoving('fur-inv-grid') &&
+      oneRoving('chest-grid') && oneRoving('chest-inv-grid'));
+
+    var T = Voxel.Game._test;
+    T.clearInv();
+    T.setInv(0, 102);
+    T.setDur(0, 37);
+    Voxel.Game.onKey('KeyE');
+    var inv0 = doc.querySelector('#inv-grid [data-slot="inv:0"]');
+    var inv1 = doc.querySelector('#inv-grid [data-slot="inv:1"]');
+    var inv10 = doc.querySelector('#inv-grid [data-slot="inv:10"]');
+    inv0.focus();
+    press(inv0, 'ArrowRight');
+    var rightOK = doc.activeElement === inv1 && inv1.tabIndex === 0 && inv0.tabIndex === -1;
+    press(inv1, 'ArrowDown');
+    check('网格方向键按9列roving移动焦点', rightOK && doc.activeElement === inv10);
+
+    inv0.focus();
+    var toolLabel = inv0.getAttribute('aria-label') || '';
+    check('槽位aria-label含位置/物品/数量/耐久',
+      toolLabel.indexOf('背包第 1/36 格') >= 0 && toolLabel.indexOf('石镐') >= 0 &&
+      toolLabel.indexOf('数量 1') >= 0 && toolLabel.indexOf('耐久 37/132') >= 0);
+    var take = press(inv0, 'Enter');
+    check('Enter主操作拿起受损工具且源槽aria变空', take.defaultPrevented &&
+      T.held() === 102 && T.heldCount() === 1 && T.heldDur() === 37 && !T.inv()[0] &&
+      (inv0.getAttribute('aria-label') || '').indexOf('空') >= 0);
+    press(inv0, ' ');
+    check('Space主操作放回时数量/耐久守恒', !T.held() &&
+      T.inv()[0] === 102 && T.cnt()[0] === 1 && T.durAt(0) === 37);
+
+    press(inv0, 'Enter', { shiftKey: true });
+    var inv9 = doc.querySelector('#inv-grid [data-slot="inv:9"]');
+    check('Shift+Enter快搬工具保留数量与耐久', !T.inv()[0] && T.durAt(0) === null &&
+      T.inv()[9] === 102 && T.cnt()[9] === 1 && T.durAt(9) === 37 &&
+      (inv9.getAttribute('aria-label') || '').indexOf('耐久 37/132') >= 0);
+    inv9.focus();
+    press(inv9, 'Enter', { shiftKey: true });
+    check('键盘快搬往返后工具总量/耐久不变',
+      T.countInv(102) === 1 && T.inv()[0] === 102 && T.cnt()[0] === 1 && T.durAt(0) === 37);
+    Voxel.Game.onKey('KeyE');
+
+    var hot4 = doc.querySelector('#hotbar [data-slot="inv:4"]');
+    var hot5 = doc.querySelector('#hotbar [data-slot="inv:5"]');
+    var scrolled = 0, oldScroll = hot4.scrollIntoView;
+    hot4.scrollIntoView = function () { scrolled++; };
+    hot4.focus();
+    press(hot4, ' ');
+    hot4.scrollIntoView = oldScroll;
+    var spaceSelected = hot4.getAttribute('aria-pressed') === 'true' && hot4.tabIndex === 0;
+    var oldScroll5 = hot5.scrollIntoView;
+    hot5.scrollIntoView = function () { scrolled++; };
+    hot5.focus();
+    press(hot5, 'Enter');
+    hot5.scrollIntoView = oldScroll5;
+    check('快捷栏Enter/Space选中并同步pressed/roving/scroll',
+      spaceSelected && hot5.getAttribute('aria-pressed') === 'true' && hot5.tabIndex === 0 &&
+      doc.querySelectorAll('#hotbar [aria-pressed="true"]').length === 1 && scrolled > 0);
+    Voxel.Game.selectHotbar(0);
+    T.clearInv();
   }
 
   function keyboardIsolationRegression() {
@@ -677,7 +827,9 @@
     initT.clearInvCraft();
 
     modalSemanticsRegression();
+    accessibilitySemanticsRegression();
     keyboardIsolationRegression();
+    slotAccessibilityRegression();
 
     fixedStepRegression();
     check('出生点在地表', Voxel.Player.pos().y > 1 && Voxel.Player.pos().y < 63);
