@@ -43,6 +43,7 @@ function check(name, cond) {
 
 load('js/config.js');
 load('js/world/seed.js');
+load('js/world/galaxy.js');
 load('js/world/noise.js');
 load('js/world/biomes.js');
 load('js/world/shaper.js');
@@ -80,6 +81,28 @@ check('空输入产生随机种子', typeof SU.toString(SU.parse(null)) === 'str
 check('derive32 确定性', SU.derive32(12345n, 1) === SU.derive32(12345n, 1));
 check('不同盐值流互异', SU.derive32(12345n, 1) !== SU.derive32(12345n, 2));
 check('不同种子流互异', SU.derive32(1n, 1) !== SU.derive32(2n, 1));
+
+console.log('星系生成与航行规则');
+var GA = V.Galaxy;
+var galA = GA.create('star-ocean-42');
+var galB = GA.create('star-ocean-42');
+var galC = GA.create('star-ocean-43');
+check('同星系种子目录完全确定', JSON.stringify(galA.catalog) === JSON.stringify(galB.catalog));
+check('不同星系种子目录不同', JSON.stringify(galA.catalog) !== JSON.stringify(galC.catalog));
+check('目录含 6 颗行星和 1 座空间站', galA.catalog.filter(function (w) { return w.kind === 'planet'; }).length === 6 &&
+  galA.catalog.filter(function (w) { return w.kind === 'station'; }).length === 1);
+check('每个天体的独立种子唯一', new Set(galA.catalog.map(function (w) { return w.seed; })).size === 7);
+check('首颗行星适合开局', galA.catalog[0].typeKey === 'lush');
+check('单星系完整覆盖六类行星', new Set(galA.catalog.filter(function (w) { return w.kind === 'planet'; }).map(function (w) { return w.typeKey; })).size === 6);
+var gatesA = GA.portalsFor(galA, galA.catalog[0]);
+check('行星稳定生成 3-4 扇传送门', gatesA.length >= 3 && gatesA.length <= 4 &&
+  JSON.stringify(gatesA) === JSON.stringify(GA.portalsFor(galA, galA.catalog[0])));
+check('行星至少一扇门通往空间站', gatesA.some(function (p) { return p.destinationId === 'station-0'; }));
+check('跃迁成本有界且随距离计算', GA.fuelCost(galA.catalog[0], galA.catalog[5]) >= 8 &&
+  GA.fuelCost(galA.catalog[0], galA.catalog[5]) <= 42);
+var hydrated = GA.hydrate({ rootSeed: galA.rootSeed, currentId: 'planet-2', discovered: { 'planet-2': true }, ship: { fuel: 27, maxFuel: 100 }, worlds: { 'planet-0': { edits: { '1,2,3': 4 } } } }, galA.rootSeed);
+check('星系状态可恢复', hydrated.currentId === 'planet-2' && hydrated.ship.fuel === 27 &&
+  hydrated.worlds['planet-0'].edits['1,2,3'] === 4);
 
 console.log('噪声测试');
 var noise = V.Noise.create(42);
@@ -279,7 +302,8 @@ console.log('存档序列化往返');
     held: 10,
     heldCnt: 64,
     bed: [12, 34, 56],
-    dur: (function () { var d = []; for (var i = 0; i < 36; i++) d.push(null); d[1] = 55; return d; })()
+    dur: (function () { var d = []; for (var i = 0; i < 36; i++) d.push(null); d[1] = 55; return d; })(),
+    galaxy: galA
   };
   check('Save.save 成功', V.Save.save(V.World, extra));
   var loaded = V.Save.load();
@@ -298,6 +322,7 @@ console.log('存档序列化往返');
   check('player 往返', !!loaded && !!loaded.player && loaded.player.hp === 17 &&
     loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
+  check('v5 星系状态随存档写入', !!loaded && loaded.v === 5 && loaded.galaxy.rootSeed === galA.rootSeed && loaded.galaxy.catalog.length === 7);
 })();
 
 console.log('熔炉烧炼');
@@ -502,6 +527,30 @@ check('斜推方向保持', Math.abs(diag.x - 0.6) < 1e-9 &&
   Math.abs(diag.y + 0.8) < 1e-9 && diag.mag === 1 && diag.sprint);
 var tiny = TU.axes(1, 1, 0);     // 半径非法防御
 check('非法半径安全归零', tiny.mag === 0);
+
+console.log('行星类型与空间站生成');
+(function () {
+  var arid = galA.catalog[1];
+  V.World.init(arid.seed, arid);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  var allowed = {};
+  [V.Biomes.B.DESERT, V.Biomes.B.BADLANDS, V.Biomes.B.SAVANNA, V.Biomes.B.STONY_PEAKS].forEach(function (id) { allowed[id] = true; });
+  var allArid = true;
+  for (var x = 0; x < W; x += 7)
+    for (var z = 0; z < D; z += 7)
+      if (!allowed[V.World.biomeAt(x, z)]) allArid = false;
+  check('荒漠星球实际约束为干旱群系集合', allArid && V.World.getProfile().typeKey === 'arid');
+
+  var stationWorld = galA.catalog[6];
+  V.World.init(stationWorld.seed, stationWorld);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  check('空间站中心生成可行走甲板', V.World.get(128, 23, 128) !== 0 && V.World.surfaceAt(128, 128) >= 23);
+  check('空间站外围保持真空', V.World.get(20, 23, 20) === 0);
+  check('空间站出生点位于甲板上方', V.World.spawnPoint().y > 24 && V.World.spawnPoint().y < 27);
+  // 后续通用光照断言需要无其他人造光源的普通行星环境。
+  V.World.init(12345);
+  while (!V.World.isReady()) V.World.generateNext(64);
+})();
 
 console.log('性能预设');
 var PP = V.Config.PERF_PRESETS;

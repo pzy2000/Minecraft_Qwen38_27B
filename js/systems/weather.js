@@ -4,6 +4,7 @@ window.Voxel = window.Voxel || {};
 Voxel.Weather = (function () {
   var scene = null, cam = null;
   var state = 'clear';
+  var spaceMode = false;
   var intensity = 0;      // 当前雨量 0~1（平滑过渡）
   var target = 0;
   var timer = 0;          // 距下次自动切换的秒数
@@ -208,6 +209,16 @@ Voxel.Weather = (function () {
     cam = (Voxel.Game && Voxel.Game.camera) ? Voxel.Game.camera : null;
     if (!cam) return;
     var DN = Voxel.DayNight;
+    if (spaceMode) {
+      rain.visible = false;
+      if (bolt) bolt.visible = false;
+      if (rainbow) rainbow.visible = false;
+      for (var sc = 0; sc < clouds.length; sc++) clouds[sc].m.visible = false;
+      if (Voxel.Sound && Voxel.Sound.rainSet) Voxel.Sound.rainSet(0);
+      intensity = 0; target = 0; flash = 0;
+      return;
+    }
+    for (var vc = 0; vc < clouds.length; vc++) clouds[vc].m.visible = true;
 
     // 风向缓变
     windA += dt * 0.05;
@@ -372,8 +383,18 @@ Voxel.Weather = (function () {
     applyRainDensity();
   }
 
+  function setSpaceMode(on) {
+    spaceMode = !!on;
+    if (!spaceMode) return;
+    if (rain) rain.visible = false;
+    if (bolt) bolt.visible = false;
+    if (rainbow) rainbow.visible = false;
+    for (var i = 0; i < clouds.length; i++) clouds[i].m.visible = false;
+  }
+
   return {
     setRainDensity: setRainDensity,
+    setSpaceMode: setSpaceMode,
     init: init,
     update: update,
     reset: reset,

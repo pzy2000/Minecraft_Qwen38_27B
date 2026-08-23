@@ -96,6 +96,7 @@
 <script src="../js/config.js"></script>
 <script src="../js/assets.js"></script>
 <script src="../js/world/seed.js"></script>
+<script src="../js/world/galaxy.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/world/biomes.js"></script>
 <script src="../js/world/shaper.js"></script>
@@ -113,6 +114,7 @@
 <script src="../js/systems/sound.js"></script>
 <script src="../js/systems/furnace.js"></script>
 <script src="../js/systems/particles.js"></script>
+<script src="../js/systems/space_travel.js"></script>
 <script src="../js/entities/mobs.js"></script>
 <script src="../js/entities/drops.js"></script>
 <script src="../js/systems/save.js"></script>
@@ -127,6 +129,7 @@
   THREE.WebGLRenderer.prototype.render = function () { };
   var doc = document;
   var out = [];
+  var finished = false;
   var glErrors = 0;
   var origErr = console.error;
   console.error = function () {
@@ -154,6 +157,8 @@
     fire('pointerup', dx, dy);
   }
   function report() {
+    if (finished) return;
+    finished = true;
     check('WebGL 控制台无报错(' + glErrors + ' 条)', glErrors === 0);
     check('主循环无异常帧', Object.keys(errCount).length === 0);
     var fail = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;
@@ -164,7 +169,7 @@
 
   // 捕获页面级错误
   window.addEventListener('error', function (e) {
-    out.push('PAGE_ERROR ' + e.message + ' @' + (e.lineno || '?'));
+    out.push('FAIL PAGE_ERROR ' + e.message + ' @' + (e.lineno || '?'));
   });
 
   // 手动驱动游戏主循环（无头环境下 rAF 可能不推进）
@@ -462,7 +467,7 @@
       // 饥饿 0 → 缓慢扣血（轮询；低帧率下模拟时间变慢，预算放宽到 ~40s）
       PL.setFood(0); PL.setHp(5);
       (function pollStarve(n) {
-        if (Voxel.Game.state !== 'playing') Voxel.Game.resume();
+        if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
         if (Voxel.Player.hp() < 5 || n >= 130) {
           check('饥饿扣血生效 (hp=' + Voxel.Player.hp() + ')', Voxel.Player.hp() < 5 && Voxel.Player.hp() >= 1);
           PL.setFood(20); PL.setHp(20);
@@ -857,7 +862,7 @@
     Voxel.Player.init(new THREE.Vector3(bx + 0.5, bedTop + 1.2, bz + 0.5), 0, 0);
     // 轮询等待落地；headless 下指针锁异步失败可能触发 pause，恢复后再继续
     (function pollBed(n) {
-      if (Voxel.Game.state !== 'playing') Voxel.Game.resume();
+      if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
       if (!Voxel.Player.onGround() && n < 30) { wait(100, function () { pollBed(n + 1); }); return; }
       var py = Voxel.Player.pos().y;
       check('玩家站在床顶 (y=' + py.toFixed(2) + ' ≈ ' + bedTop + ' state=' + Voxel.Game.state + ')', Voxel.Player.onGround() && Math.abs(py - bedTop) < 0.15);
@@ -869,7 +874,7 @@
       for (var bld2 = 0; bld2 < 8; bld2++) Voxel.World.buildMeshes(16, Voxel.Game.scene);
       Voxel.Player.init(new THREE.Vector3(sp.x, Voxel.World.surfaceAt(Math.floor(sp.x), Math.floor(sp.z)) + 1.01, sp.z), 0, 0);
       wait(800, stepW);
-    });
+    })(0);
   }
 
   function stepW() {
@@ -920,7 +925,7 @@
       check('夜里不出现彩虹', !Wt.rainbowVisible() && Wt.rainbowOpacity() === 0);
 
       // G 键手动切换（headless 下可能被指针锁失败暂停：先确保 playing）
-      if (Voxel.Game.state !== 'playing') Voxel.Game.resume();
+      if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
       Wt.set('clear');
       Voxel.Game.onKey('KeyG');
       check('G 键切换为雨', Wt.stateName() === 'rain');
@@ -949,8 +954,8 @@
   }
 
   setTimeout(function () {
-    if (doc.title.indexOf('TEST') !== 0) { out.push('FATAL 超时未完成 state=' + Voxel.Game.state); report(); }
-  }, 120000);
+    if (!finished) { check('测试在 240 秒内完成(state=' + Voxel.Game.state + ')', false); report(); }
+  }, 240000);
 })();
 </script>
 </body>

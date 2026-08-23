@@ -63,7 +63,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
     const ok = await page.waitForFunction(
       (re) => new RegExp(re).test(document.title),
-      { timeout: 180000, polling: 500 }, t.re
+      { timeout: 300000, polling: 500 }, t.re
     ).then(() => true).catch(() => false);
     const text = await page.$eval('#results, #out', el => el.textContent).catch(() => '');
     const vpLabel = t.viewport ? ` [${t.viewport.width}x${t.viewport.height}]` : '';

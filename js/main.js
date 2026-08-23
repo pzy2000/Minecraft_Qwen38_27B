@@ -17,6 +17,7 @@ Voxel.Game = (function () {
   var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2（每格 1 个）
   var manualOpen = false;
   var saveData = null, pendingEdits = null, featuredPending = null;
+  var galaxyState = null, currentWorld = null, travelStats = null;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
@@ -138,7 +139,7 @@ Voxel.Game = (function () {
   }
 
   function hideOverlays() {
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-starmap', 'overlay-warp', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
@@ -156,23 +157,41 @@ Voxel.Game = (function () {
 
   // ---------- 世界流程 ----------
 
-  function startWorld(s, sd, featured) {
+  function ensureGalaxy(rootSeed, savedGalaxy) {
+    if (savedGalaxy) galaxyState = Voxel.Galaxy.hydrate(savedGalaxy, rootSeed);
+    else if (!galaxyState) galaxyState = Voxel.Galaxy.create(rootSeed);
+    currentWorld = Voxel.Galaxy.find(galaxyState, galaxyState.currentId) || galaxyState.catalog[0];
+    galaxyState.currentId = currentWorld.id;
+  }
+
+  function startWorld(s, sd, featured, destinationId) {
     requestGameFullscreen(true);
     Voxel.Sound.unlock();
+    if (destinationId) {
+      galaxyState.currentId = destinationId;
+      currentWorld = Voxel.Galaxy.find(galaxyState, destinationId);
+    } else {
+      ensureGalaxy((sd && sd.galaxy && sd.galaxy.rootSeed) || s || Voxel.SeedUtil.random(), sd && sd.galaxy);
+      // v4 及更早的单世界存档把原世界直接作为起始行星，避免迁移后地形/编辑错位。
+      if (sd && !sd.galaxy && sd.seed !== undefined)
+        currentWorld.seed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(sd.seed));
+    }
     featuredPending = featured || null;
     saveData = sd || null;
     pendingEdits = saveData ? saveData.edits : null;
     Voxel.World.clearMeshes(scene);
+    if (Voxel.SpaceTravel) Voxel.SpaceTravel.clear();
     Voxel.Mobs.clear();
     Voxel.Drops.clear();
     Voxel.Particles.clear();
     Voxel.Weather.reset();
+    if (Voxel.Weather.setSpaceMode) Voxel.Weather.setSpaceMode(currentWorld.kind === 'station');
     for (var fi = 0; fi < fallers.length; fi++) {
       if (fallers[fi].mesh) { scene.remove(fallers[fi].mesh); fallers[fi].mesh.geometry.dispose(); }
     }
     fallers.length = 0;
     waterQ.length = 0;
-    Voxel.World.init(s !== null && s !== undefined ? s : Voxel.SeedUtil.random());
+    Voxel.World.init(currentWorld.seed, currentWorld);
     // 载入方块元数据（熔炉/箱子内容），并重建活跃炉表
     Voxel.World.applyMeta(saveData ? saveData.meta : null);
     rebuildActiveFurnaces();
@@ -249,7 +268,12 @@ Voxel.Game = (function () {
         }
       } else Voxel.Player.initAtSpawn();
       Voxel.Player.setBed(saveData.bed ? new THREE.Vector3(saveData.bed[0], saveData.bed[1], saveData.bed[2]) : null);
-      Voxel.HUD.toast('存档已加载 · 种子 ' + saveData.seed);
+      if (travelStats) {
+        Voxel.Player.setHp(travelStats.hp);
+        Voxel.Player.setFood(travelStats.food);
+        travelStats = null;
+      }
+      Voxel.HUD.toast('已抵达 ' + currentWorld.name + ' · ' + currentWorld.typeName);
     } else {
       // 新世界：背包/手持/选中格/床重生点全部清空
       inv = []; cnt = [];
@@ -261,7 +285,7 @@ Voxel.Game = (function () {
       Voxel.Controls.setYaw(0);
       Voxel.Controls.setPitch(-0.1);
       if (featuredPending) applyFeaturedSpawn(featuredPending);
-      else       Voxel.HUD.toast('欢迎来到方块世界！种子 ' + Voxel.World.getSeed());
+      else Voxel.HUD.toast('已登陆 ' + currentWorld.name + ' · 星系种子 ' + galaxyState.rootSeed);
     }
     // 防止存档视角几乎垂直（看天/看地）导致进游戏看不见地形
     var _pitch = Voxel.Controls.pitch();
@@ -275,13 +299,42 @@ Voxel.Game = (function () {
     Voxel.HUD.drawHealth(Voxel.Player.hp());
     lastHp = Voxel.Player.hp();
     autosaveT = 0;
+    galaxyState.discovered[currentWorld.id] = true;
+    if (currentWorld.kind === 'station') {
+      galaxyState.ship.fuel = galaxyState.ship.maxFuel;
+      Voxel.HUD.toast('空间站对接完成 · 跃迁能量已补满');
+    }
+    if (Voxel.SpaceTravel) Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
+    if (Voxel.SpaceTravel) Voxel.SpaceTravel.hideWarp();
     setState('playing');
+  }
+
+  function currentSnapshot() {
+    var p = Voxel.Player.pos();
+    var bed = Voxel.Player.getBed();
+    return {
+      edits: Voxel.World.getEdits(),
+      meta: Voxel.World.getAllMeta(),
+      time: Voxel.DayNight.time(),
+      weather: Voxel.Weather.stateName(),
+      player: {
+        pos: [p.x, p.y, p.z], yaw: Voxel.Controls.yaw(), pitch: Voxel.Controls.pitch(),
+        fly: Voxel.Player.flying(), hp: Voxel.Player.hp(), food: Voxel.Player.food()
+      },
+      bed: bed ? [bed.x, bed.y, bed.z] : null
+    };
+  }
+
+  function storeCurrentWorld() {
+    if (!galaxyState || !currentWorld || !Voxel.World.isReady()) return;
+    galaxyState.worlds[currentWorld.id] = currentSnapshot();
   }
 
   function doSave(silent) {
     if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' && state !== 'dead') return false;
     var p = Voxel.Player.pos();
     var bed = Voxel.Player.getBed();
+    storeCurrentWorld();
     var ok = Voxel.Save.save(Voxel.World, {
       time: Voxel.DayNight.time(),
       weather: Voxel.Weather.stateName(),
@@ -299,7 +352,8 @@ Voxel.Game = (function () {
       heldCnt: heldCnt,
       bed: bed ? [bed.x, bed.y, bed.z] : null,
       dur: dur,
-      meta: Voxel.World.getAllMeta()
+      meta: Voxel.World.getAllMeta(),
+      galaxy: galaxyState
     });
     if (ok && !silent) Voxel.HUD.toast('游戏已存档');
     return ok;
@@ -1405,7 +1459,7 @@ Voxel.Game = (function () {
     document.getElementById('overlay-pause').classList.add('hidden');
     var hint = document.getElementById('start-hint');
     if (saveData) {
-      hint.textContent = '检测到存档 · 种子 ' + saveData.seed;
+      hint.textContent = '检测到星际存档 · 星系种子 ' + (saveData.galaxy ? saveData.galaxy.rootSeed : saveData.seed);
       document.getElementById('btn-start').textContent = '继续游戏';
     } else {
       hint.textContent = '将生成一个全新的随机世界';
@@ -1414,11 +1468,72 @@ Voxel.Game = (function () {
     setState('menu');
   }
 
+  function openStarMap() {
+    if (state !== 'playing') return;
+    if (!Voxel.SpaceTravel || !Voxel.SpaceTravel.canOpenMap()) {
+      Voxel.HUD.toast('需要靠近飞船，或在空间站航行终端内使用星图');
+      return;
+    }
+    setState('starmap');
+    Voxel.SpaceTravel.showMap();
+    document.getElementById('overlay-starmap').classList.remove('hidden');
+    Voxel.Controls.exitLock();
+  }
+
+  function closeStarMap() {
+    if (state !== 'starmap') return;
+    document.getElementById('overlay-starmap').classList.add('hidden');
+    setState('playing');
+    tryLock();
+  }
+
+  function requestTravel(destinationId, mode) {
+    if (state !== 'playing' && state !== 'starmap') return false;
+    var dest = Voxel.Galaxy.find(galaxyState, destinationId);
+    if (!dest || !currentWorld || dest.id === currentWorld.id) return false;
+    if (mode !== 'portal') {
+      var cost = Voxel.Galaxy.fuelCost(currentWorld, dest);
+      if (galaxyState.ship.fuel < cost) {
+        Voxel.HUD.toast('跃迁能量不足：需要 ' + cost + '%，请先前往空间站补给');
+        return false;
+      }
+      galaxyState.ship.fuel -= cost;
+    }
+
+    storeCurrentWorld();
+    travelStats = { hp: Voxel.Player.hp(), food: Voxel.Player.food() };
+    galaxyState.currentId = dest.id;
+    galaxyState.discovered[dest.id] = true;
+    var snap = galaxyState.worlds[dest.id] || {};
+    var transit = {
+      seed: dest.seed,
+      time: typeof snap.time === 'number' ? snap.time : 0.3,
+      weather: snap.weather || 'clear',
+      player: snap.player || null,
+      inv: inv.slice(), cnt: cnt.slice(), dur: dur.slice(),
+      held: heldItem, heldCnt: heldCnt,
+      bed: snap.bed || null,
+      meta: snap.meta || {}, edits: snap.edits || {},
+      galaxy: galaxyState
+    };
+    document.getElementById('overlay-starmap').classList.add('hidden');
+    setState('warping');
+    Voxel.Controls.exitLock();
+    if (Voxel.SpaceTravel) Voxel.SpaceTravel.showWarp(currentWorld, dest, mode);
+    var from = currentWorld;
+    setTimeout(function () {
+      startWorld(dest.seed, transit, null, dest.id);
+      Voxel.HUD.toast((mode === 'portal' ? '传送完成：' : '跃迁完成：') + from.name + ' → ' + dest.name);
+    }, 900);
+    return true;
+  }
+
   // 精选世界：清空存档并以固定种子创建（进入后自动传送到对应群系）
   function startFeatured(idx) {
     var w = Voxel.Featured && Voxel.Featured.WORLDS[idx];
     if (!w) return;
     Voxel.Save.clear();
+    galaxyState = null;
     startWorld(w.seed, null, w);
   }
 
@@ -1453,10 +1568,13 @@ Voxel.Game = (function () {
         Voxel.HUD.setSelected(sel);
         Voxel.Sound.select();
       } else if (code === 'KeyE') {
+        if (Voxel.SpaceTravel && Voxel.SpaceTravel.canOpenMap()) { openStarMap(); }
         // 准星对准功能方块交互；否则开背包
-        var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
-        if (interactWith(hit)) { }
-        else toggleInv(true);
+        else {
+          var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
+          if (interactWith(hit)) { }
+          else toggleInv(true);
+        }
       } else if (code === 'KeyF') {
         Voxel.Player.setFlying(!Voxel.Player.flying());
         Voxel.HUD.toast(Voxel.Player.flying() ? '飞行模式：开（空格↑ Shift↓）' : '飞行模式：关');
@@ -1467,7 +1585,8 @@ Voxel.Game = (function () {
         throwSelected();
       } else if (code === 'KeyR') {
         tryEat();
-      } else if (code === 'F3') debug = !debug;
+      } else if (code === 'KeyH') openStarMap();
+      else if (code === 'F3') debug = !debug;
       else if (code === 'KeyP') pause();
       else if (code === 'KeyM') openManual();
     } else if (state === 'paused') {
@@ -1485,6 +1604,8 @@ Voxel.Game = (function () {
     } else if (state === 'chest') {
       if (code === 'KeyE' || code === 'Escape') closeChest();
       else if (code === 'KeyM') openManual();
+    } else if (state === 'starmap') {
+      if (code === 'Escape' || code === 'KeyH' || code === 'KeyE') closeStarMap();
     } else if (state === 'menu') {
       if (code === 'Enter') startWorld(saveData ? saveData.seed : null, saveData);
       else if (code === 'KeyM') openManual();
@@ -1603,7 +1724,11 @@ Voxel.Game = (function () {
       highlight.visible = true;
     } else highlight.visible = false;
     var isTouch = Voxel.Controls.touchMode();
-    if (hit && hit.type === 'block' && hit.id === 15) {
+    var spaceHint = Voxel.SpaceTravel && Voxel.SpaceTravel.actionHint ? Voxel.SpaceTravel.actionHint() : '';
+    if (spaceHint) {
+      hitEl.textContent = spaceHint;
+      hitEl.style.display = 'block';
+    } else if (hit && hit.type === 'block' && hit.id === 15) {
       hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 17) {
@@ -1721,7 +1846,7 @@ Voxel.Game = (function () {
       var p = Voxel.World.progress();
       document.getElementById('loading-bar').style.width = (p * 100).toFixed(0) + '%';
       document.getElementById('loading-text').textContent =
-        p < 1 ? '正在生成世界 ' + ((p * 100) | 0) + '%' : '正在构建地形...';
+        p < 1 ? '正在生成 ' + (currentWorld ? currentWorld.name : '未知天体') + ' ' + ((p * 100) | 0) + '%' : '正在同步地表与导航信标...';
       if (Voxel.World.isReady() && Voxel.World.focusMeshed()) enterWorld();
     }
 
@@ -1733,7 +1858,7 @@ Voxel.Game = (function () {
         if (mouseDown[2]) tickDig(step);
         else if (digT || digProg) stopDig();
         Voxel.Player.update(step);
-        Voxel.Mobs.update(step);
+        if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
         Voxel.Drops.update(step);
         updateFallers(step);
         acc -= step;
@@ -1753,6 +1878,7 @@ Voxel.Game = (function () {
       Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
       Voxel.Weather.update(dt);
       Voxel.Particles.update(dt);
+      if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(dt);
       updateHighlight();
 
       // 第一人称手持物
@@ -1803,6 +1929,11 @@ Voxel.Game = (function () {
     if (fallMat) fallMat.color.copy(_tint);
     _skyTop.copy(Voxel.DayNight.topColor()).lerp(Voxel.Weather.getSkyTop(), wF * 0.85);
     _sky.copy(Voxel.DayNight.horizonColor()).lerp(Voxel.Weather.getSky(), wF * 0.85);
+    var spaceEnv = Voxel.SpaceTravel && Voxel.SpaceTravel.environment ? Voxel.SpaceTravel.environment() : null;
+    if (spaceEnv) {
+      _skyTop.lerp(new THREE.Color(spaceEnv.top), currentWorld && currentWorld.kind === 'station' ? 0.92 : 0.42);
+      _sky.lerp(new THREE.Color(spaceEnv.horizon), currentWorld && currentWorld.kind === 'station' ? 0.92 : 0.34);
+    }
     if (wFlash > 0) {
       _skyTop.r += wFlash * 0.9; _skyTop.g += wFlash * 0.92; _skyTop.b += wFlash * 0.95;
       _sky.r += wFlash * 0.85; _sky.g += wFlash * 0.88; _sky.b += wFlash * 0.95;
@@ -1842,6 +1973,8 @@ Voxel.Game = (function () {
         '  视角 偏航' + (Voxel.Controls.yaw() * 57.2958).toFixed(0) + '° 俯仰' + (Voxel.Controls.pitch() * 57.2958).toFixed(0) + '°' +
         '  ' + (Voxel.DayNight.time() * 24).toFixed(1) + '时' + (Voxel.DayNight.isNight() ? ' 夜' : ' 昼') +
         '  天气 ' + Voxel.Weather.label() + (Voxel.Weather.rainbowVisible() ? ' 彩虹' : '') +
+        '  天体 ' + (currentWorld ? currentWorld.name + '/' + currentWorld.typeName : '?') +
+        '  跃迁 ' + (galaxyState ? Math.round(galaxyState.ship.fuel) : 0) + '%'+
         '  生物 ' + Voxel.Mobs.count() +
         '  网格 ' + Voxel.World.meshCount() +
         (gl.isContextLost() ? '  [上下文丢失!]' : '') +
@@ -1878,6 +2011,9 @@ Voxel.Game = (function () {
     onSlotDown: onSlotDown,
     onDrop: onDrop,
     pickupDrop: pickupDrop,
+    requestTravel: requestTravel,
+    openStarMap: openStarMap,
+    closeStarMap: closeStarMap,
     // 触控接口（ui/touch.js 调用）
     setTouchAim: setTouchAim,
     setDigHold: setDigHold,
@@ -1932,6 +2068,9 @@ Voxel.Game = (function () {
       damageHeld: function () { damageHeldTool(1); },
       frameCount: function () { return framesExecuted; },
       requestFullscreen: requestGameFullscreen,
+      galaxy: function () { return galaxyState; },
+      currentWorld: function () { return currentWorld; },
+      requestTravel: requestTravel,
       // 熔炉测试钩子
       openFurnaceAt: function (x, y, z) { openFurnace({ x: x, y: y, z: z }); },
       closeFurnace: closeFurnace,
@@ -2034,6 +2173,7 @@ Voxel.Game = (function () {
     Voxel.Particles.init();
     Voxel.Mobs.init(scene);
     Voxel.Drops.init(scene);
+    if (Voxel.SpaceTravel) Voxel.SpaceTravel.init(scene);
     Voxel.Controls.init(canvas);
     if (Voxel.Touch && Voxel.Touch.init) Voxel.Touch.init();
 
@@ -2099,6 +2239,7 @@ Voxel.Game = (function () {
     }
     document.getElementById('btn-new').addEventListener('click', function () {
       Voxel.Save.clear();
+      galaxyState = null;
       var sv = seedInput ? seedInput.value.trim() : '';
       startWorld(sv === '' ? null : Voxel.SeedUtil.parse(sv), null);
     });
@@ -2125,6 +2266,12 @@ Voxel.Game = (function () {
       resume();
     });
     document.getElementById('btn-menu').addEventListener('click', gotoMenu);
+    var starmapBtn = document.getElementById('btn-starmap-hud');
+    if (starmapBtn) starmapBtn.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation(); openStarMap();
+    });
+    var starmapClose = document.getElementById('btn-starmap-close');
+    if (starmapClose) starmapClose.addEventListener('click', closeStarMap);
 
     // 所有可由触屏打开的面板都提供可见关闭入口，并复用原有状态机收尾逻辑。
     var closeBindings = [
@@ -2234,7 +2381,7 @@ Voxel.Game = (function () {
     var sd = Voxel.Save.load();
     if (sd) {
       saveData = sd;
-      document.getElementById('start-hint').textContent = '检测到存档 · 种子 ' + sd.seed;
+      document.getElementById('start-hint').textContent = '检测到星际存档 · 星系种子 ' + (sd.galaxy ? sd.galaxy.rootSeed : sd.seed);
     } else {
       document.getElementById('btn-start').textContent = '开始游戏';
       document.getElementById('start-hint').textContent = '将生成一个全新的随机世界';

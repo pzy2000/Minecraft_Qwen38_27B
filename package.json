@@ -1,7 +1,7 @@
 {
   "name": "voxelcraft",
   "version": "1.0.0",
-  "description": "类 Minecraft 的 3D 体素像素游戏（纯 HTML5/JS，零运行时依赖）",
+  "description": "无人深空风格的多星球 3D 体素像素探索游戏（纯 HTML5/JS，支持桌面与移动端）",
   "main": "index.js",
   "directories": {
     "test": "test"
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "python3 -m http.server 8080",
     "build": "node test/build_check.js",
-    "test": "node test/smoke.js && node test/run_browser_tests.js"
+    "test": "node test/smoke.js && node test/run_browser_tests.js && node test/space_travel_test.js",
+    "test:space": "node test/space_travel_test.js"
   },
   "keywords": [],
   "author": "",

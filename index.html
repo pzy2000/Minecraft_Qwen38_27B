@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>方块世界 VoxelCraft</title>
+<title>星海方舟 Starbound Voxel</title>
 <link rel="stylesheet" href="css/style.css?v=20260823f">
 </head>
 <body>
@@ -25,6 +25,12 @@
   <div id="uw-overlay"></div>
   <div id="dmg-dir"><i></i></div>
   <div id="sleep-fade"></div>
+  <div id="space-hud">
+    <div id="world-name">◆ 未知星域</div>
+    <div id="world-coord">坐标 -- / --</div>
+    <div id="warp-fuel">跃迁 100%</div>
+  </div>
+  <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
 </div>
 
 <!-- 背包 -->
@@ -115,13 +121,13 @@
 <!-- 开始界面 -->
 <div id="overlay-start" class="overlay">
   <div class="panel">
-    <h1>方块世界</h1>
-    <div class="sub">VOXELCRAFT</div>
+    <h1>星海方舟</h1>
+    <div class="sub">STARBOUND VOXEL</div>
     <button id="btn-start" class="btn primary">继续游戏</button>
     <button id="btn-new" class="btn">新世界</button>
     <button id="btn-featured" class="btn">精选世界</button>
     <div class="seed-row">
-      <input id="seed-input" type="text" maxlength="32" placeholder="世界种子（留空随机）" spellcheck="false">
+      <input id="seed-input" type="text" maxlength="32" placeholder="星系种子（留空随机）" spellcheck="false">
       <button id="btn-seed-random" class="btn small">随机</button>
     </div>
     <button id="btn-settings-menu" class="btn">设置</button>
@@ -129,9 +135,9 @@
     <div class="controls">
       <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
       <div><b>左键</b> 放置 <b>右键长按</b> 挖掘（对生物=攻击） <b>中键</b> 吸取方块</div>
-      <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 背包（含 2×2 合成）· 对准<b>工作台/床</b>按 E 交互 <b>F</b> 飞行</div>
+      <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
       <div><b>M</b> 合成手册（一键合成） <b>Q</b> 丢弃 <b>R</b> 吃东西 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
-      <div style="margin-top:6px;color:#9ab">提示：先砍树合成木板→木棍，再合成木镐开采石头与煤；煤+木棍可合成火把照亮洞穴。</div>
+      <div style="margin-top:6px;color:#9ab">任务：探索种子星系，穿越随机传送门；在降落点附近登上飞船，使用跃迁引擎前往未知星球与空间站。</div>
     </div>
   </div>
 </div>
@@ -159,9 +165,31 @@
     <div class="controls">
       <div><b>WASD</b> 移动 · <b>空格</b> 跳/上浮 · <b>Shift</b> 疾跑/下降</div>
       <div><b>左键</b> 放置 · <b>右键长按</b> 挖掘/攻击 · <b>中键</b> 吸取</div>
-      <div><b>E</b> 背包 / 工作台 / 熔炉 / 床 · <b>F</b> 飞行 · <b>G</b> 天气 · <b>R</b> 进食</div>
+      <div><b>E</b> 背包 / 交互 / 登舰 · <b>H</b> 星图 · <b>F</b> 飞行 · <b>G</b> 天气</div>
       <div><b>M</b> 合成手册 · <b>Q</b> 丢弃 · <b>R</b> 进食 · <b>F3</b> 调试 · <b>P/Esc</b> 暂停</div>
     </div>
+  </div>
+</div>
+
+<!-- 飞船星图 -->
+<div id="overlay-starmap" class="overlay hidden">
+  <div class="panel starmap-panel">
+    <div class="panel-titlebar">
+      <div><h2>星系航行图</h2><div id="starmap-status" class="terminal-line"></div></div>
+      <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
+    </div>
+    <div id="starmap-grid"></div>
+    <div class="hint">选择目的地启动跃迁 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
+  </div>
+</div>
+
+<!-- 跃迁过场 -->
+<div id="overlay-warp" class="overlay warp-overlay hidden">
+  <div class="warp-stars"></div>
+  <div class="warp-copy">
+    <h2 id="warp-title">跃迁引擎点火</h2>
+    <div id="warp-sub">计算航线...</div>
+    <div class="warp-track"><i></i></div>
   </div>
 </div>
 
@@ -227,6 +255,7 @@
 <script src="js/config.js?v=20260823f"></script>
 <script src="js/assets.js?v=20260823f"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
+<script src="js/world/galaxy.js?v=20260824a"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
 <script src="js/world/biomes.js?v=20260823f"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
@@ -244,6 +273,7 @@
 <script src="js/systems/sound.js?v=20260823f"></script>
 <script src="js/systems/furnace.js?v=20260823f"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
+<script src="js/systems/space_travel.js?v=20260824a"></script>
 <script src="js/entities/mobs.js?v=20260823f"></script>
 <script src="js/entities/drops.js?v=20260823f"></script>
 <script src="js/systems/save.js?v=20260823f"></script>

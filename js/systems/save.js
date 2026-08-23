@@ -4,12 +4,12 @@ window.Voxel = window.Voxel || {};
 Voxel.Save = (function () {
   var KEY = Voxel.Config.SAVE_KEY;
   // 历史存档键（载入时自动迁移到当前 KEY）
-  var LEGACY_KEYS = ['voxelcraft_save_v3'];
+  var LEGACY_KEYS = ['voxelcraft_save_v4', 'voxelcraft_save_v3'];
 
   function save(world, extra) {
     try {
       var obj = {
-        v: 1,
+        v: 5,
         seed: world.getSeed(),
         time: extra.time,
         weather: extra.weather,
@@ -21,7 +21,8 @@ Voxel.Save = (function () {
         bed: extra.bed,
         dur: extra.dur,
         meta: world.getAllMeta(),
-        edits: world.getEdits()
+        edits: world.getEdits(),
+        galaxy: extra.galaxy || null
       };
       localStorage.setItem(KEY, JSON.stringify(obj));
       return true;

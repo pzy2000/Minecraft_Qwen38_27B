@@ -1,9 +1,18 @@
-# VoxelCraft
+# Starbound Voxel
 
 **Language:** [中文](README.md) · [English](README.en.md)
 
-A 3D voxel game (Minecraft-like) built with plain HTML5, JavaScript, and Three.js.
-Zero dependencies, zero build step — **double-click `index.html` and play in the browser**.
+A No Man's Sky-inspired 3D voxel exploration game built with plain HTML5, JavaScript, and Three.js.
+One galaxy seed deterministically creates six distinct planets and an orbital station, with seeded portals, a starship interface, a warp engine, interstellar travel, per-world persistence, and responsive desktop/mobile controls. Zero runtime dependencies and zero build step — **double-click `index.html` and play in the browser**.
+
+## Interstellar exploration
+
+- Six seeded planet classes: lush, arid, frozen, toxic, volcanic, and oceanic.
+- Three or four deterministic portals per planet, including a route to the station.
+- A pixel starship near the landing site; press `E` or `H` nearby to open the star map.
+- Distance-based warp energy, discovery tracking, an orbital station, and automatic station refuelling.
+- Save v5 keeps edits and positions separate per world while inventory and ship progress travel with you.
+- The top-right Star Map control keeps the same loop available on phones and tablets.
 
 <table>
   <tr>

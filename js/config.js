@@ -76,7 +76,7 @@ Voxel.Config = {
     FOG_NEAR_WET: 25, FOG_FAR_WET: 110       // 雨天雾距
   },
 
-  SAVE_KEY: 'voxelcraft_save_v4',   // v4：+方块实例元数据（熔炉/箱子）· 载入时自动迁移 v3 存档
+  SAVE_KEY: 'starbound_voxel_save_v5', // v5：星系、多世界独立进度、飞船与发现状态
   AUTOSAVE_INTERVAL: 30,
 
   // 触控（移动端虚拟摇杆 + MCPE 式手势）

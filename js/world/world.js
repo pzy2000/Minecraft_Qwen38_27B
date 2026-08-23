@@ -8,6 +8,7 @@ Voxel.World = (function () {
   var SNOW_LEVEL = CFG.SNOW_LEVEL;
 
   var data, seed, noise, heights;
+  var profile = null;      // 星球/空间站描述（由 Galaxy 派生）
   var biomes;            // Uint8Array(W*D) 每列群系 ID
   var shaper = null;     // 地形塑造器（样条 + 密度场）
   var climateAt = null;  // 气候采样器（MultiNoise 五维参数）
@@ -250,8 +251,13 @@ Voxel.World = (function () {
 
   function generateColumn(x, z, lx, lz, lat) {
     var ci = x + W * z;
+    if (profile && profile.kind === 'station') {
+      generateStationColumn(x, z, ci);
+      return;
+    }
     var cl = shaper.sampleClim(lat, lx, lz);
     var b = Voxel.Biomes.pick(cl);
+    b = profileBiome(b, x, z);
     biomes[ci] = b;
     var bd = Voxel.Biomes.def(b);
     var th = shaper.sampleTh(lat, lx, lz);
@@ -285,6 +291,44 @@ Voxel.World = (function () {
     }
     heights[ci] = topSolid < 0 ? WATER : topSolid;
     applySurface(x, z, topSolid, b, bd);
+  }
+
+  // 行星类型约束实际群系集合，让同一地形算法产生明显不同的星球生态。
+  function profileBiome(base, x, z) {
+    if (!profile || !profile.typeKey || profile.typeKey === 'lush') return base;
+    var B = Voxel.Biomes.B;
+    var sets = {
+      arid: [B.DESERT, B.BADLANDS, B.SAVANNA, B.STONY_PEAKS],
+      frozen: [B.SNOWY, B.FROZEN_PEAKS, B.TAIGA, B.JAGGED_PEAKS],
+      toxic: [B.JUNGLE, B.MEGA_TAIGA, B.FOREST, B.SPARSE_JUNGLE],
+      volcanic: [B.BADLANDS, B.STONY_PEAKS, B.JAGGED_PEAKS, B.WINDSWEPT_HILLS],
+      oceanic: [B.OCEAN, B.BEACH, B.OCEAN, B.SPARSE_JUNGLE]
+    };
+    var set = sets[profile.typeKey];
+    if (!set) return base;
+    var r = (noise.hash2(x * 5 + 173, z * 7 + 251) * set.length) | 0;
+    return set[Math.min(set.length - 1, r)];
+  }
+
+  // 空间站使用同一体素/网格管线生成可行走的轨道平台，外围保持真空。
+  function generateStationColumn(x, z, ci) {
+    var cx = W >> 1, cz = D >> 1, dx = x - cx, dz = z - cz;
+    var d2 = dx * dx + dz * dz;
+    var deck = 23;
+    biomes[ci] = Voxel.Biomes.B.STONY_PEAKS;
+    heights[ci] = -1;
+    if (d2 > 32 * 32) return;
+    data[idx(x, deck - 1, z)] = 12;
+    data[idx(x, deck, z)] = ((Math.abs(dx) + Math.abs(dz)) % 8 < 2 || d2 > 27 * 27) ? 13 : 3;
+    heights[ci] = deck;
+    // 发光跑道与四角停机坪（火把作为无碰撞发光像素）。
+    if ((Math.abs(dx) <= 2 || Math.abs(dz) <= 2) && (Math.abs(dx + dz) % 7 === 0))
+      data[idx(x, deck + 1, z)] = 19;
+    // 外圈护栏，留出四个通道。
+    if (d2 > 28 * 28 && d2 <= 31 * 31 && Math.abs(dx) > 4 && Math.abs(dz) > 4) {
+      data[idx(x, deck + 1, z)] = 13;
+      heights[ci] = deck + 1;
+    }
   }
 
   // ---- 树木/植被放置 ----
@@ -434,6 +478,7 @@ Voxel.World = (function () {
   }
 
   function placeTrees() {
+    if (profile && profile.kind === 'station') return;
     var defs = Voxel.Biomes.defs;
     for (var x = 2; x < W - 3; x++)
       for (var z = 2; z < D - 3; z++) {
@@ -513,8 +558,9 @@ Voxel.World = (function () {
     markChunkDirty(cx, cz);
   }
 
-  function init(s) {
+  function init(s, worldProfile) {
     seed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(s)); // 规范化为带符号十进制串
+    profile = worldProfile || null;
     noise = Voxel.Noise.create(seed);
     climateAt = Voxel.Biomes.makeClimate(noise);
     shaper = Voxel.Shaper.create(noise);
@@ -730,6 +776,7 @@ Voxel.World = (function () {
     getAllMeta: function () { return meta; },
     applyMeta: function (md) { meta = md || {}; },
     getSeed: function () { return seed; },
+    getProfile: function () { return profile; },
     size: function () { return { w: W, h: H, d: D }; }
   };
 })();
