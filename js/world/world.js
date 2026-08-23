@@ -656,10 +656,16 @@ Voxel.World = (function () {
     if (!ed) return;
     var bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity, any = false;
     for (var k in ed) {
+      if (!Object.prototype.hasOwnProperty.call(ed, k)) continue;
       var p = k.split(',');
-      var x = +p[0], y = +p[1], z = +p[2];
-      if (x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D) {
-        data[idx(x, y, z)] = ed[k];
+      var x = +p[0], y = +p[1], z = +p[2], id = +ed[k];
+      // 只继承规范的整数坐标和 Uint8 方块 ID，避免损坏的本地存档污染地形。
+      if (p.length === 3 && x === Math.floor(x) && y === Math.floor(y) && z === Math.floor(z) &&
+        id === Math.floor(id) && id >= 0 && id <= 255 && (id === 0 || !!Voxel.Blocks.defs[id]) &&
+        x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D) {
+        data[idx(x, y, z)] = id;
+        // 回放的修改仍属于当前世界的增量账本；否则下一次保存会把旧建筑忘掉。
+        edits[x + ',' + y + ',' + z] = id;
         any = true;
         if (x < bx0) bx0 = x;
         if (x > bx1) bx1 = x;

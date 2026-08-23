@@ -113,6 +113,16 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   check('空间站修改在跨世界往返后恢复', roundTrip.edit === 13);
   check('发现记录随旅行更新', roundTrip.discovered >= 2);
 
+  // 再离场并第三次进入空间站：applyEdits 回放后的修改仍须进入下一份世界快照。
+  check('二次离开空间站请求成功',
+    await page.evaluate(() => Voxel.Game.requestTravel('planet-0', 'portal')) === true);
+  await waitWorld('planet-0');
+  check('第三次进入空间站请求成功',
+    await page.evaluate(() => Voxel.Game.requestTravel('station-0', 'portal')) === true);
+  await waitWorld('station-0');
+  check('多次离场后空间站修改仍保留',
+    await page.evaluate(() => Voxel.World.get(130, 24, 130)) === 13);
+
   await page.evaluate(() => {
     Voxel.Game.onKey('KeyP');
     document.getElementById('btn-save').click();

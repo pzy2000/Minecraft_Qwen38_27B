@@ -299,11 +299,10 @@ while (!V.World.isReady()) V.World.generateNext(64);
 check('还原前为原值', V.World.get(bx, by, bz) === before);
 V.World.applyEdits(edits);
 check('applyEdits 还原', V.World.get(bx, by, bz) === 10);
+check('applyEdits 继承到增量账本', V.World.getEdits()[bx + ',' + by + ',' + bz] === 10);
 
 console.log('存档序列化往返');
 (function () {
-  // applyEdits 只回放不记日志（见 world.js），先 set 一次确保增量日志有记录
-  V.World.set(bx, by, bz, 10);
   // 方块元数据随存档序列化（箱子示例）
   V.World.setMeta(7, 8, 9, { type: 'chest', items: [{ id: 10, n: 5, dur: null }, null] });
   var inv = []; var cnt = [];
@@ -340,6 +339,17 @@ console.log('存档序列化往返');
     loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
   check('v5 星系状态随存档写入', !!loaded && loaded.v === 5 && loaded.galaxy.rootSeed === galA.rootSeed && loaded.galaxy.catalog.length === 7);
+
+  // 第二次载入后立即再存档：旧修改必须继续留在账本，第三次载入仍可恢复。
+  V.World.init(loaded.seed);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  V.World.applyEdits(loaded.edits);
+  check('二次载入后方块与账本一致', V.World.get(bx, by, bz) === 10 &&
+    V.World.getEdits()[bx + ',' + by + ',' + bz] === 10);
+  check('二次载入后可再次保存', V.Save.save(V.World, extra));
+  var loadedAgain = V.Save.load();
+  check('载入→再保存→第三次载入不丢 edits', !!loadedAgain && !!loadedAgain.edits &&
+    loadedAgain.edits[bx + ',' + by + ',' + bz] === 10);
 })();
 
 console.log('熔炉烧炼');
