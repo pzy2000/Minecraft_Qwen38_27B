@@ -3139,6 +3139,15 @@ Voxel.Game = (function () {
       } else if (code === 'KeyR') {
         tryEat();
       } else if (code === 'KeyH') openStarMap();
+      else if (code === 'KeyN') {
+        if (currentWorld && currentWorld.kind === 'station') {
+          Voxel.HUD.toast('空间站内没有天气');
+        } else {
+          Voxel.Weather.next();
+          Voxel.HUD.toast('天气：' + Voxel.Weather.label());
+          Voxel.Sound.select();
+        }
+      }
       else if (code === 'F3') debug = !debug;
       else if (code === 'KeyP') pause();
       else if (code === 'KeyM') openManual();
@@ -4046,7 +4055,7 @@ Voxel.Game = (function () {
       if (!Voxel.Controls.isLocked()) { tryLock(); return; }
       mouseDown[e.button] = true;
       var nowS = performance.now() / 1000;
-      if (e.button === 0) { lastPlace = nowS - 0.3; doAct(0); }
+      if (e.button === 0) { lastPlace = nowS; doAct(0); }
       else if (e.button === 2) { lastDig = 0; doAct(2); } // 攻击冷却在 attack() 内判定
       else if (e.button === 1) pickBlock();
       e.preventDefault();

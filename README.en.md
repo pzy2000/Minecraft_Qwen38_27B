@@ -87,7 +87,7 @@ python3 -m http.server 8080
 | 1–9 / Scroll wheel | Select hotbar slot |
 | E | Open/close inventory (2×2 crafting) · look at a crafting table and press E for 3×3 · look at a bed and press E to sleep / set spawn |
 | F | Toggle flight |
-| G | Cycle weather (clear → rain → thunderstorm) |
+| N | Cycle weather (clear → rain → thunderstorm; disabled on the station) |
 | F3 | Show/hide debug overlay |
 | M | Open/close crafting handbook (recipe list + one-click craft; hold to craft continuously) |
 | P | Pause menu (manual save / settings / key bindings / save and return to main menu) |

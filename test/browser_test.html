@@ -2376,7 +2376,7 @@
   }
 
   function stepW() {
-    // 5) 天气系统：雨/雷雨/闪电/雷击/彩虹/G 键切换
+    // 5) 天气系统：雨/雷雨/闪电/雷击/彩虹/N 键切换
     var Wt = Voxel.Weather, g;
     check('初始天气为晴', Wt.stateName() === 'clear' && Wt.intensity() < 0.05);
 
@@ -2429,6 +2429,13 @@
       check('天气调试API切换为雨', Wt.stateName() === 'rain');
       Wt.next();
       check('天气调试API切换为雷雨', Wt.stateName() === 'storm');
+      // 真实 N 键 keydown 循环切换天气（晴→雨）。
+      if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
+      Wt.set('clear');
+      var nInit = { bubbles: true, cancelable: true, key: 'n', code: 'KeyN' };
+      document.body.dispatchEvent(new KeyboardEvent('keydown', nInit));
+      document.body.dispatchEvent(new KeyboardEvent('keyup', nInit));
+      check('真实 N keydown 循环切换天气为雨', Wt.stateName() === 'rain');
       Wt.set('clear');
       wait(800, stepTravelTransient);
   }
