@@ -26,7 +26,8 @@ Voxel.Blocks = (function () {
     FURNACE_TOP: 65, FURNACE_SIDE: 66, FURNACE_FRONT: 67,
     CHEST_TOP: 68, CHEST_SIDE: 69, CHEST_FRONT: 70,
     ACTIVE_CRYSTAL: 71, SILICA_CRYSTAL: 72, ICE_CORE: 73,
-    SPORE_CRYSTAL: 74, MAGMA_CORE: 75, TIDAL_CRYSTAL: 76
+    SPORE_CRYSTAL: 74, MAGMA_CORE: 75, TIDAL_CRYSTAL: 76,
+    CAT_FUR: 77, FELT: 78
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -95,6 +96,8 @@ Voxel.Blocks = (function () {
   defs[44] = { name: '潮汐晶矿', solid: true, opaque: true,
     tiles: [T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL], sound: 'glass',
     color: 0x55c9df, hard: 5.8, pick: true, tier: 2, drop: 120, resourceKey: 'tidal_crystal' };
+  defs[45] = { name: '猫毛毡', solid: true, opaque: true,
+    tiles: [T.FELT, T.FELT, T.FELT], sound: 'wool', color: 0xc4b8a6, hard: 0.7 };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -134,6 +137,10 @@ Voxel.Blocks = (function () {
     defs[120] = { name: '潮汐晶', item: true, solid: false, opaque: false,
       tiles: [T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL], sound: 'glass', color: 0x55c9df,
       icon: T.TIDAL_CRYSTAL, resourceKey: 'tidal_crystal' };
+
+    // 猫相关材料（稳定物品 ID 121）。
+    defs[121] = { name: '猫毛', item: true, solid: false, opaque: false,
+      tiles: [T.CAT_FUR, T.CAT_FUR, T.CAT_FUR], sound: 'wool', color: 0xe0aa6e, icon: T.CAT_FUR };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -591,6 +598,27 @@ Voxel.Blocks = (function () {
     });
     drawTile(T.RABBIT_RAW, meatTile([192, 110, 104], false, true));
     drawTile(T.RABBIT_COOKED, meatTile([168, 103, 63], true, true));
+
+    // ---- 猫毛 / 猫毛毡 ----
+
+    drawTile(T.CAT_FUR, function (x, y, r) {
+      // 蓬松毛簇：中央绒球 + 四散毛尖
+      var dx = x - 8, dy = y - 9;
+      var inPuff = dx * dx * 0.075 + dy * dy * 0.10 <= 1;
+      var strand = ((x * 3 + y * 5) % 11 === 0 && r() < 0.5);
+      if (!inPuff && !strand) return;
+      var v = n(r, 0, 20);
+      if (((x + y) % 5 === 0) && r() < 0.6) return [198 + v, 140 + v, 82 + v];   // 深色绒纹
+      if (r() < 0.08) return [246 + r() * 9, 224 + r() * 12, 186];               // 高光毛尖
+      return [228 + v, 176 + v, 116 + v];
+    });
+
+    drawTile(T.FELT, function (x, y, r) {
+      // 压制毡面：暖灰底 + 细密斜向压纹
+      var v = n(r, 0, 14);
+      if (((x + y * 2) % 6) === 0 && r() < 0.55) return [172 + v, 156 + v, 141 + v];
+      return [196 + v, 180 + v, 166 + v];
+    });
 
     // ---- 功能方块（熔炉/箱子） ----
 

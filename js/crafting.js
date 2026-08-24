@@ -19,7 +19,8 @@ Voxel.Crafting = (function () {
     { name: '铁镐', grid: [9, 9, 9, 0, 100, 0, 0, 100, 0], result: 103, count: 1 },
     { name: '木剑', grid: [0, 10, 0, 0, 10, 0, 0, 100, 0], result: 104, count: 1 },
     { name: '石剑', grid: [0, 3, 0, 0, 3, 0, 0, 100, 0], result: 105, count: 1 },
-    { name: '铁剑', grid: [0, 9, 0, 0, 9, 0, 0, 100, 0], result: 106, count: 1 }
+    { name: '铁剑', grid: [0, 9, 0, 0, 9, 0, 0, 100, 0], result: 106, count: 1 },
+    { name: '猫毛毡', shapeless: true, inputs: { 121: 2 }, result: 45, count: 1 }
   ];
 
   // 有方向配方：把配方最小包围盒平移到 size×size 内，其余格子必须为空

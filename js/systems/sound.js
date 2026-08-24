@@ -969,6 +969,21 @@ Voxel.Sound = (function () {
       if (v <= 0.02 || !catOn('Rabbit')) return;
       tone('sine', 1400 + Math.random() * 300, 900, 0.11, v * 0.34);
     },
+    // 猫叫（真猫采样）：vol 0~1（已含距离衰减），pan -1~1
+    cat: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02 || !catOn('Cat')) return;
+      if (play(pick(['cat_0', 'cat_1', 'cat_2']), v * 0.75, 0.94 + Math.random() * 0.12, pan)) return;
+      toneVib('sawtooth', 620, 420, 0.42, v * 0.26, 9, 26, 1600);
+      toneVib('sine', 310, 210, 0.42, v * 0.22, 9, 14, 0);
+    },
+    catHurt: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02 || !catOn('Cat')) return;
+      if (play('cat_hurt', v * 0.8, 1 + Math.random() * 0.08, pan)) return;
+      toneVib('sawtooth', 780, 560, 0.24, v * 0.3, 12, 32, 1800);
+      noiseHit(1400, 0.8, 0.06, v * 0.12);
+    },
     // 进食咀嚼：两声闷响 + 收尾吞咽
     eat: function () {
       if (!catOn('Eat')) return;

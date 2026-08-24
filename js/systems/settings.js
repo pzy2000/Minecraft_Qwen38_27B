@@ -11,13 +11,13 @@ Voxel.Settings = (function () {
     rainDensity: 1.0,
     mobDensity: 1.0,
     // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
-    sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1,
+    sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
     sndUi: 1, sndMusic: 1, sndRain: 1, sndThunder: 1
   };
   // 分音效开关的中文标签（供 UI 与测试使用）
   var SND_LABELS = {
-    sndSheep: '羊叫', sndPig: '猪叫', sndChicken: '鸡叫', sndZombie: '僵尸', sndRabbit: '兔子',
+    sndSheep: '羊叫', sndPig: '猪叫', sndChicken: '鸡叫', sndZombie: '僵尸', sndRabbit: '兔子', sndCat: '猫叫',
     sndStep: '脚步', sndDig: '挖掘/放置', sndEat: '进食', sndWater: '水声', sndLand: '跳跃/落地',
     sndUi: '界面/交互', sndMusic: '背景音乐', sndRain: '雨声', sndThunder: '雷声'
   };

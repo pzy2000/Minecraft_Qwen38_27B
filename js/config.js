@@ -46,13 +46,14 @@ Voxel.Config = {
   // 生物
   MOB: {
     SHEEP_TARGET: 8, ZOMBIE_TARGET: 6,
-    PIG_TARGET: 5, CHICKEN_TARGET: 5, RABBIT_TARGET: 4,
+    PIG_TARGET: 5, CHICKEN_TARGET: 5, RABBIT_TARGET: 4, CAT_TARGET: 8,
     DESPAWN: 52, SPAWN_MIN: 24, SPAWN_MAX: 46,
     ZOMBIE_RANGE: 18, ZOMBIE_DMG: 3,
     ZOMBIE_SPEED: 2.0, SHEEP_SPEED: 1.2,
     HP_SHEEP: 4, HP_ZOMBIE: 10,
-    HP_PIG: 6, HP_CHICKEN: 3, HP_RABBIT: 3,
+    HP_PIG: 6, HP_CHICKEN: 3, HP_RABBIT: 3, HP_CAT: 4,
     WOOL_DROP: 1,             // 击杀羊掉落的羊毛数量
+    CAT_FUR_DROP: 2,          // 击杀猫掉落的猫毛数量（2 猫毛合成 1 猫毛毡）
     FLEE_TIME: 3.5,           // 被动生物受击后逃跑持续秒数
     FLEE_MULT: 1.7            // 逃跑速度倍率
   },

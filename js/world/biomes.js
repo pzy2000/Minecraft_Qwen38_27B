@@ -53,17 +53,17 @@ Voxel.Biomes = (function () {
   defs[B.PLAINS] = {
     name: '平原', surface: BLK.GRASS, filler: BLK.DIRT,
     treeType: 'oak', treeChance: 0.0015, plantOn: [BLK.GRASS],
-    mobs: ['sheep', 'pig', 'chicken']
+    mobs: ['sheep', 'pig', 'chicken', 'cat']
   };
   defs[B.FOREST] = {
     name: '森林', surface: BLK.GRASS, filler: BLK.DIRT,
     treeType: 'oak', treeChance: 0.02, plantOn: [BLK.GRASS],
-    mobs: ['sheep', 'pig', 'chicken']
+    mobs: ['sheep', 'pig', 'chicken', 'cat']
   };
   defs[B.BIRCH_FOREST] = {
     name: '白桦森林', surface: BLK.GRASS, filler: BLK.DIRT,
     treeType: 'birch', treeChance: 0.016, plantOn: [BLK.GRASS],
-    mobs: ['sheep', 'pig']
+    mobs: ['sheep', 'pig', 'cat']
   };
   defs[B.DESERT] = {
     name: '沙漠', surface: BLK.SAND, filler: BLK.SAND,
@@ -74,18 +74,18 @@ Voxel.Biomes = (function () {
     name: '丛林', surface: BLK.GRASS, filler: BLK.DIRT,
     treeType: 'jungle', treeChance: 0.02, giantChance: 0.25,
     plantOn: [BLK.GRASS],
-    mobs: ['chicken', 'pig', 'sheep']
+    mobs: ['chicken', 'pig', 'sheep', 'cat']
   };
   defs[B.SPARSE_JUNGLE] = {
     name: '稀疏丛林', surface: BLK.GRASS, filler: BLK.DIRT,
     treeType: 'jungle', treeChance: 0.004, giantChance: 0.08,
     plantOn: [BLK.GRASS],
-    mobs: ['pig', 'chicken']
+    mobs: ['pig', 'chicken', 'cat']
   };
   defs[B.SAVANNA] = {
     name: '热带草原', surface: BLK.GRASS, filler: BLK.DIRT,
     treeType: 'acacia', treeChance: 0.0022, plantOn: [BLK.GRASS],
-    mobs: ['sheep', 'chicken']
+    mobs: ['sheep', 'chicken', 'cat']
   };
   defs[B.TAIGA] = {
     name: '针叶林', surface: BLK.GRASS, filler: BLK.DIRT,

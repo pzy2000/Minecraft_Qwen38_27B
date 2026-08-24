@@ -212,8 +212,9 @@ Sound effects and background music come from these open-source sources (build sc
 | Gravel / leaf footsteps | ["Different steps..." by kdd @ OpenGameArt](https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud) | CC0 1.0 |
 | Sand / water footsteps, sheep bleats (including hurt), large splash | [Yo Frankie! assets @ OpenGameArt](https://opengameart.org/content/sheep-sound-bleats-yo-frankie) | CC-BY 3.0 (Blender Foundation) |
 | Zombie groan | ["Zombie Sound" @ OpenGameArt](https://opengameart.org/content/zombie-sound) | CC0 1.0 |
+| Cat meows (including hurt) | ["Cat SFX" by Dan Knoflicek / Macro @ OpenGameArt](https://opengameart.org/content/cat-sfx) | CC-BY 3.0 |
 | Day BGM | ["Calm Ambient 3 - Lifewave 2k" by The Cynic Project / Pixelsphere](https://opengameart.org/content/calm-ambient-3-lifewave-2k) | CC0 1.0 |
 | Night BGM | ["Calm Piano 1 - Vaporware" by The Cynic Project / Pixelsphere](https://opengameart.org/content/cc0-calm-relaxing-music) | CC0 1.0 |
 
 Swim bubbles, jump, player hurt, rain, thunder, and the underwater ambience are synthesized with WebAudio and have no external source.
-All samples are trimmed, loudness-normalized, and converted to MP3. `js/assets.js` stays a small manifest; 42 SFX samples and the day/night tracks load on demand from three content-hashed script chunks that also work over `file://`. If loading or decoding fails, the game falls back to procedural synthesis.
+All samples are trimmed, loudness-normalized, and converted to MP3. `js/assets.js` stays a small manifest; 46 SFX samples and the day/night tracks load on demand from three content-hashed script chunks that also work over `file://`. If loading or decoding fails, the game falls back to procedural synthesis.

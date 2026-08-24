@@ -23,6 +23,7 @@ Voxel.Discovery = (function () {
     pig: '猪',
     chicken: '鸡',
     rabbit: '兔子',
+    cat: '猫',
     zombie: '僵尸'
   };
   var LANDMARKS = {

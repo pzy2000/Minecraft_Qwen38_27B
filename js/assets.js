@@ -20,10 +20,14 @@
     "sfx": {
       "id": "sfx",
       "file": "assets-sfx.js",
-      "hash": "13bc65eeaacf2cbfa68ade2a5fb201e6c345dffdf9bea95e8f53ee7556c724b0",
-      "payloadHash": "56eb5b10941a341d31ad663182b87d0f8d5119abfc35449dbae6624977b209bd",
-      "version": "sha256-13bc65eeaacf2cbfa68ade2a5fb201e6c345dffdf9bea95e8f53ee7556c724b0",
+      "hash": "460da33559c48c812f7fcd7756b581c99dcfb0c61158b18c1ce5580bd467378f",
+      "payloadHash": "2314311d3c1c99053c6b7a5ca5c32539a23807ba4f2ad1c7d190ccb8913657e3",
+      "version": "sha256-460da33559c48c812f7fcd7756b581c99dcfb0c61158b18c1ce5580bd467378f",
       "names": [
+        "cat_0",
+        "cat_1",
+        "cat_2",
+        "cat_hurt",
         "dig_0",
         "dig_1",
         "dig_2",
@@ -67,8 +71,8 @@
         "ui_0",
         "zombie_0"
       ],
-      "count": 42,
-      "bytes": 242899
+      "count": 46,
+      "bytes": 315798
     },
     "music-day": {
       "id": "music-day",
@@ -126,6 +130,10 @@
     baseUrl: baseUrl,
     audio: audio,
     audioToChunk: {
+      "cat_0": "sfx",
+      "cat_1": "sfx",
+      "cat_2": "sfx",
+      "cat_hurt": "sfx",
       "dig_0": "sfx",
       "dig_1": "sfx",
       "dig_2": "sfx",
@@ -200,6 +208,11 @@
         "files": "zombie_0",
         "source": "\"Zombie Sound\" (opengameart.org/content/zombie-sound)",
         "license": "CC0 1.0"
+      },
+      {
+        "files": "cat_0, cat_1, cat_2, cat_hurt",
+        "source": "\"Cat SFX\" by Dan Knoflicek / Macro (opengameart.org/content/cat-sfx)",
+        "license": "CC-BY 3.0"
       },
       {
         "files": "music_day",

@@ -48,6 +48,10 @@ sfxnorm "$DL/oga/sheep2.flac" "sheep_1"
 sfxnorm "$DL/oga/sheepBleet.flac" "sheep_2"
 sfxnorm "$DL/oga/sheepHit.flac" "sheep_hurt"
 ffmpeg -y -v error -i "$DL/oga/zombie.wav" -af "$TRIM,loudnorm=I=-18:TP=-2:LRA=7" -ar 44100 -codec:a libmp3lame -b:a 96k "$OUT/zombie_0.mp3"
+sfxnorm "$DL/oga/cat/Cat 1.wav" "cat_0"
+sfxnorm "$DL/oga/cat/Cat 5.wav" "cat_1"
+sfxnorm "$DL/oga/cat/Cat 4.wav" "cat_2"
+sfxnorm "$DL/oga/cat/Cat 7.wav" "cat_hurt"
 
 # UI
 sfx "$DL/kenney/generic_light_000.ogg" "ui_0"

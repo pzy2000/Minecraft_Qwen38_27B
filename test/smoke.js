@@ -294,10 +294,10 @@ console.log('主动扫描、发现档案与探索目标');
     roundTrip.claimed['survey-worlds:3'] === true);
 
   // 填满所有白名单条目，验证理论上限与输出体积。每世界最多
-  // 1 survey + 18 biomes + 11 resources + 5 fauna + 3 landmarks = 38 条。
+  // 1 survey + 18 biomes + 11 resources + 6 fauna + 3 landmarks = 39 条。
   var fullRaw = { v: 1, points: 1234, worlds: bucket(), claimed: bucket() };
   var resources = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33];
-  var fauna = ['sheep', 'pig', 'chicken', 'rabbit', 'zombie'];
+  var fauna = ['sheep', 'pig', 'chicken', 'rabbit', 'cat', 'zombie'];
   var landmarks = ['ship', 'station-terminal', 'portal'];
   for (var wi = 0; wi < catalog.length; wi++) {
     var wid = catalog[wi].id;
@@ -1662,7 +1662,14 @@ check('石头不是燃料', !FS.isFuel(3));
 console.log('合成配方测试');
 var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
-check('配方数量=13', Craft.recipes.length === 13);
+check('配方数量=14', Craft.recipes.length === 14);
+
+// 猫毛毡：无序配方 2×猫毛(121) → 猫毛毡方块(45)
+g = g9(); g[0] = 121; g[4] = 121;
+m = Craft.match(g);
+check('2 猫毛 → 1 猫毛毡', !!m && m.result === 45 && m.count === 1 && m.shapeless);
+g = g9(); g[0] = 121;
+check('1 猫毛不可合成猫毛毡', Craft.match(g) === null);
 
 g = g9(); g[0] = 4;
 var m = Craft.match(g);

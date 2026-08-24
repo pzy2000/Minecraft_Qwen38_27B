@@ -1546,14 +1546,15 @@
       check('spatial 返回 vol/pan', typeof sp.vol === 'number' && sp.vol > 0 && sp.vol <= 1 && Math.abs(sp.pan) <= 1);
     }
 
-    // 新增音效冒烟：猪/鸡/兔
+    // 新增音效冒烟：猪/鸡/兔/猫
     try {
       Voxel.Sound.pig(0.5); Voxel.Sound.pigHurt(0.5);
       Voxel.Sound.chicken(0.5); Voxel.Sound.chickenHurt(0.5);
       Voxel.Sound.rabbit(0.5); Voxel.Sound.rabbitHurt(0.5);
-      check('猪/鸡/兔音效可调用', true);
+      Voxel.Sound.cat(0.5); Voxel.Sound.catHurt(0.5);
+      check('猪/鸡/兔/猫音效可调用', true);
     } catch (e) {
-      check('猪/鸡/兔音效无异常 (' + e.message + ')', false);
+      check('猪/鸡/兔/猫音效无异常 (' + e.message + ')', false);
     }
 
     // ---- 被动生物：受击逃跑 + 击杀掉落 ----
@@ -1574,6 +1575,18 @@
     if (rbt) Voxel.Mobs.damage(rbt, 99, new THREE.Vector3(1, 0, 0));
     check('击杀鸡掉生鸡肉 / 兔掉生兔肉',
       Voxel.Game._test.countInv(111) >= 1 && Voxel.Game._test.countInv(113) >= 1);
+
+    // 猫：受击逃跑 + 击杀掉猫毛 + 猫毛毡合成材料就位
+    var cat = Voxel.Mobs.spawn('cat', mobPos);
+    check('猫已生成', !!cat);
+    if (cat) {
+      Voxel.Mobs.damage(cat, 1, new THREE.Vector3(-1, 0, 0));
+      check('猫受击进入逃跑状态', !cat.dead && cat.fleeT > 0);
+      Voxel.Mobs.damage(cat, 99, new THREE.Vector3(1, 0, 0));
+      check('击杀猫掉落猫毛', Voxel.Game._test.countInv(121) >= 2);
+      check('猫毛毡可由猫毛合成', Voxel.Crafting.match([121, 121, 0, 0, 0, 0, 0, 0, 0]) !== null &&
+        Voxel.Crafting.match([121, 121, 0, 0, 0, 0, 0, 0, 0]).result === 45);
+    }
 
     // 生物密度设置：降低后立即裁掉超额个体，后续生成目标也使用同一倍率。
     Voxel.Settings.set('mobDensity', 1);
@@ -1804,8 +1817,8 @@
     check('火把点亮邻格', Voxel.World.getBlk(bxL + 1, byL, bzL) > 0);
     Voxel.World.set(bxL, byL, bzL, 0);
 
-    // 合成手册（12 条配方 + 烧炼章节）
-    check('手册列出 13 条配方', document.querySelectorAll('#manual .recipe-row').length === 18);
+    // 合成手册（14 条配方 + 烧炼章节）
+    check('手册列出 14 条配方', document.querySelectorAll('#manual .recipe-row').length === 19);
     check('手册含材料获取与烧炼说明', document.querySelectorAll('#manual .manual-obtain').length >= 2);
 
     var T = Voxel.Game._test;
