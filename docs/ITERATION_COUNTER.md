@@ -2,9 +2,9 @@
 
 目标：连续执行 20 轮“全局审计 → 最高优先级修复 → 回归测试 → Git 提交 → 推送 → GitHub Actions 验收”。
 
-- 已完成：**18 / 20**
-- 当前轮次：**第 18 轮已完成**
-- 剩余轮次：**2**
+- 已完成：**19 / 20**
+- 当前轮次：**第 19 轮已完成**
+- 剩余轮次：**1**
 - 优先级原则：先处理存档/物品丢失与世界损坏（P0），再处理玩法正确性、输入与性能（P1），最后处理可访问性、体验与交付门禁（P2）。
 
 | 轮次 | 优先级 | 项目 | 状态 |
@@ -27,8 +27,8 @@
 | 16 | P1 | 强化飞船、驾驶舱感、跃迁、空间站与抵达演出 | ✅ |
 | 17 | P1 | 传送门去重/安全泊位、星图路线与星际导航反馈 | ✅ |
 | 18 | P1 | 懒加载精选图/音频，并建立流式性能与长期运行预算 | ✅ |
-| 19 | P1 | GitHub CI 使用 Node 22 与 canonical `npm test`，覆盖星际 E2E | ⏳ |
-| 20 | P1 | Pages 仅部署同 SHA 的全绿 CI，并执行最终全量/视觉验收 | ⏳ |
+| 19 | P0 | Node 22 全量 CI 与同 SHA Pages 验证部署门禁 | ✅ |
+| 20 | P0 | 存档失败闭环、旧档迁移原子性与最终全量/视觉验收 | ⏳ |
 
 ## 第 1 轮证据
 
@@ -137,3 +137,9 @@
 - 问题：首页同步加载的 `js/assets.js` 把 44 个 MP3 全部编码成 2,417,820 B JavaScript，gzip 等效 1,777,499 B，占原首页脚本 gzip 的 82.87%；点击开始后又一次性解码全部音频，即使玩家从未听到另一首 BGM。隐藏的精选世界面板还会在菜单阶段立即请求 19 张、合计 9,963,665 B 的截图。异步改造前后审计又确认：切换目标 BGM 失败会留下静音旧 source，失败 payload 不释放，返回菜单时 BGM、雨声和水下 loop 继续播放；旧 CSS 级联还会在 160×284 把精选卡压到 32.28px。
 - 修复：把 `assets.js` 缩成仅 7,051 B 的清单和致谢，生成 42 SFX、白昼 BGM、夜晚 BGM 三个独立脚本块；每块分别记录 payload hash 与完整生成脚本 hash，动态 URL、manifest、Sound、Main、CSS 和 Featured 入口均使用内容哈希缓存键，`file://` 与 Pages 路径一致。`Sound` 以 `idle/loading/loaded/failed` 状态和共享 Promise 保证每块只请求一次、每个采样只解码一次；`unlock()` 同步保留用户手势但异步预热 SFX，昼/夜曲只在首用时加载，epoch 阻断 day/night/off/warp 迟到结果，成功或永久失败都释放 base64，失败自动回退程序化音效并停止已淡出的旧 source。返回主菜单统一关闭音乐、雨声和水下环境音。精选卡仍在启动时构建供焦点绑定，但图片只保存 `data-src`，首次打开才 hydrate；窄屏最终级联强制单列和至少 44px。
 - 回归：新增确定性 `audio_asset_budget_test`，逐字验证生成物、42+1+1 完整互斥分块、payload/file SHA-256、缓存键、`file://` 基址、图片首次/重复 hydrate，并把首页直接脚本 gzip 锁在 450 KiB；实测由 2,144,865 B 降至 373,024 B，菜单音频 payload/请求/解码和精选图请求均为 0。新增真实动态脚本 `audio_loading_test`，覆盖连续 unlock、day/night 独立加载、重复幂等、day 迟到→night、加载中→off、脚本失败、MP3 解码失败、目标 BGM 失败、fallback、payload 释放和零未处理 rejection。真实主游戏验证昼夜换曲、跃迁与回菜单清理、精选卡焦点/确认；160×284 与 284×160 的真实 CSS fixture 分别测得 124px/240px 单列卡片、中心命中、零横溢出和每 URL 最多一次请求。canonical `npm test` 的全部 Node、完整浏览器、WebGL、触控、移动/reduced-motion 与跨世界 E2E、生产构建和 `git diff --check` 全部通过。
+
+## 第 19 轮证据
+
+- 问题：远程 CI 虽显示绿色，却只运行 `smoke.js`、构建和浏览器页面矩阵，实际遗漏行星规则、资源注册表、20,000 种子传送门、飞行事务、音频预算及完整 `space_travel_test.js` 六组正式测试。项目依赖要求 Node ≥22.12，但三个 job 固定 Node 20 并产生 `EBADENGINE`；checkout/setup-node/Pages Actions 仍使用被强制兼容运行的 Node 20 runtime，Chrome CLI 与 `chrome@stable` 双重漂移且每次下载。更严重的是 Pages 与 CI 同时监听 push：历史提交 `0466bbc…` 的 CI run `32672338044` 失败时，Pages run `32672337993` 仍成功部署了同一失败 SHA。
+- 修复：把 canonical 测试拆成唯一互斥的 `test:node` 与 `test:browser`，顶层 `npm test` 精确组合两者；CI 两个并行 job 分别执行 build+全部 Node 契约和完整浏览器矩阵+星际 E2E。项目 engine 为 ≥22.12，`.nvmrc`/CI 固定当前 Node 22 最新补丁 22.23.2，并以 `npm ci --engine-strict` 锁定依赖。官方 Actions 升级为 checkout/setup-node v7、cache v6、configure-pages v6、upload-pages-artifact/deploy-pages v5，全部使用 Node 24 action runtime；checkout 不保留凭据，权限最小化。浏览器版本直接读取锁定 `puppeteer-core` 的 `PUPPETEER_REVISIONS.chrome=152.0.7977.42`，由锁定 `@puppeteer/browsers@3.2.1` 安装，并按 OS/架构/build 缓存。CI 同 ref 新提交取消旧 run；Pages 唯一监听 `CI completed`，只接受 success+push+main+同仓库，并要求 `workflow_run.head_sha == github.sha`、精确 checkout 后再次比较 HEAD，保证测试 SHA、内容 SHA、Pages build version 完全一致。
+- 回归：新增 `ci_workflow_test` 与 `pages_workflow_test`，锁定 Node/engine/lockfile、正式测试唯一覆盖、精确 Chrome/cache、Action 主版本、只读权限、并发取消、唯一 workflow_run 触发、fork/PR 隔离、非取消式生产部署队列和四重 SHA 绑定；修复并实跑 Actions Bash 的 Chrome 版本/路径提取，官方 Linux CfT URL 返回 200。`npm ci --engine-strict --ignore-scripts` 报告 0 vulnerabilities；actionlint v1.7.12 对两份 workflow 零诊断。带显式本机 `BROWSER_PATH` 的新 canonical `npm test` 覆盖全部 Node、完整浏览器/WebGL/触控/移动/reduced-motion 与 SpaceTravel E2E 并全绿，生产构建、生成器一致性和 `git diff --check` 通过。

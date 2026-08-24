@@ -20,6 +20,7 @@ if (!puppeteer) {
 }
 
 const candidates = [
+  process.env.BROWSER_PATH,
   process.argv[2],
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
