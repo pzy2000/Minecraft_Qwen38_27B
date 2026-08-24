@@ -9,6 +9,7 @@ Voxel.World = (function () {
 
   var data, seed, noise, heights;
   var profile = null;      // 星球/空间站描述（由 Galaxy 派生）
+  var terrainVersion = 1, planetTypeKey = 'lush';
   var biomes;            // Uint8Array(W*D) 每列群系 ID
   var shaper = null;     // 地形塑造器（样条 + 密度场）
   var climateAt = null;  // 气候采样器（MultiNoise 五维参数）
@@ -19,6 +20,7 @@ Voxel.World = (function () {
   var chunks = {};       // "cx,cz" -> {mesh, wmesh}
   var meshGroup = null;  // THREE.Group
   var genOrder = [], genCount = 0, genPhase = 1;
+  var spawnCache = null;
 
   // ---- 光照：skyL 天光 / blkL 块光（火把），0-15 ----
   var skyL = null, blkL = null, lightReady = false;
@@ -200,7 +202,7 @@ Voxel.World = (function () {
   function setIfStoneW(x, y, z, id) {
     var i = idx(x, y, z);
     var c = data[i];
-    if (c === 3 || c === 8 || c === 9) data[i] = id;
+    if (c === 3 || c === 8 || c === 9 || (c >= 39 && c <= 44)) data[i] = id;
   }
 
   // 表层规则：按群系与地形上下文决定表层/填充层
@@ -259,8 +261,11 @@ Voxel.World = (function () {
       return;
     }
     var cl = shaper.sampleClim(lat, lx, lz);
-    var b = Voxel.Biomes.pick(cl);
-    b = profileBiome(b, x, z);
+    // v2 直接在类型白名单中做一次连续最近邻；先对18群系做
+    // base pick 再丢弃结果会把完整核心生成拖过1.5x性能门。v1仍保留原顺序。
+    var b = terrainVersion === 2 && Voxel.PlanetRules && Voxel.PlanetRules.pickAllowed
+      ? Voxel.PlanetRules.pickAllowed(planetTypeKey, cl, Voxel.Biomes.B.PLAINS)
+      : profileBiome(Voxel.Biomes.pick(cl), cl, x, z);
     biomes[ci] = b;
     var bd = Voxel.Biomes.def(b);
     var th = shaper.sampleTh(lat, lx, lz);
@@ -284,9 +289,15 @@ Voxel.World = (function () {
             y, th)) solid = false;
       if (solid) {
         data[i] = 3;                                   // 石身
-        var r = noise.hash3(x, y, z);
-        if (y < 50 && r < 0.007) data[i] = 8;          // 煤
-        else if (y < 34 && r > 0.994) data[i] = 9;     // 铁
+        if (Voxel.PlanetRules && Voxel.PlanetRules.oreBlockForPosition) {
+          var oreId = Voxel.PlanetRules.oreBlockForPosition(
+            terrainVersion, planetTypeKey, x, y, z, noise);
+          if (oreId) data[i] = oreId;
+        } else {
+          var r = noise.hash3(x, y, z);
+          if (y < 50 && r < 0.007) data[i] = 8;          // 煤
+          else if (y < 34 && r > 0.994) data[i] = 9;     // 铁
+        }
         topSolid = y;
       } else {
         data[i] = y <= WATER ? 7 : 0;
@@ -297,7 +308,10 @@ Voxel.World = (function () {
   }
 
   // 行星类型约束实际群系集合，让同一地形算法产生明显不同的星球生态。
-  function profileBiome(base, x, z) {
+  function profileBiome(base, climate, x, z) {
+    if (Voxel.PlanetRules && Voxel.PlanetRules.biomeFor)
+      return Voxel.PlanetRules.biomeFor(
+        terrainVersion, planetTypeKey, base, climate, x, z, noise);
     if (!profile || !profile.typeKey || profile.typeKey === 'lush') return base;
     var B = Voxel.Biomes.B;
     var sets = {
@@ -564,6 +578,10 @@ Voxel.World = (function () {
   function init(s, worldProfile) {
     seed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(s)); // 规范化为带符号十进制串
     profile = worldProfile || null;
+    terrainVersion = Voxel.PlanetRules && Voxel.PlanetRules.normalizeVersion
+      ? Voxel.PlanetRules.normalizeVersion(profile && profile.terrainVersion, 1)
+      : ((profile && profile.terrainVersion === 2) ? 2 : 1);
+    planetTypeKey = profile && typeof profile.typeKey === 'string' ? profile.typeKey : 'lush';
     noise = Voxel.Noise.create(seed);
     climateAt = Voxel.Biomes.makeClimate(noise);
     shaper = Voxel.Shaper.create(noise);
@@ -578,6 +596,7 @@ Voxel.World = (function () {
     lightReady = false;
     genCount = 0;
     genPhase = 1;
+    spawnCache = null;
     genOrder = [];
     var nCx = W / CS, nCz = D / CS;
     var ccx = (nCx - 1) / 2, ccz = (nCz - 1) / 2;
@@ -648,11 +667,57 @@ Voxel.World = (function () {
     return -1;
   }
 
+  function safeSpawnColumn(x, z, useVisibleSurface) {
+    if (!data || !heights || x < 1 || z < 1 || x >= W - 1 || z >= D - 1) return null;
+    var y = useVisibleSurface ? surfaceAt(x, z) : heights[x + W * z];
+    if (!Number.isFinite(y) || y < 2 || y >= H - 3) return null;
+    var floor = get(x, y, z), feet = get(x, y + 1, z), head = get(x, y + 2, z);
+    if (!Voxel.Blocks.isSolid(floor) || feet === 7 || head === 7 ||
+      Voxel.Blocks.isSolid(feet) || Voxel.Blocks.isSolid(head)) return null;
+    // 拒绝树冠/仙人掌等装饰顶面，也避免在悬崖边缘立即滑落。
+    if (floor === 4 || floor === 5 || floor === 15 || floor === 16 ||
+      floor === 24 || floor === 34 || floor === 35 || floor === 36) return null;
+    var h0 = heights[x - 1 + W * z], h1 = heights[x + 1 + W * z];
+    var h2 = heights[x + W * (z - 1)], h3 = heights[x + W * (z + 1)];
+    if (Math.max(Math.abs(h0 - y), Math.abs(h1 - y), Math.abs(h2 - y), Math.abs(h3 - y)) > 4)
+      return null;
+    return { x: x, y: y, z: z };
+  }
+
   function spawnPoint() {
-    var x = W >> 1, z = D >> 1;
-    var y = surfaceAt(x, z);
-    if (y < 1) y = H - 2;
-    return new THREE.Vector3(x + 0.5, y + 1.01, z + 0.5);
+    if (spawnCache) {
+      var cachedSafe = safeSpawnColumn(spawnCache.x, spawnCache.z, true);
+      if (cachedSafe && cachedSafe.y === spawnCache.y)
+        return new THREE.Vector3(spawnCache.x + 0.5, spawnCache.y + 1.01, spawnCache.z + 0.5);
+      // 玩家可能挖掉出生地板或堵住两格身体空间；缓存失效时
+      // 重新执行同一确定性搜索，不能把重生点留在已损坏坐标。
+      spawnCache = null;
+    }
+    var cx = W >> 1, cz = D >> 1;
+    // 空间站与旧世界的原中心点若本就安全，保持字节级相同的出生位置。
+    var found = safeSpawnColumn(cx, cz, true);
+    if (!found && (!profile || profile.kind !== 'station')) {
+      // 固定同心方环：不使用随机，同 seed/加载顺序始终选到同一列。
+      var maxR = Math.min(cx - 2, cz - 2, W - cx - 3, D - cz - 3);
+      for (var r = 1; r <= maxR && !found; r++) {
+        var x, z;
+        for (x = cx - r; x <= cx + r && !found; x++)
+          found = safeSpawnColumn(x, cz - r, false);
+        for (z = cz - r + 1; z <= cz + r && !found; z++)
+          found = safeSpawnColumn(cx + r, z, false);
+        for (x = cx + r - 1; x >= cx - r && !found; x--)
+          found = safeSpawnColumn(x, cz + r, false);
+        for (z = cz + r - 1; z > cz - r && !found; z--)
+          found = safeSpawnColumn(cx - r, z, false);
+      }
+    }
+    if (!found) {
+      var fallbackY = surfaceAt(cx, cz);
+      if (fallbackY < 1) fallbackY = H - 2;
+      found = { x: cx, y: fallbackY, z: cz };
+    }
+    spawnCache = found;
+    return new THREE.Vector3(found.x + 0.5, found.y + 1.01, found.z + 0.5);
   }
 
   function applyEdits(ed) {

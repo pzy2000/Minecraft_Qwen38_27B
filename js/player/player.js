@@ -249,6 +249,14 @@ Voxel.Player = (function () {
     Voxel.HUD.drawHealth(hp);
     if (Voxel.HUD.drawAir) Voxel.HUD.drawAir(1);
     if (Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
+    if (Voxel.Environment && Voxel.Environment.onRespawn && Voxel.Environment.status) {
+      var envStatus = Voxel.Environment.status();
+      var worldProfile = Voxel.World && Voxel.World.getProfile ? Voxel.World.getProfile() : null;
+      // 跃迁载入目标世界时 Environment 可能仍指向来源；不能因目标旧死亡
+      // 快照而清空来源星球的暴露。只在两个当前 worldId 一致时执行 hook。
+      if (envStatus && worldProfile && envStatus.worldId === worldProfile.id)
+        Voxel.Environment.onRespawn();
+    }
     return sp.clone();
   }
 

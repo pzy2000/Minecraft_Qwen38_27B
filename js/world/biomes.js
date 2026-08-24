@@ -187,6 +187,45 @@ Voxel.Biomes = (function () {
     return best;
   }
 
+  // 在给定白名单中做同一套五维最近邻选择。与按方块哈希随机改写群系相比，
+  // 连续气候场只会在 Voronoi 边界处切换，供 terrainVersion=2 的行星规则复用。
+  // 不可信/缺失气候不会产生 NaN 扩散，而是回退到允许集合中的 fallback/首项。
+  function distanceSq(cl, id) {
+    var p = points[id];
+    if (!p || !cl || typeof cl !== 'object') return Infinity;
+    var t = cl.t, h = cl.h, c = cl.c, e = cl.e, w = cl.w;
+    if (typeof t !== 'number' || !isFinite(t) || typeof h !== 'number' || !isFinite(h) ||
+      typeof c !== 'number' || !isFinite(c) || typeof e !== 'number' || !isFinite(e) ||
+      typeof w !== 'number' || !isFinite(w)) return Infinity;
+    var dt = t - p[0], dh = h - p[1], dc = c - p[2];
+    var de = e - p[3], dw = w - p[4];
+    return dt * dt + dh * dh + dc * dc + de * de + dw * dw;
+  }
+
+  function pickAllowed(cl, allowed, fallback) {
+    var fallbackValid = typeof fallback === 'number' && isFinite(fallback) &&
+      Math.floor(fallback) === fallback && !!points[fallback];
+    if (!Array.isArray(allowed) || !allowed.length) return fallbackValid ? fallback : B.PLAINS;
+    var firstValid = -1, fallbackAllowed = false, best = -1, bestD = Infinity;
+    // 热路径：每个世界约 65k 列。不得创建 valid/vals 等临时数组，也不改写调用方白名单。
+    for (var i = 0; i < allowed.length; i++) {
+      var id = allowed[i];
+      if (typeof id !== 'number' || !isFinite(id) || Math.floor(id) !== id || !points[id]) continue;
+      var duplicate = false;
+      for (var prior = 0; prior < i; prior++) {
+        if (allowed[prior] === id) { duplicate = true; break; }
+      }
+      if (duplicate) continue;
+      if (firstValid < 0) firstValid = id;
+      if (fallbackValid && id === fallback) fallbackAllowed = true;
+      var d = distanceSq(cl, id);
+      if (d < bestD) { bestD = d; best = id; }
+    }
+    if (firstValid < 0) return fallbackValid ? fallback : B.PLAINS;
+    if (bestD < Infinity) return best;
+    return fallbackAllowed ? fallback : firstValid;
+  }
+
   function def(id) { return defs[id] || defs[B.PLAINS]; }
 
   return {
@@ -196,6 +235,8 @@ Voxel.Biomes = (function () {
     points: points,
     makeClimate: makeClimate,
     pick: pick,
+    pickAllowed: pickAllowed,
+    distanceSq: distanceSq,
     def: def,
     count: defs.length,
     name: function (id) { return def(id).name; },

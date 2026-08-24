@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ENVIRONMENT-RUNNING</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  body { background: #06101c; }
+  #results { position: relative; z-index: 100; width: min(760px, 94vw); max-height: 70vh; overflow: auto; margin: 12px; padding: 12px; color: #b9ffd1; background: rgba(0,0,0,.82); white-space: pre-wrap; font: 12px/1.5 monospace; }
+</style>
+</head>
+<body data-game-state="playing">
+<div id="hud">
+  <canvas id="oxygen" width="212" height="20"></canvas>
+  <canvas id="hunger" width="212" height="20"></canvas>
+  <canvas id="health" width="212" height="20"></canvas>
+  <div id="hotbar"></div>
+  <div id="environment-meter" role="meter" aria-label="环境危害暴露" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="环境稳定 0%" data-hazard="none" data-level="safe" data-active="false" data-protected="true">
+    <span class="environment-icon" aria-hidden="true">◇</span>
+    <span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span>
+    <span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span>
+    <span id="environment-value" aria-hidden="true">0%</span>
+  </div>
+</div>
+<pre id="results">RUNNING...</pre>
+<script src="../js/systems/environment.js"></script>
+<script src="../js/ui/hud.js"></script>
+<script>
+(function () {
+  'use strict';
+  var E = Voxel.Environment;
+  var H = Voxel.HUD;
+  var out = [], failures = 0;
+
+  function check(name, ok, detail) {
+    out.push((ok ? 'ok   ' : 'FAIL ') + name + (detail ? ' :: ' + detail : ''));
+    if (!ok) failures++;
+  }
+
+  function world(type, id) {
+    return { id: id || 'planet-' + type, typeKey: type, kind: type === 'station' ? 'station' : 'planet' };
+  }
+
+  function outdoor(extra) {
+    var value = { outdoors: true, sheltered: false, sunlight: 1, isNight: false,
+      inWater: false, waterDepth: 0, blockLight: 0, spawnDistance: 100 };
+    extra = extra || {};
+    Object.keys(extra).forEach(function (key) { value[key] = extra[key]; });
+    return value;
+  }
+
+  function advance(seconds, context, slice) {
+    var left = seconds, damage = 0, result = null, step = slice || 1;
+    while (left > 1e-9) {
+      var dt = Math.min(step, left);
+      result = E.update(dt, context);
+      damage += result.damageDue;
+      left -= dt;
+    }
+    return { damageDue: damage, status: result ? result.status : E.status() };
+  }
+
+  function saved(id, exposure) {
+    var worlds = {};
+    worlds[id] = { exposure: exposure };
+    return { v: 1, worlds: worlds };
+  }
+
+  function nearly(a, b, eps) { return Math.abs(a - b) <= (eps || 0.001); }
+
+  check('Environment公开API完整', ['loadWorld', 'update', 'snapshot', 'onRespawn', 'clear', 'status'].every(function (key) {
+    return typeof E[key] === 'function';
+  }));
+  var noAuthority = E._test.profileFor('lush');
+  check('缺失PlanetRules时none fallback与权威阈值/节拍一致',
+    noAuthority.hazard === 'none' && noAuthority.threshold === 90 && noAuthority.interval === 2 && noAuthority.damage === 0);
+
+  E.clear();
+  var invalid = E.loadWorld({ id: '__proto__', typeKey: 'toxic' }, { v: 1, worlds: {} });
+  check('非法世界ID拒绝且环境离线', invalid.worldId === '' && invalid.hazard === 'none');
+  E.loadWorld(world('toxic', 'planet-safe'), {
+    v: 1,
+    worlds: {
+      'planet-safe': { exposure: Infinity },
+      constructor: { exposure: 88 },
+      extra: { exposure: '99' }
+    }
+  });
+  check('坏暴露/原型键/数字字符串不会进入状态', E.status().exposure === 0 &&
+    !Object.prototype.hasOwnProperty.call(E.snapshot().worlds, 'constructor') &&
+    !Object.prototype.hasOwnProperty.call(E.snapshot().worlds, 'extra'));
+  var hugeWorlds = {};
+  for (var hi = 0; hi < 500; hi++) hugeWorlds['planet-' + hi] = { exposure: hi % 101 };
+  E.loadWorld(world('toxic', 'planet-0'), { v: 1, worlds: hugeWorlds });
+  check('巨大存档扫描/保留世界数均有硬上限', Object.keys(E.snapshot().worlds).length <= 64);
+  E.loadWorld(world('toxic', 'planet-current-after-cap'), { v: 1, worlds: hugeWorlds });
+  check('巨大存档不能挤掉当前世界状态', E.status().worldId === 'planet-current-after-cap' &&
+    Object.prototype.hasOwnProperty.call(E.snapshot().worlds, 'planet-current-after-cap'));
+  E.loadWorld({ id: 'planet-bad-type', typeKey: '__proto__' });
+  check('非法typeKey安全离线', E.status().worldId === '' && E.status().hazard === 'none');
+
+  E.loadWorld(world('toxic', 'planet-clamp'), saved('planet-clamp', 999));
+  check('有限暴露严格夹取0..100', E.status().exposure === 100);
+  var beforeBadDt = E.status().exposure;
+  E.update(NaN, outdoor()); E.update(Infinity, outdoor()); E.update(-1, outdoor());
+  check('非有限/负dt不推进状态', E.status().exposure === beforeBadDt);
+  var missingContext = E.update(1, null);
+  check('缺失context按安全状态恢复而不误伤', missingContext.damageDue === 0 && missingContext.status.protected);
+
+  ['lush', 'station'].forEach(function (type) {
+    E.loadWorld(world(type));
+    var result = advance(45, outdoor());
+    check(type + '无危害且暴露恒为0', result.status.hazard === 'none' && result.status.exposure === 0 && result.damageDue === 0);
+  });
+  var hazardKeys = {};
+  ['arid', 'frozen', 'toxic', 'volcanic', 'oceanic'].forEach(function (type) {
+    E.loadWorld(world(type));
+    hazardKeys[type] = E.status().damageCause;
+  });
+  check('伤害cause键稳定', JSON.stringify(hazardKeys) ===
+    JSON.stringify({ arid: 'heat', frozen: 'cold', toxic: 'toxic', volcanic: 'ash', oceanic: 'pressure' }));
+
+  var originalPlanetRules = Voxel.PlanetRules;
+  Voxel.PlanetRules = { hazard: function (type) {
+    if (type !== 'toxic') return { key: 'none', damageCause: 'none', label: '稳定',
+      accumulation: 0, recovery: 12, threshold: 100, interval: 0, damage: 0 };
+    return { key: 'toxic', damageCause: 'toxic', label: '权威毒性',
+      accumulation: 10, recovery: 20, threshold: 50, interval: 1, damage: 3 };
+  } };
+  var injectedProfile = E._test.profileFor('toxic');
+  E.loadWorld(world('toxic', 'planet-authority'), saved('planet-authority', 50));
+  var authorityGrace = advance(30, outdoor());
+  var authorityDamage = advance(1, outdoor());
+  var authorityRecover = advance(1, outdoor({ sheltered: true, outdoors: false }));
+  check('Environment严格采用PlanetRules权威数值', injectedProfile.gain === 10 && injectedProfile.recover === 20 &&
+    injectedProfile.threshold === 50 && injectedProfile.interval === 1 && injectedProfile.damage === 3 &&
+    authorityGrace.damageDue === 0 && authorityDamage.damageDue === 3 && authorityDamage.status.threshold === 50 &&
+    authorityDamage.status.level === 'critical' && authorityRecover.status.exposure === 40);
+  Voxel.PlanetRules.hazard = function () { return { key: 'toxic', damageCause: 'toxic', label: '坏配置',
+    accumulation: Infinity, recovery: -1, threshold: NaN, interval: 0, damage: 999 }; };
+  var rejectedAuthority = E._test.profileFor('toxic');
+  check('损坏PlanetRules整组回退安全fallback', rejectedAuthority.gain === 4.5 &&
+    rejectedAuthority.recover === 8 && rejectedAuthority.threshold === 90 && rejectedAuthority.interval === 2 &&
+    rejectedAuthority.damage === 1);
+  Voxel.PlanetRules = originalPlanetRules;
+
+  E.loadWorld(world('arid'));
+  var grace29 = advance(29.75, outdoor());
+  check('load grace前29.75秒不累计暴露', grace29.status.exposure === 0 && nearly(grace29.status.graceRemaining, .25));
+  var grace30 = E.update(.25, outdoor());
+  check('load grace精确30秒且边界步不伤害', grace30.status.exposure === 0 && grace30.status.graceRemaining === 0 && grace30.damageDue === 0);
+  var aridHot = advance(5, outdoor());
+  check('arid仅晴天露天累积日照热', nearly(aridHot.status.exposure, 20) && aridHot.status.hazard === 'heat' && aridHot.status.active);
+  var aridNight = advance(1, outdoor({ isNight: true, sunlight: 0 }));
+  var aridShade = advance(1, outdoor({ sheltered: true, outdoors: false }));
+  var aridWater = advance(1, outdoor({ inWater: true }));
+  check('arid夜间/遮阴/水体连续恢复', nearly(aridNight.status.exposure, 12) && nearly(aridShade.status.exposure, 4) && aridWater.status.exposure === 0);
+
+  function exposureAfter(type, activeContext, safeContext, suffix) {
+    E.loadWorld(world(type, 'planet-' + type + (suffix ? '-' + suffix : '')));
+    advance(30, activeContext);
+    var raised = advance(4, activeContext).status.exposure;
+    var lowered = advance(2, safeContext).status.exposure;
+    return { raised: raised, lowered: lowered, status: E.status() };
+  }
+
+  var frozenShade = exposureAfter('frozen', outdoor(), outdoor({ sheltered: true, outdoors: false }));
+  check('frozen露天低块光累积、遮蔽恢复', frozenShade.raised > 0 && frozenShade.lowered < frozenShade.raised && frozenShade.status.hazard === 'cold');
+  E.loadWorld(world('frozen', 'planet-frozen-light'));
+  advance(30, outdoor()); advance(4, outdoor());
+  var frozenLight = advance(2, outdoor({ blockLight: 12 })).status.exposure;
+  check('frozen高块光恢复', frozenLight < 14);
+
+  var toxic = exposureAfter('toxic', outdoor(), outdoor({ sheltered: true, outdoors: false }));
+  var ash = exposureAfter('volcanic', outdoor(), outdoor({ sheltered: true, outdoors: false }));
+  check('toxic/volcanic仅露天累积且遮蔽恢复', toxic.raised > toxic.lowered && ash.raised > ash.lowered &&
+    toxic.status.hazard === 'toxic' && ash.status.hazard === 'ash');
+  var toxicWater = exposureAfter('toxic', outdoor(), outdoor({ inWater: true }), 'water');
+  var ashWater = exposureAfter('volcanic', outdoor(), outdoor({ inWater: true }), 'water');
+  check('水体可隔绝毒气/火山灰并恢复暴露',
+    toxicWater.lowered < toxicWater.raised && ashWater.lowered < ashWater.raised);
+
+  E.loadWorld(world('oceanic'));
+  advance(30, outdoor({ inWater: false }));
+  var dry = advance(3, outdoor({ inWater: false })).status.exposure;
+  var shallow = advance(3, outdoor({ inWater: true, waterDepth: 5.9 })).status.exposure;
+  var deep = advance(3, outdoor({ inWater: true, waterDepth: 6 })).status.exposure;
+  var surface = advance(1, outdoor({ inWater: false })).status.exposure;
+  check('oceanic仅>=6格深水产生压力并在离水后恢复', dry === 0 && shallow === 0 && deep > 0 && surface < deep && E.status().hazard === 'pressure');
+
+  E.loadWorld(world('toxic', 'planet-spawn'), saved('planet-spawn', 100));
+  var spawnSafe = advance(35, outdoor({ spawnDistance: 12 }));
+  check('出生点12格内强制保护/恢复且不伤害', spawnSafe.damageDue === 0 && spawnSafe.status.exposure === 0 &&
+    spawnSafe.status.protected && spawnSafe.status.reason === '出生安全区');
+  E.loadWorld(world('toxic', 'planet-spawn-edge'), saved('planet-spawn-edge', 100));
+  var outsideSpawn = advance(32, outdoor({ spawnDistance: 12.01 }));
+  check('出生安全半径外恢复正常伤害节拍', outsideSpawn.damageDue === 1 && outsideSpawn.status.active);
+
+  E.loadWorld(world('toxic', 'planet-damage'), saved('planet-damage', 100));
+  var damageGrace = advance(30, outdoor());
+  var damage175 = advance(1.75, outdoor());
+  var damage2 = advance(.25, outdoor());
+  var damage4 = advance(2, outdoor());
+  check('高暴露在grace内不伤害', damageGrace.damageDue === 0);
+  check('伤害严格每2秒结算一次', damage175.damageDue === 0 && damage2.damageDue === 1 && damage4.damageDue === 1);
+
+  E.loadWorld(world('volcanic', 'planet-respawn'), saved('planet-respawn', 100));
+  E.onRespawn();
+  var respawn19 = advance(19.75, outdoor());
+  var respawn20 = advance(.25, outdoor());
+  var respawnAfter = advance(.25, outdoor());
+  check('respawn清零暴露并提供精确20秒grace', respawn19.status.exposure === 0 &&
+    nearly(respawn19.status.graceRemaining, .25) && respawn20.status.graceRemaining === 0 &&
+    respawnAfter.status.exposure > 0 && respawn19.damageDue + respawn20.damageDue + respawnAfter.damageDue === 0);
+
+  E.loadWorld(world('toxic', 'planet-a'));
+  advance(30, outdoor()); advance(4, outdoor());
+  var exposureA = E.status().exposure;
+  var snapA = E.snapshot();
+  E.loadWorld(world('frozen', 'planet-b'), snapA);
+  advance(30, outdoor()); advance(2, outdoor());
+  var exposureB = E.status().exposure;
+  var snapB = E.snapshot();
+  E.loadWorld(world('toxic', 'planet-a'), snapB);
+  check('跨世界暴露独立且返回恢复原值', exposureA > 0 && exposureB > 0 && nearly(E.status().exposure, exposureA));
+
+  var detached = E.snapshot();
+  detached.worlds['planet-a'].exposure = 0;
+  check('snapshot为脱离内部状态的副本', nearly(E.status().exposure, exposureA));
+  var roundTrip = JSON.parse(JSON.stringify(E.snapshot()));
+  E.clear(); E.loadWorld(world('toxic', 'planet-a'), roundTrip);
+  check('snapshot JSON往返只含有限版本化暴露', E.status().exposure === exposureA && roundTrip.v === 1 &&
+    Object.keys(roundTrip.worlds).every(function (id) { return isFinite(roundTrip.worlds[id].exposure); }));
+
+  E.clear();
+  E.loadWorld(world('toxic', 'planet-grace-a'));
+  advance(30, outdoor()); advance(4, outdoor());
+  var revisitExposure = E.status().exposure;
+  E.loadWorld(world('frozen', 'planet-grace-b'), undefined, { grantGrace: 'new' });
+  var firstArrivalGrace = E.status().graceRemaining;
+  E.loadWorld(world('toxic', 'planet-grace-a'), undefined, { grantGrace: 'new' });
+  check('首访有30s适应期，页面内返回已访危害世界不可刷新grace',
+    firstArrivalGrace === 30 && E.status().graceRemaining === 0 && nearly(E.status().exposure, revisitExposure));
+  var consumedGraceSnapshot = E.snapshot();
+  E.clear();
+  E.loadWorld(world('toxic', 'planet-grace-a'), consumedGraceSnapshot);
+  check('适应期消费标记随快照落盘，F5/重载不能再领30秒',
+    E.status().graceRemaining === 0 && nearly(E.status().exposure, revisitExposure) &&
+    consumedGraceSnapshot.worlds['planet-grace-a'].adapted === true);
+  E.clear();
+  E.loadWorld(world('lush', 'legacy-current'), { v: 1, worlds: {
+    'legacy-current': { exposure: 0, adapted: true },
+    'legacy-hazard': { exposure: 100 }
+  } });
+  E.loadWorld(world('toxic', 'legacy-hazard'), undefined, { grantGrace: 'new' });
+  check('旧快照已有但缺adapted的非当前天体，首次返航仍仅获得一次30s保护',
+    E.status().graceRemaining === 30 && E.status().exposure === 100 &&
+    E.snapshot().worlds['legacy-hazard'].adapted === true);
+
+  function runPattern(parts) {
+    E.clear(); E.loadWorld(world('toxic', 'planet-fixed'));
+    advance(30, outdoor());
+    for (var i = 0; i < parts.length; i++) E.update(parts[i], outdoor());
+    return E.status().exposure;
+  }
+  check('固定步与帧切分无关', nearly(runPattern([4]), runPattern(Array(32).fill(.125))));
+
+  var safeModel = H.setEnvironment({ hazard: '<img>', exposure: NaN, level: 'oops', reason: 'undefined' });
+  check('HUD拒绝坏hazard/NaN/程序字符串', safeModel.hazard === 'none' && safeModel.percent === 0 &&
+    document.getElementById('environment-meter').getAttribute('aria-valuenow') === '0' &&
+    !/undefined|NaN|<img/i.test(document.getElementById('environment-meter').getAttribute('aria-valuetext')));
+  check('无危害世界自动隐藏环境表', getComputedStyle(document.getElementById('environment-meter')).visibility === 'hidden');
+  check('HUD风险等级只由有限暴露派生', H.setEnvironment({ hazard: 'heat', exposure: 1,
+    level: 'critical', active: false }).level === 'safe');
+  var toastCalls = 0, originalToast = H.toast;
+  H.toast = function () { toastCalls++; };
+  var dangerModel = H.setEnvironment({ hazard: 'heat', exposure: 74.6, level: 'danger', active: true,
+    protected: false, graceRemaining: 0, reason: '烈日暴晒' });
+  H.toast = originalToast;
+  var meter = document.getElementById('environment-meter');
+  check('HUD meter同步有限ARIA/文本/填充', dangerModel.percent === 75 && meter.getAttribute('role') === 'meter' &&
+    meter.getAttribute('aria-valuenow') === '75' && meter.dataset.hazard === 'heat' && meter.dataset.level === 'danger' &&
+    getComputedStyle(meter).visibility === 'visible' &&
+    document.getElementById('environment-fill').style.width === '75%' && /日照热负荷/.test(meter.getAttribute('aria-valuetext')));
+  check('HUD环境更新自身不发toast', toastCalls === 0);
+  var rect = meter.getBoundingClientRect();
+  check('HUD环境表完整位于视口且不扩张页面', rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight &&
+    document.documentElement.scrollWidth <= innerWidth + 1);
+  var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var meterStyle = getComputedStyle(meter), fillStyle = getComputedStyle(document.getElementById('environment-fill'));
+  check(reduced ? 'reduced-motion环境警报静态' : '标准环境警报周期固定', reduced
+    ? meterStyle.animationName === 'none' && fillStyle.transitionDuration === '0s'
+    : meterStyle.animationName === 'environmentWarning' && Math.abs(parseFloat(meterStyle.animationDuration) - 1.15) < .001);
+
+  var cleared = E.clear();
+  check('clear幂等并回环境离线', cleared.worldId === '' && E.clear().exposure === 0 && Object.keys(E.snapshot().worlds).length === 0);
+
+  document.getElementById('results').textContent =
+    '=== ' + (failures ? failures + ' FAILED' : 'ENVIRONMENT ALL PASS') + ' ===\n' + out.join('\n');
+  document.title = failures ? 'ENVIRONMENT-FAIL' : 'ENVIRONMENT-PASS';
+})();
+</script>
+</body>
+</html>

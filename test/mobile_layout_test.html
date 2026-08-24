@@ -10,18 +10,22 @@
 <canvas id="game"></canvas>
 <div id="hud">
   <div id="crosshair"></div>
-  <div id="space-hud"><div id="world-name">◆ 测试星域</div><div id="world-coord">坐标 0 / 0</div><div id="warp-fuel">跃迁 100%</div></div>
-  <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
-  <aside id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
+  <div id="telemetry-rail">
+    <div id="space-hud"><div id="world-name">◆ 测试星域</div><div id="world-coord">坐标 0 / 0</div><div id="warp-fuel">跃迁 100%</div></div>
+    <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+  </div>
+  <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
     aria-hidden="false" data-status="online" data-target-kind="block">
-    <div id="scan-terminal-title">遥测终端 // ONLINE</div>
-    <div id="scan-world">阿特拉斯深空中继站 · 轨道空间站</div>
-    <div id="scan-position">X -123456.7 · Y +63.0 · Z +987654.3</div>
-    <div id="scan-biome">原始针叶林</div>
-    <div id="scan-environment">夜间 · 强雷雨 · 真空警戒</div>
-    <div id="scan-target">受损的远古航行终端控制核心</div>
-    <div id="scan-distance">12.8 m</div>
-  </aside>
+    <div class="scan-terminal-head"><span class="scan-terminal-mark" aria-hidden="true">◈</span><h2 id="scan-terminal-title">环境扫描终端</h2><span class="scan-terminal-mode">PASSIVE</span></div>
+    <dl class="scan-terminal-grid">
+      <div class="scan-field scan-secondary"><dt>世界</dt><dd id="scan-world">阿特拉斯深空中继站 · 轨道空间站</dd></div>
+      <div class="scan-field scan-secondary"><dt>位置</dt><dd id="scan-position">X -123456.7 · Y +63.0 · Z +987654.3</dd></div>
+      <div class="scan-field scan-secondary"><dt>生物群系</dt><dd id="scan-biome">原始针叶林</dd></div>
+      <div class="scan-field scan-secondary"><dt>环境</dt><dd id="scan-environment">夜间 · 强雷雨 · 真空警戒</dd></div>
+      <div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">受损的远古航行终端控制核心</dd></div>
+      <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">12.8 m</dd></div>
+    </dl>
+  </section>
   <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
     <div class="scan-active-actions">
       <button id="btn-scan-hud" type="button" aria-label="启动主动扫描" aria-keyshortcuts="G"
@@ -39,6 +43,9 @@
   <canvas id="oxygen" width="212" height="20"></canvas>
   <canvas id="hunger" width="212" height="20"></canvas>
   <canvas id="health" width="212" height="20"></canvas>
+  <div id="environment-meter" role="meter" aria-label="环境危害暴露" aria-valuemin="0" aria-valuemax="100" aria-valuenow="76" aria-valuetext="毒性暴露 76%，露天毒气" data-hazard="toxic" data-level="danger" data-active="true" data-protected="false">
+    <span class="environment-icon" aria-hidden="true">◇</span><span class="environment-copy"><strong id="environment-label">毒性暴露</strong><small id="environment-detail">暴露 · 露天毒气</small></span><span class="environment-track" aria-hidden="true"><i id="environment-fill" style="width:76%"></i></span><span id="environment-value" aria-hidden="true">76%</span>
+  </div>
   <div id="hotbar"></div>
   <div id="toast" class="show">空间站对接完成 · 跃迁能源已补满</div>
   <div id="use-hint" data-kind="terminal" style="display:block">航行终端：按 H 打开星图</div>
@@ -235,9 +242,10 @@
     document.documentElement.scrollWidth <= W + 1);
   check('遥测终端只读且不截获指针/焦点', getComputedStyle(scan).pointerEvents === 'none' &&
     !scan.querySelector('button,input,select,textarea,a,[tabindex]:not([tabindex="-1"])'));
-  check('极窄视口仍保留世界/位置/目标三项遥测',
+  var compactPassive = W <= 220 || H <= 180;
+  check(compactPassive ? '极窄视口保留世界/目标核心遥测' : '视口保留世界/位置/目标三项遥测',
     document.getElementById('scan-world').getBoundingClientRect().height > 0 &&
-    document.getElementById('scan-position').getBoundingClientRect().height > 0 &&
+    (compactPassive || document.getElementById('scan-position').getBoundingClientRect().height > 0) &&
     document.getElementById('scan-target').getBoundingClientRect().height > 0);
   var scanAvoid = [document.getElementById('space-hud'), starBtn,
     document.getElementById('health'), document.getElementById('hunger'),
@@ -272,6 +280,55 @@
   }
   check('主动扫描长文本不产生横向溢出',
     activeScanControls.scrollWidth <= activeScanControls.clientWidth + 1 && document.documentElement.scrollWidth <= W + 1);
+  var environmentMeter = document.getElementById('environment-meter');
+  var environmentR = environmentMeter.getBoundingClientRect();
+  check('环境危害meter语义/有限ARIA完整', environmentMeter.getAttribute('role') === 'meter' &&
+    environmentMeter.getAttribute('aria-label') && Number.isFinite(Number(environmentMeter.getAttribute('aria-valuenow'))) &&
+    Number(environmentMeter.getAttribute('aria-valuenow')) >= 0 && Number(environmentMeter.getAttribute('aria-valuenow')) <= 100);
+  check('环境危害meter完整限制在视口且不横向溢出', environmentR.width > 0 && environmentR.height > 0 &&
+    inViewport(environmentR) && environmentMeter.scrollWidth <= environmentMeter.clientWidth + 1 &&
+    document.documentElement.scrollWidth <= W + 1);
+  var environmentAvoid = [scan, activeScanControls, document.getElementById('space-hud'), starBtn,
+    document.getElementById('health'), document.getElementById('hunger'), document.getElementById('oxygen'), hotbar,
+    document.getElementById('crosshair'), document.querySelector('.touch-btn-top.pause'),
+    document.querySelector('.touch-btn-top.bag'), document.querySelector('.touch-btn-main'),
+    document.querySelector('.touch-btn-sub'), document.getElementById('toast'),
+    document.getElementById('use-hint'), document.getElementById('lock-hint')];
+  for (var eai = 0; eai < environmentAvoid.length; eai++) {
+    var environmentAvoidR = environmentAvoid[eai].getBoundingClientRect();
+    if (environmentAvoidR.width > 0 && environmentAvoidR.height > 0)
+      check('环境危害meter与关键HUD ' + (eai + 1) + ' 不重叠', overlapArea(environmentR, environmentAvoidR) === 0);
+  }
+  var coreHud = [
+    ['PASSIVE扫描', scan], ['主动扫描', activeScanControls], ['环境危害', environmentMeter],
+    ['生命', document.getElementById('health')], ['饥饿', document.getElementById('hunger')],
+    ['氧气', document.getElementById('oxygen')], ['快捷栏', hotbar], ['准星', document.getElementById('crosshair')],
+    ['跳跃', document.querySelector('.touch-btn-main')], ['飞行', document.querySelector('.touch-btn-sub.fly')],
+    ['暂停', document.querySelector('.touch-btn-top.pause')], ['背包', document.querySelector('.touch-btn-top.bag')]
+  ];
+  for (var chi = 0; chi < coreHud.length; chi++) {
+    var chr = coreHud[chi][1].getBoundingClientRect();
+    check(coreHud[chi][0] + '在视口内可见', chr.width > 0 && chr.height > 0 && inViewport(chr) &&
+      getComputedStyle(coreHud[chi][1]).visibility !== 'hidden' && getComputedStyle(coreHud[chi][1]).display !== 'none');
+    for (var chj = chi + 1; chj < coreHud.length; chj++) {
+      var chr2 = coreHud[chj][1].getBoundingClientRect();
+      check(coreHud[chi][0] + '/' + coreHud[chj][0] + '不重叠', overlapArea(chr, chr2) === 0);
+    }
+  }
+  var touchEntries = [activeScanButton, discoveryButton, starBtn,
+    document.querySelector('.touch-btn-main'), document.querySelector('.touch-btn-sub.fly'),
+    document.querySelector('.touch-btn-top.pause'), document.querySelector('.touch-btn-top.bag')];
+  for (var tei = 0; tei < touchEntries.length; tei++) {
+    target44('真实触控入口 ' + (tei + 1), touchEntries[tei]);
+    check('真实触控入口 ' + (tei + 1) + ' 中心命中自身', hit(touchEntries[tei]));
+  }
+  var toastR = document.getElementById('toast').getBoundingClientRect();
+  var toastAvoid = [activeScanControls, document.querySelector('.touch-btn-main'),
+    document.querySelector('.touch-btn-sub.fly'), document.querySelector('.touch-btn-top.pause'),
+    document.querySelector('.touch-btn-top.bag')];
+  for (var tai = 0; tai < toastAvoid.length; tai++)
+    check('事件toast与主动/触控入口 ' + (tai + 1) + ' 不重叠',
+      overlapArea(toastR, toastAvoid[tai].getBoundingClientRect()) === 0);
   var messages = [document.getElementById('toast'), document.getElementById('use-hint'), document.getElementById('lock-hint')];
   for (var mi = 0; mi < messages.length; mi++) {
     var mr = messages[mi].getBoundingClientRect();
@@ -398,6 +455,8 @@
       getComputedStyle(activeScanControls, '::before').animationName === 'none' &&
       getComputedStyle(activeScanControls, '::after').animationName === 'none' &&
       getComputedStyle(document.querySelector('#scan-progress i')).animationName === 'none');
+    check('reduced-motion 环境危害表静止', getComputedStyle(environmentMeter).animationName === 'none' &&
+      parseFloat(getComputedStyle(document.getElementById('environment-fill')).transitionDuration || '0') === 0);
   } else {
     check('主动扫描脉冲动画周期为 0.8s',
       getComputedStyle(activeScanControls, '::before').animationDuration === '0.8s');
@@ -405,6 +464,7 @@
       getComputedStyle(activeScanControls, '::after').animationDuration === '0.8s');
     check('主动扫描进度动画周期为 0.8s',
       getComputedStyle(document.querySelector('#scan-progress i')).animationDuration === '0.8s');
+    check('环境危害警报动画周期为1.15s', getComputedStyle(environmentMeter).animationDuration === '1.15s');
   }
 
   var fails = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;

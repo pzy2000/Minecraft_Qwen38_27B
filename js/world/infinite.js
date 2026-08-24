@@ -25,6 +25,7 @@ window.Voxel = window.Voxel || {};
 
   var planetMode = true;
   var profile = null;
+  var terrainVersion = 1, planetTypeKey = 'lush';
   var seed = '0';
   var noise = null, climateAt = null, shaper = null;
   var extra = Object.create(null);       // "cx,cz" -> sparse Chunk（核心 8×8 不在此表）
@@ -66,7 +67,10 @@ window.Voxel = window.Voxel || {};
     ch.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] = id;
   }
 
-  function profileBiome(base, x, z) {
+  function profileBiome(base, climate, x, z) {
+    if (Voxel.PlanetRules && Voxel.PlanetRules.biomeFor)
+      return Voxel.PlanetRules.biomeFor(
+        terrainVersion, planetTypeKey, base, climate, x, z, noise);
     if (!profile || !profile.typeKey || profile.typeKey === 'lush') return base;
     var B = Voxel.Biomes.B;
     var sets = {
@@ -86,7 +90,7 @@ window.Voxel = window.Voxel || {};
     if (y < 0 || y >= H) return;
     var i = chunkIndex(lx, y, lz);
     var old = ch.blocks[i];
-    if (old === 3 || old === 8 || old === 9) ch.blocks[i] = id;
+    if (old === 3 || old === 8 || old === 9 || (old >= 39 && old <= 44)) ch.blocks[i] = id;
   }
 
   function applySurface(ch, lx, lz, x, z, top, biome, bd) {
@@ -133,7 +137,9 @@ window.Voxel = window.Voxel || {};
       for (var lz = 0; lz < CS; lz++) {
         var x = x0 + lx, z = z0 + lz;
         var cl = shaper.sampleClim(lat, lx, lz);
-        var biome = profileBiome(Voxel.Biomes.pick(cl), x, z);
+        var biome = terrainVersion === 2 && Voxel.PlanetRules && Voxel.PlanetRules.pickAllowed
+          ? Voxel.PlanetRules.pickAllowed(planetTypeKey, cl, Voxel.Biomes.B.PLAINS)
+          : profileBiome(Voxel.Biomes.pick(cl), cl, x, z);
         var ci = columnIndex(lx, lz);
         ch.biomes[ci] = biome;
         var bd = Voxel.Biomes.def(biome);
@@ -153,9 +159,15 @@ window.Voxel = window.Voxel || {};
             shaper.sampleLat(lat.chee, lat, lx, y, lz), y, th)) solid = false;
           if (solid) {
             ch.blocks[i] = 3;
-            var r = noise.hash3(x, y, z);
-            if (y < 50 && r < 0.007) ch.blocks[i] = 8;
-            else if (y < 34 && r > 0.994) ch.blocks[i] = 9;
+            if (Voxel.PlanetRules && Voxel.PlanetRules.oreBlockForPosition) {
+              var oreId = Voxel.PlanetRules.oreBlockForPosition(
+                terrainVersion, planetTypeKey, x, y, z, noise);
+              if (oreId) ch.blocks[i] = oreId;
+            } else {
+              var r = noise.hash3(x, y, z);
+              if (y < 50 && r < 0.007) ch.blocks[i] = 8;
+              else if (y < 34 && r > 0.994) ch.blocks[i] = 9;
+            }
             top = y;
           } else ch.blocks[i] = y <= WATER ? 7 : 0;
         }
@@ -866,6 +878,10 @@ window.Voxel = window.Voxel || {};
     // null/undefined 会由有限后端随机化；必须复用其规范化结果，不能再随机一次。
     seed = FiniteWorld.getSeed();
     profile = worldProfile || null;
+    terrainVersion = Voxel.PlanetRules && Voxel.PlanetRules.normalizeVersion
+      ? Voxel.PlanetRules.normalizeVersion(profile && profile.terrainVersion, 1)
+      : ((profile && profile.terrainVersion === 2) ? 2 : 1);
+    planetTypeKey = profile && typeof profile.typeKey === 'string' ? profile.typeKey : 'lush';
     planetMode = !profile || profile.kind !== 'station';
     noise = Voxel.Noise.create(seed);
     climateAt = Voxel.Biomes.makeClimate(noise);

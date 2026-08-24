@@ -3,13 +3,14 @@
 window.Voxel = window.Voxel || {};
 
 Voxel.Galaxy = (function () {
+  var CURRENT_TERRAIN_VERSION = 2;
   var TYPES = [
-    { key: 'lush', name: '繁茂星球', icon: '◆', desc: '高生物密度 · 温和气候', accent: '#63f5a6', skyTop: 0x183e63, horizon: 0x6bbfa1 },
-    { key: 'arid', name: '荒漠星球', icon: '▲', desc: '红沙荒原 · 富含矿脉', accent: '#ffb35c', skyTop: 0x5b2836, horizon: 0xd77b55 },
-    { key: 'frozen', name: '冰封星球', icon: '✦', desc: '永久冻土 · 晶莹冰峰', accent: '#9be7ff', skyTop: 0x182b57, horizon: 0x8cc7e8 },
-    { key: 'toxic', name: '剧毒星球', icon: '⬡', desc: '孢子密林 · 腐蚀大气', accent: '#b8ff59', skyTop: 0x243c24, horizon: 0x8da84d },
-    { key: 'volcanic', name: '熔火星球', icon: '◈', desc: '陶瓦裂谷 · 炽热地壳', accent: '#ff654d', skyTop: 0x351321, horizon: 0xb94b35 },
-    { key: 'oceanic', name: '海洋星球', icon: '●', desc: '群岛海域 · 丰沛水源', accent: '#59c9ff', skyTop: 0x102d59, horizon: 0x3b99c7 }
+    { key: 'lush', name: '繁茂星球', icon: '◆', desc: '温和生态 · 活性晶体', accent: '#63f5a6', skyTop: 0x183e63, horizon: 0x6bbfa1 },
+    { key: 'arid', name: '荒漠星球', icon: '▲', desc: '烈日热负荷 · 硅晶富集', accent: '#ffb35c', skyTop: 0x5b2836, horizon: 0xd77b55 },
+    { key: 'frozen', name: '冰封星球', icon: '✦', desc: '低温暴露 · 冰核矿脉', accent: '#9be7ff', skyTop: 0x182b57, horizon: 0x8cc7e8 },
+    { key: 'toxic', name: '剧毒星球', icon: '⬡', desc: '毒性孢子 · 孢子晶矿', accent: '#b8ff59', skyTop: 0x243c24, horizon: 0x8da84d },
+    { key: 'volcanic', name: '熔火星球', icon: '◈', desc: '火山灰暴露 · 熔核富集', accent: '#ff654d', skyTop: 0x351321, horizon: 0xb94b35 },
+    { key: 'oceanic', name: '海洋星球', icon: '●', desc: '深水高压 · 潮汐晶矿', accent: '#59c9ff', skyTop: 0x102d59, horizon: 0x3b99c7 }
   ];
   var SYL_A = ['阿尔', '泽塔', '奈', '奥尔', '伊克', '卡利', '维斯', '泰拉', '诺瓦', '赫利'];
   var SYL_B = ['忒亚', '索恩', '米尔', '珀斯', '瑞斯', '塔恩', '欧拉', '希亚', '安', '洛斯'];
@@ -35,6 +36,20 @@ Voxel.Galaxy = (function () {
     return !!value && Object.prototype.toString.call(value) === '[object Object]';
   }
 
+  // 版本是存档兼容边界，不接受字符串/小数/未来值。只要“已有存档”没有一个
+  // 明确合法的 1/2，就必须按 v1 解释，避免升级后给旧 edits 更换底图。
+  function normalizeTerrainVersion(value, fallback) {
+    if (value === 1 || value === 2) return value;
+    return fallback === 2 ? 2 : 1;
+  }
+
+  function stampTerrainVersion(galaxy, version) {
+    version = normalizeTerrainVersion(version, 1);
+    galaxy.terrainVersion = version;
+    for (var i = 0; i < galaxy.catalog.length; i++) galaxy.catalog[i].terrainVersion = version;
+    return galaxy;
+  }
+
   function create(seed) {
     var root = rootString(seed);
     var worlds = [];
@@ -57,6 +72,7 @@ Voxel.Galaxy = (function () {
         accent: t.accent,
         skyTop: t.skyTop,
         horizon: t.horizon,
+        terrainVersion: CURRENT_TERRAIN_VERSION,
         x: Math.round(Math.cos(angle) * radius),
         y: Math.round(Math.sin(angle) * radius)
       });
@@ -66,10 +82,11 @@ Voxel.Galaxy = (function () {
       name: '阿特拉斯中继站', seed: signedDerived(root, 0x7700),
       typeKey: 'station', typeName: '轨道空间站', icon: '▣',
       desc: '跃迁补给 · 星系航行终端', accent: '#e992ff',
-      skyTop: 0x030511, horizon: 0x090d22, x: 0, y: 0
+      skyTop: 0x030511, horizon: 0x090d22, terrainVersion: CURRENT_TERRAIN_VERSION, x: 0, y: 0
     });
     return {
       version: 1,
+      terrainVersion: CURRENT_TERRAIN_VERSION,
       rootSeed: root,
       currentId: 'planet-0',
       discovered: { 'planet-0': true },
@@ -83,6 +100,9 @@ Voxel.Galaxy = (function () {
   function hydrate(saved, fallbackSeed) {
     var fresh = create((saved && saved.rootSeed) || fallbackSeed);
     if (!saved) return fresh;
+    // 任意既有存档若缺字段或字段损坏，一律走精确旧地形 v1；只有显式数字 2
+    // 才进入连续群系/差异资源规则。catalog 全部由顶层版本重新盖章，拒绝混版世界。
+    stampTerrainVersion(fresh, normalizeTerrainVersion(saved.terrainVersion, 1));
     // v4 及更早版本只有一个世界种子。迁移到 v5 时，起始行星必须永久沿用
     // 旧种子，否则下一次 hydrate 会重新派生 planet-0，导致原 edits/meta 被套到
     // 完全不同的底图上。兼容两种形态：
@@ -165,6 +185,8 @@ Voxel.Galaxy = (function () {
   }
 
   return {
+    CURRENT_TERRAIN_VERSION: CURRENT_TERRAIN_VERSION,
+    normalizeTerrainVersion: normalizeTerrainVersion,
     TYPES: TYPES,
     create: create,
     hydrate: hydrate,

@@ -8,6 +8,8 @@ Voxel.HUD = (function () {
   var chestSlots = [], chestInvSlots = [], chestHeldCanvas = null;
   var manualBtns = [];
   var healthCtx, debugEl, toastEl, heldCanvas, craftHeldCanvas, furHeldCanvas;
+  var environmentEl = null, environmentFillEl = null, environmentLabelEl = null;
+  var environmentDetailEl = null, environmentValueEl = null;
   var resultSlot = null, invResultSlot = null;
   var lastCraftGrid = [], lastInvCraftGrid = [];
   var selectedHotbar = 0;
@@ -470,6 +472,11 @@ Voxel.HUD = (function () {
     if (hEl) hungerCtx = hEl.getContext('2d');
     debugEl = document.getElementById('debug');
     toastEl = document.getElementById('toast');
+    environmentEl = document.getElementById('environment-meter');
+    environmentFillEl = document.getElementById('environment-fill');
+    environmentLabelEl = document.getElementById('environment-label');
+    environmentDetailEl = document.getElementById('environment-detail');
+    environmentValueEl = document.getElementById('environment-value');
 
     document.getElementById('btn-manual').addEventListener('click', function () {
       Voxel.Game.openManual();
@@ -592,6 +599,76 @@ Voxel.HUD = (function () {
       prog.style.width = progress + '%';
       if (prog.parentElement) prog.parentElement.setAttribute('aria-valuenow', String(progress));
     }
+  }
+
+  var ENVIRONMENT_LABELS = {
+    none: '环境稳定', heat: '日照热负荷', cold: '低温暴露',
+    toxic: '毒性暴露', ash: '火山灰暴露', pressure: '深水压力'
+  };
+
+  function safeEnvironmentText(value, fallback, maxLen) {
+    var text = typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+    if (!text || /\b(?:undefined|null|nan|infinity)\b|\[object object\]/i.test(text)) text = fallback;
+    return text.slice(0, maxLen || 48);
+  }
+
+  function environmentModel(raw) {
+    raw = raw && raw.status && typeof raw.status === 'object' ? raw.status : raw;
+    raw = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    var hazard = Object.prototype.hasOwnProperty.call(ENVIRONMENT_LABELS, raw.hazard) ? raw.hazard : 'none';
+    var label = safeEnvironmentText(raw.label, ENVIRONMENT_LABELS[hazard], 32).replace(/[<>]/g, '');
+    if (!label) label = ENVIRONMENT_LABELS[hazard];
+    var exposure = typeof raw.exposure === 'number' && isFinite(raw.exposure)
+      ? Math.max(0, Math.min(100, raw.exposure)) : 0;
+    var percent = Math.round(exposure);
+    var threshold = typeof raw.threshold === 'number' && isFinite(raw.threshold)
+      ? Math.max(1, Math.min(100, raw.threshold)) : 90;
+    var level = percent >= threshold ? 'critical' :
+      (percent >= Math.max(0, threshold - 20) ? 'danger' :
+        (percent >= Math.max(0, threshold - 55) ? 'warning' : 'safe'));
+    var grace = typeof raw.graceRemaining === 'number' && isFinite(raw.graceRemaining)
+      ? Math.max(0, Math.min(30, raw.graceRemaining)) : 0;
+    var activeNow = raw.active === true;
+    var protectedNow = hazard === 'none' || raw.protected === true || !activeNow;
+    var reason = safeEnvironmentText(raw.reason, protectedNow ? '防护有效' : '环境暴露中', 48);
+    var detail = grace > 0
+      ? '适应期 ' + Math.ceil(grace) + ' 秒 · ' + reason
+      : (protectedNow ? '防护 · ' : '暴露 · ') + reason;
+    return {
+      hazard: hazard,
+      label: label,
+      exposure: exposure,
+      percent: percent,
+      level: level,
+      protected: protectedNow,
+      active: activeNow,
+      detail: detail,
+      ariaText: label + ' ' + percent + '%，' + detail
+    };
+  }
+
+  function setEnvironment(raw) {
+    if (!environmentEl) environmentEl = document.getElementById('environment-meter');
+    if (!environmentEl) return environmentModel(raw);
+    if (!environmentFillEl) environmentFillEl = document.getElementById('environment-fill');
+    if (!environmentLabelEl) environmentLabelEl = document.getElementById('environment-label');
+    if (!environmentDetailEl) environmentDetailEl = document.getElementById('environment-detail');
+    if (!environmentValueEl) environmentValueEl = document.getElementById('environment-value');
+    var model = environmentModel(raw);
+    environmentEl.setAttribute('data-hazard', model.hazard);
+    environmentEl.setAttribute('data-level', model.level);
+    environmentEl.setAttribute('data-active', model.active ? 'true' : 'false');
+    environmentEl.setAttribute('data-protected', model.protected ? 'true' : 'false');
+    environmentEl.setAttribute('aria-valuenow', String(model.percent));
+    environmentEl.setAttribute('aria-valuetext', model.ariaText);
+    if (environmentFillEl) environmentFillEl.style.width = model.percent + '%';
+    if (environmentLabelEl && environmentLabelEl.textContent !== model.label)
+      environmentLabelEl.textContent = model.label;
+    if (environmentDetailEl && environmentDetailEl.textContent !== model.detail)
+      environmentDetailEl.textContent = model.detail;
+    if (environmentValueEl && environmentValueEl.textContent !== model.percent + '%')
+      environmentValueEl.textContent = model.percent + '%';
+    return model;
   }
 
   function setSelected(i) {
@@ -722,6 +799,11 @@ Voxel.HUD = (function () {
       lightning: '被雷劈死了',
       drown: '溺水窒息了',
       fall: '摔死了',
+      heat: '因过热而倒下了',
+      cold: '因低温暴露而倒下了',
+      toxic: '因毒性暴露而倒下了',
+      ash: '被火山灰吞没了',
+      pressure: '因深水高压而倒下了',
       generic: '牺牲了'
     };
     el.textContent = '（' + (names[cause] || names.generic) + '）';
@@ -789,11 +871,13 @@ Voxel.HUD = (function () {
     refreshManual: refreshManual,
     setFurnace: setFurnace,
     setFurnaceGauges: setFurnaceGauges,
+    setEnvironment: setEnvironment,
     setChest: setChest,
     _test: {
       normalizeDur: normalizeDur,
       slotDescription: slotDescription,
-      gaugePercent: gaugePercent
+      gaugePercent: gaugePercent,
+      environmentModel: environmentModel
     }
   };
 })();

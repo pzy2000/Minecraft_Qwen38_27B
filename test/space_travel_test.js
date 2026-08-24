@@ -82,7 +82,18 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     coord: document.getElementById('world-coord').textContent,
     fuelText: document.getElementById('warp-fuel').textContent,
     fuel: Voxel.Game._test.galaxy().ship.fuel,
+    terrainVersion: Voxel.Game._test.galaxy().terrainVersion,
+    worldTerrainVersion: Voxel.Game._test.currentWorld().terrainVersion,
+    environment: Voxel.Game._test.environmentStatus(),
+    environmentSaved: ((Voxel.Save.load().player || {}).environment || null),
     player: [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z],
+    spawnCells: [
+      Voxel.World.get(Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().y), Math.floor(Voxel.Player.pos().z)),
+      Voxel.World.get(Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().y) + 1, Math.floor(Voxel.Player.pos().z)),
+      Voxel.World.get(Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().y) - 1, Math.floor(Voxel.Player.pos().z))
+    ],
+    spawnFloorSolid: Voxel.Blocks.isSolid(Voxel.World.get(
+      Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().y) - 1, Math.floor(Voxel.Player.pos().z))),
     scan: {
       status: document.getElementById('scan-terminal').dataset.status,
       kind: document.getElementById('scan-terminal').dataset.targetKind,
@@ -101,6 +112,12 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   }));
   check('起始星系包含 7 个天体', first.count === 7);
   check('起始世界是行星且生成飞船', first.kind === 'planet' && first.ship);
+  check('新星系/行星使用terrainVersion=2且出生点安全',
+    first.terrainVersion === 2 && first.worldTerrainVersion === 2 &&
+    first.spawnCells[0] !== 7 && first.spawnCells[1] !== 7 && first.spawnFloorSolid);
+  check('起始繁茂行星无危害且环境快照已落盘', first.environment &&
+    first.environment.hazard === 'none' && first.environment.exposure === 0 &&
+    first.environmentSaved && first.environmentSaved.v === 1 && first.environmentSaved.worlds['planet-0']);
   check('行星生成 3-4 扇种子传送门', first.portals >= 3 && first.portals <= 4);
   check('HUD 显示当前天体', first.hud && first.hud.indexOf('未知') < 0);
   check('行星遥测首帧立即online且无残留目标', first.scan.status === 'online' &&
@@ -318,6 +335,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       atmosphereStats: Voxel.Atmosphere.resourceStats(),
       weatherTint: [Voxel.Weather.getTint().r, Voxel.Weather.getTint().g, Voxel.Weather.getTint().b],
       weatherIntensity: Voxel.Weather.intensity(),
+      environment: Voxel.Game._test.environmentStatus(),
+      environmentSaved: (Voxel.Save.load().player || {}).environment || null,
       discovery: Voxel.Discovery.worldSummary(galaxy.discovery, world.id),
       planetDiscovery: Voxel.Discovery.worldSummary(galaxy.discovery, 'planet-0'),
       mapCurrent: (document.querySelector('#starmap-grid .star-card.current') || {}).textContent || '',
@@ -335,6 +354,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   });
   check('抵达独立空间站体素世界', station.kind === 'station' && station.deck !== 0);
   check('空间站自动补满跃迁能量', station.fuel === station.max);
+  check('空间站危害为none且保留行星环境分世界快照', station.environment &&
+    station.environment.hazard === 'none' && station.environment.exposure === 0 &&
+    station.environmentSaved && station.environmentSaved.worlds['planet-0'] &&
+    station.environmentSaved.worlds['station-0']);
   check('空间站拥有返回用传送门', station.portals === 3);
   check('抵达后提交目标世界存档', station.savedCurrent === 'station-0');
   check('源行星掉落未泄漏到空间站', station.drops.length === 0);
@@ -424,6 +447,7 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       savedDiscovery: Voxel.Save.load().galaxy.discovery,
       savedPlanetDiscovery: Voxel.Discovery.worldSummary(Voxel.Save.load().galaxy.discovery, 'planet-0'),
       savedStationDiscovery: Voxel.Discovery.worldSummary(Voxel.Save.load().galaxy.discovery, 'station-0'),
+      environment: Voxel.Game._test.environmentStatus(),
       scan: {
         kind: document.getElementById('scan-terminal').dataset.targetKind,
         world: document.getElementById('scan-world').textContent,
@@ -453,6 +477,9 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     backOnPlanet.planetDiscovery.counts.biomes === 1 && backOnPlanet.stationDiscovery.surveyed &&
     backOnPlanet.stationDiscovery.landmarks.some(entry => entry.key === 'station-terminal') &&
     backOnPlanet.savedPlanetDiscovery.surveyed && backOnPlanet.savedStationDiscovery.surveyed);
+  check('页面内返回已访天体不可重复刷新30s环境grace',
+    backOnPlanet.environment && backOnPlanet.environment.worldId === 'planet-0' &&
+    backOnPlanet.environment.graceRemaining === 0);
 
   const portalJump = await page.evaluate(() => ({
     ok: Voxel.Game.requestTravel('station-0', 'portal'),

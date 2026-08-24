@@ -47,6 +47,8 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
   const targets = [
     { file: 'test/browser_test.html', re: '^TEST-PASS' },
     { file: 'test/atmosphere_test.html', re: '^ATMOSPHERE-PASS' },
+    { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS' },
+    { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS', reducedMotion: true },
     { file: 'test/touch_test.html', re: '^TOUCH-PASS', forceTouch: true },
     { file: 'test/render_check.html', re: '^RENDER-PASS' },
     { file: 'test/render_check.html', re: '^RENDER-PASS', forceTouch: true },

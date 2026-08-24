@@ -53,6 +53,7 @@ load('js/world/galaxy.js');
 load('js/systems/atmosphere_profiles.js');
 load('js/world/noise.js');
 load('js/world/biomes.js');
+load('js/world/planet_rules.js');
 load('js/world/shaper.js');
 load('js/blocks.js');
 load('js/systems/discovery.js');
@@ -947,7 +948,8 @@ console.log('存档序列化往返');
   var extra = {
     time: 0.42,
     weather: 'rain',
-    player: { pos: [1.5, 2.5, 3.5], yaw: 1.25, pitch: -0.3, fly: true, hp: 17 },
+    player: { pos: [1.5, 2.5, 3.5], yaw: 1.25, pitch: -0.3, fly: true, hp: 17,
+      environment: { v: 1, worlds: { 'planet-0': { exposure: 42.5, adapted: true } } } },
     inv: inv,
     cnt: cnt,
     held: 102,
@@ -988,9 +990,12 @@ console.log('存档序列化往返');
   check('meta(箱子) 往返', !!loaded && !!loaded.meta && !!loaded.meta['7,8,9'] &&
     loaded.meta['7,8,9'].items[0].n === 5);
   check('player 往返', !!loaded && !!loaded.player && loaded.player.hp === 17 &&
-    loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9);
+    loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9 &&
+    loaded.player.environment.v === 1 && loaded.player.environment.worlds['planet-0'].exposure === 42.5 &&
+    loaded.player.environment.worlds['planet-0'].adapted === true);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
-  check('v5 星系状态随存档写入', !!loaded && loaded.v === 5 && loaded.galaxy.rootSeed === galA.rootSeed && loaded.galaxy.catalog.length === 7);
+  check('v5 星系状态随存档写入', !!loaded && loaded.v === 5 && loaded.galaxy.rootSeed === galA.rootSeed &&
+    loaded.galaxy.catalog.length === 7 && loaded.galaxy.terrainVersion === 2);
 
   // 旧 v5 存档没有临时格/手持耐久字段，读取层不得因此拒绝整个存档。
   var currentRaw = _store[V.Config.SAVE_KEY];
@@ -999,11 +1004,12 @@ console.log('存档序列化往返');
   delete oldShape.craftGrid;
   delete oldShape.invCraftGrid;
   delete oldShape.drops;
+  delete oldShape.player.environment;
   _store[V.Config.SAVE_KEY] = JSON.stringify(oldShape);
   var oldLoaded = V.Save.load();
   check('旧档缺失新增临时字段仍可载入', !!oldLoaded && oldLoaded.seed === loaded.seed &&
     oldLoaded.heldDur === undefined && oldLoaded.craftGrid === undefined && oldLoaded.invCraftGrid === undefined &&
-    oldLoaded.drops === undefined);
+    oldLoaded.drops === undefined && oldLoaded.player.environment === undefined);
   _store[V.Config.SAVE_KEY] = currentRaw;
 
   // 第二次载入后立即再存档：旧修改必须继续留在账本，第三次载入仍可恢复。
@@ -1346,6 +1352,51 @@ console.log('行星类型与空间站生成');
     for (var z = 0; z < D; z += 7)
       if (!allowed[V.World.biomeAt(x, z)]) allArid = false;
   check('荒漠星球实际约束为干旱群系集合', allArid && V.World.getProfile().typeKey === 'arid');
+  var aridCoreExclusive = 0, aridWrongExclusive = 0;
+  for (var ax = 0; ax < W; ax++) for (var az = 0; az < D; az++)
+    for (var ay = 3; ay < H; ay++) {
+      var aid = V.World.get(ax, ay, az);
+      if (aid === 40) aridCoreExclusive++;
+      else if (aid >= 39 && aid <= 44) aridWrongExclusive++;
+    }
+  check('v2有限核心生成且只生成荒漠专属硅晶矿',
+    aridCoreExclusive > 0 && aridWrongExclusive === 0);
+  var seamChanges = 0, aridOuterExclusive = 0, aridOuterWrong = 0;
+  for (var az2 = 0; az2 < D; az2++) {
+    if (V.World.biomeAt(W - 1, az2) !== V.World.biomeAt(W, az2)) seamChanges++;
+    for (var ax2 = W; ax2 < W + V.Config.CHUNK; ax2++)
+      for (var ay2 = 3; ay2 < H; ay2++) {
+        var aid2 = V.World.get(ax2, ay2, az2);
+        if (aid2 === 40) aridOuterExclusive++;
+        else if (aid2 >= 39 && aid2 <= 44) aridOuterWrong++;
+      }
+  }
+  check('v2无限外围共用规则且不泄漏其他行星矿',
+    aridOuterExclusive > 0 && aridOuterWrong === 0);
+  check('v2核心/255→256外围群系接缝跳变率<12%', seamChanges / D < 0.12);
+
+  ['ocean-spawn-6', 'ocean-spawn-7'].forEach(function (spawnSeed) {
+    var ocean = { id: 'spawn-' + spawnSeed, kind: 'planet', typeKey: 'oceanic', terrainVersion: 2 };
+    V.World.init(spawnSeed, ocean);
+    while (!V.World.isReady()) V.World.generateNext(64);
+    var firstSpawn = V.World.spawnPoint(), secondSpawn = V.World.spawnPoint();
+    var sx = Math.floor(firstSpawn.x), sy = Math.floor(firstSpawn.y), sz = Math.floor(firstSpawn.z);
+    check(spawnSeed + '水下旧中心点改用确定性安全出生',
+      V.World.get(sx, sy, sz) !== 7 && V.World.get(sx, sy + 1, sz) !== 7 &&
+      !V.Blocks.isSolid(V.World.get(sx, sy, sz)) &&
+      !V.Blocks.isSolid(V.World.get(sx, sy + 1, sz)) &&
+      V.Blocks.isSolid(V.World.get(sx, sy - 1, sz)) &&
+      firstSpawn.x === secondSpawn.x && firstSpawn.y === secondSpawn.y && firstSpawn.z === secondSpawn.z);
+    if (spawnSeed === 'ocean-spawn-6') {
+      V.World.set(sx, sy - 1, sz, 0);
+      var relocated = V.World.spawnPoint();
+      var rx = Math.floor(relocated.x), ry = Math.floor(relocated.y), rz = Math.floor(relocated.z);
+      check('出生地板被挖后缓存失效并重新选择安全点',
+        (relocated.x !== firstSpawn.x || relocated.y !== firstSpawn.y || relocated.z !== firstSpawn.z) &&
+        V.World.get(rx, ry, rz) !== 7 && V.World.get(rx, ry + 1, rz) !== 7 &&
+        V.Blocks.isSolid(V.World.get(rx, ry - 1, rz)));
+    }
+  });
 
   var stationWorld = galA.catalog[6];
   V.World.init(stationWorld.seed, stationWorld);

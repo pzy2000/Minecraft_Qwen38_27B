@@ -12,12 +12,12 @@ Voxel.Discovery = (function () {
   var MAX_WORLDS = 64;
   var MAX_CATALOG_SCAN = 256;
   var MAX_BIOME_TYPES = 256;
+  var MAX_RESOURCE_TYPES = 64;
   var MAX_ENTRIES_PER_WORLD = 64;
   var ARCHIVE_POINTS = 2;
   var OBJECTIVE_POINTS = 10;
   var OBJECTIVE_FUEL = 5;
 
-  var RESOURCE_IDS = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33];
   var FAUNA = {
     sheep: '羊',
     pig: '猪',
@@ -34,6 +34,25 @@ Voxel.Discovery = (function () {
 
   function map() { return Object.create(null); }
   function own(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  // 资源注册表只由 Blocks 维护；Discovery 每次按当前白名单构造允许键，
+  // 避免新矿种加入时出现两份常量漂移。仍交叉检查私有 set API，防止外部
+  // 修改导出数组后把普通方块/物品伪造成可扫描资源。
+  function resourceIds() {
+    var raw = Voxel.Blocks && Array.isArray(Voxel.Blocks.SCANNABLE_RESOURCES)
+      ? Voxel.Blocks.SCANNABLE_RESOURCES : [];
+    var out = [], seen = map();
+    var scan = Math.min(raw.length, MAX_RESOURCE_TYPES * 2);
+    for (var i = 0; i < scan && out.length < MAX_RESOURCE_TYPES; i++) {
+      var id = raw[i];
+      if (typeof id !== 'number' || !isFinite(id) || Math.floor(id) !== id || id <= 0 || id > 255 ||
+        own(seen, String(id)) || !Voxel.Blocks.defs[id] ||
+        !Voxel.Blocks.isScannableResource || !Voxel.Blocks.isScannableResource(id)) continue;
+      seen[String(id)] = true;
+      out.push(id);
+    }
+    return out;
+  }
 
   // 同时接受本 realm / VM realm 的普通对象与 Object.create(null)，拒绝数组、
   // Date、类实例以及带自定义原型的伪映射。
@@ -109,7 +128,8 @@ Voxel.Discovery = (function () {
       return out;
     }
     if (kind === 'resource') {
-      for (i = 0; i < RESOURCE_IDS.length; i++) out.push(String(RESOURCE_IDS[i]));
+      var resources = resourceIds();
+      for (i = 0; i < resources.length; i++) out.push(String(resources[i]));
       return out;
     }
     if (kind === 'fauna') return Object.keys(FAUNA);
@@ -130,7 +150,7 @@ Voxel.Discovery = (function () {
       if (typeof value !== 'number' &&
         !(typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value))) return null;
       var r = Number(value);
-      return isFinite(r) && Math.floor(r) === r && RESOURCE_IDS.indexOf(r) >= 0
+      return isFinite(r) && Math.floor(r) === r && resourceIds().indexOf(r) >= 0
         ? String(r) : null;
     }
     if (kind === 'fauna')

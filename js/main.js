@@ -22,6 +22,8 @@ Voxel.Game = (function () {
   var galaxyState = null, currentWorld = null, travelStats = null;
   var restoreBusy = false, restoreBusyTimer = null;
   var activeScan = null, scanCooldownT = 0, scanResultT = 0;
+  var environmentUiSignature = '', environmentLastLevel = 'safe';
+  var environmentLastProtected = true;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
@@ -512,7 +514,10 @@ Voxel.Game = (function () {
 
   function ensureGalaxy(rootSeed, savedGalaxy) {
     if (savedGalaxy) galaxyState = Voxel.Galaxy.hydrate(savedGalaxy, rootSeed);
-    else if (!galaxyState) galaxyState = Voxel.Galaxy.create(rootSeed);
+    // 非跃迁入口且存档没有galaxy（v4及更早）时必须重建runtime。
+    // 若复用同页前一个v2 galaxy，会把legacy seed/edits塞进错误root，并让
+    // 其他v2世界被整体盖成v1后换底图。新世界同样不应继承菜单前的内存状态。
+    else galaxyState = Voxel.Galaxy.create(rootSeed);
     if (Voxel.Discovery && Voxel.Discovery.hydrate)
       galaxyState.discovery = Voxel.Discovery.hydrate(galaxyState.discovery, galaxyState.catalog);
     currentWorld = Voxel.Galaxy.find(galaxyState, galaxyState.currentId) || galaxyState.catalog[0];
@@ -526,6 +531,9 @@ Voxel.Game = (function () {
     scanCooldownT = 0;
     scanResultT = 0;
     setActiveScanUI('idle', '主动扫描待机', '按 G 或触摸“扫描”发射探索脉冲', 0);
+    // 页面内跃迁要保留 Environment 的多世界暴露表；从菜单新开/读档
+    // 则先清空内存，稍后只从当前存档的严格快照恢复。
+    if (!destinationId && Voxel.Environment && Voxel.Environment.clear) Voxel.Environment.clear();
     if (destinationId) {
       galaxyState.currentId = destinationId;
       currentWorld = Voxel.Galaxy.find(galaxyState, destinationId);
@@ -537,6 +545,11 @@ Voxel.Game = (function () {
         currentWorld.seed = legacyStartSeed;
         // 随 galaxy 一起持久化；后续每次 hydrate 都据此恢复原底图种子。
         galaxyState.legacyStartSeed = legacyStartSeed;
+        // 旧单世界只保存 edits，必须继续使用 v1 自然地形；否则
+        // 新版 Galaxy.create() 的 v2 默认会把原建筑套到不同底图上。
+        galaxyState.terrainVersion = 1;
+        for (var tv = 0; tv < galaxyState.catalog.length; tv++)
+          galaxyState.catalog[tv].terrainVersion = 1;
       }
     }
     featuredPending = featured || null;
@@ -631,6 +644,8 @@ Voxel.Game = (function () {
   function enterWorld() {
     hideOverlays();
     lastBlankCheck = performance.now(); // 进入后 3 秒内不做空白自检
+    var preserveEnvironmentAcrossTravel = !!travelStats;
+    var loadedDead = false;
     if (Voxel.Player.setSpawn) Voxel.Player.setSpawn(Voxel.World.spawnPoint());
     craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
     invCraftGrid = [0, 0, 0, 0];
@@ -669,7 +684,7 @@ Voxel.Game = (function () {
         Voxel.Player.setBed(new THREE.Vector3(savedBed[0], savedBed[1], savedBed[2]));
       else Voxel.Player.setBed(null);
       var p = saveData.player;
-      var savedDead = !!(p && typeof p.hp === 'number' && isFinite(p.hp) && p.hp <= 0);
+      loadedDead = !!(p && typeof p.hp === 'number' && isFinite(p.hp) && p.hp <= 0);
       if (p && p.pos && p.pos.length === 3) {
         var vx = +p.pos[0], vy = +p.pos[1], vz = +p.pos[2];
         var vyaw = +p.yaw, vpitch = +p.pitch;
@@ -685,7 +700,7 @@ Voxel.Game = (function () {
         }
       } else Voxel.Player.initAtSpawn();
       // 死亡画面无法跨页面恢复；重载死亡存档时按床/当前世界出生点安全重生。
-      if (savedDead) Voxel.Player.respawn();
+      if (loadedDead) Voxel.Player.respawn();
       if (travelStats) {
         Voxel.Player.setHp(travelStats.hp);
         Voxel.Player.setFood(travelStats.food);
@@ -717,6 +732,15 @@ Voxel.Game = (function () {
     if (Math.abs(_pitch) > 0.9) {
       Voxel.Controls.setPitch(-0.2);
       Voxel.HUD.toast('视角已复位（原视角几乎垂直朝上/下）');
+    }
+    if (Voxel.Environment && Voxel.Environment.loadWorld) {
+      var savedEnvironment = preserveEnvironmentAcrossTravel ? undefined :
+        (saveData && saveData.player ? saveData.player.environment : null);
+      var loadedEnvironment = Voxel.Environment.loadWorld(currentWorld, savedEnvironment,
+        preserveEnvironmentAcrossTravel ? { grantGrace: 'new' } : undefined);
+      if (loadedDead && Voxel.Environment.onRespawn)
+        loadedEnvironment = Voxel.Environment.onRespawn();
+      syncEnvironmentHUD(loadedEnvironment, true);
     }
     refreshInv();
     Voxel.HUD.drawHeld(heldItem);
@@ -758,7 +782,8 @@ Voxel.Game = (function () {
       weather: Voxel.Weather.stateName(),
       player: {
         pos: [p.x, p.y, p.z], yaw: Voxel.Controls.yaw(), pitch: Voxel.Controls.pitch(),
-        fly: Voxel.Player.flying(), hp: Voxel.Player.hp(), food: Voxel.Player.food()
+        fly: Voxel.Player.flying(), hp: Voxel.Player.hp(), food: Voxel.Player.food(),
+        environment: Voxel.Environment && Voxel.Environment.snapshot ? Voxel.Environment.snapshot() : null
       },
       bed: bed ? [bed.x, bed.y, bed.z] : null,
       drops: dropsSnapshot()
@@ -774,7 +799,7 @@ Voxel.Game = (function () {
     var manualSaveable = state === 'manual' &&
       ['playing', 'paused', 'inventory', 'crafting', 'furnace', 'chest', 'dead'].indexOf(manualReturnState) >= 0;
     if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
-      state !== 'furnace' && state !== 'chest' && state !== 'starmap' && state !== 'sleeping' &&
+      state !== 'furnace' && state !== 'chest' && state !== 'starmap' && state !== 'discovery' && state !== 'sleeping' &&
       !manualSaveable && state !== 'dead') return false;
     var p = Voxel.Player.pos();
     var bed = Voxel.Player.getBed();
@@ -788,7 +813,8 @@ Voxel.Game = (function () {
         pitch: Voxel.Controls.pitch(),
         fly: Voxel.Player.flying(),
         hp: Voxel.Player.hp(),
-        food: Voxel.Player.food ? Voxel.Player.food() : undefined
+        food: Voxel.Player.food ? Voxel.Player.food() : undefined,
+        environment: Voxel.Environment && Voxel.Environment.snapshot ? Voxel.Environment.snapshot() : null
       },
       inv: inv,
       cnt: cnt,
@@ -2093,6 +2119,8 @@ Voxel.Game = (function () {
     if (state !== 'paused' && state !== 'dead') return;
     var wasDead = state === 'dead';
     if (wasDead) Voxel.Player.respawn();
+    if (wasDead && Voxel.Environment && Voxel.Environment.status)
+      syncEnvironmentHUD(Voxel.Environment.status(), true);
     closeModalLayer(wasDead ? 'overlay-dead' : 'overlay-pause', false);
     // 重生位置、已失效床位清理和恢复后的生命状态立即落盘。
     if (wasDead) doSave(true);
@@ -2807,12 +2835,70 @@ Voxel.Game = (function () {
     updateErrorBanner();
   }
 
+  function environmentContext() {
+    var p = Voxel.Player.pos();
+    var x = Math.floor(p.x), z = Math.floor(p.z);
+    var headY = Math.floor(p.y + C.EYE);
+    var sky = Voxel.World.getSky ? Voxel.World.getSky(x, headY, z) : 15;
+    var blockLight = Voxel.World.getBlk ? Voxel.World.getBlk(x, headY, z) : 0;
+    var headInWater = !!(Voxel.Player.headIn && Voxel.Player.headIn());
+    var spawn = Voxel.Player.getSpawn ? Voxel.Player.getSpawn() : null;
+    var spawnDistance = null;
+    if (spawn && isFinite(spawn.x) && isFinite(spawn.z)) {
+      var sdx = p.x - spawn.x, sdz = p.z - spawn.z;
+      spawnDistance = Math.sqrt(sdx * sdx + sdz * sdz);
+    }
+    var waterDepth = headInWater ? Math.max(0, CFG.WATER_LEVEL - (p.y + C.EYE)) : 0;
+    return {
+      isNight: !!(Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight()),
+      sunlight: Voxel.DayNight && Voxel.DayNight.sunlight ? Voxel.DayNight.sunlight() : 0,
+      sheltered: sky < 14,
+      outdoors: sky >= 14,
+      skyExposed: sky >= 14,
+      inWater: headInWater,
+      headInWater: headInWater,
+      waterDepth: waterDepth,
+      blockLight: blockLight,
+      spawnDistance: spawnDistance,
+      inSpawnSafeZone: spawnDistance !== null && spawnDistance <= 12
+    };
+  }
+
+  function syncEnvironmentHUD(status, force) {
+    if (!status || !Voxel.HUD || !Voxel.HUD.setEnvironment) return;
+    var signature = [status.hazard, status.percent, status.level, Math.ceil(status.graceRemaining || 0),
+      status.active ? 1 : 0, status.protected ? 1 : 0, status.reason].join('|');
+    if (force || signature !== environmentUiSignature) {
+      environmentUiSignature = signature;
+      Voxel.HUD.setEnvironment(status);
+    }
+    var newlyUnprotected = environmentLastProtected && !status.protected && status.active;
+    var enteredRiskLevel = status.level !== environmentLastLevel &&
+      (status.level === 'warning' || status.level === 'danger' || status.level === 'critical');
+    if (!force && status.hazard !== 'none' && (enteredRiskLevel || newlyUnprotected)) {
+      Voxel.HUD.toast(status.label + '：' + status.reason + ' · 暴露 ' + status.percent + '%');
+    }
+    environmentLastLevel = status.level || 'safe';
+    environmentLastProtected = status.protected !== false;
+  }
+
+  function tickEnvironment(step) {
+    if (!Voxel.Environment || !Voxel.Environment.update) return null;
+    var result = Voxel.Environment.update(step, environmentContext());
+    if (!result || !result.status) return null;
+    syncEnvironmentHUD(result.status, false);
+    if (result.damageDue > 0 && Voxel.Player.alive())
+      Voxel.Player.damage(result.damageDue, result.status.damageCause || result.status.hazard || 'generic');
+    return result;
+  }
+
   function fixedUpdate(step) {
     var nowS = performance.now() / 1000;
     if (mouseDown[0] && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
     if (mouseDown[2]) tickDig(step);
     else if (digT || digProg) stopDig();
     Voxel.Player.update(step);
+    if (state === 'playing') tickEnvironment(step);
     if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
     Voxel.Drops.update(step);
     updateFallers(step);
@@ -2999,6 +3085,7 @@ Voxel.Game = (function () {
       var gl = renderer.getContext();
       var dbg = gl.getExtension('WEBGL_debug_renderer_info');
       var gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)).slice(0, 40) : '?';
+      var envDebug = Voxel.Environment && Voxel.Environment.status ? Voxel.Environment.status() : null;
       Voxel.HUD.showDebug(
         'FPS ' + fps +
         '  状态 ' + state + (Voxel.Controls.isLocked() ? ' [鼠标已锁定]' : ' [鼠标未锁定]') +
@@ -3006,6 +3093,8 @@ Voxel.Game = (function () {
         '  视角 偏航' + (Voxel.Controls.yaw() * 57.2958).toFixed(0) + '° 俯仰' + (Voxel.Controls.pitch() * 57.2958).toFixed(0) + '°' +
         '  ' + (Voxel.DayNight.time() * 24).toFixed(1) + '时' + (Voxel.DayNight.isNight() ? ' 夜' : ' 昼') +
         '  天气 ' + Voxel.Weather.label() + (Voxel.Weather.rainbowVisible() ? ' 彩虹' : '') +
+        (envDebug && envDebug.hazard !== 'none'
+          ? '  环境 ' + envDebug.label + ' ' + envDebug.percent + '%' + (envDebug.protected ? ' [防护]' : '') : '') +
         '  天体 ' + (currentWorld ? currentWorld.name + '/' + currentWorld.typeName : '?') +
         '  跃迁 ' + (galaxyState ? Math.round(galaxyState.ship.fuel) : 0) + '%'+
         '  生物 ' + Voxel.Mobs.count() +
@@ -3159,6 +3248,11 @@ Voxel.Game = (function () {
       tickActiveScan: tickActiveScan,
       completeActiveScan: completeActiveScan,
       refreshDiscoveryUI: refreshDiscoveryUI,
+      environmentContext: environmentContext,
+      tickEnvironment: tickEnvironment,
+      environmentStatus: function () {
+        return Voxel.Environment && Voxel.Environment.status ? Voxel.Environment.status() : null;
+      },
       requestTravel: requestTravel,
       syncMainMenu: syncMainMenu,
       restorePreviousSave: restorePreviousSave,

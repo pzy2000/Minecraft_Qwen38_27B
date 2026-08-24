@@ -9,7 +9,7 @@
 <body>
 <canvas id="game"></canvas>
 <div id="hud">
-  <div id="crosshair"></div><div id="debug"></div><canvas id="oxygen" width="212" height="20"></canvas><canvas id="hunger" width="212" height="20"></canvas><canvas id="health" width="212" height="20"></canvas><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div><div id="uw-overlay"></div><div id="dmg-dir"><i></i></div><div id="sleep-fade"></div>
+  <div id="crosshair"></div><div id="debug"></div><canvas id="oxygen" width="212" height="20"></canvas><canvas id="hunger" width="212" height="20"></canvas><canvas id="health" width="212" height="20"></canvas><div id="environment-meter" role="meter" aria-label="环境危害暴露" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-hazard="none" data-level="safe" data-active="false" data-protected="true"><span class="environment-icon" aria-hidden="true">◇</span><span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span><span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span><span id="environment-value" aria-hidden="true">0%</span></div><div id="hotbar"></div><div id="toast"></div><div id="use-hint"></div><div id="lock-hint"></div><div id="error-banner"></div><div id="dmg-flash"></div><div id="uw-overlay"></div><div id="dmg-dir"><i></i></div><div id="sleep-fade"></div>
   <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title" aria-hidden="true" data-status="offline" data-target-kind="none">
     <div class="scan-terminal-head"><span class="scan-terminal-mark" aria-hidden="true">◈</span><h2 id="scan-terminal-title">环境扫描终端</h2><span class="scan-terminal-mode">PASSIVE</span></div>
     <dl class="scan-terminal-grid"><div class="scan-field"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div><div class="scan-field"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div><div class="scan-field"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div><div class="scan-field"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div><div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div><div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div></dl>
@@ -54,6 +54,7 @@
 <script src="../js/systems/atmosphere_profiles.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/world/biomes.js"></script>
+<script src="../js/world/planet_rules.js"></script>
 <script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
 <script src="../js/systems/discovery.js"></script>
@@ -66,6 +67,7 @@
 <script src="../js/player/player.js"></script>
 <script src="../js/interact/raycast.js"></script>
 <script src="../js/systems/settings.js"></script>
+<script src="../js/systems/environment.js"></script>
 <script src="../js/systems/atmosphere.js"></script>
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
@@ -125,6 +127,25 @@
       sceneOk = counts.sky > 20 && (counts.green + counts.brown) > 20;
       out.push(sceneOk ? 'SCENE-LOOKS-CORRECT (天空+地形均可见)' : 'SCENE-SUSPICIOUS');
 
+      var atlas = Voxel.Blocks.getTexture && Voxel.Blocks.getTexture().image;
+      var atlasOk = !!(atlas && atlas.getContext), atlasHashes = {}, atlasRanges = [];
+      if (atlasOk) {
+        var atlasCtx = atlas.getContext('2d');
+        [71, 72, 73, 74, 75, 76].forEach(function (tile) {
+          var px = atlasCtx.getImageData((tile % 16) * 16, ((tile / 16) | 0) * 16, 16, 16).data;
+          var hash = 2166136261, min = 255, max = 0;
+          for (var ai = 0; ai < px.length; ai += 4) {
+            for (var ac = 0; ac < 3; ac++) {
+              hash ^= px[ai + ac]; hash = Math.imul(hash, 16777619) >>> 0;
+              min = Math.min(min, px[ai + ac]); max = Math.max(max, px[ai + ac]);
+            }
+          }
+          atlasHashes[hash] = true; atlasRanges.push(max - min);
+        });
+        atlasOk = Object.keys(atlasHashes).length === 6 && atlasRanges.every(function (range) { return range > 80; });
+      }
+      out.push(atlasOk ? 'PLANET-RESOURCE-TILES-DISTINCT' : 'PLANET-RESOURCE-TILES-FAIL');
+
       // 主动扫描/发现档案的生产 DOM 与样式也必须能随真实渲染 fixture 启动。
       function rect(el) {
         var r = el.getBoundingClientRect();
@@ -145,6 +166,14 @@
         overlap(activeRect, passiveRect) === 0 &&
         getComputedStyle(passive).pointerEvents === 'none' &&
         !passive.querySelector('button,input,select,textarea,a,[tabindex]:not([tabindex="-1"])');
+      var environmentModel = Voxel.HUD.setEnvironment({ hazard: 'toxic', exposure: 76, level: 'danger',
+        active: true, protected: false, graceRemaining: 0, reason: '露天毒气' });
+      var environmentMeter = document.getElementById('environment-meter');
+      var environmentRect = rect(environmentMeter);
+      var environmentLayoutOk = environmentModel.percent === 76 && inside(environmentRect) &&
+        environmentMeter.getAttribute('aria-valuenow') === '76' &&
+        overlap(environmentRect, passiveRect) === 0 && overlap(environmentRect, activeRect) === 0 &&
+        document.documentElement.scrollWidth <= innerWidth + 1;
 
       var discoveryOverlay = document.getElementById('overlay-discovery');
       discoveryOverlay.classList.remove('hidden');
@@ -161,17 +190,24 @@
       var pulseStyle = getComputedStyle(active, '::before');
       var sweepStyle = getComputedStyle(active, '::after');
       var progressStyle = getComputedStyle(document.querySelector('#scan-progress i'));
+      var environmentStyle = getComputedStyle(environmentMeter);
+      var environmentFillStyle = getComputedStyle(document.getElementById('environment-fill'));
       var motionOk = reduced
         ? pulseStyle.animationName === 'none' && sweepStyle.animationName === 'none' &&
           progressStyle.animationName === 'none' && parseFloat(pulseStyle.opacity) > 0
         : pulseStyle.animationName === 'activeScanPulse' && sweepStyle.animationName === 'activeScanSweep' &&
           progressStyle.animationName === 'activeScanFill' && Math.abs(parseFloat(pulseStyle.animationDuration) - 0.8) < 0.001;
+      var environmentMotionOk = reduced
+        ? environmentStyle.animationName === 'none' && parseFloat(environmentFillStyle.transitionDuration || '0') === 0
+        : environmentStyle.animationName === 'environmentWarning' && Math.abs(parseFloat(environmentStyle.animationDuration) - 1.15) < 0.001;
       document.body.classList.remove('scan-scanning');
       active.dataset.state = 'idle';
-      uiOk = activeLayoutOk && discoveryLayoutOk && motionOk;
+      uiOk = atlasOk && activeLayoutOk && environmentLayoutOk && discoveryLayoutOk && motionOk && environmentMotionOk;
       out.push(activeLayoutOk ? 'SCAN-HUD-LAYOUT-CORRECT' : 'SCAN-HUD-LAYOUT-FAIL');
+      out.push(environmentLayoutOk ? 'ENVIRONMENT-HUD-LAYOUT-CORRECT' : 'ENVIRONMENT-HUD-LAYOUT-FAIL');
       out.push(discoveryLayoutOk ? 'DISCOVERY-DIALOG-LAYOUT-CORRECT' : 'DISCOVERY-DIALOG-LAYOUT-FAIL');
       out.push(motionOk ? (reduced ? 'SCAN-REDUCED-MOTION-STATIC' : 'SCAN-MOTION-0.8S') : 'SCAN-MOTION-FAIL');
+      out.push(environmentMotionOk ? (reduced ? 'ENVIRONMENT-REDUCED-MOTION-STATIC' : 'ENVIRONMENT-MOTION-1.15S') : 'ENVIRONMENT-MOTION-FAIL');
       document.getElementById('out').textContent = out.join('\n');
       document.title = (glErr === 0 && sceneOk && uiOk) ? 'RENDER-PASS' : 'RENDER-FAIL';
       return;

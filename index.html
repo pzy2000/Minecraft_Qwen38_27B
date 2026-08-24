@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=20260824n">
+<link rel="stylesheet" href="css/style.css?v=20260824o">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -16,6 +16,14 @@
   <canvas id="oxygen" width="212" height="20" role="meter" aria-label="氧气" aria-valuemin="0" aria-valuemax="10" aria-valuenow="10"></canvas>
   <canvas id="hunger" width="212" height="20" role="meter" aria-label="饥饿值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
   <canvas id="health" width="212" height="20" role="meter" aria-label="生命值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+  <div id="environment-meter" role="meter" aria-label="环境危害暴露"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="环境稳定 0%"
+       data-hazard="none" data-level="safe" data-active="false" data-protected="true">
+    <span class="environment-icon" aria-hidden="true">◇</span>
+    <span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span>
+    <span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span>
+    <span id="environment-value" aria-hidden="true">0%</span>
+  </div>
   <div id="hotbar" role="toolbar" aria-label="快捷栏"></div>
   <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -377,36 +385,38 @@
 <script src="js/config.js?v=20260824c"></script>
 <script src="js/assets.js?v=20260823f"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
-<script src="js/world/galaxy.js?v=20260824n"></script>
+<script src="js/world/galaxy.js?v=20260824o"></script>
 <script src="js/systems/atmosphere_profiles.js?v=20260824m"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
-<script src="js/world/biomes.js?v=20260823f"></script>
+<script src="js/world/biomes.js?v=20260824o"></script>
+<script src="js/world/planet_rules.js?v=20260824o"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
-<script src="js/blocks.js?v=20260824n"></script>
-<script src="js/systems/discovery.js?v=20260824n"></script>
+<script src="js/blocks.js?v=20260824o"></script>
+<script src="js/systems/discovery.js?v=20260824o"></script>
 <script src="js/crafting.js?v=20260823f"></script>
-<script src="js/world/world.js?v=20260824n"></script>
-<script src="js/world/infinite.js?v=20260824n"></script>
+<script src="js/world/world.js?v=20260824o"></script>
+<script src="js/world/infinite.js?v=20260824o"></script>
 <script src="js/world/mesh.js?v=20260823f"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=20260824j"></script>
-<script src="js/player/player.js?v=20260824g"></script>
+<script src="js/player/player.js?v=20260824o"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260823f"></script>
+<script src="js/systems/environment.js?v=20260824o"></script>
 <script src="js/systems/atmosphere.js?v=20260824m"></script>
 <script src="js/systems/daynight.js?v=20260824m"></script>
 <script src="js/systems/weather.js?v=20260824m"></script>
 <script src="js/systems/sound.js?v=20260823f"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=20260824n"></script>
+<script src="js/systems/space_travel.js?v=20260824o"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=20260824l"></script>
 <script src="js/ui/handitem.js?v=20260823f"></script>
 <script src="js/ui/featured.js?v=20260824l"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
-<script src="js/ui/hud.js?v=20260824l"></script>
-<script src="js/main.js?v=20260824n"></script>
+<script src="js/ui/hud.js?v=20260824o"></script>
+<script src="js/main.js?v=20260824o"></script>
 </body>
 </html>

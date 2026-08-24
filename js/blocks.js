@@ -24,7 +24,9 @@ Voxel.Blocks = (function () {
     CHICKEN_RAW: 61, CHICKEN_COOKED: 62,
     RABBIT_RAW: 63, RABBIT_COOKED: 64,
     FURNACE_TOP: 65, FURNACE_SIDE: 66, FURNACE_FRONT: 67,
-    CHEST_TOP: 68, CHEST_SIDE: 69, CHEST_FRONT: 70
+    CHEST_TOP: 68, CHEST_SIDE: 69, CHEST_FRONT: 70,
+    ACTIVE_CRYSTAL: 71, SILICA_CRYSTAL: 72, ICE_CORE: 73,
+    SPORE_CRYSTAL: 74, MAGMA_CORE: 75, TIDAL_CRYSTAL: 76
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -73,6 +75,27 @@ Voxel.Blocks = (function () {
     { name: '箱子', solid: true, opaque: true, tiles: [T.CHEST_TOP, T.CHEST_FRONT, T.CHEST_TOP], sound: 'wood', color: 0xa8763f, hard: 2 }
   ];
 
+  // ---- terrainVersion 2 行星专属资源（稳定方块 ID 39..44）----
+  // 只在旧注册表尾部追加，不得复用/移动旧 ID；自然生成由 PlanetRules 按版本决定。
+  defs[39] = { name: '活性晶簇', solid: true, opaque: true,
+    tiles: [T.ACTIVE_CRYSTAL, T.ACTIVE_CRYSTAL, T.ACTIVE_CRYSTAL], sound: 'stone',
+    color: 0x63e78f, hard: 4.8, pick: true, tier: 1, drop: 115, resourceKey: 'verdant_crystal' };
+  defs[40] = { name: '硅晶矿', solid: true, opaque: true,
+    tiles: [T.SILICA_CRYSTAL, T.SILICA_CRYSTAL, T.SILICA_CRYSTAL], sound: 'stone',
+    color: 0xe4bd75, hard: 5.0, pick: true, tier: 1, drop: 116, resourceKey: 'silica_crystal' };
+  defs[41] = { name: '冰核矿', solid: true, opaque: true,
+    tiles: [T.ICE_CORE, T.ICE_CORE, T.ICE_CORE], sound: 'glass',
+    color: 0x8fdcf2, hard: 5.4, pick: true, tier: 2, drop: 117, resourceKey: 'frost_core' };
+  defs[42] = { name: '孢子晶矿', solid: true, opaque: true,
+    tiles: [T.SPORE_CRYSTAL, T.SPORE_CRYSTAL, T.SPORE_CRYSTAL], sound: 'stone',
+    color: 0xa8dc55, hard: 5.2, pick: true, tier: 2, drop: 118, resourceKey: 'spore_crystal' };
+  defs[43] = { name: '熔核矿', solid: true, opaque: true,
+    tiles: [T.MAGMA_CORE, T.MAGMA_CORE, T.MAGMA_CORE], sound: 'stone',
+    color: 0xff6138, hard: 7.0, pick: true, tier: 3, drop: 119, resourceKey: 'magma_core' };
+  defs[44] = { name: '潮汐晶矿', solid: true, opaque: true,
+    tiles: [T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL], sound: 'glass',
+    color: 0x55c9df, hard: 5.8, pick: true, tier: 2, drop: 120, resourceKey: 'tidal_crystal' };
+
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
   defs[100] = { name: '木棍', item: true, solid: false, opaque: false, tiles: [T.STICK, T.STICK, T.STICK], sound: 'wood', color: 0x9a764a, icon: T.STICK };
@@ -91,6 +114,26 @@ Voxel.Blocks = (function () {
     defs[112] = { name: '熟鸡肉', item: true, solid: false, opaque: false, tiles: [T.CHICKEN_COOKED, T.CHICKEN_COOKED, T.CHICKEN_COOKED], sound: 'wool', color: 0xc9955a, food: 6, icon: T.CHICKEN_COOKED };
     defs[113] = { name: '生兔肉', item: true, solid: false, opaque: false, tiles: [T.RABBIT_RAW, T.RABBIT_RAW, T.RABBIT_RAW], sound: 'wool', color: 0xc4756e, food: 3, icon: T.RABBIT_RAW };
     defs[114] = { name: '熟兔肉', item: true, solid: false, opaque: false, tiles: [T.RABBIT_COOKED, T.RABBIT_COOKED, T.RABBIT_COOKED], sound: 'wool', color: 0xa8673f, food: 5, icon: T.RABBIT_COOKED };
+
+    // 行星专属矿物掉落（稳定物品 ID 115..120）。
+    defs[115] = { name: '活性晶体', item: true, solid: false, opaque: false,
+      tiles: [T.ACTIVE_CRYSTAL, T.ACTIVE_CRYSTAL, T.ACTIVE_CRYSTAL], sound: 'glass', color: 0x63e78f,
+      icon: T.ACTIVE_CRYSTAL, resourceKey: 'verdant_crystal' };
+    defs[116] = { name: '硅晶', item: true, solid: false, opaque: false,
+      tiles: [T.SILICA_CRYSTAL, T.SILICA_CRYSTAL, T.SILICA_CRYSTAL], sound: 'glass', color: 0xe4bd75,
+      icon: T.SILICA_CRYSTAL, resourceKey: 'silica_crystal' };
+    defs[117] = { name: '冰核', item: true, solid: false, opaque: false,
+      tiles: [T.ICE_CORE, T.ICE_CORE, T.ICE_CORE], sound: 'glass', color: 0x8fdcf2,
+      icon: T.ICE_CORE, resourceKey: 'frost_core' };
+    defs[118] = { name: '孢子晶', item: true, solid: false, opaque: false,
+      tiles: [T.SPORE_CRYSTAL, T.SPORE_CRYSTAL, T.SPORE_CRYSTAL], sound: 'glass', color: 0xa8dc55,
+      icon: T.SPORE_CRYSTAL, resourceKey: 'spore_crystal' };
+    defs[119] = { name: '熔核', item: true, solid: false, opaque: false,
+      tiles: [T.MAGMA_CORE, T.MAGMA_CORE, T.MAGMA_CORE], sound: 'stone', color: 0xff6138,
+      icon: T.MAGMA_CORE, resourceKey: 'magma_core' };
+    defs[120] = { name: '潮汐晶', item: true, solid: false, opaque: false,
+      tiles: [T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL, T.TIDAL_CRYSTAL], sound: 'glass', color: 0x55c9df,
+      icon: T.TIDAL_CRYSTAL, resourceKey: 'tidal_crystal' };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -593,6 +636,25 @@ Voxel.Blocks = (function () {
       return [160 + v, 114 + v, 62 + v];
     });
 
+    // 行星专属晶矿：深色石质基底 + 种类固定的像素晶脉。
+    function crystalResource(tile, dark, mid, bright, variant) {
+      drawTile(tile, function (x, y, r) {
+        var stone = 57 + (r() * 24 | 0);
+        var a = (x * (5 + variant) + y * (9 - variant) + variant * 11) % 31;
+        var b = ((x - 8) * (x - 8) + (y - (5 + variant)) * (y - (5 + variant))) | 0;
+        var vein = a <= 2 || b <= 3 || ((x + y * 3 + variant * 7) % 37 === 0);
+        if (!vein) return [stone, stone + 2, stone + 4];
+        var edge = (x + y + variant) % 3;
+        return edge === 0 ? bright : (edge === 1 ? mid : dark);
+      });
+    }
+    crystalResource(T.ACTIVE_CRYSTAL, [34, 112, 68], [70, 198, 112], [144, 255, 184], 1);
+    crystalResource(T.SILICA_CRYSTAL, [119, 83, 43], [215, 169, 92], [255, 231, 166], 2);
+    crystalResource(T.ICE_CORE, [43, 103, 147], [103, 194, 226], [211, 248, 255], 3);
+    crystalResource(T.SPORE_CRYSTAL, [70, 105, 31], [157, 211, 70], [218, 255, 130], 4);
+    crystalResource(T.MAGMA_CORE, [119, 30, 24], [236, 68, 35], [255, 185, 62], 5);
+    crystalResource(T.TIDAL_CRYSTAL, [26, 91, 133], [57, 183, 211], [166, 246, 255], 6);
+
     ctx.putImageData(img, 0, 0);
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
@@ -605,7 +667,7 @@ Voxel.Blocks = (function () {
 
   // 主动扫描只把自然地质/稀有资源写入档案；普通建筑方块不计数，避免玩家
   // 摆放同一方块刷发现奖励。World.isEdited 会再拒绝被玩家修改过的坐标。
-  var SCANNABLE_RESOURCES = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33];
+  var SCANNABLE_RESOURCES = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33, 39, 40, 41, 42, 43, 44];
   var scannableResourceSet = Object.create(null);
   for (var sri = 0; sri < SCANNABLE_RESOURCES.length; sri++)
     scannableResourceSet[SCANNABLE_RESOURCES[sri]] = true;

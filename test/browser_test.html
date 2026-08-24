@@ -15,6 +15,7 @@
   <canvas id="oxygen" width="212" height="20" role="meter" aria-label="氧气" aria-valuemin="0" aria-valuemax="10" aria-valuenow="10"></canvas>
   <canvas id="hunger" width="212" height="20" role="meter" aria-label="饥饿值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
   <canvas id="health" width="212" height="20" role="meter" aria-label="生命值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+  <div id="environment-meter" role="meter" aria-label="环境危害暴露" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="环境稳定 0%" data-hazard="none" data-level="safe" data-active="false" data-protected="true"><span class="environment-icon" aria-hidden="true">◇</span><span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span><span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span><span id="environment-value" aria-hidden="true">0%</span></div>
   <div id="hotbar" role="toolbar" aria-label="快捷栏"></div>
   <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -197,6 +198,7 @@
 <script src="../js/systems/atmosphere_profiles.js"></script>
 <script src="../js/world/noise.js"></script>
 <script src="../js/world/biomes.js"></script>
+<script src="../js/world/planet_rules.js"></script>
 <script src="../js/world/shaper.js"></script>
 <script src="../js/blocks.js"></script>
 <script src="../js/systems/discovery.js"></script>
@@ -209,6 +211,7 @@
 <script src="../js/player/player.js"></script>
 <script src="../js/interact/raycast.js"></script>
 <script src="../js/systems/settings.js"></script>
+<script src="../js/systems/environment.js"></script>
 <script src="../js/systems/atmosphere.js"></script>
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
@@ -671,6 +674,16 @@
           modalText.indexOf('<img src=x') >= 0 &&
           !doc.querySelector('#discovery-world-list img, #discovery-world-list script') &&
           window.__discoveryInjected === 0);
+        var lifecycleFood = Voxel.Player.food();
+        Voxel.Player.setFood(Math.max(0, lifecycleFood - 1));
+        window.dispatchEvent(typeof PageTransitionEvent === 'function'
+          ? new PageTransitionEvent('pagehide', { persisted: false }) : new Event('pagehide'));
+        var discoveryLifecycleSave = Voxel.Save.load();
+        check('发现档案modal中pagehide仍保存位置/背包/环境等完整状态',
+          discoveryLifecycleSave && discoveryLifecycleSave.player &&
+          discoveryLifecycleSave.player.food === Math.max(0, lifecycleFood - 1) &&
+          discoveryLifecycleSave.player.environment && discoveryLifecycleSave.player.environment.v === 1);
+        Voxel.Player.setFood(lifecycleFood);
         close.dispatchEvent(new KeyboardEvent('keydown', {
           bubbles: true, cancelable: true, key: 'Tab', code: 'Tab'
         }));
@@ -688,6 +701,7 @@
         check('Escape关闭发现modal、回到playing并把焦点交还游戏画布',
           Voxel.Game.state === 'playing' && doc.getElementById('overlay-discovery').classList.contains('hidden') &&
           doc.activeElement === doc.getElementById('game') && !doc.getElementById('game').inert);
+        T.saveNow();
         cleanup();
         done();
       });
@@ -736,6 +750,54 @@
     check('最终天气色不会反写并逐帧污染profile基色',
       Voxel.DayNight.topColor().equals(baseTop) && Voxel.DayNight.horizonColor().equals(baseHorizon));
     Voxel.DayNight.applySky(baseTop, baseHorizon);
+  }
+
+  function environmentIntegrationRegression() {
+    var T = Voxel.Game._test;
+    var meter = doc.getElementById('environment-meter');
+    var initialStatus = T.environmentStatus();
+    check('真实主循环已接入环境危害/HUD', !!Voxel.Environment && !!initialStatus &&
+      typeof T.environmentContext === 'function' && typeof T.tickEnvironment === 'function' && !!meter &&
+      initialStatus.hazard === 'none' && meter.getAttribute('aria-valuenow') === '0');
+    check('环境快照随玩家存档落盘', T.saveNow() === true && (function () {
+      var saved = Voxel.Save.load();
+      return !!(saved && saved.player && saved.player.environment && saved.player.environment.v === 1 &&
+        saved.player.environment.worlds && saved.player.environment.worlds[T.currentWorld().id] &&
+        saved.player.environment.worlds[T.currentWorld().id].adapted === true);
+    })());
+
+    var originalSnapshot = Voxel.Environment.snapshot();
+    var originalWorld = T.currentWorld();
+    var originalPos = Voxel.Player.pos().clone();
+    var originalHp = Voxel.Player.hp();
+    var oldSky = Voxel.World.getSky, oldBlk = Voxel.World.getBlk, oldHeadIn = Voxel.Player.headIn;
+    try {
+      Voxel.World.getSky = function () { return 15; };
+      Voxel.World.getBlk = function () { return 0; };
+      Voxel.Player.headIn = function () { return false; };
+      var spawn = Voxel.Player.getSpawn();
+      Voxel.Player.pos().set(spawn.x + 30, spawn.y, spawn.z);
+      Voxel.Player.setHp(20);
+      Voxel.Environment.loadWorld({ id: 'browser-toxic-hazard', kind: 'planet', typeKey: 'toxic' }, null);
+      var result = null;
+      // 30s适应期 + 20s累积到90 + 2s伤害节拍；不依赖CI墙钟/rAF。
+      for (var i = 0; i < 212; i++) result = T.tickEnvironment(0.25);
+      check('环境固定步在适应期后产生真实玩家伤害', !!result &&
+        result.status.hazard === 'toxic' && result.status.exposure >= 90 &&
+        Voxel.Player.hp() === 19 && Voxel.Player.lastDamageCause() === 'toxic');
+      check('危害HUD同步有限meter与防护状态', meter.dataset.hazard === 'toxic' &&
+        meter.dataset.protected === 'false' && Number.isFinite(Number(meter.getAttribute('aria-valuenow'))) &&
+        !/undefined|null|NaN|Infinity/.test(meter.getAttribute('aria-valuetext') || ''));
+    } finally {
+      Voxel.World.getSky = oldSky;
+      Voxel.World.getBlk = oldBlk;
+      Voxel.Player.headIn = oldHeadIn;
+      Voxel.Player.pos().copy(originalPos);
+      Voxel.Player.setHp(originalHp);
+      Voxel.HUD.drawHealth(originalHp);
+      Voxel.Environment.loadWorld(originalWorld, originalSnapshot);
+      T.tickEnvironment(0);
+    }
   }
 
   function slotAccessibilityRegression() {
@@ -1226,6 +1288,7 @@
     accessibilitySemanticsRegression();
     telemetryRegression();
     atmosphereIntegrationRegression();
+    environmentIntegrationRegression();
     keyboardIsolationRegression();
     slotAccessibilityRegression();
 
@@ -2310,6 +2373,16 @@
         var expectedWeather = { arid: '沙尘', frozen: '降雪', toxic: '孢子雨',
           volcanic: '火山灰', oceanic: '雨', lush: '雨' }[dest.typeKey];
         check('目标行星天气标签保留类型身份', Voxel.Weather.label() === expectedWeather);
+        var env = TT.environmentStatus();
+        var envSave = Voxel.Save.load();
+        var envWorlds = envSave && envSave.player && envSave.player.environment &&
+          envSave.player.environment.worlds;
+        check('跨行星即时切换环境危害且给予载入适应期', arrived &&
+          dest.typeKey === 'arid' && env && env.hazard === 'heat' && env.protected &&
+          env.graceRemaining > 0 && env.exposure === 0 && dest.terrainVersion === 2);
+        check('环境暴露表随目标世界提交按worldId隔离保存', !!envWorlds &&
+          Object.prototype.hasOwnProperty.call(envWorlds, beforeWorld.id) &&
+          Object.prototype.hasOwnProperty.call(envWorlds, dest.id));
         Voxel.Weather.set('clear');
         TT.setHeld(0, 0, null); TT.clearCraft(); TT.clearInvCraft();
         TT.saveNow();
@@ -2331,6 +2404,9 @@
     var fixedRespawn = Voxel.Player.respawn();
     check('普通 Player.init 后仍回固定世界出生点', !!fixedRespawn &&
       fixedRespawn.distanceTo(worldSpawn) < 0.001 && Voxel.Player.getSpawn().distanceTo(worldSpawn) < 0.001);
+    var respawnEnvironment = T.environmentStatus();
+    check('玩家重生hook清空暴露并给予20秒安全期', respawnEnvironment &&
+      respawnEnvironment.exposure === 0 && Math.abs(respawnEnvironment.graceRemaining - 20) < 0.001);
 
     var bx = Math.floor(worldSpawn.x) + 3;
     var bz = Math.floor(worldSpawn.z) + 3;
@@ -2560,6 +2636,10 @@
     delete legacyProtected.heldDur;
     delete legacyProtected.craftGrid;
     delete legacyProtected.invCraftGrid;
+    // 真正v4及更早形态没有galaxy。同页稍后会先创建v2新世界，再恢复
+    // 此档，用于防止ensureGalaxy误复用新世界runtime。
+    delete legacyProtected.galaxy;
+    var legacyExpectedSeed = String(legacyProtected.seed);
     protectedRaw = JSON.stringify(legacyProtected);
     localStorage.setItem(saveKey, protectedRaw);
     var backupBefore = localStorage.getItem(backupKey);
@@ -2643,6 +2723,12 @@
                 T2.held() === 102 && T2.heldCount() === 1 && T2.heldDur() === Voxel.Blocks.maxDur(102));
               check('旧档缺临时格字段时默认全空', T2.craft().every(function (id) { return id === 0; }) &&
                 T2.invCraft().every(function (id) { return id === 0; }));
+              var legacyGalaxy = T2.galaxy();
+              check('同页v2 runtime→真v4存档会重建v1星系而不混入旧内存',
+                legacyGalaxy && legacyGalaxy.terrainVersion === 1 &&
+                legacyGalaxy.catalog.every(function (world) { return world.terrainVersion === 1; }) &&
+                T2.currentWorld().seed === Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(legacyExpectedSeed)) &&
+                legacyGalaxy.rootSeed === Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(legacyExpectedSeed)));
               report();
               return;
             }
