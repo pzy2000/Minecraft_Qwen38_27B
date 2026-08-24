@@ -293,6 +293,13 @@ Voxel.Sound = (function () {
 
   function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
 
+  // 分音效开关：读取设置里的 sndXxx（0=关），默认全开
+  function catOn(cat) {
+    var s = Voxel.Settings;
+    if (s && s.get('snd' + cat) === 0) return false;
+    return true;
+  }
+
   // 材质 -> 采样池
   var STEP_POOL = {
     grass: ['step_grass_0', 'step_grass_1', 'step_grass_2'],
@@ -476,6 +483,7 @@ Voxel.Sound = (function () {
 
   // ---- 雨声（程序化滤波噪声循环，intensity 0~1）----
   function rainSet(intensity) {
+    if (!catOn('Rain')) intensity = 0;
     var c = ac();
     if (!c) return;
     var v = Math.max(0, Math.min(1, intensity || 0));
@@ -508,6 +516,7 @@ Voxel.Sound = (function () {
 
   // 雷声：低频轰鸣（程序化）
   function thunder(vol) {
+    if (!catOn('Thunder')) return;
     var c = ac();
     if (!c) return;
     var v = Math.max(0.1, Math.min(1, vol || 0.7));
@@ -533,6 +542,7 @@ Voxel.Sound = (function () {
   // ---- 背景音乐：昼夜曲目按需加载，并以 epoch 隔离迟到的异步结果 ----
   function setMusic(mode, force) {
     if (mode !== 'day' && mode !== 'night' && mode !== 'off') mode = 'off';
+    if (!catOn('Music')) mode = 'off';
     if (mode === musicMode && !force) return;
     musicMode = mode;
     var epoch = ++musicEpoch;
@@ -806,6 +816,7 @@ Voxel.Sound = (function () {
     rainSet: rainSet,
     thunder: thunder,
     dig: function (m) {
+      if (!catOn('Dig')) return;
       var pool = DIG_POOL[m];
       if (pool && play(pick(pool), 0.55)) return;
       if (!pool && m && STEP_POOL[m] && play(pick(STEP_POOL[m]), 1.15, 0.85)) return;
@@ -813,12 +824,14 @@ Voxel.Sound = (function () {
     },
     // 挖掘进行中的周期性敲击（比 dig 轻、短）
     digTick: function (m) {
+      if (!catOn('Dig')) return;
       var pool = DIG_POOL[m];
       if (pool && play(pick(pool), 0.28, 1.2)) return;
       if (!pool && m && STEP_POOL[m] && play(pick(STEP_POOL[m]), 0.6, 1.05)) return;
       noiseHit(matFreq[m] || 500, 1.4, 0.06, 0.28);
     },
     place: function (m) {
+      if (!catOn('Dig')) return;
       var pool = DIG_POOL[m];
       if (pool && play(pick(pool), 0.45, 0.8)) return;
       if (!pool && m && STEP_POOL[m] && play(pick(STEP_POOL[m]), 1.0, 0.75)) return;
@@ -827,6 +840,7 @@ Voxel.Sound = (function () {
     },
     // 材质化脚步声
     step: function (mat) {
+      if (!catOn('Step')) return;
       var pool = STEP_POOL[mat];
       if (pool && play(pick(pool), 0.5)) return;
       var r = Math.random();
@@ -866,6 +880,7 @@ Voxel.Sound = (function () {
     },
     // 溅水：power 0~1
     splash: function (power) {
+      if (!catOn('Water')) return;
       var p = Math.max(0.05, Math.min(1, power || 0.3));
       if (p > 0.35) { if (play('splash_0', 0.3 + p * 0.4)) return; }
       else if (play(pick(['splash_step_0', 'splash_step_1']), 0.35 + p * 0.5)) return;
@@ -875,13 +890,16 @@ Voxel.Sound = (function () {
     },
     // 游泳气泡（保持合成：短促轻量）
     bubble: function () {
+      if (!catOn('Water')) return;
       tone('sine', 250 + Math.random() * 150, 700 + Math.random() * 400, 0.09, 0.12);
     },
     jump: function () {
+      if (!catOn('Land')) return;
       tone('sine', 220, 430, 0.08, 0.07);
     },
     // 落地：hard 0~1 随下落速度
     land: function (hard) {
+      if (!catOn('Land')) return;
       var h = Math.max(0, Math.min(1, hard || 0.3));
       if (play(pick(['land_0', 'land_1', 'land_2']), 0.25 + h * 0.5, 0.85 + h * 0.25)) return;
       noiseHit(250 + Math.random() * 80, 0.9, 0.08, 0.1 + h * 0.3);
@@ -890,41 +908,41 @@ Voxel.Sound = (function () {
     // 羊叫：vol 0~1（已含距离衰减），pan -1~1
     sheep: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Sheep')) return;
       if (play(pick(['sheep_0', 'sheep_1', 'sheep_2']), v * 0.75, 0.92 + Math.random() * 0.16, pan)) return;
       toneVib('sawtooth', 330, 270, 0.5, v * 0.32, 7, 35, 1200);
       toneVib('sine', 165, 135, 0.5, v * 0.25, 7, 18, 0);
     },
     sheepHurt: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Sheep')) return;
       if (play('sheep_hurt', v * 0.8, undefined, pan)) return;
       toneVib('sawtooth', 420, 330, 0.28, v * 0.3, 9, 40, 1400);
     },
     // 僵尸呻吟：vol 0~1（同一采样以变速做变体）
     zombie: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Zombie')) return;
       if (play('zombie_0', v * 0.65, 0.82 + Math.random() * 0.36, pan)) return;
       toneVib('sawtooth', 85 + Math.random() * 15, 60, 0.6 + Math.random() * 0.3, v * 0.3, 3.5, 18, 350);
     },
     // 猪哼（程序化）：短促两段低哼
     pig: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Pig')) return;
       var f = 95 + Math.random() * 25;
       toneVib('sawtooth', f, f * 0.72, 0.11, v * 0.3, 22, 12, 480);
       setTimeout(function () { toneVib('sawtooth', f * 1.12, f * 0.8, 0.09, v * 0.24, 22, 10, 480); }, 110);
     },
     pigHurt: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Pig')) return;
       toneVib('sawtooth', 190 + Math.random() * 40, 120, 0.14, v * 0.34, 26, 20, 700);
     },
     // 鸡咯（程序化）：短促高频咯咯
     chicken: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Chicken')) return;
       var n2 = 2 + ((Math.random() * 2) | 0);
       for (var i = 0; i < n2; i++) {
         (function (k) {
@@ -936,23 +954,24 @@ Voxel.Sound = (function () {
     },
     chickenHurt: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0));
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Chicken')) return;
       tone('square', 900 + Math.random() * 200, 500, 0.12, v * 0.22);
       noiseHit(1800, 1.2, 0.08, v * 0.15);
     },
     // 兔子尖叫（程序化）：轻短上滑哨音
     rabbit: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0)) * 0.55;
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Rabbit')) return;
       tone('sine', 780 + Math.random() * 140, 1250 + Math.random() * 250, 0.08, v * 0.3);
     },
     rabbitHurt: function (vol, pan) {
       var v = Math.max(0, Math.min(1, vol || 0)) * 0.7;
-      if (v <= 0.02) return;
+      if (v <= 0.02 || !catOn('Rabbit')) return;
       tone('sine', 1400 + Math.random() * 300, 900, 0.11, v * 0.34);
     },
     // 进食咀嚼：两声闷响 + 收尾吞咽
     eat: function () {
+      if (!catOn('Eat')) return;
       noiseHit(320 + Math.random() * 120, 1.1, 0.07, 0.22);
       setTimeout(function () { noiseHit(280 + Math.random() * 120, 1.1, 0.06, 0.2); }, 140);
       setTimeout(function () { tone('sine', 180, 90, 0.09, 0.16); }, 300);
@@ -960,16 +979,19 @@ Voxel.Sound = (function () {
     // 头部浸水：闷音 + 水下环境声
     setUnderwater: setUnderwater,
     hit: function () {
+      if (!catOn('Ui')) return;
       if (play(pick(['land_0', 'land_1']), 0.5, 1.5)) return;
       tone('square', 170, 90, 0.1, 0.28);
     },
     pop: function () {
+      if (!catOn('Ui')) return;
       if (play('ui_0', 0.6, 0.6)) return;
       tone('square', 320, 55, 0.22, 0.28);
       noiseHit(900, 1, 0.15, 0.18);
     },
     hurt: function () { tone('sine', 75, 45, 0.25, 0.5); },
     select: function () {
+      if (!catOn('Ui')) return;
       if (play('ui_0', 0.3)) return;
       tone('square', 750, 700, 0.045, 0.12);
     }

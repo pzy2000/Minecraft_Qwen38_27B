@@ -265,6 +265,17 @@ body { position: relative; }
   width: 46px; text-align: right; font-size: 12px; color: #8fa3b8; font-family: monospace;
 }
 
+/* 分音效开关（设置面板） */
+.snd-toggles {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; flex: 1;
+}
+.snd-toggles label {
+  display: inline-flex; align-items: center; gap: 4px;
+  width: auto; font-size: 13px; color: #cfd8e3;
+  cursor: pointer; white-space: nowrap;
+}
+.snd-toggles input[type="checkbox"] { width: 16px; height: 16px; accent-color: #6c8; cursor: pointer; }
+
 /* 手持物品提示（暂停菜单快捷键速查沿用 .controls） */
 
 #hotbar {

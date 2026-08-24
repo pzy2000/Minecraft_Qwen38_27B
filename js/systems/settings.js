@@ -9,7 +9,17 @@ Voxel.Settings = (function () {
     fpsCap: 0,              // 0=原生帧率，30/60=上限
     particleDensity: 1.0,
     rainDensity: 1.0,
-    mobDensity: 1.0
+    mobDensity: 1.0,
+    // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
+    sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1,
+    sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
+    sndUi: 1, sndMusic: 1, sndRain: 1, sndThunder: 1
+  };
+  // 分音效开关的中文标签（供 UI 与测试使用）
+  var SND_LABELS = {
+    sndSheep: '羊叫', sndPig: '猪叫', sndChicken: '鸡叫', sndZombie: '僵尸', sndRabbit: '兔子',
+    sndStep: '脚步', sndDig: '挖掘/放置', sndEat: '进食', sndWater: '水声', sndLand: '跳跃/落地',
+    sndUi: '界面/交互', sndMusic: '背景音乐', sndRain: '雨声', sndThunder: '雷声'
   };
   var LIMITS = {
     sens: [0.3, 3.0],
@@ -23,6 +33,8 @@ Voxel.Settings = (function () {
     rainDensity: [0.25, 1],
     mobDensity: [0.25, 1]
   };
+  // 分音效开关均为 0/1
+  for (var sndKey in SND_LABELS) LIMITS[sndKey] = [0, 1];
   // 触屏设备首启默认（无任何存档设置时）：均衡档，避免手机端默认满配卡顿
   var TOUCH_DEFAULTS = {
     fpsCap: 60, res: 0.8,
@@ -91,6 +103,7 @@ Voxel.Settings = (function () {
     applyAll: applyAll,
     defaults: DEFAULTS,
     limits: LIMITS,
-    touchDefaults: TOUCH_DEFAULTS
+    touchDefaults: TOUCH_DEFAULTS,
+    sndLabels: SND_LABELS
   };
 })();

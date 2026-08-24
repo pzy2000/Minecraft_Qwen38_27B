@@ -4549,6 +4549,37 @@ Voxel.Game = (function () {
     bindSlider('tsens'); bindSlider('res');
     bindSlider('particleDensity'); bindSlider('rainDensity'); bindSlider('mobDensity');
 
+    // 分音效开关（羊叫/猪叫/僵尸等逐项开关）
+    var sndToggles = document.querySelectorAll('#snd-toggles input[data-snd]');
+    function buildSndToggles() {
+      var box = document.getElementById('snd-toggles');
+      if (!box) return;
+      var labels = (Voxel.Settings && Voxel.Settings.sndLabels) || {};
+      var html = '';
+      for (var key in labels) {
+        html += '<label><input type="checkbox" data-snd="' + key + '">' + labels[key] + '</label>';
+      }
+      box.innerHTML = html;
+    }
+    function syncSndToggles() {
+      for (var i = 0; i < sndToggles.length; i++) {
+        var key = sndToggles[i].dataset.snd;
+        sndToggles[i].checked = Voxel.Settings.get(key) !== 0;
+      }
+    }
+    if (document.getElementById('snd-toggles')) {
+      buildSndToggles();
+      sndToggles = document.querySelectorAll('#snd-toggles input[data-snd]');
+      for (var sti = 0; sti < sndToggles.length; sti++) {
+        (function (box) {
+          box.addEventListener('change', function () {
+            Voxel.Settings.set(box.dataset.snd, box.checked ? 1 : 0);
+          });
+        })(sndToggles[sti]);
+      }
+      syncSndToggles();
+    }
+
     // 帧率上限按钮组（原生/30/60）
     var fpsBtns = document.querySelectorAll('#fps-cap-row button');
     function syncFpsButtons() {
@@ -4620,6 +4651,14 @@ Voxel.Game = (function () {
           Voxel.Weather.setRainDensity(v);
         else if (k === 'mobDensity' && Voxel.Mobs && Voxel.Mobs.setDensity)
           Voxel.Mobs.setDensity(v);
+        else if (/^snd[A-Z]/.test(k)) {
+          if (k === 'sndMusic' && Voxel.Sound.setMusic)
+            Voxel.Sound.setMusic(Voxel.DayNight && Voxel.DayNight.isNight() ? 'night' : 'day', true);
+          for (var sbi = 0; sbi < sndToggles.length; sbi++) {
+            if (sndToggles[sbi].dataset.snd === k)
+              sndToggles[sbi].checked = v !== 0;
+          }
+        }
       });
       Voxel.Settings.applyAll();
     }
