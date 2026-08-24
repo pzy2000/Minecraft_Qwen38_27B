@@ -499,14 +499,249 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 .star-main b { display: block; color: #fff; font-size: 14px; margin-bottom: 5px; }
 .star-main small { display: block; max-width: 260px; color: #8395ae; font-size: 10px; line-height: 1.45; }
 .star-meta { color: #a9bad1; font-size: 10px; line-height: 1.55; text-align: right; white-space: nowrap; }
-.warp-overlay { z-index: 80; overflow: hidden; background: #02030a; }
-.warp-stars { position: absolute; inset: -50%; background: repeating-radial-gradient(ellipse at center, #fff 0 1px, transparent 1px 14px); animation: warpRush 1.25s linear infinite; opacity: .42; }
-@keyframes warpRush { from { transform: scale(.08) rotate(0); } to { transform: scale(1.35) rotate(5deg); opacity: 0; } }
-.warp-copy { position: relative; z-index: 2; color: #fff; text-align: center; text-shadow: 0 0 12px var(--space-cyan); }
-.warp-copy h2 { color: var(--space-cyan); font-size: 28px; letter-spacing: 5px; margin-bottom: 12px; }
-.warp-track { width: min(420px, 76vw); height: 8px; margin: 22px auto; border: 1px solid var(--space-cyan); padding: 1px; }
-.warp-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--space-cyan), #fff, var(--space-violet)); animation: warpLoad 1.1s ease-in-out infinite; }
-@keyframes warpLoad { from { width: 0; } to { width: 100%; } }
+.warp-overlay {
+  --warp-accent: var(--space-cyan);
+  --warp-accent-rgb: 89, 232, 255;
+  --warp-progress: 0%;
+  z-index: 80;
+  isolation: isolate;
+  overflow: hidden;
+  color: #f4fdff;
+  background:
+    radial-gradient(circle at 50% 52%, rgba(var(--warp-accent-rgb), .10), transparent 34%),
+    linear-gradient(#02030a, #030816 58%, #010208);
+}
+.warp-overlay[data-mode="portal"] {
+  --warp-accent: var(--space-violet);
+  --warp-accent-rgb: 198, 108, 255;
+}
+.warp-overlay[data-mode="ship"][data-phase="ignition"] {
+  --warp-accent: var(--scan-amber);
+  --warp-accent-rgb: 255, 216, 107;
+}
+.warp-overlay[data-phase="arrival"],
+.warp-overlay[data-phase="cockpit_arrived"] {
+  --warp-accent: var(--scan-green);
+  --warp-accent-rgb: 117, 240, 187;
+}
+.warp-stars {
+  position: absolute;
+  inset: -50%;
+  z-index: 0;
+  opacity: .42;
+  pointer-events: none;
+  background:
+    repeating-radial-gradient(ellipse at center, rgba(255,255,255,.92) 0 1px, transparent 1px 14px),
+    radial-gradient(circle, rgba(var(--warp-accent-rgb), .18), transparent 48%);
+  animation: warpRush 1.25s linear infinite;
+}
+@keyframes warpRush {
+  from { transform: scale(.12) rotate(0); opacity: .18; }
+  48% { opacity: .48; }
+  to { transform: scale(1.35) rotate(4deg); opacity: 0; }
+}
+#warp-cockpit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  color: var(--warp-accent);
+  pointer-events: none;
+}
+.warp-frame {
+  position: absolute;
+  bottom: -2px;
+  width: min(35vw, 470px);
+  height: 47%;
+  opacity: .92;
+  border-top: 2px solid rgba(var(--warp-accent-rgb), .60);
+  background:
+    linear-gradient(180deg, rgba(var(--warp-accent-rgb), .10), rgba(2,5,13,.96) 34%),
+    repeating-linear-gradient(90deg, transparent 0 42px, rgba(var(--warp-accent-rgb), .08) 42px 43px);
+  box-shadow: inset 0 18px 32px rgba(var(--warp-accent-rgb), .05), 0 -8px 24px rgba(0,0,0,.45);
+}
+.warp-frame-left {
+  left: -2px;
+  clip-path: polygon(0 0, 68% 0, 100% 100%, 0 100%);
+}
+.warp-frame-right {
+  right: -2px;
+  clip-path: polygon(32% 0, 100% 0, 100% 100%, 0 100%);
+}
+.warp-horizon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(72vw, 900px);
+  height: 1px;
+  transform: translate(-50%, -50%);
+  opacity: .34;
+  background: linear-gradient(90deg, transparent, var(--warp-accent) 18% 82%, transparent);
+  box-shadow: 0 0 12px rgba(var(--warp-accent-rgb), .54);
+}
+.warp-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  opacity: .38;
+  border: 1px solid var(--warp-accent);
+  box-shadow: 0 0 16px rgba(var(--warp-accent-rgb), .32);
+}
+.warp-copy,
+#warp-console {
+  position: relative;
+  z-index: 2;
+  width: min(620px, calc(var(--app-width) - 32px));
+  min-width: 0;
+  padding: 20px 24px 18px;
+  overflow: hidden;
+  color: #f4fdff;
+  border: 1px solid rgba(var(--warp-accent-rgb), .56);
+  background:
+    linear-gradient(135deg, rgba(var(--warp-accent-rgb), .12), transparent 36%),
+    rgba(2, 9, 22, .84);
+  box-shadow: inset 4px 0 0 rgba(var(--warp-accent-rgb), .58), 0 18px 58px rgba(0,0,0,.58);
+  text-align: left;
+  text-shadow: 0 0 12px rgba(var(--warp-accent-rgb), .42);
+}
+.warp-kicker {
+  color: rgba(215,240,255,.64);
+  font-size: 9px;
+  font-weight: bold;
+  line-height: 1.3;
+  letter-spacing: 2.4px;
+}
+.warp-copy h2,
+#warp-console h2 {
+  margin: 5px 0 11px;
+  overflow: hidden;
+  color: var(--warp-accent);
+  font-size: clamp(23px, 3.2vw, 34px);
+  line-height: 1.15;
+  letter-spacing: 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#warp-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  color: #dcecff;
+  font-size: 13px;
+  line-height: 1.4;
+}
+#warp-origin,
+#warp-destination {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#warp-origin { color: #a8bad0; text-align: right; }
+#warp-destination { color: #fff2ad; text-align: left; }
+.warp-route-arrow { color: var(--warp-accent); font-size: 17px; }
+.warp-phase-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-top: 16px;
+  min-width: 0;
+}
+#warp-phase-code {
+  flex: none;
+  color: rgba(190,213,235,.66);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+}
+#warp-phase-label {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.warp-track,
+#warp-progress {
+  width: 100%;
+  height: 9px;
+  margin: 7px 0 0;
+  padding: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--warp-accent-rgb), .72);
+  background: rgba(255,255,255,.06);
+}
+.warp-track i,
+#warp-progress-fill {
+  display: block;
+  width: var(--warp-progress, 0%);
+  max-width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--warp-accent), #fff, var(--space-violet));
+  box-shadow: 0 0 10px rgba(var(--warp-accent-rgb), .65);
+  transition: width .12s linear;
+}
+#warp-eta {
+  margin-top: 6px;
+  color: rgba(190,213,235,.64);
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 1.3px;
+  text-align: right;
+}
+.warp-actions {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+#btn-warp-skip,
+#btn-disembark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  min-height: 44px;
+  padding: 8px 13px;
+  color: #eefcff;
+  border: 1px solid rgba(var(--warp-accent-rgb), .76);
+  background: rgba(3, 15, 32, .94);
+  box-shadow: inset 3px 0 0 rgba(var(--warp-accent-rgb), .46), 0 8px 24px rgba(0,0,0,.42);
+  font: bold 11px/1.2 'Courier New', 'PingFang SC', monospace;
+  letter-spacing: 1px;
+  pointer-events: auto;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+#btn-warp-skip:hover,
+#btn-warp-skip:focus-visible,
+#btn-disembark:hover,
+#btn-disembark:focus-visible {
+  color: #fff;
+  border-color: #fff;
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+#btn-warp-skip:disabled,
+#btn-disembark:disabled { opacity: .52; cursor: wait; }
+#btn-disembark { color: #d8fff0; border-color: rgba(117,240,187,.86); }
+#btn-disembark[hidden] { display: none !important; }
+.warp-overlay[data-phase="target_loading"] #btn-warp-skip,
+.warp-overlay[data-phase="target_ready"] #btn-warp-skip,
+.warp-overlay[data-phase="committing"] #btn-warp-skip,
+.warp-overlay[data-phase="committed"] #btn-warp-skip,
+.warp-overlay[data-phase="arrival"] #btn-warp-skip,
+.warp-overlay[data-phase="cockpit_arrived"] #btn-warp-skip,
+.warp-overlay[data-mode="portal"] #btn-disembark { display: none; }
 
 /* ---------- 背包 ---------- */
 #inventory {
@@ -1633,6 +1868,54 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 #scan-terminal > #scan-target,
 #scan-terminal > #scan-distance { color: #fff1a6; }
 
+/* 抵达卡复用被动扫描终端的已验证几何；本身不承担 live 或触摸操作。 */
+#scan-passive { min-width: 0; }
+#arrival-card {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 11px;
+  overflow: hidden;
+  color: #eafff6;
+  background:
+    linear-gradient(105deg, rgba(117,240,187,.18), transparent 58%),
+    rgba(3, 18, 27, .97);
+  box-shadow: inset 4px 0 0 rgba(117,240,187,.72);
+  pointer-events: none;
+}
+#scan-terminal[data-view="arrival"] {
+  border-color: rgba(117,240,187,.66);
+  box-shadow: inset 3px 0 0 rgba(117,240,187,.48), 0 12px 28px rgba(0,0,0,.30);
+}
+#scan-terminal[data-view="arrival"] #scan-passive { visibility: hidden; }
+#arrival-kicker {
+  overflow: hidden;
+  color: #78d8b1;
+  font-size: 8px;
+  font-weight: bold;
+  line-height: 1.25;
+  letter-spacing: 1.3px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#arrival-world,
+#arrival-type,
+#arrival-detail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#arrival-world { color: #f2fff9; font-size: 15px; line-height: 1.2; letter-spacing: .5px; }
+#arrival-type { color: #b9e9d5; font-size: 10px; line-height: 1.3; }
+#arrival-detail { color: #91aeb1; font-size: 9px; line-height: 1.3; }
+
 /* ---------- 主动扫描：独立于只读 PASSIVE 遥测终端 ---------- */
 #scan-active-controls {
   position: absolute;
@@ -1926,7 +2209,11 @@ body.scan-scanning #scan-progress i,
 
 /* ---------- 航行终端 ---------- */
 .starmap-panel {
+  display: flex;
+  flex-direction: column;
   width: min(920px, 94vw);
+  max-height: calc(var(--app-height) - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)));
+  overflow: hidden;
   border-color: rgba(89,232,255,.36);
   background:
     linear-gradient(rgba(89,232,255,.035) 1px, transparent 1px),
@@ -1964,7 +2251,15 @@ body.scan-scanning #scan-progress i,
   font-size: 11px;
   letter-spacing: .9px;
 }
-#starmap-grid { gap: 10px; margin-top: 10px; }
+#starmap-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 10px;
+  margin-top: 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .star-card {
   --accent: #59e8ff;
   position: relative;
@@ -2037,6 +2332,107 @@ body.scan-scanning #scan-progress i,
   color: #6f8daa;
   font-size: 9px;
   letter-spacing: 1.4px;
+}
+
+#starmap-cockpit {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  padding: 7px 8px 7px 14px;
+  overflow: hidden;
+  border: 1px solid rgba(89,232,255,.34);
+  background:
+    linear-gradient(105deg, rgba(89,232,255,.12), transparent 58%),
+    rgba(4, 16, 33, .92);
+  box-shadow: inset 4px 0 0 rgba(89,232,255,.42);
+}
+#starmap-cockpit[data-state="locked"] {
+  border-color: rgba(255,226,111,.68);
+  background:
+    linear-gradient(105deg, rgba(255,226,111,.15), transparent 58%),
+    rgba(19, 20, 29, .94);
+  box-shadow: inset 4px 0 0 rgba(255,226,111,.72), 0 0 20px rgba(255,226,111,.08);
+}
+.cockpit-frame {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: .48;
+  pointer-events: none;
+}
+.cockpit-frame i {
+  position: absolute;
+  display: block;
+  background: rgba(89,232,255,.44);
+}
+.cockpit-frame i:nth-child(1) { top: 7px; right: 8px; width: 34%; height: 1px; }
+.cockpit-frame i:nth-child(2) { right: 8px; bottom: 7px; width: 18%; height: 1px; }
+.cockpit-frame i:nth-child(3) { top: 8px; right: 8px; width: 1px; height: 20px; }
+.cockpit-route-copy { min-width: 0; }
+#cockpit-title {
+  display: block;
+  overflow: hidden;
+  color: #7795b1;
+  font-size: 8px;
+  font-weight: bold;
+  line-height: 1.3;
+  letter-spacing: 1.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#cockpit-selection {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #dffbff;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#starmap-cockpit[data-state="locked"] #cockpit-selection { color: #fff0a7; }
+#btn-travel-ignite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
+  min-height: 44px;
+  padding: 8px 13px;
+  color: #f9edb3;
+  border: 1px solid rgba(255,226,111,.72);
+  background: linear-gradient(135deg, rgba(255,226,111,.17), rgba(5,16,32,.96));
+  box-shadow: inset 3px 0 0 rgba(255,226,111,.48);
+  font: bold 11px/1.2 'Courier New', 'PingFang SC', monospace;
+  letter-spacing: 1px;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+#btn-travel-ignite:hover:not(:disabled),
+#btn-travel-ignite:focus-visible:not(:disabled) {
+  color: #fff;
+  border-color: #fff;
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+#btn-travel-ignite:disabled {
+  opacity: .54;
+  color: #91a0af;
+  border-color: rgba(117,154,194,.42);
+  background: rgba(7,18,34,.82);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.star-card.selected,
+.star-card[aria-pressed="true"] {
+  border-color: #ffe67d;
+  background:
+    linear-gradient(105deg, rgba(255,226,111,.21), transparent 58%),
+    rgba(24, 26, 37, .96);
+  box-shadow: inset 4px 0 0 #ffe67d, 0 0 20px rgba(255,226,111,.12);
 }
 
 /* ---------- 发现档案 ---------- */
@@ -2845,6 +3241,191 @@ body.scan-scanning #scan-progress i,
   #lock-hint { display: none !important; }
 }
 
+/* ---------- 第16轮：飞行驾驶舱与抵达闭环的安全视口 ---------- */
+@media (max-width: 900px) {
+  #warp-console {
+    width: min(580px, calc(var(--app-width) - 24px));
+    padding: 16px 18px 14px;
+  }
+  #warp-console h2 { font-size: clamp(21px, 5vw, 29px); }
+  #starmap-cockpit { gap: 8px; }
+  #btn-travel-ignite { min-width: 96px; }
+}
+
+@media (max-width: 420px) {
+  #warp-console { padding: 13px 14px 12px; }
+  .warp-kicker { font-size: 8px; letter-spacing: 1.5px; }
+  #warp-console h2 { margin-bottom: 8px; font-size: 22px; letter-spacing: 3px; }
+  #warp-route { gap: 6px; font-size: 10px; }
+  .warp-phase-row { margin-top: 11px; }
+  #warp-eta { display: none; }
+  .warp-actions {
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  #arrival-card { padding: 6px 7px; }
+  #arrival-world { font-size: 11px; }
+  #arrival-detail { display: none; }
+  #starmap-cockpit { min-height: 52px; padding: 4px 5px 4px 8px; }
+  #cockpit-title { font-size: 7px; letter-spacing: .8px; }
+  #cockpit-selection { font-size: 9px; }
+  #btn-travel-ignite { min-width: 76px; padding-inline: 7px; font-size: 9px; }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .warp-overlay { padding: 4px; }
+  #warp-console {
+    width: min(560px, calc(var(--app-width) - 128px));
+    padding: 11px 15px 10px;
+  }
+  .warp-kicker { font-size: 7px; }
+  #warp-console h2 { margin: 3px 0 6px; font-size: clamp(18px, 5vh, 23px); letter-spacing: 3px; }
+  #warp-route { font-size: 10px; }
+  .warp-phase-row { margin-top: 8px; }
+  #warp-phase-label { font-size: 10px; }
+  #warp-eta { display: none; }
+  .warp-track,
+  #warp-progress { height: 7px; margin-top: 4px; }
+  .warp-actions {
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .starmap-panel {
+    width: calc(var(--app-width) - 12px);
+    max-width: calc(var(--app-width) - 12px);
+    max-height: calc(var(--app-height) - 12px);
+    padding: 7px 9px !important;
+  }
+  .starmap-panel .panel-titlebar { margin-bottom: 4px; padding-bottom: 4px; }
+  .starmap-panel h2 { margin-block: 1px 2px; font-size: 18px; }
+  .starmap-kicker { display: none; }
+  .terminal-line { min-height: 18px; padding-block: 1px; font-size: 8px; }
+  #starmap-cockpit { min-height: 46px; padding-block: 1px; }
+  #starmap-grid { margin-top: 5px; }
+  .starmap-footer { display: none; }
+}
+
+@media (max-width: 220px) {
+  .warp-frame,
+  .warp-horizon,
+  .warp-kicker,
+  #warp-phase-code,
+  #warp-eta { display: none; }
+  #warp-console {
+    width: calc(var(--app-width) - 8px);
+    padding: 9px 10px 8px;
+  }
+  #warp-console h2 { margin: 0 0 7px; font-size: 18px; letter-spacing: 2px; }
+  #warp-route { gap: 4px; font-size: 8px; }
+  .warp-route-arrow { font-size: 11px; }
+  .warp-phase-row { margin-top: 8px; }
+  #warp-phase-label { font-size: 9px; }
+  .warp-track,
+  #warp-progress { height: 7px; }
+  #btn-warp-skip,
+  #btn-disembark {
+    min-width: 80px;
+    min-height: 44px;
+    padding: 5px 7px;
+    font-size: 9px;
+  }
+  #arrival-card { padding: 3px 4px; }
+  #arrival-kicker,
+  #arrival-type,
+  #arrival-detail { display: none; }
+  #arrival-world { font-size: 9px; line-height: 1.25; }
+
+  .starmap-panel {
+    width: calc(var(--app-width) - 8px);
+    max-width: calc(var(--app-width) - 8px);
+    padding: 5px !important;
+  }
+  .starmap-panel .panel-titlebar { margin-bottom: 3px; padding-bottom: 3px; }
+  .starmap-panel h2 { font-size: 15px; letter-spacing: 2px; }
+  .terminal-line { max-width: calc(var(--app-width) - 64px); font-size: 7px; }
+  #starmap-cockpit {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 2px;
+    min-height: 44px;
+    padding: 0 0 0 4px;
+  }
+  #cockpit-title { display: none; }
+  #cockpit-selection { margin: 0; font-size: 7px; line-height: 1.25; white-space: normal; }
+  #btn-travel-ignite {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 1px;
+    font-size: 8px;
+    line-height: 1.1;
+  }
+  #starmap-grid { margin-top: 3px; }
+}
+
+@media (orientation: landscape) and (max-height: 180px) {
+  .warp-overlay { align-items: stretch; justify-content: flex-start; }
+  #warp-console {
+    position: absolute;
+    top: max(4px, env(safe-area-inset-top));
+    bottom: max(4px, env(safe-area-inset-bottom));
+    left: max(4px, env(safe-area-inset-left));
+    width: calc(var(--app-width) - 60px);
+    max-height: none;
+    padding: 6px 8px;
+  }
+  #warp-console h2 { margin: 0 0 4px; font-size: 17px; line-height: 1.05; letter-spacing: 2px; }
+  #warp-route { font-size: 8px; }
+  .warp-phase-row { margin-top: 4px; }
+  #warp-phase-label { font-size: 8px; }
+  .warp-track,
+  #warp-progress { height: 6px; margin-top: 2px; }
+  .warp-actions {
+    right: max(4px, env(safe-area-inset-right));
+    bottom: max(4px, env(safe-area-inset-bottom));
+  }
+  #btn-warp-skip,
+  #btn-disembark {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 1px;
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  #arrival-card { padding: 3px 4px; }
+  #arrival-kicker,
+  #arrival-detail { display: none; }
+  #arrival-world { font-size: 9px; }
+  #arrival-type { font-size: 7px; }
+
+  .starmap-panel { padding: 4px 6px !important; }
+  .starmap-panel .panel-titlebar { min-height: 44px; margin: 0; padding: 0; }
+  .starmap-panel h2 { margin: 0; font-size: 14px; line-height: 1; }
+  .terminal-line { display: none; }
+  #starmap-cockpit {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    min-height: 44px;
+    padding: 0 0 0 5px;
+  }
+  #cockpit-title { display: none; }
+  #cockpit-selection { margin: 0; font-size: 7px; }
+  #btn-travel-ignite {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 1px;
+    font-size: 8px;
+    line-height: 1.1;
+  }
+  #starmap-grid { margin-top: 2px; }
+}
+
 @media (max-width: 520px) {
   .world-replace-actions { grid-template-columns: 1fr; }
   .world-replace-actions #btn-world-replace-cancel { order: 2; }
@@ -2859,6 +3440,7 @@ body.scan-scanning #scan-progress i,
   .rh-icon,
   .warp-stars,
   .warp-track i,
+  #warp-progress-fill,
   .start-overlay::before,
   .start-overlay::after,
   .start-panel::after,
@@ -2874,12 +3456,27 @@ body.scan-scanning #scan-progress i,
     animation: none !important;
   }
   .rh-icon { transform: rotate(90deg); }
-  .warp-stars { transform: none; opacity: 0.18; }
-  .warp-track i { width: 100%; }
+  .warp-stars {
+    inset: 0;
+    transform: none;
+    opacity: 0.18;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(var(--warp-accent-rgb), .16), transparent 46%),
+      radial-gradient(circle at 20% 28%, #fff 0 1px, transparent 1.5px),
+      radial-gradient(circle at 78% 38%, #fff 0 1px, transparent 1.5px),
+      radial-gradient(circle at 64% 76%, #fff 0 1px, transparent 1.5px);
+  }
   #sleep-fade,
   #uw-overlay,
   #toast,
   #hud,
+  #warp-progress-fill,
+  #arrival-card,
+  #warp-console,
+  #starmap-cockpit,
+  #btn-travel-ignite,
+  #btn-warp-skip,
+  #btn-disembark,
   #scan-progress i,
   #environment-fill,
   .start-actions .btn,

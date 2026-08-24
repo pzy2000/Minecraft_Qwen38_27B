@@ -15,6 +15,8 @@ Voxel.Sound = (function () {
   var musicStopTimer = null;
   var MUSIC_VOL = 0.32;
   var userVol = 0.5;         // 用户音量（设置菜单）
+  var flightAudio = { active: false, mode: '', phase: 'idle', arrived: false };
+  var flightAudioEpoch = 0;
 
   // 雨声循环（程序化滤波噪声）
   var rainSrc = null, rainGain = null;
@@ -340,14 +342,21 @@ Voxel.Sound = (function () {
       return;
     }
     var prevName = musicName;
+    var prevSource = musicSrc;
     musicName = want;
     // 旧曲淡出
     if (prevName && buffers[prevName]) {
       musicGain.gain.setTargetAtTime(0.0001, c.currentTime, 0.8);
-      musicStopTimer = setTimeout(function () {
-        try { musicSrc.stop(); } catch (e) { }
-        musicStopTimer = null;
-      }, 3500);
+      // 切换到另一首时 startMusicTrack 会立即停止旧 source；只有真正关闭
+      // 音乐才延迟停止。闭包必须捕获旧 source，绝不能在 3.5s 后停止全局
+      // musicSrc（那时它可能已经是新曲）。
+      if (!want && prevSource) {
+        musicStopTimer = setTimeout(function () {
+          try { prevSource.stop(); } catch (e) { }
+          if (musicSrc === prevSource) musicSrc = null;
+          musicStopTimer = null;
+        }, 3500);
+      }
     }
     // 新曲淡入
     if (want && buffers[want]) startMusicTrack(c, want);
@@ -366,6 +375,92 @@ Voxel.Sound = (function () {
     musicGain.gain.setTargetAtTime(MUSIC_VOL, c.currentTime, 1.5);
   }
 
+  // ---- 登舰/跃迁/抵达：无常驻 oscillator，phase 幂等 ----
+  function warpStart(mode) {
+    mode = mode === 'portal' ? 'portal' : 'ship';
+    var epoch = ++flightAudioEpoch;
+    flightAudio = { active: true, mode: mode, phase: 'ignition', arrived: false };
+    // 来源世界环境音不得泄漏到驾驶舱/目标loading。
+    setMusic('off');
+    rainSet(0);
+    setUnderwater(false);
+    if (mode === 'portal') {
+      tone('sine', 280, 620, 0.18, 0.18);
+      setTimeout(function () {
+        if (epoch === flightAudioEpoch && flightAudio.active && flightAudio.mode === 'portal')
+          tone('sine', 420, 860, 0.14, 0.12);
+      }, 90);
+    } else {
+      toneVib('sawtooth', 58, 128, 0.42, 0.16, 9, 9, 520);
+      tone('sine', 92, 184, 0.5, 0.12);
+    }
+    return true;
+  }
+
+  function warpPhase(mode, phase) {
+    mode = mode === 'portal' ? 'portal' : 'ship';
+    if (!flightAudio.active || flightAudio.mode !== mode || typeof phase !== 'string' ||
+      flightAudio.phase === phase) return false;
+    flightAudio.phase = phase;
+    if (phase === 'warp' || phase === 'transit') {
+      if (mode === 'portal') toneVib('sine', 360, 920, 0.34, 0.13, 18, 24, 1400);
+      else {
+        toneVib('sawtooth', 105, 48, 0.55, 0.16, 13, 14, 700);
+        noiseHit(820, 1.3, 0.28, 0.09);
+      }
+    } else if (phase === 'target_loading') {
+      tone('sine', mode === 'portal' ? 720 : 330, mode === 'portal' ? 540 : 260, 0.2, 0.08);
+    }
+    return true;
+  }
+
+  function warpSkip() {
+    if (!flightAudio.active) return false;
+    tone('square', 760, 620, 0.055, 0.1);
+    return true;
+  }
+
+  function warpArrive(mode) {
+    mode = mode === 'portal' ? 'portal' : 'ship';
+    if (!flightAudio.active || flightAudio.arrived) return false;
+    flightAudio.arrived = true;
+    flightAudio.phase = 'arrived';
+    var epoch = flightAudioEpoch;
+    tone('sine', mode === 'portal' ? 520 : 360, mode === 'portal' ? 880 : 720, 0.28, 0.16);
+    setTimeout(function () {
+      if (epoch === flightAudioEpoch && flightAudio.arrived)
+        tone('sine', mode === 'portal' ? 780 : 540, mode === 'portal' ? 1040 : 900, 0.18, 0.1);
+    }, 150);
+    return true;
+  }
+
+  function warpEnd(arrived) {
+    if (!flightAudio.active && (flightAudio.phase === 'idle' ||
+      flightAudio.phase === 'complete' || flightAudio.phase === 'aborted')) return false;
+    if (!arrived && flightAudio.active) tone('sine', 180, 70, 0.22, 0.12);
+    flightAudioEpoch++;
+    flightAudio = { active: false, mode: '', phase: arrived ? 'complete' : 'aborted', arrived: !!arrived };
+    return true;
+  }
+
+  function flightAudioSnapshot() {
+    return {
+      active: flightAudio.active,
+      mode: flightAudio.mode,
+      phase: flightAudio.phase,
+      arrived: flightAudio.arrived
+    };
+  }
+
+  function musicStateSnapshot() {
+    return {
+      mode: musicMode,
+      name: musicName,
+      sourceActive: !!musicSrc,
+      stopPending: !!musicStopTimer
+    };
+  }
+
   return {
     unlock: function () {
       var c = ac();
@@ -376,6 +471,13 @@ Voxel.Sound = (function () {
     spatial: spatial,
     // BGM：main.js 按昼夜切换
     setMusic: setMusic,
+    warpStart: warpStart,
+    warpPhase: warpPhase,
+    warpSkip: warpSkip,
+    warpArrive: warpArrive,
+    warpEnd: warpEnd,
+    flightAudioSnapshot: flightAudioSnapshot,
+    musicStateSnapshot: musicStateSnapshot,
     matFreq: matFreq,
     decodedCount: function () { var n = 0; for (var k in buffers) n++; return n; },
     setVolume: setVolume,

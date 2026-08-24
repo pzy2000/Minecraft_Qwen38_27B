@@ -151,9 +151,14 @@
   </div>
   <div id="discovery-world-list" aria-label="天体发现记录"><div class="discovery-empty">尚无发现记录</div></div>
 </div></div>
-<div id="overlay-warp" class="overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-labelledby="warp-title" aria-describedby="warp-sub"><div class="panel">
-  <div id="warp-title"></div><div id="warp-sub"></div>
-</div></div>
+<div id="overlay-warp" class="overlay hidden" data-mode="ship" data-phase="ignition" style="--warp-progress:0%">
+  <div id="warp-title"></div><div id="warp-origin"></div><div id="warp-destination"></div><div id="warp-sub"></div>
+  <div id="warp-phase-code"></div><div id="warp-phase-label"></div>
+  <div id="warp-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+  <div id="warp-eta"></div><button id="btn-warp-skip"></button>
+  <button id="btn-disembark" hidden disabled aria-disabled="true"></button>
+</div>
+<div id="travel-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="overlay-pause" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="pause-title"><h2 id="pause-title">游戏暂停</h2>
   <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
   <div class="hint"></div>
@@ -174,7 +179,7 @@
   <button id="btn-set-close" class="btn"></button>
 </div></div>
 <div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div id="rotate-title">建议横屏游玩</div><button id="btn-rotate-ok"></button></div></div>
-<div id="overlay-loading" class="overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-labelledby="loading-title"><div class="panel"><h2 id="loading-title">方块世界</h2>
+<div id="overlay-loading" class="overlay hidden" aria-labelledby="loading-title" aria-describedby="loading-text"><div class="panel"><h2 id="loading-title">方块世界</h2>
   <div id="loading-text"></div><div class="bar"><div id="loading-bar" role="progressbar" aria-label="世界生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
 </div></div>
 <pre id="results">RUNNING...</pre>
@@ -212,6 +217,7 @@
 <script src="../js/interact/raycast.js"></script>
 <script src="../js/systems/settings.js"></script>
 <script src="../js/systems/environment.js"></script>
+<script src="../js/systems/flight_sequence.js"></script>
 <script src="../js/systems/atmosphere.js"></script>
 <script src="../js/systems/daynight.js"></script>
 <script src="../js/systems/weather.js"></script>
@@ -360,10 +366,13 @@
     check('world-replace busy状态位于alertdialog语义节点', !!replacePanel &&
       replacePanel.hasAttribute('aria-busy') && !doc.getElementById('overlay-world-replace').hasAttribute('aria-busy'));
     var loading = doc.getElementById('overlay-loading'), warp = doc.getElementById('overlay-warp');
-    check('loading/warp使用live status与busy语义', !!loading && !!warp &&
-      loading.getAttribute('role') === 'status' && loading.getAttribute('aria-live') === 'polite' &&
-      loading.getAttribute('aria-busy') === 'true' && warp.getAttribute('role') === 'status' &&
-      warp.getAttribute('aria-live') === 'polite' && warp.getAttribute('aria-busy') === 'true');
+    var travelAnnouncer = doc.getElementById('travel-announcer');
+    check('loading/warp不逐帧播报且旅行使用独立live region', !!loading && !!warp &&
+      !loading.hasAttribute('role') && !loading.hasAttribute('aria-live') && !loading.hasAttribute('aria-busy') &&
+      !warp.hasAttribute('role') && !warp.hasAttribute('aria-live') && !warp.hasAttribute('aria-busy') &&
+      !!travelAnnouncer && travelAnnouncer.parentElement === doc.body &&
+      travelAnnouncer.getAttribute('role') === 'status' && travelAnnouncer.getAttribute('aria-live') === 'polite' &&
+      travelAnnouncer.getAttribute('aria-atomic') === 'true');
   }
 
   function accessibilitySemanticsRegression() {
@@ -1345,6 +1354,26 @@
       Voxel.Sound.splash(0.5); Voxel.Sound.bubble(); Voxel.Sound.jump(); Voxel.Sound.land(0.6);
       Voxel.Sound.sheep(0.5); Voxel.Sound.sheepHurt(0.5); Voxel.Sound.zombie(0.5);
       Voxel.Sound.setUnderwater(true); Voxel.Sound.setUnderwater(false);
+      var flightStart = Voxel.Sound.warpStart('ship');
+      var ignitionAudio = Voxel.Sound.flightAudioSnapshot();
+      var duplicateIgnition = Voxel.Sound.warpPhase('ship', 'ignition');
+      var warpAudioChanged = Voxel.Sound.warpPhase('ship', 'warp');
+      var warpAudio = Voxel.Sound.flightAudioSnapshot();
+      var firstArrivalAudio = Voxel.Sound.warpArrive('ship');
+      var duplicateArrivalAudio = Voxel.Sound.warpArrive('ship');
+      var flightEnd = Voxel.Sound.warpEnd(true);
+      var duplicateEnd = Voxel.Sound.warpEnd(true);
+      var completedAudio = Voxel.Sound.flightAudioSnapshot();
+      check('跃迁音频阶段有限、幂等且可完整收尾', flightStart && ignitionAudio.active &&
+        ignitionAudio.mode === 'ship' && ignitionAudio.phase === 'ignition' &&
+        duplicateIgnition === false && warpAudioChanged && warpAudio.phase === 'warp' &&
+        firstArrivalAudio && duplicateArrivalAudio === false && flightEnd && duplicateEnd === false &&
+        !completedAudio.active && completedAudio.phase === 'complete' && completedAudio.arrived === true);
+      Voxel.Sound.warpStart('portal');
+      Voxel.Sound.warpEnd(false);
+      var abortedAudio = Voxel.Sound.flightAudioSnapshot();
+      check('传送音频中止后不遗留active环境', !abortedAudio.active &&
+        abortedAudio.phase === 'aborted' && abortedAudio.arrived === false);
       var p0 = Voxel.Player.pos();
       check('音效函数可调用 + volAt 本位=1', Voxel.Sound.volAt(p0.x, p0.z) === 1 && Voxel.Sound.volAt(p0.x + 60, p0.z) === 0);
     } catch (e) {
@@ -1437,7 +1466,17 @@
     // 音频采样解码验证（unlock 时异步解码，此时应已完成）
     var dec = Voxel.Sound.decodedCount ? Voxel.Sound.decodedCount() : -1;
     check('音频采样已解码 (' + dec + ' 个)', dec >= 40);
-    Voxel.Sound.setMusic('day'); Voxel.Sound.setMusic('night'); Voxel.Sound.setMusic('off');
+    Voxel.Sound.setMusic('day');
+    var dayMusic = Voxel.Sound.musicStateSnapshot();
+    Voxel.Sound.setMusic('night');
+    var nightMusic = Voxel.Sound.musicStateSnapshot();
+    check('昼夜切歌不留下会误停新曲的旧source计时器', dayMusic.mode === 'day' &&
+      dayMusic.name === 'music_day' && dayMusic.sourceActive && nightMusic.mode === 'night' &&
+      nightMusic.name === 'music_night' && nightMusic.sourceActive && !nightMusic.stopPending);
+    Voxel.Sound.setMusic('off');
+    var offMusic = Voxel.Sound.musicStateSnapshot();
+    check('关闭音乐只为捕获的旧source安排淡出停止', offMusic.mode === 'off' &&
+      offMusic.name === '' && offMusic.sourceActive && offMusic.stopPending);
     if (Voxel.Sound.spatial) {
       var sp = Voxel.Sound.spatial(Voxel.Player.pos().x + 5, Voxel.Player.pos().z);
       check('spatial 返回 vol/pan', typeof sp.vol === 'number' && sp.vol > 0 && sp.vol <= 1 && Math.abs(sp.pan) <= 1);

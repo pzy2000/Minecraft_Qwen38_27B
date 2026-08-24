@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SPACE-VISUAL-RUNNING</title>
+<style>body{background:#08101e;color:#9ff;font:13px monospace}#out{white-space:pre-wrap}</style>
+</head>
+<body>
+<div id="world-name"></div><div id="world-coord"></div><div id="warp-fuel"></div>
+<div id="scan-terminal" aria-labelledby="scan-terminal-title" data-view="passive">
+  <div id="scan-passive" aria-hidden="false"><span id="scan-terminal-title">扫描</span>
+    <span id="scan-world"></span><span id="scan-position"></span>
+    <span id="scan-biome"></span><span id="scan-environment"></span>
+    <span id="scan-target"></span><span id="scan-distance"></span></div>
+  <article id="arrival-card" class="hidden"><span id="arrival-kicker"></span>
+    <strong id="arrival-world"></strong><span id="arrival-type"></span><span id="arrival-detail"></span></article>
+</div>
+<section id="starmap-cockpit" data-state="idle"><strong id="cockpit-selection"></strong>
+  <button id="btn-travel-ignite" disabled aria-disabled="true">点火跃迁</button></section>
+<div id="starmap-grid"></div><div id="starmap-status"></div>
+<div id="overlay-warp" class="hidden" data-mode="ship" data-phase="ignition">
+  <span id="warp-title"></span><span id="warp-origin"></span><span id="warp-destination"></span>
+  <span id="warp-sub"></span><span id="warp-phase-code"></span><span id="warp-phase-label"></span>
+  <div id="warp-progress"></div><span id="warp-eta"></span>
+  <button id="btn-warp-skip">跳过演出</button><button id="btn-disembark" hidden disabled>下船</button>
+</div>
+<div id="travel-announcer"></div>
+<pre id="out"></pre>
+
+<script src="../vendor/three.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/world/seed.js"></script>
+<script src="../js/world/galaxy.js"></script>
+<script>
+(function () {
+  var activeKind = 'planet';
+  var playerPos = new THREE.Vector3(128.5, 11.01, 128.5);
+  var requestCount = 0;
+  Voxel.World = {
+    surfaceAt: function () { return activeKind === 'station' ? 23 : 10; },
+    get: function (x, y, z) { return y === (activeKind === 'station' ? 23 : 10) ? 3 : 0; },
+    spawnPoint: function () {
+      return activeKind === 'station'
+        ? new THREE.Vector3(128.5, 24.01, 128.5)
+        : new THREE.Vector3(128.5, 11.01, 128.5);
+    },
+    biomeAt: function () { return 1; }
+  };
+  Voxel.Biomes = { name: function () { return '测试群系'; } };
+  Voxel.Player = { pos: function () { return playerPos; } };
+  Voxel.Controls = { touchMode: function () { return false; } };
+  Voxel.DayNight = { isNight: function () { return false; } };
+  Voxel.Weather = { label: function () { return '晴'; } };
+  Voxel.Environment = { status: function () { return { hazard: 'none' }; } };
+  Voxel.Game = { requestTravel: function () { requestCount++; return true; } };
+  window.__spaceVisualFixture = {
+    setKind: function (kind) { activeKind = kind; },
+    player: playerPos,
+    requestCount: function () { return requestCount; }
+  };
+})();
+</script>
+<script src="../js/systems/space_travel.js"></script>
+<script>
+(function () {
+  'use strict';
+  var output = [], failed = 0;
+  function check(name, ok, detail) {
+    output.push((ok ? 'ok   ' : 'FAIL ') + name + (detail ? ' :: ' + detail : ''));
+    if (!ok) failed++;
+  }
+  function allFinite(value) {
+    if (typeof value === 'number') return isFinite(value);
+    if (!value || typeof value !== 'object') return true;
+    if (Array.isArray(value)) return value.every(allFinite);
+    return Object.keys(value).every(function (key) { return allFinite(value[key]); });
+  }
+  function inside(bounds, point) {
+    if (!bounds) return false;
+    for (var i = 0; i < 3; i++)
+      if (point[i] < bounds.min[i] || point[i] > bounds.max[i]) return false;
+    return true;
+  }
+  function roots(scene) {
+    return scene.children.filter(function (obj) {
+      return obj.userData && obj.userData.system === 'space-travel';
+    });
+  }
+  function resourcesBalanced(stats) {
+    return ['roots', 'geometries', 'materials', 'textures'].every(function (key) {
+      return stats.created[key] - stats.disposed[key] === stats.live[key] && stats.live[key] >= 0;
+    });
+  }
+
+  try {
+    var fixture = window.__spaceVisualFixture;
+    var S = Voxel.SpaceTravel;
+    var selectedCalls = 0;
+    Voxel.Game.selectTravelDestination = function (id) {
+      selectedCalls++;
+      return S.setSelectedDestination(id);
+    };
+    var scene = new THREE.Scene();
+    var galaxy = Voxel.Galaxy.create('SPACE-VISUAL-FIXTURE');
+    var planet = galaxy.catalog[0];
+    var station = galaxy.catalog.filter(function (w) { return w.kind === 'station'; })[0];
+    S.init(scene);
+
+    fixture.setKind('planet');
+    fixture.player.set(128.5, 11.01, 128.5);
+    S.setVisualTime(10);
+    S.loadWorld(planet, galaxy);
+    S.update(0, 0);
+    var planetSnap = S.visualSnapshot();
+    var ship = S.ship();
+    var toward = ship.position.clone().sub(fixture.player); toward.y = 0; toward.normalize();
+    var forwardDot = toward.dot(new THREE.Vector3(0, 0, -1));
+    check('默认yaw0的第一视锥前方生成飞船', ship.position.z < fixture.player.z - 4 && forwardDot > 0.7,
+      'dot=' + forwardDot.toFixed(3) + ' z=' + ship.position.z.toFixed(1));
+    ['ship-hull', 'ship-nose', 'ship-canopy', 'ship-wing', 'ship-tail', 'ship-landing-gear',
+      'ship-engine', 'ship-engine-glow', 'ship-door', 'ship-ramp'].forEach(function (role) {
+      check('飞船包含语义部件 ' + role, planetSnap.roles.indexOf(role) >= 0);
+    });
+    check('四起落架/双翼/双引擎辉光数量稳定',
+      planetSnap.counts.byRole['ship-landing-gear'] === 4 &&
+      planetSnap.counts.byRole['ship-wing'] === 2 &&
+      planetSnap.counts.byRole['ship-engine-glow'] === 2);
+    check('行星SpaceTravel对象预算有界', planetSnap.counts.drawables <= 40 &&
+      planetSnap.counts.triangles <= 1000 && planetSnap.counts.geometries <= 40 &&
+      planetSnap.counts.materials <= 40, JSON.stringify(planetSnap.counts));
+    check('行星视觉快照全部数值有限且场景仅一个root', allFinite(planetSnap) && roots(scene).length === 1);
+
+    S.showMap();
+    var destinationCard = document.querySelector('.star-card[data-destination-id="' + station.id + '"]');
+    if (destinationCard) destinationCard.click();
+    check('星图卡只选择航线而不直接requestTravel', !!destinationCard && selectedCalls === 1 &&
+      fixture.requestCount() === 0 && destinationCard.getAttribute('aria-pressed') === 'true' &&
+      !document.getElementById('btn-travel-ignite').disabled);
+    S.showWarp(planet, station, 'ship', { mode: 'ship' });
+    S.setFlightPhase('warp', 52, { mode: 'ship' });
+    check('跃迁UI阶段/进度/路线同步', document.getElementById('overlay-warp').dataset.phase === 'warp' &&
+      document.getElementById('overlay-warp').style.getPropertyValue('--warp-progress') === '52%' &&
+      document.getElementById('warp-progress').getAttribute('aria-valuenow') === '52' &&
+      document.getElementById('warp-destination').textContent.indexOf(station.name) >= 0);
+    check('航行播报与下船接口可用', S.announceTravel('测试航行播报') &&
+      document.getElementById('travel-announcer').textContent === '测试航行播报' &&
+      S.setDisembarkReady(true) && !document.getElementById('btn-disembark').hidden);
+    check('抵达卡/隐藏恢复PASSIVE', S.showArrival(planet, station, 'ship', { firstVisit: true, refueled: true }) &&
+      document.getElementById('scan-terminal').dataset.view === 'arrival' &&
+      document.getElementById('scan-passive').getAttribute('aria-hidden') === 'true' &&
+      S.hideArrival() && document.getElementById('scan-terminal').dataset.view === 'passive' &&
+      document.getElementById('scan-passive').getAttribute('aria-hidden') === 'false');
+    S.hideWarp();
+
+    fixture.player.copy(ship.position);
+    S.setVisualTime(10.5); S.update(0, 0);
+    S.setVisualTime(11.0); S.update(0, 0);
+    check('靠近飞船后舱门坡道按绝对时间展开', S.visualSnapshot().animation.rampProgress > 0.95);
+    fixture.player.set(500, 20, 500);
+    S.setReducedMotion(false);
+    S.setVisualTime(2); S.update(0, 0); var movingA = S.visualSnapshot().animation;
+    S.setVisualTime(3); S.update(0, 0); var movingB = S.visualSnapshot().animation;
+    check('普通模式引擎/旋转环随绝对时间变化',
+      movingA.engineOpacity !== movingB.engineOpacity ||
+      JSON.stringify(movingA.ringRotations) !== JSON.stringify(movingB.ringRotations));
+    S.setReducedMotion(true);
+    S.setVisualTime(20); S.update(0, 0); var reducedA = S.visualSnapshot().animation;
+    S.setVisualTime(200); S.update(0, 0); var reducedB = S.visualSnapshot().animation;
+    check('减少动态模式不随绝对时间漂移',
+      reducedA.engineOpacity === reducedB.engineOpacity &&
+      reducedA.rampProgress === reducedB.rampProgress &&
+      JSON.stringify(reducedA.ringRotations) === JSON.stringify(reducedB.ringRotations));
+
+    fixture.setKind('station');
+    fixture.player.set(128.5, 24.001, 128.5);
+    S.loadWorld(station, galaxy);
+    S.update(0, 0);
+    var stationSnap = S.visualSnapshot();
+    var cameraPoint = [fixture.player.x, fixture.player.y + 1.62, fixture.player.z];
+    check('空间站抵达玩家与相机均不在高hub包围盒内',
+      !inside(stationSnap.station.hubBounds, fixture.player.toArray()) &&
+      !inside(stationSnap.station.hubBounds, cameraPoint), JSON.stringify(stationSnap.station.hubBounds));
+    check('真实航行终端位于出生点前方并写入快照', stationSnap.station.terminal[2] < 120 &&
+      stationSnap.station.terminal.every(isFinite));
+    ['station-terminal', 'station-terminal-screen', 'dock-beacon', 'dock-arch',
+      'navigation-light', 'station-ring'].forEach(function (role) {
+      check('空间站包含语义部件 ' + role, stationSnap.roles.indexOf(role) >= 0);
+    });
+    check('空间站对象预算有界', stationSnap.counts.drawables <= 40 &&
+      stationSnap.counts.triangles <= 1000 && stationSnap.counts.geometries <= 40 &&
+      stationSnap.counts.materials <= 40, JSON.stringify(stationSnap.counts));
+    var stationLandmark = S.scanLandmark();
+    check('scanLandmark使用移动后的真实终端坐标', stationLandmark &&
+      stationLandmark.kind === 'station-terminal' && stationLandmark.distance > 10 && stationLandmark.distance < 20,
+      stationLandmark && stationLandmark.distance.toFixed(2));
+    check('换世界释放旧root且资源账本守恒', roots(scene).length === 1 && resourcesBalanced(S.resourceStats()));
+
+    for (var cycle = 0; cycle < 20; cycle++) {
+      var useStation = cycle % 2 === 1;
+      fixture.setKind(useStation ? 'station' : 'planet');
+      fixture.player.set(128.5, useStation ? 24.001 : 11.01, 128.5);
+      S.loadWorld(useStation ? station : planet, galaxy);
+      S.update(0, 0);
+      var cycleSnap = S.visualSnapshot(), live = S.resourceStats();
+      check('第' + (cycle + 1) + '次load单root/预算/账本', roots(scene).length === 1 &&
+        cycleSnap.counts.drawables <= 40 && cycleSnap.counts.triangles <= 1000 && resourcesBalanced(live));
+      S.clear();
+      var cleared = S.resourceStats();
+      check('第' + (cycle + 1) + '次clear唯一释放至零', roots(scene).length === 0 &&
+        cleared.live.total === 0 && resourcesBalanced(cleared));
+    }
+    var finalStats = S.resourceStats();
+    check('20次load/clear后created与disposed逐类相等',
+      ['roots', 'geometries', 'materials', 'textures'].every(function (key) {
+        return finalStats.created[key] === finalStats.disposed[key];
+      }), JSON.stringify(finalStats));
+    S.setVisualTime(null);
+  } catch (error) {
+    failed++;
+    output.push('FAIL 未捕获异常 :: ' + (error && error.stack || error));
+  }
+
+  document.getElementById('out').textContent =
+    '=== ' + (failed ? failed + ' FAILED' : 'ALL PASS') + ' ===\n' + output.join('\n');
+  document.title = failed ? 'SPACE-VISUAL-FAIL' : 'SPACE-VISUAL-PASS';
+})();
+</script>
+</body>
+</html>

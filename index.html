@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=20260824o">
+<link rel="stylesheet" href="css/style.css?v=20260824p">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -42,20 +42,29 @@
     <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
   </div>
   <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
-           aria-hidden="true" data-status="offline" data-target-kind="none">
-    <div class="scan-terminal-head">
-      <span class="scan-terminal-mark" aria-hidden="true">◈</span>
-      <h2 id="scan-terminal-title">环境扫描终端</h2>
-      <span class="scan-terminal-mode">PASSIVE</span>
+           aria-hidden="true" data-status="offline" data-target-kind="none" data-view="passive">
+    <div id="scan-passive">
+      <div class="scan-terminal-head">
+        <span class="scan-terminal-mark" aria-hidden="true">◈</span>
+        <h2 id="scan-terminal-title">环境扫描终端</h2>
+        <span class="scan-terminal-mode">PASSIVE</span>
+      </div>
+      <dl class="scan-terminal-grid">
+        <div class="scan-field scan-secondary"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div>
+        <div class="scan-field scan-secondary"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div>
+        <div class="scan-field scan-secondary"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div>
+        <div class="scan-field scan-secondary"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div>
+        <div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div>
+        <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div>
+      </dl>
     </div>
-    <dl class="scan-terminal-grid">
-      <div class="scan-field scan-secondary"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div>
-      <div class="scan-field scan-secondary"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div>
-      <div class="scan-field scan-secondary"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div>
-      <div class="scan-field scan-secondary"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div>
-      <div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div>
-      <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div>
-    </dl>
+    <article id="arrival-card" class="hidden" data-mode="ship"
+             aria-labelledby="arrival-world" aria-describedby="arrival-type arrival-detail">
+      <span id="arrival-kicker" aria-hidden="true">NAV // ARRIVAL</span>
+      <strong id="arrival-world">目标天体</strong>
+      <span id="arrival-type">航行数据待同步</span>
+      <span id="arrival-detail">正在建立地表与探索链路</span>
+    </article>
   </section>
   <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
     <div class="scan-active-actions">
@@ -266,8 +275,19 @@
       </div>
       <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
     </div>
+    <section id="starmap-cockpit" data-state="idle" aria-labelledby="cockpit-title"
+             aria-describedby="cockpit-selection">
+      <div class="cockpit-frame" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="cockpit-route-copy">
+        <span id="cockpit-title">FLIGHT DECK // ROUTE LOCK</span>
+        <strong id="cockpit-selection" role="status" aria-live="polite" aria-atomic="true">请选择目的地以锁定跃迁航线</strong>
+      </div>
+      <button id="btn-travel-ignite" type="button" disabled aria-disabled="true"
+              aria-label="点火并前往所选目的地" aria-controls="starmap-grid"
+              aria-describedby="cockpit-selection">点火跃迁</button>
+    </section>
     <div id="starmap-grid"></div>
-    <div class="starmap-footer hint"><span>ROUTE PROTOCOL</span>选择目的地启动跃迁 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
+    <div class="starmap-footer hint"><span>ROUTE PROTOCOL</span>选择目的地后点火 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
   </div>
 </div>
 
@@ -312,15 +332,43 @@
 </div>
 
 <!-- 跃迁过场 -->
-<div id="overlay-warp" class="overlay warp-overlay hidden" role="status" aria-live="polite"
-     aria-busy="true" aria-labelledby="warp-title" aria-describedby="warp-sub">
-  <div class="warp-stars"></div>
-  <div class="warp-copy">
-    <h2 id="warp-title">跃迁引擎点火</h2>
-    <div id="warp-sub">计算航线...</div>
-    <div class="warp-track"><i></i></div>
+<div id="overlay-warp" class="overlay warp-overlay hidden" data-mode="ship" data-phase="ignition"
+     style="--warp-progress: 0%">
+  <div class="warp-stars" aria-hidden="true"></div>
+  <div id="warp-cockpit" aria-hidden="true">
+    <i class="warp-frame warp-frame-left"></i>
+    <i class="warp-frame warp-frame-right"></i>
+    <i class="warp-horizon"></i>
+    <i class="warp-reticle"></i>
+  </div>
+  <section id="warp-console" class="warp-copy" aria-labelledby="warp-title"
+           aria-describedby="warp-route warp-phase-label">
+    <div class="warp-kicker" aria-hidden="true">EXO-ARK // FTL NAV</div>
+    <h2 id="warp-title">跃迁序列启动</h2>
+    <div id="warp-route">
+      <span id="warp-origin">当前位置</span>
+      <span class="warp-route-arrow" aria-hidden="true">→</span>
+      <span id="warp-destination">目标天体</span>
+    </div>
+    <span id="warp-sub" class="sr-only">正在计算航线</span>
+    <div class="warp-phase-row">
+      <span id="warp-phase-code" aria-hidden="true">IGNITION // 01</span>
+      <strong id="warp-phase-label">跃迁核心点火</strong>
+    </div>
+    <div id="warp-progress" class="warp-track" role="progressbar" aria-label="跃迁演出进度"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="跃迁核心点火">
+      <i id="warp-progress-fill" aria-hidden="true"></i>
+    </div>
+    <div id="warp-eta" aria-hidden="true">ETA 00:01.7</div>
+  </section>
+  <div class="warp-actions">
+    <button id="btn-warp-skip" type="button" aria-label="跳过跃迁演出，立即开始加载目标世界"
+            aria-keyshortcuts="Escape" aria-controls="warp-progress">跳过演出</button>
+    <button id="btn-disembark" type="button" hidden disabled aria-disabled="true"
+            aria-label="下船并继续探索">下船</button>
   </div>
 </div>
+<div id="travel-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- 死亡界面 -->
 <div id="overlay-dead" class="overlay hidden">
@@ -372,8 +420,7 @@
 </div>
 
 <!-- 生成进度 -->
-<div id="overlay-loading" class="overlay hidden" role="status" aria-live="polite"
-     aria-busy="true" aria-labelledby="loading-title">
+<div id="overlay-loading" class="overlay hidden" aria-labelledby="loading-title" aria-describedby="loading-text">
   <div class="panel">
     <h2 id="loading-title">方块世界</h2>
     <div id="loading-text">正在生成世界...</div>
@@ -403,13 +450,14 @@
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260823f"></script>
 <script src="js/systems/environment.js?v=20260824o"></script>
+<script src="js/systems/flight_sequence.js?v=20260824p"></script>
 <script src="js/systems/atmosphere.js?v=20260824m"></script>
 <script src="js/systems/daynight.js?v=20260824m"></script>
 <script src="js/systems/weather.js?v=20260824m"></script>
-<script src="js/systems/sound.js?v=20260823f"></script>
+<script src="js/systems/sound.js?v=20260824p"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=20260824o"></script>
+<script src="js/systems/space_travel.js?v=20260824p"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=20260824l"></script>
@@ -417,6 +465,6 @@
 <script src="js/ui/featured.js?v=20260824l"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
 <script src="js/ui/hud.js?v=20260824o"></script>
-<script src="js/main.js?v=20260824o"></script>
+<script src="js/main.js?v=20260824p"></script>
 </body>
 </html>

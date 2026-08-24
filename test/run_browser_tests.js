@@ -49,6 +49,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/atmosphere_test.html', re: '^ATMOSPHERE-PASS' },
     { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS' },
     { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS', reducedMotion: true },
+    { file: 'test/space_visual_test.html', re: '^SPACE-VISUAL-PASS' },
     { file: 'test/touch_test.html', re: '^TOUCH-PASS', forceTouch: true },
     { file: 'test/render_check.html', re: '^RENDER-PASS' },
     { file: 'test/render_check.html', re: '^RENDER-PASS', forceTouch: true },
@@ -61,7 +62,17 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     // 320x568 与 568x320 在 200% 缩放后的等效 CSS 可视区。
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 160, height: 284, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
-    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } }
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 916, height: 293, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 916, height: 390, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 740, height: 300, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 390, height: 740, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 320, height: 568, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 160, height: 284, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/flight_ui_test.html', re: '^FLIGHT-UI-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } }
   ];
 
   for (const t of targets) {
