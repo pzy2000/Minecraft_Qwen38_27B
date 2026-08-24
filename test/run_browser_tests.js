@@ -60,6 +60,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/render_check.html', re: '^RENDER-PASS', forceTouch: true },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 293, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 390, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 916, height: 600, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 740, height: 300, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 390, height: 740, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
     { file: 'test/mobile_layout_test.html', re: '^MOBILE-LAYOUT-PASS', forceTouch: true, viewport: { width: 320, height: 568, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },

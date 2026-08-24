@@ -551,7 +551,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       currentId: Voxel.Game._test.currentWorld().id,
       savedCurrentId: saved && saved.galaxy && saved.galaxy.currentId,
       pending: Voxel.Game._test.travelPending(),
-      state: Voxel.Game.state
+      state: Voxel.Game.state,
+      saveHealth: Voxel.Game._test.saveHealth()
     };
     delete window.__spaceTravelInitFault;
     return result;
@@ -615,7 +616,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       currentId: Voxel.Game._test.currentWorld().id,
       savedCurrentId: saved && saved.galaxy && saved.galaxy.currentId,
       pending: Voxel.Game._test.travelPending(),
-      state: Voxel.Game.state
+      state: Voxel.Game.state,
+      saveHealth: Voxel.Game._test.saveHealth()
     };
     delete window.__spaceTravelCommitFault;
     return result;
@@ -624,7 +626,9 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     commitRecovery.state === 'playing' && commitRecovery.currentId === 'planet-0' &&
     commitRecovery.savedCurrentId === 'planet-0' && commitRecovery.pending === null);
   check('目标commit失败保持磁盘来源原字节且不扣燃料', commitRecovery.rawSame &&
-    commitRecovery.fuelAfter === commitRecovery.fuelBefore);
+    commitRecovery.fuelAfter === commitRecovery.fuelBefore && commitRecovery.saveHealth &&
+    commitRecovery.saveHealth.state === 'recovered' &&
+    commitRecovery.saveHealth.source === 'travel-rollback' && !commitRecovery.saveHealth.conflict);
 
   // 在源行星留下带耐久/年龄/速度的工具掉落，并在跃迁动画尚未完成时检查一致源存档。
   const firstDeparture = await page.evaluate(() => {

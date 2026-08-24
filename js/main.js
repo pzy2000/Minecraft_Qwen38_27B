@@ -19,6 +19,7 @@ Voxel.Game = (function () {
   var saveData = null, pendingEdits = null, featuredPending = null;
   var pendingTravel = null, travelSerial = 0, selectedTravelId = null;
   var travelRecoveryNotice = '';
+  var travelRollbackHealthPending = false;
   var worldReplacePending = null, worldReplaceReturnFocus = null, worldReplaceReturnState = null;
   var galaxyState = null, currentWorld = null, travelStats = null;
   var restoreBusy = false, restoreBusyTimer = null;
@@ -28,6 +29,15 @@ Voxel.Game = (function () {
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
+  // 单一存档健康状态驱动 HUD、暂停面板和无障碍播报。只有 Save.save 返回 true
+  // （底层已完成精确回读校验）才允许从 unsaved 转为 recovered/saved。
+  var saveHealth = {
+    state: 'idle', source: 'none', message: '本次会话尚未完成已验证写入。',
+    failureClass: 'none', consecutiveFailures: 0, totalFailures: 0, assertiveAnnouncements: 0
+  };
+  var saveConflict = false;
+  var pendingFailureAnnouncement = false;
+  var pauseSaveFeedbackSerial = 0;
   // 长按挖掘进度
   var digT = null, digProg = 0, digNeed = 0, digHintT = 0, digSndT = 0;
   var crackMesh = null, crackTex = [];
@@ -84,6 +94,12 @@ Voxel.Game = (function () {
   ];
 
   function modalTop() { return modalStack.length ? modalStack[modalStack.length - 1] : null; }
+
+  function menuOwnsCurrentModalFlow() {
+    if (state === 'menu' || state === 'featured' || state === 'world-replace') return true;
+    var root = modalStack.length ? modalStack[0] : null;
+    return !!(root && root.returnState === 'menu');
+  }
 
   function clearIntentionalUnlock() {
     intentionalUnlockPending = false;
@@ -493,7 +509,11 @@ Voxel.Game = (function () {
     }
     if (!archived) {
       if (error) {
-        error.textContent = '备份失败：当前存档未被清除。请检查浏览器存储空间后重试，或取消返回。';
+        var quarantineOccupied = !!(Voxel.Save.hasQuarantine && Voxel.Save.hasQuarantine()) &&
+          !!(Voxel.Save.hasRaw && Voxel.Save.hasRaw()) && !(Voxel.Save.has && Voxel.Save.has());
+        error.textContent = quarantineOccupied
+          ? '安全隔离已停止：隔离槽中已有另一份损坏存档。当前原始字节和既有隔离数据均未改动；请先备份此站点的浏览器存储后再处理。'
+          : '备份失败：当前存档未被清除。请检查浏览器存储空间后重试，或取消返回。';
         error.classList.remove('hidden');
       }
       setWorldReplaceBusy(false);
@@ -502,8 +522,8 @@ Voxel.Game = (function () {
       return;
     }
 
-    // archiveCurrent 成功是清理主槽的硬前置；clear 在此后调用仅确保主槽为空。
-    Voxel.Save.clear();
+    // archiveCurrent 已验证备份并删除调用时看到的主档。此处不能再次 clear：
+    // 若另一标签页恰在归档完成后写入新主档，冗余删除会把并发更新抹掉。
     var pending = worldReplacePending;
     closeWorldReplaceDialog(false);
     saveData = null;
@@ -527,9 +547,9 @@ Voxel.Game = (function () {
       finishRestoreBusy();
       return false;
     }
-    syncMainMenu();
+    var restoredData = Voxel.Save.load();
     var canSwapAgain = !!(Voxel.Save.hasBackup && Voxel.Save.hasBackup());
-    syncMainMenu('已恢复上一存档' + (saveData ? ' · 星系种子 ' + savedSeedLabel(saveData) : '') +
+    syncMainMenu('已恢复上一存档' + (restoredData ? ' · 星系种子 ' + savedSeedLabel(restoredData) : '') +
       (canSwapAgain ? ' · 再次点击可切换回来' : ' · 可以继续游戏'), false);
     var startBtn = document.getElementById('btn-start');
     setTimeout(function () {
@@ -821,7 +841,7 @@ Voxel.Game = (function () {
       acceptFlightEvent(commitTx, 'target_ready');
       acceptFlightEvent(commitTx, 'begin_commit');
       // 目标世界必须先写入并回读成功，才能对玩家宣布抵达/允许下舰。
-      if (!doSave(true)) {
+      if (!doSave(true, 'travel-arrival')) {
         abortTravel(commitTx, '目标停泊存档提交失败');
         return;
       }
@@ -845,8 +865,12 @@ Voxel.Game = (function () {
     // 新世界/普通读档的首次提交；跃迁使用上方的强制verified commit。
     // 失败恢复必须让已验证的来源存档保持逐字节权威；重新载入来源时若立刻
     // 自动保存，会因昼夜时钟的细微规范化改写原始字节，削弱事务回滚保证。
-    if (!travelRecoveryNotice) doSave(true);
+    if (!travelRecoveryNotice) doSave(true, 'world-load');
     if (travelRecoveryNotice) {
+      // abortTravel 仅在磁盘仍是已验证 sourceSave 时设置此标志；完整重建来源
+      // 世界后，健康状态应反映“已安全回滚”，而不是继续误报目标未保存。
+      if (travelRollbackHealthPending && !saveConflict) reportSaveResult(true, 'travel-rollback');
+      travelRollbackHealthPending = false;
       Voxel.HUD.toast(travelRecoveryNotice);
       travelRecoveryNotice = '';
     } else if (Voxel.SpaceTravel && Voxel.SpaceTravel.showArrivalCard) {
@@ -855,83 +879,285 @@ Voxel.Game = (function () {
     }
   }
 
-  function dropsSnapshot() {
-    try {
-      return Voxel.Drops && Voxel.Drops.snapshot ? Voxel.Drops.snapshot() : [];
-    } catch (e) {
-      console.warn('掉落物快照失败', e);
-      return [];
-    }
-  }
-
-  function currentSnapshot() {
+  function captureCurrentSnapshot() {
+    if (!galaxyState || !currentWorld || !Voxel.World.isReady())
+      throw new Error('世界尚未就绪');
     var p = Voxel.Player.pos();
     var bed = Voxel.Player.getBed();
+    var time = Voxel.DayNight.time();
+    var weather = Voxel.Weather.stateName();
+    var yaw = Voxel.Controls.yaw();
+    var pitch = Voxel.Controls.pitch();
+    var flying = Voxel.Player.flying();
+    var hp = Voxel.Player.hp();
+    var food = Voxel.Player.food();
+    var environment = Voxel.Environment && Voxel.Environment.snapshot
+      ? Voxel.Environment.snapshot() : null;
+    var drops = Voxel.Drops && Voxel.Drops.snapshot ? Voxel.Drops.snapshot() : [];
+    var meta = Voxel.World.getAllMeta();
+    var edits = Voxel.World.getEdits();
+    if (!p || !isFinite(p.x) || !isFinite(p.y) || !isFinite(p.z) ||
+      !isFinite(time) || !isFinite(yaw) || !isFinite(pitch) || !isFinite(hp) || !isFinite(food) ||
+      !Array.isArray(drops) || !meta || typeof meta !== 'object' || Array.isArray(meta) ||
+      !edits || typeof edits !== 'object' || Array.isArray(edits))
+      throw new Error('存档子快照无效');
+    if (bed && (!isFinite(bed.x) || !isFinite(bed.y) || !isFinite(bed.z)))
+      throw new Error('床位快照无效');
     return {
-      edits: Voxel.World.getEdits(),
-      meta: Voxel.World.getAllMeta(),
-      time: Voxel.DayNight.time(),
-      weather: Voxel.Weather.stateName(),
+      edits: edits,
+      meta: meta,
+      time: time,
+      weather: weather,
       player: {
-        pos: [p.x, p.y, p.z], yaw: Voxel.Controls.yaw(), pitch: Voxel.Controls.pitch(),
-        fly: Voxel.Player.flying(), hp: Voxel.Player.hp(), food: Voxel.Player.food(),
-        environment: Voxel.Environment && Voxel.Environment.snapshot ? Voxel.Environment.snapshot() : null
+        pos: [p.x, p.y, p.z], yaw: yaw, pitch: pitch,
+        fly: flying, hp: hp, food: food, environment: environment
       },
       bed: bed ? [bed.x, bed.y, bed.z] : null,
-      drops: dropsSnapshot()
+      drops: drops
     };
   }
 
-  function storeCurrentWorld() {
-    if (!galaxyState || !currentWorld || !Voxel.World.isReady()) return;
-    galaxyState.worlds[currentWorld.id] = currentSnapshot();
+  function saveSourceLabel(source) {
+    return {
+      auto: '自动存档', manual: '手动存档', menu: '返回主菜单前存档',
+      lifecycle: '页面离开前存档', pause: '暂停时存档', sleep: '睡眠完成存档',
+      bed: '重生点存档', death: '死亡状态存档', respawn: '重生状态存档',
+      discovery: '探索档案存档', 'travel-departure': '出发存档',
+      'travel-arrival': '抵达存档', 'world-load': '世界载入存档', test: '立即存档',
+      'external-conflict': '其他页面已更新存档', 'travel-rollback': '已回滚至验证来源'
+    }[source] || '游戏存档';
   }
 
-  function doSave(silent) {
+  function setTextIfChanged(el, text) {
+    if (el && el.textContent !== text) el.textContent = text;
+  }
+
+  function setAttributeIfChanged(el, name, value) {
+    if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
+  function failureAnnouncementText(source) {
+    return source === 'external-conflict'
+      ? '存档冲突。其他页面已更新存档，自动写入已暂停。请打开暂停菜单并手动确认存档。'
+      : '存档失败。当前进度尚未安全写入，请立即重试。';
+  }
+
+  function emitFailureAnnouncement(source) {
+    setTextIfChanged(document.getElementById('save-failure-announcer'), failureAnnouncementText(source));
+    pendingFailureAnnouncement = false;
+    saveHealth.assertiveAnnouncements++;
+  }
+
+  function flushPendingFailureAnnouncement() {
+    if (!pendingFailureAnnouncement || saveHealth.state !== 'unsaved') return false;
+    var pauseOverlay = document.getElementById('overlay-pause');
+    if (saveHealth.source === 'external-conflict' && state === 'paused' && pauseOverlay &&
+      !pauseOverlay.classList.contains('hidden')) {
+      announcePauseSaveFeedback('存档冲突：其他页面已更新主档。自动写入已暂停，请手动确认覆盖。', true);
+      pendingFailureAnnouncement = false;
+      saveHealth.assertiveAnnouncements++;
+    } else emitFailureAnnouncement(saveHealth.source);
+    return true;
+  }
+
+  function announcePauseSaveFeedback(message, urgent) {
+    var feedback = document.getElementById('pause-save-feedback');
+    if (!feedback) return;
+    setAttributeIfChanged(feedback, 'role', urgent ? 'alert' : 'status');
+    setAttributeIfChanged(feedback, 'aria-live', urgent ? 'assertive' : 'polite');
+    pauseSaveFeedbackSerial++;
+    setTextIfChanged(feedback, '存档操作 ' + pauseSaveFeedbackSerial + '：' + message);
+  }
+
+  function syncSaveHealthUI() {
+    var failed = saveHealth.state === 'unsaved';
+    var recovered = saveHealth.state === 'recovered';
+    var conflict = failed && saveHealth.source === 'external-conflict';
+    var label = saveSourceLabel(saveHealth.source);
+    setAttributeIfChanged(document.body, 'data-save-health', saveHealth.state);
+
+    var banner = document.getElementById('save-health');
+    if (banner) {
+      setAttributeIfChanged(banner, 'data-state', saveHealth.state);
+      var hideBanner = !failed && !recovered;
+      if (banner.hidden !== hideBanner) banner.hidden = hideBanner;
+      setTextIfChanged(banner, failed
+        ? (conflict ? '存档冲突 · 其他页面已更新存档，自动写入已暂停'
+          : '存档失败 · ' + label + '未写入，当前进度仍在内存中')
+        : (recovered ? '存档已恢复 · 最新进度已通过写入校验' : ''));
+    }
+
+    var pauseStatus = document.getElementById('pause-save-status');
+    if (pauseStatus) {
+      setAttributeIfChanged(pauseStatus, 'data-state', saveHealth.state);
+      // 摘要由 dialog 的 aria-describedby 提供静态语义；显式操作只经下方
+      // pause-save-feedback 单一 polite 通道播报，避免一次点击双重朗读。
+      setAttributeIfChanged(pauseStatus, 'aria-live', 'off');
+      var title = pauseStatus.querySelector('strong');
+      var detail = pauseStatus.querySelector('span');
+      setTextIfChanged(title, failed ? (conflict ? '存档冲突 · 其他页面已更新' : '未保存 · ' + label + '失败')
+        : (recovered ? '存档已恢复' : (saveHealth.state === 'saved' ? '存档安全' : '存档待验证')));
+      setTextIfChanged(detail, failed
+        ? (conflict
+          ? '为避免覆盖另一页面，自动、旅行和返回菜单存档已暂停。请手动确认覆盖并存档。'
+          : '当前进度仍保留在内存中。请立即重试；验证成功前不会返回主菜单。')
+        : (recovered ? '最近一次重试已完成写入与回读校验。'
+          : (saveHealth.state === 'saved' ? '最近一次写入与回读校验均已完成。' : saveHealth.message)));
+    }
+
+    var saveBtn = document.getElementById('btn-save');
+    if (saveBtn) {
+      setTextIfChanged(saveBtn, conflict ? '确认覆盖并存档' : (failed ? '重试存档' : '立即存档'));
+      setAttributeIfChanged(saveBtn, 'data-retry', failed ? 'true' : 'false');
+    }
+  }
+
+  function reportSaveResult(ok, source) {
+    source = source || 'game';
+    var wasFailed = saveHealth.state === 'unsaved';
+    var nextFailureClass = source === 'external-conflict' ? 'external-conflict' : 'write';
+    var failureClassChanged = saveHealth.failureClass !== nextFailureClass;
+    saveHealth.source = source;
+    if (!ok) {
+      saveHealth.state = 'unsaved';
+      saveHealth.failureClass = nextFailureClass;
+      saveHealth.consecutiveFailures++;
+      saveHealth.totalFailures++;
+      saveHealth.message = saveSourceLabel(source) + '写入或回读校验失败。';
+      // 同类连续故障只触发一次 assertive；外部覆盖冲突是新的处置类别，必须
+      // 另播一次“确认覆盖”，但 auto/lifecycle 之间切换不会反复打断用户。
+      if (!wasFailed || failureClassChanged) {
+        var panelInitiated = (source === 'manual' || source === 'menu') && state === 'paused';
+        var pauseOverlay = document.getElementById('overlay-pause');
+        var conflictInPause = source === 'external-conflict' && state === 'paused' && pauseOverlay &&
+          !pauseOverlay.classList.contains('hidden');
+        if (document.visibilityState === 'hidden') {
+          if (!panelInitiated) pendingFailureAnnouncement = true;
+        } else if (conflictInPause) {
+          announcePauseSaveFeedback('存档冲突：其他页面已更新主档。自动写入已暂停，请手动确认覆盖。', true);
+          saveHealth.assertiveAnnouncements++;
+        } else if (!panelInitiated) {
+          emitFailureAnnouncement(source);
+        }
+      }
+      var recoveryAnnouncer = document.getElementById('save-recovery-announcer');
+      setTextIfChanged(recoveryAnnouncer, '');
+      syncSaveHealthUI();
+      return false;
+    }
+
+    saveHealth.state = wasFailed ? 'recovered' : 'saved';
+    saveHealth.failureClass = 'none';
+    pendingFailureAnnouncement = false;
+    saveHealth.consecutiveFailures = 0;
+    saveHealth.message = wasFailed
+      ? '最近一次重试已完成写入与回读校验。'
+      : '最近一次写入与回读校验均已完成。';
+    var failedLive = document.getElementById('save-failure-announcer');
+    setTextIfChanged(failedLive, '');
+    var recoveredLive = document.getElementById('save-recovery-announcer');
+    var pauseOverlay = document.getElementById('overlay-pause');
+    var pauseWillAnnounce = state === 'paused' && pauseOverlay &&
+      !pauseOverlay.classList.contains('hidden');
+    setTextIfChanged(recoveredLive, wasFailed && !pauseWillAnnounce
+      ? '存档已恢复，最新进度已安全写入。' : '');
+    syncSaveHealthUI();
+    return true;
+  }
+
+  function saveHealthSnapshot() {
+    return {
+      state: saveHealth.state,
+      source: saveHealth.source,
+      message: saveHealth.message,
+      failureClass: saveHealth.failureClass,
+      consecutiveFailures: saveHealth.consecutiveFailures,
+      totalFailures: saveHealth.totalFailures,
+      assertiveAnnouncements: saveHealth.assertiveAnnouncements,
+      conflict: saveConflict,
+      pendingAnnouncement: pendingFailureAnnouncement
+    };
+  }
+
+  function finishSaveAttempt(ok, silent, source) {
+    if (ok && saveConflict && source === 'manual') saveConflict = false;
+    reportSaveResult(ok, !ok && saveConflict ? 'external-conflict' : source);
+    if (!silent) Voxel.HUD.toast(ok
+      ? '游戏已存档 · 写入校验完成'
+      : '存档失败 · 当前进度仍在内存中，请立即重试');
+    if (source === 'manual') announcePauseSaveFeedback(ok
+      ? '已完成写入与回读校验。'
+      : '仍未写入，请检查浏览器存储空间后再次重试。');
+    return !!ok;
+  }
+
+  function doSave(silent, source) {
+    source = source || (silent ? 'game' : 'manual');
     var manualSaveable = state === 'manual' &&
       ['playing', 'paused', 'inventory', 'crafting', 'furnace', 'chest', 'dead'].indexOf(manualReturnState) >= 0;
     if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
       state !== 'furnace' && state !== 'chest' && state !== 'starmap' && state !== 'discovery' &&
       state !== 'arriving' && state !== 'sleeping' &&
       !manualSaveable && state !== 'dead') return false;
-    var p = Voxel.Player.pos();
-    var bed = Voxel.Player.getBed();
-    storeCurrentWorld();
-    var ok = Voxel.Save.save(Voxel.World, {
-      time: Voxel.DayNight.time(),
-      weather: Voxel.Weather.stateName(),
-      player: {
-        pos: [p.x, p.y, p.z],
-        yaw: Voxel.Controls.yaw(),
-        pitch: Voxel.Controls.pitch(),
-        fly: Voxel.Player.flying(),
-        hp: Voxel.Player.hp(),
-        food: Voxel.Player.food ? Voxel.Player.food() : undefined,
-        environment: Voxel.Environment && Voxel.Environment.snapshot ? Voxel.Environment.snapshot() : null
-      },
-      inv: inv,
-      cnt: cnt,
-      held: heldItem,
-      heldCnt: heldCnt,
-      heldDur: heldDur,
-      craftGrid: craftGrid,
-      invCraftGrid: invCraftGrid,
-      bed: bed ? [bed.x, bed.y, bed.z] : null,
-      dur: dur,
-      drops: dropsSnapshot(),
-      meta: Voxel.World.getAllMeta(),
-      galaxy: galaxyState
-    });
-    if (ok && !silent) Voxel.HUD.toast('游戏已存档');
-    return ok;
+    // 外部标签页已改变主档时，任何后台/流程性写入都会造成静默覆盖。只有暂停
+    // 面板中的显式手动操作可以解除冲突，并且仍必须通过底层写入回读校验。
+    if (saveConflict && source !== 'manual') return false;
+    var snapshot;
+    try {
+      snapshot = captureCurrentSnapshot();
+    } catch (snapshotError) {
+      console.warn('存档快照失败', snapshotError);
+      return finishSaveAttempt(false, silent, source);
+    }
+    // 同一个不可分快照同时成为当前世界槽与顶层兼容字段；Save.save 不得再向
+    // World/Drops/Environment 二次取样，否则一次 JSON 会混入不同逻辑时刻。
+    galaxyState.worlds[currentWorld.id] = snapshot;
+    var ok = false;
+    try {
+      ok = Voxel.Save.save(Voxel.World, {
+        time: snapshot.time,
+        weather: snapshot.weather,
+        player: snapshot.player,
+        inv: inv,
+        cnt: cnt,
+        held: heldItem,
+        heldCnt: heldCnt,
+        heldDur: heldDur,
+        craftGrid: craftGrid,
+        invCraftGrid: invCraftGrid,
+        bed: snapshot.bed,
+        dur: dur,
+        drops: snapshot.drops,
+        meta: snapshot.meta,
+        edits: snapshot.edits,
+        galaxy: galaxyState
+      });
+    } catch (writeError) {
+      console.warn('存档写入失败', writeError);
+      ok = false;
+    }
+    return finishSaveAttempt(!!ok, silent, source);
+  }
+
+  function markExternalSaveConflict() {
+    // 来源重建尚未完成时出现外部主档变化，旧 sourceSave 不再代表磁盘权威。
+    travelRollbackHealthPending = false;
+    saveConflict = true;
+    reportSaveResult(false, 'external-conflict');
   }
 
   var lifecycleSaveBusy = false;
   function saveForLifecycle() {
     if (lifecycleSaveBusy) return false;
     lifecycleSaveBusy = true;
-    try { return doSave(true); }
+    try { return doSave(true, 'lifecycle'); }
     finally { lifecycleSaveBusy = false; }
+  }
+
+  function runAutosave() {
+    // 自动保存不占用 polite toast 通道；首次失败由唯一 assertive 区域播报，
+    // 连续失败保持 DOM 静默，成功状态可在暂停面板中核验。
+    return doSave(true, 'auto');
   }
 
   // ---------- 背包堆叠辅助 ----------
@@ -2201,7 +2427,11 @@ Voxel.Game = (function () {
 
   function pause() {
     if (state !== 'playing') return;
-    doSave(true);
+    var pauseFeedback = document.getElementById('pause-save-feedback');
+    setAttributeIfChanged(pauseFeedback, 'role', 'status');
+    setAttributeIfChanged(pauseFeedback, 'aria-live', 'polite');
+    setTextIfChanged(pauseFeedback, '');
+    doSave(true, 'pause');
     openModalLayer({
       id: 'overlay-pause', state: 'paused', returnState: 'playing',
       initialFocus: '#btn-resume', closeKeys: ['KeyP'], manualKey: true, onEscape: resume
@@ -2216,13 +2446,22 @@ Voxel.Game = (function () {
       syncEnvironmentHUD(Voxel.Environment.status(), true);
     closeModalLayer(wasDead ? 'overlay-dead' : 'overlay-pause', false);
     // 重生位置、已失效床位清理和恢复后的生命状态立即落盘。
-    if (wasDead) doSave(true);
+    if (wasDead) doSave(true, 'respawn');
   }
 
   // 存档并回到主菜单
   function gotoMenu() {
-    if (state !== 'paused') return;
-    doSave(true);
+    if (state !== 'paused') return false;
+    // 返回菜单是破坏当前内存会话的边界：只有已验证写入成功才允许越过。
+    if (!doSave(true, 'menu')) {
+      Voxel.HUD.toast('无法返回主菜单 · 当前进度尚未安全存档');
+      announcePauseSaveFeedback(saveConflict
+        ? '检测到其他页面更新，必须先点击“确认覆盖并存档”。'
+        : '返回主菜单前写入失败，已安全停留在当前会话。');
+      var retry = document.getElementById('btn-save');
+      if (retry && retry.focus) retry.focus({ preventScroll: true });
+      return false;
+    }
     stopDig();
     manualCraftStop();
     if (Voxel.Sound && Voxel.Sound.stopEnvironment) Voxel.Sound.stopEnvironment();
@@ -2230,6 +2469,7 @@ Voxel.Game = (function () {
     syncMainMenu();
     showOverlay('overlay-start');
     setState('menu');
+    return true;
   }
 
   function openStarMap() {
@@ -2435,7 +2675,7 @@ Voxel.Game = (function () {
     galaxyState.discovery = next;
     galaxyState.ship.fuel = Math.min(galaxyState.ship.maxFuel, oldFuel + fuelAwarded);
     var actualFuelAwarded = galaxyState.ship.fuel - oldFuel;
-    if (!doSave(true)) {
+    if (!doSave(true, 'discovery')) {
       galaxyState.discovery = oldDiscovery;
       galaxyState.ship.fuel = oldFuel;
       setActiveScanUI('cooldown', '扫描写入失败', '档案与奖励已回滚，请检查浏览器存储空间', 100);
@@ -2536,6 +2776,7 @@ Voxel.Game = (function () {
     travelStats = null;
     selectedTravelId = null;
     travelRecoveryNotice = '跃迁未提交：' + (reason || '未知错误') + ' · 已返回出发天体';
+    travelRollbackHealthPending = !saveConflict;
     try { if (Voxel.Sound && Voxel.Sound.warpEnd) Voxel.Sound.warpEnd(false); }
     catch (soundError) { console.error('中止音频清理失败', soundError); }
     try { if (Voxel.SpaceTravel && Voxel.SpaceTravel.hideWarp) Voxel.SpaceTravel.hideWarp(); }
@@ -2553,6 +2794,7 @@ Voxel.Game = (function () {
       // 该通知只属于本次自动恢复；若恢复本身未能启动，不能泄漏到随后
       // 玩家主动创建/选择的另一个世界并让其跳过首次提交。
       travelRecoveryNotice = '';
+      travelRollbackHealthPending = false;
       syncMainMenu('跃迁失败；已验证的出发存档仍安全，请点“继续游戏”恢复。', true);
       showOverlay('overlay-start');
       setState('menu');
@@ -2712,7 +2954,7 @@ Voxel.Game = (function () {
 
     // 先提交完全一致的源世界。跃迁动画/目标加载期间页面退出时，可靠回到源世界，
     // 不会写出“源世界 meta/edits + 目标 currentId”的混合存档。
-    if (!doSave(true)) {
+    if (!doSave(true, 'travel-departure')) {
       Voxel.HUD.toast('保存源世界失败，已取消跃迁；请检查浏览器存储空间');
       return false;
     }
@@ -2835,14 +3077,14 @@ Voxel.Game = (function () {
         start: beginFeatured
       });
     } else {
-      Voxel.Save.clear();
+      // hasRaw 已确认空槽后直接开始；再次 clear 会误删检查后由另一标签页写入的档。
       beginFeatured();
     }
   }
 
   function onPlayerDead() {
     if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(Voxel.Player.lastDamageCause());
-    doSave(true);
+    doSave(true, 'death');
     openModalLayer({
       id: 'overlay-dead', state: 'dead', returnState: 'playing',
       initialFocus: '#btn-respawn'
@@ -3109,9 +3351,12 @@ Voxel.Game = (function () {
   function useBed(hit) {
     // 床占半格，重生点取床顶上方
     Voxel.Player.setBed(new THREE.Vector3(hit.x + 0.5, hit.y + 1, hit.z + 0.5));
-    doSave(true);
+    var bedSaved = doSave(true, 'bed');
     if (Voxel.DayNight.isNight()) sleep();
-    else Voxel.HUD.toast('重生点已设置为这张床');
+    else Voxel.HUD.toast(bedSaved
+      ? '重生点已设置为这张床 · 存档校验完成'
+      : '重生点仅保留在当前会话 · 存档失败，请立即重试');
+    return bedSaved;
   }
 
   function sleep() {
@@ -3134,7 +3379,7 @@ Voxel.Game = (function () {
     var fade = document.getElementById('sleep-fade');
     if (fade) fade.classList.remove('on');
     setState('playing');
-    var saved = doSave(true);
+    var saved = doSave(true, 'sleep');
     tryLock();
     Voxel.HUD.toast(saved ? '你睡了一觉，天亮了' : '天亮了，但自动存档失败，请手动保存');
     return saved;
@@ -3398,8 +3643,7 @@ Voxel.Game = (function () {
         autosaveT += dt;
         if (autosaveT >= CFG.AUTOSAVE_INTERVAL) {
           autosaveT = 0;
-          doSave(true);
-          Voxel.HUD.toast('已自动存档');
+          runAutosave();
         }
       }
     }
@@ -3582,8 +3826,10 @@ Voxel.Game = (function () {
         sel = Math.max(0, Math.min(8, Math.floor(Number(i) || 0)));
         Voxel.HUD.setSelected(sel);
       },
-      saveNow: function () { return doSave(true); },
+      saveNow: function () { return doSave(true, 'test'); },
       lifecycleSave: saveForLifecycle,
+      runAutosave: runAutosave,
+      saveHealth: saveHealthSnapshot,
       useBedAt: function (x, y, z) { return useBed({ x: x, y: y, z: z, id: 17 }); },
       sleepNow: sleep,
       finishSleep: finishSleep,
@@ -3715,6 +3961,8 @@ Voxel.Game = (function () {
   function init() {
     canvas = document.getElementById('game');
     var initialViewport = syncViewportCss();
+    setAttributeIfChanged(document.body, 'data-touch-mode',
+      Voxel.Controls && Voxel.Controls.touchMode && Voxel.Controls.touchMode() ? 'true' : 'false');
     Voxel.HUD.init();
     Voxel.MeshBuilder.init();
 
@@ -3836,15 +4084,34 @@ Voxel.Game = (function () {
         // 后台暂停 rAF 时不能在回到熔炉面板后补算隐藏期间的墙钟时间。
         if (state === 'furnace') { simAccumulator = 0; lastT = null; }
         saveForLifecycle();
+      } else {
+        flushPendingFailureAnnouncement();
+        syncSaveHealthUI();
       }
     });
     window.addEventListener('pagehide', saveForLifecycle);
     window.addEventListener('beforeunload', saveForLifecycle);
     window.addEventListener('storage', function (e) {
-      if (state !== 'menu' || !e || !e.key) return;
+      if (!e) return;
+      // 同名 sessionStorage 与游戏存档无关；普通合成 Event 没有 storageArea，
+      // 保留按 key 注入回归的兼容路径。
+      if (e.storageArea && e.storageArea !== localStorage) return;
       var saveKey = CFG.SAVE_KEY;
-      if (e.key !== saveKey && e.key !== saveKey + '_backup' && e.key !== saveKey + '_backup_swap') return;
-      syncMainMenu('检测到另一个页面更新了存档，菜单状态已刷新。', false);
+      var allSlotsChanged = e.key === null;
+      if (!allSlotsChanged && e.key !== saveKey && e.key !== saveKey + '_backup' &&
+        e.key !== saveKey + '_backup_swap') return;
+      if (menuOwnsCurrentModalFlow()) {
+        // 确认层所基于的“将被归档主档”已经过期，必须取消，不能让旧确认
+        // 继续归档另一标签页刚写入的新主档。
+        var canceledReplacement = state === 'world-replace';
+        if (canceledReplacement) closeWorldReplaceDialog(true);
+        syncMainMenu(canceledReplacement
+          ? '另一页面已更新存档，本次创建确认已取消；请检查后重新确认。'
+          : '检测到另一个页面更新了存档，菜单状态已刷新。', false);
+        return;
+      }
+      // backup/swap 不改变当前运行世界的权威主槽；主档变化才需要阻断本页写入。
+      if (allSlotsChanged || e.key === saveKey) markExternalSaveConflict();
     });
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
@@ -3899,7 +4166,7 @@ Voxel.Game = (function () {
           start: beginNewWorld
         });
       } else {
-        Voxel.Save.clear();
+        // 空槽路径不执行冗余删除，避免 hasRaw→clear 间的跨标签写入竞态。
         beginNewWorld();
       }
     });
@@ -3976,7 +4243,9 @@ Voxel.Game = (function () {
       fullscreenBtn.style.display = Voxel.Controls.touchMode() ? 'block' : 'none';
       fullscreenBtn.addEventListener('click', function () { requestGameFullscreen(false); });
     }
-    document.getElementById('btn-save').addEventListener('click', function () { doSave(false); });
+    document.getElementById('btn-save').addEventListener('click', function () {
+      doSave(false, 'manual');
+    });
     document.getElementById('btn-respawn').addEventListener('click', function () {
       requestGameFullscreen(true);
       resume();
@@ -4129,6 +4398,7 @@ Voxel.Game = (function () {
       Voxel.Settings.applyAll();
     }
 
+    syncSaveHealthUI();
     syncMainMenu();
 
     setState('menu');

@@ -115,12 +115,15 @@ function checkStartupBudgets() {
 
   const manifestRef = refs.find(ref => ref.startsWith('js/assets.js?'));
   const soundRef = refs.find(ref => ref.startsWith('js/systems/sound.js?'));
+  const saveRef = refs.find(ref => ref.startsWith('js/systems/save.js?'));
   const featuredRef = refs.find(ref => ref.startsWith('js/ui/featured.js?'));
   const mainRef = refs.find(ref => ref.startsWith('js/main.js?'));
   assert(manifestRef && manifestRef.split('?v=')[1] === sha256(fs.readFileSync(MANIFEST)),
     'assets.js query must equal its content hash');
   assert(soundRef && soundRef.split('?v=')[1] === sha256(fs.readFileSync(path.join(JS, 'systems', 'sound.js'))),
     'sound.js query must equal its content hash');
+  assert(saveRef && saveRef.split('?v=')[1] === sha256(fs.readFileSync(path.join(JS, 'systems', 'save.js'))),
+    'save.js query must equal its content hash');
   assert(featuredRef && featuredRef.split('?v=')[1] === sha256(fs.readFileSync(path.join(JS, 'ui', 'featured.js'))),
     'featured.js query must equal its content hash');
   assert(mainRef && mainRef.split('?v=')[1] === sha256(fs.readFileSync(path.join(JS, 'main.js'))),

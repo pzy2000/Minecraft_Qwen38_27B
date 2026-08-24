@@ -20,6 +20,7 @@
   <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="lock-hint"></div>
+  <div id="save-health" data-state="idle" aria-live="off" hidden>存档状态尚未验证</div>
   <div id="error-banner" role="alert" aria-live="assertive" aria-atomic="true"></div>
   <div id="dmg-flash"></div>
   <div id="dmg-dir"><i></i></div>
@@ -59,6 +60,8 @@
     </div>
   </div>
 </div>
+<div id="save-failure-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
+<div id="save-recovery-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="inventory" class="hidden"><div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
   <div class="panel-titlebar"><div id="inventory-title" class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
   <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
@@ -159,9 +162,11 @@
   <button id="btn-disembark" hidden disabled aria-disabled="true"></button>
 </div>
 <div id="travel-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
-<div id="overlay-pause" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="pause-title"><h2 id="pause-title">游戏暂停</h2>
-  <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save"></button><button id="btn-settings"></button><button id="btn-menu"></button>
-  <div class="hint"></div>
+<div id="overlay-pause" class="overlay hidden"><div class="panel pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-save-status pause-save-feedback pause-autosave-hint"><h2 id="pause-title">游戏暂停</h2>
+  <div id="pause-save-status" class="pause-save-status" data-state="idle" role="status" aria-live="off" aria-atomic="true"><strong>存档待验证</strong><span>本次会话尚未完成已验证写入。</span></div>
+  <div id="pause-save-feedback" class="pause-save-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+  <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save" aria-describedby="pause-save-status">立即存档</button><button id="btn-settings"></button><button id="btn-menu" aria-describedby="pause-save-status"></button>
+  <div id="pause-autosave-hint" class="hint"></div>
 </div></div>
 <div id="overlay-dead" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause"><h2 id="dead-title" class="dead">你死了</h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
 <div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="panel-titlebar"><h2 id="settings-title">设置</h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
@@ -2704,6 +2709,12 @@
     var T = Voxel.Game._test;
     var saveKey = Voxel.Config.SAVE_KEY;
     var original = localStorage.getItem(saveKey);
+    var clearStorageEvent = new Event('storage');
+    Object.defineProperty(clearStorageEvent, 'key', { value: null });
+    Object.defineProperty(clearStorageEvent, 'storageArea', { value: localStorage });
+    window.dispatchEvent(clearStorageEvent);
+    check('菜单态localStorage.clear事件刷新存档提示',
+      doc.getElementById('start-hint').textContent.indexOf('另一个页面') >= 0);
     var invalid = JSON.stringify({ galaxy: { rootSeed: null } });
     localStorage.setItem(saveKey, invalid);
     var storageEvent = new Event('storage');
@@ -2750,23 +2761,272 @@
     var T2 = Voxel.Game._test;
     T2.clearInv();
     T2.addInv(3, 5); // 背包塞 5 个石头
+    strictSnapshotRegression();
+    saveFailureRegression(function (stopEnvironmentCalls) {
+      check('存档保护与menu模态测试已回到主菜单', Voxel.Game.state === 'menu' &&
+        !doc.getElementById('overlay-start').classList.contains('hidden'));
+      check('返回主菜单统一关闭BGM/雨声/水下环境音', stopEnvironmentCalls === 1 &&
+        Voxel.Sound.musicStateSnapshot().mode === 'off');
+      menuDataSafetyRegression();
+      menuModalRegression(function () { continueStepReset(); });
+    });
+  }
+
+  function strictSnapshotRegression() {
+    var T2 = Voxel.Game._test;
+    var originalDrops = Voxel.Drops.snapshot();
+    if (!originalDrops.length) {
+      var p = Voxel.Player.pos();
+      Voxel.Drops.restore([{ id: 3, n: 2, dur: null,
+        pos: [p.x + 2, p.y + 1, p.z + 2], vel: [0.1, 0.2, -0.1], age: 4 }]);
+    }
+    check('严格快照故障注入前基线可验证落盘', T2.saveNow() === true);
+    var entityBefore = Voxel.Drops.snapshot();
+    var rawBefore = localStorage.getItem(Voxel.Config.SAVE_KEY);
+    var realSnapshot = Voxel.Drops.snapshot;
+    var realSave = Voxel.Save.save;
+    var snapshotCalls = 0, saveCalls = 0;
+    Voxel.Drops.snapshot = function () { snapshotCalls++; throw new Error('injected drops snapshot fault'); };
+    Voxel.Save.save = function () { saveCalls++; return realSave.apply(this, arguments); };
+    var failed = T2.saveNow();
+    Voxel.Drops.snapshot = realSnapshot;
+    Voxel.Save.save = realSave;
+    check('掉落快照异常在写盘前失败且主档原字节不变', failed === false && snapshotCalls === 1 &&
+      saveCalls === 0 && localStorage.getItem(Voxel.Config.SAVE_KEY) === rawBefore);
+    check('掉落快照异常不删除运行态实体', JSON.stringify(Voxel.Drops.snapshot()) === JSON.stringify(entityBefore));
+
+    var normalSnapshotCalls = 0;
+    Voxel.Drops.snapshot = function () {
+      normalSnapshotCalls++;
+      return realSnapshot.apply(this, arguments);
+    };
+    var saved = T2.saveNow();
+    Voxel.Drops.snapshot = realSnapshot;
+    var loaded = Voxel.Save.load();
+    var worldId = T2.currentWorld().id;
+    check('正常保存只抓取一次掉落且顶层/世界槽来自同一快照', saved === true &&
+      normalSnapshotCalls === 1 && loaded && loaded.galaxy && loaded.galaxy.worlds &&
+      loaded.galaxy.worlds[worldId] &&
+      JSON.stringify(loaded.drops) === JSON.stringify(loaded.galaxy.worlds[worldId].drops) &&
+      JSON.stringify(loaded.meta) === JSON.stringify(loaded.galaxy.worlds[worldId].meta) &&
+      JSON.stringify(loaded.edits) === JSON.stringify(loaded.galaxy.worlds[worldId].edits));
+  }
+
+  function saveFailureRegression(done) {
+    var T2 = Voxel.Game._test;
+    var oldSave = Voxel.Save.save;
     var stopEnvironmentCalls = 0;
     var originalStopEnvironment = Voxel.Sound.stopEnvironment;
     Voxel.Sound.stopEnvironment = function () {
       stopEnvironmentCalls++;
       return originalStopEnvironment.apply(Voxel.Sound, arguments);
     };
-    if (Voxel.Game.state === 'playing') {
-      Voxel.Game.onKey('KeyP');
-      doc.getElementById('btn-menu').click();
-    }
-    Voxel.Sound.stopEnvironment = originalStopEnvironment;
-    check('存档保护与menu模态测试已回到主菜单', Voxel.Game.state === 'menu' &&
-      !doc.getElementById('overlay-start').classList.contains('hidden'));
-    check('返回主菜单统一关闭BGM/雨声/水下环境音', stopEnvironmentCalls === 1 &&
-      Voxel.Sound.musicStateSnapshot().mode === 'off');
-    menuDataSafetyRegression();
-    menuModalRegression(function () { continueStepReset(); });
+    var announceBefore = T2.saveHealth().assertiveAnnouncements;
+    Voxel.Save.save = function () { return false; };
+
+    var autoResult = T2.runAutosave();
+    var autoHealth = T2.saveHealth();
+    var firstAssertive = doc.getElementById('save-failure-announcer').textContent;
+    check('Save.save=false 自动入口明确失败且绝不显示已自动存档', autoResult === false &&
+      autoHealth.state === 'unsaved' && autoHealth.source === 'auto' &&
+      doc.getElementById('toast').textContent.indexOf('已自动存档') < 0 &&
+      firstAssertive.indexOf('存档失败') >= 0 && !doc.getElementById('save-health').hidden);
+    var repeatedLiveTargets = [doc.getElementById('toast'), doc.getElementById('save-failure-announcer'),
+      doc.getElementById('save-recovery-announcer'), doc.getElementById('pause-save-status'),
+      doc.getElementById('pause-save-feedback')];
+    var repeatedLiveObserver = new MutationObserver(function () { });
+    repeatedLiveTargets.forEach(function (target) {
+      repeatedLiveObserver.observe(target, { subtree: true, childList: true, characterData: true, attributes: true });
+    });
+    T2.runAutosave();
+    var repeatedLiveMutations = repeatedLiveObserver.takeRecords().length;
+    repeatedLiveObserver.disconnect();
+    var repeatHealth = T2.saveHealth();
+    check('连续自动保存失败只产生一次assertive播报', repeatHealth.assertiveAnnouncements === announceBefore + 1 &&
+      doc.getElementById('save-failure-announcer').textContent === firstAssertive && !!firstAssertive &&
+      repeatedLiveMutations === 0);
+
+    // 移动浏览器的真实 hidden→visible 生命周期入口：隐藏时失败，回到页面后
+    // 故障仍需以可见状态呈现，不能只在已经错过的 toast 中出现。
+    var visibilityMutable = false;
+    try {
+      Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+      Object.defineProperty(doc, 'hidden', { value: true, configurable: true });
+      visibilityMutable = true;
+    } catch (visibilityError) { }
+    doc.dispatchEvent(new Event('visibilitychange'));
+    try {
+      Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+      Object.defineProperty(doc, 'hidden', { value: false, configurable: true });
+    } catch (visibilityRestoreError) { }
+    doc.dispatchEvent(new Event('visibilitychange'));
+    var lifecycleHealth = T2.saveHealth();
+    check('生命周期保存失败在页面恢复可见后持续显示', visibilityMutable &&
+      lifecycleHealth.state === 'unsaved' && lifecycleHealth.source === 'lifecycle' &&
+      !doc.getElementById('save-health').hidden &&
+      doc.getElementById('save-health').textContent.indexOf('页面离开前存档') >= 0 &&
+      lifecycleHealth.assertiveAnnouncements === announceBefore + 1);
+
+    Voxel.Game.onKey('KeyP');
+    wait(20, function () {
+      var pause = doc.getElementById('overlay-pause');
+      var status = doc.getElementById('pause-save-status');
+      var saveBtn = doc.getElementById('btn-save');
+      var menuBtn = doc.getElementById('btn-menu');
+      check('暂停面板持久呈现未保存故障且背景保持inert', Voxel.Game.state === 'paused' &&
+        !pause.classList.contains('hidden') && status.dataset.state === 'unsaved' &&
+        status.textContent.indexOf('当前进度仍保留在内存中') >= 0 &&
+        doc.getElementById('hud').inert === true);
+
+      saveBtn.focus();
+      saveBtn.click();
+      check('Save.save=false 手动入口保留paused并提供重试文案', Voxel.Game.state === 'paused' &&
+        T2.saveHealth().source === 'manual' && saveBtn.dataset.retry === 'true' &&
+        saveBtn.textContent.indexOf('重试') >= 0 && doc.activeElement === saveBtn &&
+        doc.getElementById('pause-save-feedback').textContent.indexOf('仍未写入') >= 0);
+
+      menuBtn.focus();
+      menuBtn.click();
+      var menuFailureHealth = T2.saveHealth();
+      check('Save.save=false 回主菜单入口严格停留paused且保留内存状态', Voxel.Game.state === 'paused' &&
+        !pause.classList.contains('hidden') && T2.countInv(3) === 5 && stopEnvironmentCalls === 0 &&
+        menuFailureHealth.state === 'unsaved' && menuFailureHealth.source === 'menu');
+      check('回主菜单保存失败把焦点交给立即重试并保持模态隔离', doc.activeElement === saveBtn &&
+        doc.getElementById('hud').inert === true && pause.inert === false &&
+        menuFailureHealth.assertiveAnnouncements === announceBefore + 1 &&
+        doc.getElementById('pause-save-feedback').textContent.indexOf('安全停留') >= 0);
+
+      var conflictAfterWriteFailure = new Event('storage');
+      Object.defineProperty(conflictAfterWriteFailure, 'key', { value: Voxel.Config.SAVE_KEY });
+      Object.defineProperty(conflictAfterWriteFailure, 'storageArea', { value: localStorage });
+      var conflictPanelObserver = new MutationObserver(function () { });
+      conflictPanelObserver.observe(doc.getElementById('pause-save-feedback'),
+        { subtree: true, childList: true, characterData: true, attributes: true });
+      window.dispatchEvent(conflictAfterWriteFailure);
+      var conflictPanelMutations = conflictPanelObserver.takeRecords().length;
+      conflictPanelObserver.disconnect();
+      check('普通写入失败后外部冲突按新failure class再次关键播报',
+        T2.saveHealth().failureClass === 'external-conflict' && T2.saveHealth().conflict === true &&
+        T2.saveHealth().assertiveAnnouncements === announceBefore + 2 &&
+        conflictPanelMutations > 0 && doc.getElementById('pause-save-feedback').getAttribute('role') === 'alert' &&
+        doc.getElementById('pause-save-feedback').getAttribute('aria-live') === 'assertive' &&
+        doc.getElementById('pause-save-feedback').textContent.indexOf('存档冲突') >= 0);
+
+      Voxel.Save.save = oldSave;
+      saveBtn.click();
+      var recovered = T2.saveHealth();
+      check('后续verified手动存档清除故障并显示恢复', recovered.state === 'recovered' &&
+        recovered.source === 'manual' && recovered.consecutiveFailures === 0 &&
+        status.dataset.state === 'recovered' && status.textContent.indexOf('存档已恢复') >= 0 &&
+        status.getAttribute('role') === 'status' && status.getAttribute('aria-live') === 'off' &&
+        doc.getElementById('save-health').dataset.state === 'recovered' &&
+        !doc.getElementById('save-health').hidden &&
+        !doc.getElementById('save-failure-announcer').textContent &&
+        !doc.getElementById('save-recovery-announcer').textContent &&
+        doc.getElementById('pause-save-feedback').textContent.indexOf('回读校验') >= 0);
+
+      // 即使健康状态原本已保存，显式点击也必须在模态内部产生恰一次 polite
+      // 确认；HUD toast 此时 inert，不能作为唯一 AT 反馈。
+      var manualFeedback = doc.getElementById('pause-save-feedback');
+      var manualFeedbackObserver = new MutationObserver(function () { });
+      manualFeedbackObserver.observe(manualFeedback, { subtree: true, childList: true, characterData: true });
+      saveBtn.focus();
+      saveBtn.click();
+      var manualFeedbackMutations = manualFeedbackObserver.takeRecords().length;
+      manualFeedbackObserver.disconnect();
+      check('已保存状态再次手动存档在面板内恰一次polite确认且焦点不移',
+        T2.saveHealth().state === 'saved' && manualFeedbackMutations === 1 &&
+        manualFeedback.textContent.indexOf('回读校验') >= 0 && doc.activeElement === saveBtn);
+
+      // hidden 文档中的首次失败不能提前消耗 assertive；回到 visible 后再播一次。
+      var hiddenAnnounceBefore = T2.saveHealth().assertiveAnnouncements;
+      var hiddenAlertBefore = doc.getElementById('save-failure-announcer').textContent;
+      Voxel.Save.save = function () { return false; };
+      try {
+        Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+        Object.defineProperty(doc, 'hidden', { value: true, configurable: true });
+      } catch (hiddenFailureError) { }
+      doc.dispatchEvent(new Event('visibilitychange'));
+      var hiddenFailureHealth = T2.saveHealth();
+      check('hidden生命周期失败仅登记待播且不改alert', hiddenFailureHealth.state === 'unsaved' &&
+        hiddenFailureHealth.source === 'lifecycle' && hiddenFailureHealth.pendingAnnouncement === true &&
+        hiddenFailureHealth.assertiveAnnouncements === hiddenAnnounceBefore &&
+        doc.getElementById('save-failure-announcer').textContent === hiddenAlertBefore);
+      var foregroundAlertObserver = new MutationObserver(function () { });
+      foregroundAlertObserver.observe(doc.getElementById('save-failure-announcer'),
+        { subtree: true, childList: true, characterData: true });
+      try {
+        Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+        Object.defineProperty(doc, 'hidden', { value: false, configurable: true });
+      } catch (visibleFailureError) { }
+      doc.dispatchEvent(new Event('visibilitychange'));
+      var foregroundAlertMutations = foregroundAlertObserver.takeRecords().length;
+      foregroundAlertObserver.disconnect();
+      check('visible恢复后生命周期故障恰一次assertive播报',
+        T2.saveHealth().pendingAnnouncement === false &&
+        T2.saveHealth().assertiveAnnouncements === hiddenAnnounceBefore + 1 &&
+        foregroundAlertMutations === 1 &&
+        doc.getElementById('save-failure-announcer').textContent.indexOf('存档失败') >= 0);
+      Voxel.Save.save = oldSave;
+      saveBtn.click();
+      check('生命周期故障可由显式手动verified存档恢复', T2.saveHealth().state === 'recovered');
+
+      var conflictSaveCalls = 0;
+      Voxel.Save.save = function () {
+        conflictSaveCalls++;
+        return oldSave.apply(Voxel.Save, arguments);
+      };
+      var sessionStorageEvent = new Event('storage');
+      Object.defineProperty(sessionStorageEvent, 'key', { value: Voxel.Config.SAVE_KEY });
+      Object.defineProperty(sessionStorageEvent, 'storageArea', { value: sessionStorage });
+      window.dispatchEvent(sessionStorageEvent);
+      check('同名sessionStorage事件不触发主档冲突', T2.saveHealth().conflict === false);
+      try {
+        Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+        Object.defineProperty(doc, 'hidden', { value: true, configurable: true });
+      } catch (hiddenConflictError) { }
+      var panelBeforeHiddenConflict = doc.getElementById('pause-save-feedback').textContent;
+      var externalStorageEvent = new Event('storage');
+      Object.defineProperty(externalStorageEvent, 'key', { value: null });
+      Object.defineProperty(externalStorageEvent, 'storageArea', { value: localStorage });
+      window.dispatchEvent(externalStorageEvent);
+      check('hidden暂停层外部clear先登记待播且不触碰面板live',
+        T2.saveHealth().pendingAnnouncement === true &&
+        doc.getElementById('pause-save-feedback').textContent === panelBeforeHiddenConflict);
+      var visibleConflictObserver = new MutationObserver(function () { });
+      visibleConflictObserver.observe(doc.getElementById('pause-save-feedback'),
+        { subtree: true, childList: true, characterData: true, attributes: true });
+      try {
+        Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+        Object.defineProperty(doc, 'hidden', { value: false, configurable: true });
+      } catch (visibleConflictError) { }
+      doc.dispatchEvent(new Event('visibilitychange'));
+      var visibleConflictMutations = visibleConflictObserver.takeRecords().length;
+      visibleConflictObserver.disconnect();
+      var conflicted = T2.saveHealth();
+      check('运行态检测外部localStorage.clear并标记主档冲突', conflicted.state === 'unsaved' &&
+        conflicted.source === 'external-conflict' && conflicted.conflict === true &&
+        conflicted.pendingAnnouncement === false && saveBtn.textContent.indexOf('确认覆盖') >= 0 &&
+        status.textContent.indexOf('其他页面') >= 0 && visibleConflictMutations > 0 &&
+        doc.getElementById('pause-save-feedback').getAttribute('role') === 'alert' &&
+        doc.getElementById('pause-save-feedback').textContent.indexOf('存档冲突') >= 0);
+      check('存档冲突暂停自动写入且不调用Save.save', T2.runAutosave() === false && conflictSaveCalls === 0);
+      menuBtn.click();
+      check('存档冲突阻断破坏性回主菜单并聚焦显式确认', Voxel.Game.state === 'paused' &&
+        T2.saveHealth().conflict === true && conflictSaveCalls === 0 && doc.activeElement === saveBtn);
+      saveBtn.click();
+      var conflictResolved = T2.saveHealth();
+      check('只有显式手动verified存档可解除跨页冲突', conflictSaveCalls === 1 &&
+        conflictResolved.state === 'recovered' && conflictResolved.conflict === false &&
+        conflictResolved.source === 'manual');
+
+      menuBtn.click();
+      Voxel.Save.save = oldSave;
+      Voxel.Sound.stopEnvironment = originalStopEnvironment;
+      check('verified成功后才允许回主菜单', Voxel.Game.state === 'menu' &&
+        doc.getElementById('overlay-pause').classList.contains('hidden') && conflictSaveCalls === 2);
+      done(stopEnvironmentCalls);
+    });
   }
 
   function continueStepReset() {
@@ -2802,6 +3062,15 @@
     check('有存档时点击新世界显示自定义确认', !!replace && !replace.classList.contains('hidden'));
     check('确认对话框进入独立状态', Voxel.Game.state === 'world-replace');
     check('确认框显示时主档字节不变', localStorage.getItem(saveKey) === protectedRaw);
+    var confirmStorageEvent = new Event('storage');
+    Object.defineProperty(confirmStorageEvent, 'key', { value: saveKey });
+    Object.defineProperty(confirmStorageEvent, 'storageArea', { value: localStorage });
+    window.dispatchEvent(confirmStorageEvent);
+    check('确认层期间外部主档更新会取消过期确认', replace.classList.contains('hidden') &&
+      Voxel.Game.state === stateBefore && doc.getElementById('start-hint').textContent.indexOf('确认已取消') >= 0);
+    doc.getElementById('btn-new').click();
+    check('外部更新后必须重新打开确认才能继续', Voxel.Game.state === 'world-replace' &&
+      !replace.classList.contains('hidden'));
     Voxel.Game.onKey('Enter');
     check('确认框中 Enter 不能绕过确认开世界', Voxel.Game.state === 'world-replace' &&
       !replace.classList.contains('hidden') && localStorage.getItem(saveKey) === protectedRaw);

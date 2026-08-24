@@ -1039,6 +1039,232 @@ console.log('存档序列化往返');
     loadedAgain.edits[bx + ',' + by + ',' + bz] === 10);
 })();
 
+console.log('存档事务写入故障保护');
+(function () {
+  var saveKey = V.Config.SAVE_KEY;
+  var primaryRaw = _store[saveKey];
+  var originalSetItem = sandbox.localStorage.setItem;
+  var originalGetItem = sandbox.localStorage.getItem;
+  var originalWarn = sandbox.console.warn;
+  var saveWorld = {
+    getSeed: function () { return 'transaction-candidate'; },
+    getAllMeta: function () { return {}; },
+    getEdits: function () { return { '1,2,3': 4 }; }
+  };
+
+  var snapshotGetterCalls = 0;
+  var capturedWorld = {
+    getSeed: function () { return 'captured-save-snapshot'; },
+    getAllMeta: function () { snapshotGetterCalls++; throw new Error('meta getter must not run'); },
+    getEdits: function () { snapshotGetterCalls++; throw new Error('edits getter must not run'); }
+  };
+  var capturedResult = V.Save.save(capturedWorld, {
+    meta: { '4,5,6': { type: 'captured-meta' } },
+    edits: { '7,8,9': 10 }
+  });
+  var capturedLoaded = V.Save.load();
+  check('Save.save 优先使用同次捕获的 meta/edits 且不二次读取 world',
+    capturedResult === true && snapshotGetterCalls === 0 && !!capturedLoaded &&
+    capturedLoaded.meta['4,5,6'].type === 'captured-meta' && capturedLoaded.edits['7,8,9'] === 10);
+  _store[saveKey] = primaryRaw;
+
+  sandbox.console.warn = function () { };
+
+  // 标准 QuotaExceededError 语义：抛错且不修改目标键。
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === saveKey) throw new Error('injected quota exceeded');
+    return originalSetItem(k, v);
+  };
+  var quotaResult = V.Save.save(saveWorld, {});
+  sandbox.localStorage.setItem = originalSetItem;
+  check('Save.save 配额抛错返回 false 且主档字节不变',
+    quotaResult === false && _store[saveKey] === primaryRaw);
+
+  // 更恶劣的替身：先污染目标再抛错；回滚仍应恢复调用前字节。
+  var threwAfterWrite = false;
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === saveKey && !threwAfterWrite) {
+      threwAfterWrite = true;
+      originalSetItem(k, v);
+      throw new Error('injected post-write failure');
+    }
+    return originalSetItem(k, v);
+  };
+  var postWriteResult = V.Save.save(saveWorld, {});
+  sandbox.localStorage.setItem = originalSetItem;
+  check('Save.save 写后抛错可回滚原主档',
+    postWriteResult === false && _store[saveKey] === primaryRaw);
+
+  // 静默拒写不能被误报为成功。
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === saveKey) return;
+    return originalSetItem(k, v);
+  };
+  var silentResult = V.Save.save(saveWorld, {});
+  sandbox.localStorage.setItem = originalSetItem;
+  check('Save.save 静默拒写返回 false 且主档字节不变',
+    silentResult === false && _store[saveKey] === primaryRaw);
+
+  // 写入本身成功但首次回读返回另一份合法 JSON，事务必须恢复旧主档。
+  var wrongReadArmed = false;
+  sandbox.localStorage.setItem = function (k, v) {
+    var result = originalSetItem(k, v);
+    if (k === saveKey && String(v) !== primaryRaw) wrongReadArmed = true;
+    return result;
+  };
+  sandbox.localStorage.getItem = function (k) {
+    if (k === saveKey && wrongReadArmed) {
+      wrongReadArmed = false;
+      return '{"seed":"wrong-readback"}';
+    }
+    return originalGetItem(k);
+  };
+  var wrongReadResult = V.Save.save(saveWorld, {});
+  sandbox.localStorage.setItem = originalSetItem;
+  sandbox.localStorage.getItem = originalGetItem;
+  check('Save.save 精确回读不符返回 false 并回滚原主档',
+    wrongReadResult === false && _store[saveKey] === primaryRaw);
+
+  // 首次保存同样不能因回读异常留下未确认的新主档。
+  delete _store[saveKey];
+  wrongReadArmed = false;
+  sandbox.localStorage.setItem = function (k, v) {
+    var result = originalSetItem(k, v);
+    if (k === saveKey) wrongReadArmed = true;
+    return result;
+  };
+  sandbox.localStorage.getItem = function (k) {
+    if (k === saveKey && wrongReadArmed) {
+      wrongReadArmed = false;
+      return '{"seed":"wrong-first-readback"}';
+    }
+    return originalGetItem(k);
+  };
+  var firstWriteResult = V.Save.save(saveWorld, {});
+  sandbox.localStorage.setItem = originalSetItem;
+  sandbox.localStorage.getItem = originalGetItem;
+  sandbox.console.warn = originalWarn;
+  check('首次 Save.save 回读异常不遗留未确认主档', firstWriteResult === false &&
+    !Object.prototype.hasOwnProperty.call(_store, saveKey));
+
+  _store[saveKey] = primaryRaw;
+})();
+
+console.log('legacy 存档安全迁移');
+(function () {
+  var saveKey = V.Config.SAVE_KEY;
+  var legacy4Key = 'voxelcraft_save_v4';
+  var legacy3Key = 'voxelcraft_save_v3';
+  var primaryRaw = _store[saveKey];
+  var hadLegacy4 = Object.prototype.hasOwnProperty.call(_store, legacy4Key);
+  var previousLegacy4 = _store[legacy4Key];
+  var hadLegacy3 = Object.prototype.hasOwnProperty.call(_store, legacy3Key);
+  var previousLegacy3 = _store[legacy3Key];
+  var originalSetItem = sandbox.localStorage.setItem;
+  var originalGetItem = sandbox.localStorage.getItem;
+  var originalRemoveItem = sandbox.localStorage.removeItem;
+  var legacy4Raw = '{\n  "v": 4, "seed": "legacy-v4-exact", "time": 0.25\n}';
+  var legacy3Raw = '{ "v": 3, "seed": "legacy-v3-exact", "edits": {} }';
+
+  function resetLegacy(key, raw) {
+    delete _store[saveKey];
+    delete _store[legacy4Key];
+    delete _store[legacy3Key];
+    _store[key] = raw;
+  }
+
+  resetLegacy(legacy4Key, legacy4Raw);
+  var loaded4 = V.Save.load();
+  check('v4 legacy 成功迁移并保持目标字节精确', !!loaded4 &&
+    loaded4.seed === 'legacy-v4-exact' && _store[saveKey] === legacy4Raw);
+  check('v4 legacy 仅在目标验证后删除旧键',
+    !Object.prototype.hasOwnProperty.call(_store, legacy4Key));
+
+  resetLegacy(legacy3Key, legacy3Raw);
+  var loaded3 = V.Save.load();
+  check('v3 legacy 成功迁移并保持目标字节精确', !!loaded3 &&
+    loaded3.seed === 'legacy-v3-exact' && _store[saveKey] === legacy3Raw);
+  check('v3 legacy 仅在目标验证后删除旧键',
+    !Object.prototype.hasOwnProperty.call(_store, legacy3Key));
+
+  // 较新的损坏键不能遮蔽仍可载入的 v3。
+  resetLegacy(legacy3Key, legacy3Raw);
+  _store[legacy4Key] = '{broken-v4';
+  var fallback3 = V.Save.load();
+  check('损坏 v4 不遮蔽可用 v3 迁移', !!fallback3 &&
+    fallback3.seed === 'legacy-v3-exact' && _store[saveKey] === legacy3Raw &&
+    _store[legacy4Key] === '{broken-v4');
+
+  // 目标写抛错：本次仍直接返回 legacy 内容，且旧字节必须原封不动。
+  resetLegacy(legacy4Key, legacy4Raw);
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === saveKey) throw new Error('injected migration write failure');
+    return originalSetItem(k, v);
+  };
+  var throwLoaded = V.Save.load();
+  sandbox.localStorage.setItem = originalSetItem;
+  check('legacy 目标写抛错仍可载入且保留 v4 原字节', !!throwLoaded &&
+    throwLoaded.seed === 'legacy-v4-exact' && _store[legacy4Key] === legacy4Raw &&
+    !Object.prototype.hasOwnProperty.call(_store, saveKey));
+
+  // 目标静默拒写：不得删除 v3 或宣称完成迁移。
+  resetLegacy(legacy3Key, legacy3Raw);
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === saveKey) return;
+    return originalSetItem(k, v);
+  };
+  var silentLoaded = V.Save.load();
+  sandbox.localStorage.setItem = originalSetItem;
+  check('legacy 目标静默拒写仍可载入且保留 v3 原字节', !!silentLoaded &&
+    silentLoaded.seed === 'legacy-v3-exact' && _store[legacy3Key] === legacy3Raw &&
+    !Object.prototype.hasOwnProperty.call(_store, saveKey));
+
+  // 写入后首次回读不符：回滚空目标，并禁止删除来源。
+  resetLegacy(legacy4Key, legacy4Raw);
+  var migrationWrongRead = false;
+  sandbox.localStorage.setItem = function (k, v) {
+    var result = originalSetItem(k, v);
+    if (k === saveKey) migrationWrongRead = true;
+    return result;
+  };
+  sandbox.localStorage.getItem = function (k) {
+    if (k === saveKey && migrationWrongRead) {
+      migrationWrongRead = false;
+      return '{"seed":"wrong-migration-readback"}';
+    }
+    return originalGetItem(k);
+  };
+  var wrongLoaded = V.Save.load();
+  sandbox.localStorage.setItem = originalSetItem;
+  sandbox.localStorage.getItem = originalGetItem;
+  check('legacy 目标精确回读不符时回滚且仍可载入', !!wrongLoaded &&
+    wrongLoaded.seed === 'legacy-v4-exact' && _store[legacy4Key] === legacy4Raw &&
+    !Object.prototype.hasOwnProperty.call(_store, saveKey));
+
+  // 删除旧键失败是可恢复的双份状态，不应撤销已验证的新主档。
+  resetLegacy(legacy3Key, legacy3Raw);
+  sandbox.localStorage.removeItem = function (k) {
+    if (k === legacy3Key) return;
+    return originalRemoveItem(k);
+  };
+  var removeLoaded = V.Save.load();
+  sandbox.localStorage.removeItem = originalRemoveItem;
+  check('legacy 删除静默失败时保留两份精确可载入字节', !!removeLoaded &&
+    _store[saveKey] === legacy3Raw && _store[legacy3Key] === legacy3Raw);
+
+  // 已存在的损坏/空主键也属于用户数据，不能被 legacy 自动覆盖。
+  _store[saveKey] = '';
+  _store[legacy4Key] = legacy4Raw;
+  check('空或损坏主键阻止 legacy 覆盖', V.Save.load() === null &&
+    _store[saveKey] === '' && _store[legacy4Key] === legacy4Raw);
+
+  _store[saveKey] = primaryRaw;
+  if (hadLegacy4) _store[legacy4Key] = previousLegacy4;
+  else delete _store[legacy4Key];
+  if (hadLegacy3) _store[legacy3Key] = previousLegacy3;
+  else delete _store[legacy3Key];
+})();
+
 console.log('存档可载入边界');
 (function () {
   var saveKey = V.Config.SAVE_KEY;
@@ -1056,6 +1282,13 @@ console.log('存档可载入边界');
     !V.Save.isLoadable({ seed: '' }) && !V.Save.isLoadable({ seed: '   ' }));
   check('legacy 数字/字符串种子仍可载入', V.Save.isLoadable({ seed: 0 }) &&
     V.Save.isLoadable({ seed: 'legacy-world' }));
+  var inheritedSeed = Object.create({ seed: 'prototype-pollution' });
+  var inheritedGalaxy = Object.create({ galaxy: { rootSeed: 'prototype-galaxy' } });
+  var ownSeedWithoutPrototype = Object.create(null);
+  ownSeedWithoutPrototype.seed = 'own-null-prototype-seed';
+  check('原型链继承种子不可伪造可载入存档', !V.Save.isLoadable(inheritedSeed) &&
+    !V.Save.isLoadable(inheritedGalaxy));
+  check('无原型对象的自有种子仍可载入', V.Save.isLoadable(ownSeedWithoutPrototype));
 
   var corruptRaw = '{}';
   _store[saveKey] = corruptRaw;
@@ -1115,6 +1348,27 @@ console.log('存档归档与恢复保护');
   check('主档删除失败后主档字节不变', _store[saveKey] === primaryRaw);
   check('主档删除失败后备份槽回滚', !Object.prototype.hasOwnProperty.call(_store, backupKey));
 
+  // removeItem 已删除后才抛错，BACKUP 此时也已经被覆盖；catch 必须恢复两槽。
+  var priorBackup = JSON.parse(primaryRaw);
+  priorBackup.seed = 'archive-prior-backup';
+  var priorBackupRaw = JSON.stringify(priorBackup);
+  _store[backupKey] = priorBackupRaw;
+  sandbox.localStorage.removeItem = function (k) {
+    if (k === saveKey) {
+      originalRemoveItem(k);
+      throw new Error('injected post-remove failure');
+    }
+    return originalRemoveItem(k);
+  };
+  sandbox.console.warn = function () { };
+  var throwRemoveFailed = V.Save.archiveCurrent();
+  sandbox.console.warn = originalWarn;
+  sandbox.localStorage.removeItem = originalRemoveItem;
+  check('主档删除后抛错时 archiveCurrent=false', throwRemoveFailed === false);
+  check('主档删除后抛错精确恢复主档与既有备份',
+    _store[saveKey] === primaryRaw && _store[backupKey] === priorBackupRaw);
+  delete _store[backupKey];
+
   check('成功归档当前存档', V.Save.archiveCurrent() === true);
   check('成功归档后主档已移除', !Object.prototype.hasOwnProperty.call(_store, saveKey));
   check('备份保留主档原始字节', _store[backupKey] === primaryRaw);
@@ -1135,6 +1389,215 @@ console.log('存档归档与恢复保护');
 
   // 不污染后续无关测试。
   _store[saveKey] = primaryRaw;
+  delete _store[backupKey];
+  delete _store[swapKey];
+})();
+
+console.log('损坏主档归档与有效备份救援');
+(function () {
+  var saveKey = V.Config.SAVE_KEY;
+  var backupKey = saveKey + '_backup';
+  var swapKey = backupKey + '_swap';
+  var quarantineKey = saveKey + '_quarantine';
+  var originalPrimary = _store[saveKey];
+  var originalRemoveItem = sandbox.localStorage.removeItem;
+
+  ['{', ''].forEach(function (corruptRaw, index) {
+    _store[saveKey] = corruptRaw;
+    delete _store[backupKey];
+    delete _store[swapKey];
+    delete _store[quarantineKey];
+    check('任意非 null 损坏主档可字节归档 #' + index,
+      V.Save.archiveCurrent() === true && !Object.prototype.hasOwnProperty.call(_store, saveKey) &&
+      !Object.prototype.hasOwnProperty.call(_store, backupKey) &&
+      _store[quarantineKey] === corruptRaw && V.Save.hasBackup() === false && V.Save.hasQuarantine() === true);
+  });
+
+  var validBackup = JSON.parse(originalPrimary);
+  validBackup.seed = 'valid-rescue-backup';
+  var validBackupRaw = JSON.stringify(validBackup);
+  var corruptCurrentRaw = '{not-json-current';
+
+  // 归档坏主档时，既有的唯一有效 backup 必须原封不动，坏字节进入隔离槽。
+  _store[saveKey] = corruptCurrentRaw;
+  _store[backupKey] = validBackupRaw;
+  delete _store[swapKey];
+  delete _store[quarantineKey];
+  check('损坏主档归档不覆盖既有有效 backup', V.Save.archiveCurrent() === true &&
+    !Object.prototype.hasOwnProperty.call(_store, saveKey) &&
+    _store[backupKey] === validBackupRaw && _store[quarantineKey] === corruptCurrentRaw);
+
+  var olderQuarantine = 'older-quarantine-bytes';
+  _store[saveKey] = corruptCurrentRaw;
+  _store[backupKey] = validBackupRaw;
+  _store[quarantineKey] = olderQuarantine;
+  check('不同的既有 quarantine 阻止覆盖并保留三槽', V.Save.archiveCurrent() === false &&
+    _store[saveKey] === corruptCurrentRaw && _store[backupKey] === validBackupRaw &&
+    _store[quarantineKey] === olderQuarantine);
+
+  delete _store[quarantineKey];
+  sandbox.localStorage.removeItem = function (k) {
+    if (k === saveKey) {
+      originalRemoveItem(k);
+      throw new Error('injected quarantine post-remove failure');
+    }
+    return originalRemoveItem(k);
+  };
+  var quarantineRemoveFailed = V.Save.archiveCurrent();
+  sandbox.localStorage.removeItem = originalRemoveItem;
+  check('quarantine 后删除主档抛错可精确回滚', quarantineRemoveFailed === false &&
+    _store[saveKey] === corruptCurrentRaw && _store[backupKey] === validBackupRaw &&
+    !Object.prototype.hasOwnProperty.call(_store, quarantineKey));
+
+  _store[saveKey] = corruptCurrentRaw;
+  _store[backupKey] = validBackupRaw;
+  delete _store[swapKey];
+  check('有效备份可覆盖语法损坏 current', V.Save.restoreBackup() === true);
+  check('救援后主档可载入且损坏 current 原字节被隔离到 backup',
+    _store[saveKey] === validBackupRaw && _store[backupKey] === corruptCurrentRaw &&
+    !Object.prototype.hasOwnProperty.call(_store, swapKey) &&
+    V.Save.load().seed === 'valid-rescue-backup');
+  check('损坏隔离副本不伪装成可恢复备份', V.Save.hasBackup() === false);
+
+  _store[saveKey] = originalPrimary;
+  delete _store[backupKey];
+  delete _store[swapKey];
+  delete _store[quarantineKey];
+})();
+
+console.log('restoreBackup 崩溃状态恢复');
+(function () {
+  var saveKey = V.Config.SAVE_KEY;
+  var backupKey = saveKey + '_backup';
+  var swapKey = backupKey + '_swap';
+  var originalPrimary = _store[saveKey];
+  var currentObj = JSON.parse(originalPrimary);
+  currentObj.seed = 'swap-current-A';
+  var currentA = JSON.stringify(currentObj);
+  var backupObj = JSON.parse(originalPrimary);
+  backupObj.seed = 'swap-backup-B';
+  var backupB = JSON.stringify(backupObj);
+  var originalSetItem = sandbox.localStorage.setItem;
+  var originalRemoveItem = sandbox.localStorage.removeItem;
+  var originalWarn = sandbox.console.warn;
+
+  function setSwapState(current, backup, journal) {
+    if (current === null) delete _store[saveKey];
+    else _store[saveKey] = current;
+    if (backup === null) delete _store[backupKey];
+    else _store[backupKey] = backup;
+    if (journal === null) delete _store[swapKey];
+    else _store[swapKey] = journal;
+  }
+
+  // S0: journal 写完，正式槽尚未变化。
+  setSwapState(currentA, backupB, backupB);
+  var s0Loaded = V.Save.load();
+  check('S0 崩溃恢复保持原 current/backup 并清 journal', !!s0Loaded &&
+    s0Loaded.seed === 'swap-current-A' && _store[saveKey] === currentA &&
+    _store[backupKey] === backupB && !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // S1: BACKUP 已写入原 current，原 backup 仅存于 journal。
+  setSwapState(currentA, currentA, backupB);
+  var s1Loaded = V.Save.load();
+  check('S1 崩溃恢复从 journal 找回原 backup', !!s1Loaded &&
+    s1Loaded.seed === 'swap-current-A' && _store[saveKey] === currentA &&
+    _store[backupKey] === backupB && !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // S2: 两正式槽已完成交换，只剩 journal 未清理。
+  setSwapState(backupB, currentA, backupB);
+  var s2Loaded = V.Save.load();
+  check('S2 崩溃恢复识别已提交交换且仅清 journal', !!s2Loaded &&
+    s2Loaded.seed === 'swap-backup-B' && _store[saveKey] === backupB &&
+    _store[backupKey] === currentA && !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // S1 回滚槽写入失败时 journal 必须留下，下一入口可继续恢复。
+  setSwapState(currentA, currentA, backupB);
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === backupKey) throw new Error('injected S1 rollback failure');
+    return originalSetItem(k, v);
+  };
+  var blockedS1 = V.Save.load();
+  sandbox.localStorage.setItem = originalSetItem;
+  check('S1 回滚失败 fail-closed 并保留有效 journal 与两份原字节', blockedS1 === null &&
+    _store[saveKey] === currentA &&
+    _store[backupKey] === currentA && _store[swapKey] === backupB);
+  V.Save.load();
+  check('S1 临时故障解除后下次入口完成恢复', _store[saveKey] === currentA &&
+    _store[backupKey] === backupB && !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // S2 清 journal 失败也不能伪称已清；正式槽保持已提交方向。
+  setSwapState(backupB, currentA, backupB);
+  sandbox.localStorage.removeItem = function (k) {
+    if (k === swapKey) throw new Error('injected journal cleanup failure');
+    return originalRemoveItem(k);
+  };
+  var blockedS2 = V.Save.load();
+  sandbox.localStorage.removeItem = originalRemoveItem;
+  check('S2 journal 删除失败时 fail-closed 且不回滚已提交槽', blockedS2 === null &&
+    _store[saveKey] === backupB &&
+    _store[backupKey] === currentA && _store[swapKey] === backupB);
+  V.Save.load();
+  check('S2 临时故障解除后仅清 journal', _store[saveKey] === backupB &&
+    _store[backupKey] === currentA && !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // 运行时目标写与回滚都失败：不能清 journal；解除故障后按 S1 找回 B。
+  setSwapState(currentA, backupB, null);
+  sandbox.localStorage.setItem = function (k, v) {
+    if (k === saveKey) throw new Error('injected target and rollback failure');
+    return originalSetItem(k, v);
+  };
+  sandbox.console.warn = function () { };
+  var failedRestore = V.Save.restoreBackup();
+  sandbox.console.warn = originalWarn;
+  sandbox.localStorage.setItem = originalSetItem;
+  check('restore 回滚未确认时返回 false 并保留 journal', failedRestore === false &&
+    _store[saveKey] === currentA && _store[backupKey] === currentA && _store[swapKey] === backupB);
+  V.Save.load();
+  check('restore 故障解除后 journal 可恢复原双槽', _store[saveKey] === currentA &&
+    _store[backupKey] === backupB && !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // journal 是仅存副本时必须救回 KEY，不能永久 blocked。
+  setSwapState(null, null, backupB);
+  var salvageLoaded = V.Save.load();
+  check('KEY/BACKUP 全失时从有效 journal 救回主档', !!salvageLoaded &&
+    salvageLoaded.seed === 'swap-backup-B' && _store[saveKey] === backupB &&
+    !Object.prototype.hasOwnProperty.call(_store, backupKey) &&
+    !Object.prototype.hasOwnProperty.call(_store, swapKey));
+
+  // recover 期间 journal 被另一标签替换，不能清掉新 journal 或继续载入。
+  var replacementJournalObj = JSON.parse(originalPrimary);
+  replacementJournalObj.seed = 'replacement-journal-C';
+  var replacementJournal = JSON.stringify(replacementJournalObj);
+  setSwapState(currentA, currentA, backupB);
+  sandbox.localStorage.setItem = function (k, v) {
+    var result = originalSetItem(k, v);
+    if (k === backupKey) _store[swapKey] = replacementJournal;
+    return result;
+  };
+  var replacedJournalLoad = V.Save.load();
+  sandbox.localStorage.setItem = originalSetItem;
+  check('跨标签替换 journal 时精确校验失败并保留新 journal',
+    replacedJournalLoad === null && _store[saveKey] === currentA &&
+    _store[backupKey] === backupB && _store[swapKey] === replacementJournal);
+
+  // 无 current 的恢复若 backup 删除抛错/静默拒绝，必须回滚 KEY=null。
+  ['throw', 'silent'].forEach(function (mode) {
+    setSwapState(null, backupB, null);
+    sandbox.localStorage.removeItem = function (k) {
+      if (k === backupKey) {
+        if (mode === 'throw') throw new Error('injected backup removal failure');
+        return;
+      }
+      return originalRemoveItem(k);
+    };
+    var moveResult = V.Save.restoreBackup();
+    sandbox.localStorage.removeItem = originalRemoveItem;
+    check('无 current 恢复遇到 backup 删除' + mode + '时回滚', moveResult === false &&
+      !Object.prototype.hasOwnProperty.call(_store, saveKey) && _store[backupKey] === backupB);
+  });
+
+  _store[saveKey] = originalPrimary;
   delete _store[backupKey];
   delete _store[swapKey];
 })();

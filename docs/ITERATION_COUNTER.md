@@ -2,9 +2,9 @@
 
 目标：连续执行 20 轮“全局审计 → 最高优先级修复 → 回归测试 → Git 提交 → 推送 → GitHub Actions 验收”。
 
-- 已完成：**19 / 20**
-- 当前轮次：**第 19 轮已完成**
-- 剩余轮次：**1**
+- 已完成：**20 / 20**
+- 当前轮次：**第 20 轮已完成**
+- 剩余轮次：**0**
 - 优先级原则：先处理存档/物品丢失与世界损坏（P0），再处理玩法正确性、输入与性能（P1），最后处理可访问性、体验与交付门禁（P2）。
 
 | 轮次 | 优先级 | 项目 | 状态 |
@@ -28,7 +28,7 @@
 | 17 | P1 | 传送门去重/安全泊位、星图路线与星际导航反馈 | ✅ |
 | 18 | P1 | 懒加载精选图/音频，并建立流式性能与长期运行预算 | ✅ |
 | 19 | P0 | Node 22 全量 CI 与同 SHA Pages 验证部署门禁 | ✅ |
-| 20 | P0 | 存档失败闭环、旧档迁移原子性与最终全量/视觉验收 | ⏳ |
+| 20 | P0 | 存档失败闭环、旧档迁移原子性与最终全量/视觉验收 | ✅ |
 
 ## 第 1 轮证据
 
@@ -143,3 +143,9 @@
 - 问题：远程 CI 虽显示绿色，却只运行 `smoke.js`、构建和浏览器页面矩阵，实际遗漏行星规则、资源注册表、20,000 种子传送门、飞行事务、音频预算及完整 `space_travel_test.js` 六组正式测试。项目依赖要求 Node ≥22.12，但三个 job 固定 Node 20 并产生 `EBADENGINE`；checkout/setup-node/Pages Actions 仍使用被强制兼容运行的 Node 20 runtime，Chrome CLI 与 `chrome@stable` 双重漂移且每次下载。更严重的是 Pages 与 CI 同时监听 push：历史提交 `0466bbc…` 的 CI run `32672338044` 失败时，Pages run `32672337993` 仍成功部署了同一失败 SHA。
 - 修复：把 canonical 测试拆成唯一互斥的 `test:node` 与 `test:browser`，顶层 `npm test` 精确组合两者；CI 两个并行 job 分别执行 build+全部 Node 契约和完整浏览器矩阵+星际 E2E。项目 engine 为 ≥22.12，`.nvmrc`/CI 固定当前 Node 22 最新补丁 22.23.2，并以 `npm ci --engine-strict` 锁定依赖。官方 Actions 升级为 checkout/setup-node v7、cache v6、configure-pages v6、upload-pages-artifact/deploy-pages v5，全部使用 Node 24 action runtime；checkout 不保留凭据，权限最小化。浏览器版本直接读取锁定 `puppeteer-core` 的 `PUPPETEER_REVISIONS.chrome=152.0.7977.42`，由锁定 `@puppeteer/browsers@3.2.1` 安装，并按 OS/架构/build 缓存。CI 同 ref 新提交取消旧 run；Pages 唯一监听 `CI completed`，只接受 success+push+main+同仓库，并要求 `workflow_run.head_sha == github.sha`、精确 checkout 后再次比较 HEAD，保证测试 SHA、内容 SHA、Pages build version 完全一致。
 - 回归：新增 `ci_workflow_test` 与 `pages_workflow_test`，锁定 Node/engine/lockfile、正式测试唯一覆盖、精确 Chrome/cache、Action 主版本、只读权限、并发取消、唯一 workflow_run 触发、fork/PR 隔离、非取消式生产部署队列和四重 SHA 绑定；修复并实跑 Actions Bash 的 Chrome 版本/路径提取，官方 Linux CfT URL 返回 200。`npm ci --engine-strict --ignore-scripts` 报告 0 vulnerabilities；actionlint v1.7.12 对两份 workflow 零诊断。带显式本机 `BROWSER_PATH` 的新 canonical `npm test` 覆盖全部 Node、完整浏览器/WebGL/触控/移动/reduced-motion 与 SpaceTravel E2E 并全绿，生产构建、生成器一致性和 `git diff --check` 通过。
+
+## 第 20 轮证据
+
+- 问题：`localStorage.setItem()` 抛错、静默拒写或回读错误时，主档可能留下不可验证的新字节，自动保存仍会误报成功，手动保存和回主菜单也会继续丢弃仅存在于内存的进度；v4/v3 迁移在目标写入未经精确回读前就删除旧键，备份交换中断后没有可证明的恢复协议，损坏主档还会覆盖有效备份。运行态快照又会在多个时刻分别抓取世界、掉落和临时物品，若中途异常可能写入混合状态或空掉落；其他标签页改写主档时，本页仍可自动覆盖。
+- 修复：保存层改为精确字节的事务替换，覆盖写入异常、静默拒绝、错误回读与删除失败的逐字回滚；旧档只在目标精确可读后删除原键，并防御原型链种子字段。备份交换新增可重放 journal，能从交换前、写入一半、交换完成待清理、缺单槽及双槽缺失等中断点恢复；损坏主档先进入独立 quarantine，不再覆盖合法备份。游戏层一次性捕获并校验世界、编辑、玩家、环境、掉落与临时 UI 状态，同一不可变快照同时写入当前世界槽和顶层；任一抓取失败都禁止写盘。新增统一的 saved/unsaved/recovered/external-conflict 状态机：自动/生命周期失败不再谎报或刷屏，显式手动成功才解除跨标签页冲突，保存失败的回主菜单严格停留在暂停页，旅行提交失败则恢复已验证的来源世界。
+- 回归：Node 故障注入覆盖首次/覆盖保存的抛错、静默拒绝、错回读、旧档 v4/v3 迁移、原型污染、归档/quarantine、交换 journal 的 S0/S1/S2 与缺槽/双缺槽恢复、跨标签页替换及所有回滚清理失败；浏览器覆盖严格单次快照、掉落抓取异常不写盘、自动/手动/菜单/生命周期三入口、播报去重、焦点与 `inert`、`storage`/`localStorage.clear()` 冲突和显式恢复；SpaceTravel 覆盖目标提交失败后来源原字节、燃料和健康状态恢复。桌面、916×600 及全部既有触控/极窄/reduced-motion 视口验证持久状态、44px 命中区、移动端红色告警角标且无 HUD 重叠；三张真实截图人工复核通过。带显式 Edge `BROWSER_PATH` 的 canonical `npm test` 全部通过并以 `SPACE-TRAVEL-PASS` 结束，生产构建、内容哈希和 `git diff --check` 通过。

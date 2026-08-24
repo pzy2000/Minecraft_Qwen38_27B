@@ -428,6 +428,135 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
   border-top: 1px solid #444; padding-top: 14px;
 }
 .controls b { color: var(--space-cyan); margin-right: 2px; }
+
+/* ---------- 已验证存档健康状态 ---------- */
+#save-health {
+  position: absolute;
+  left: 50%;
+  bottom: max(76px, calc(env(safe-area-inset-bottom) + 76px));
+  z-index: 9;
+  width: max-content;
+  max-width: calc(var(--app-width) - 16px);
+  min-height: 32px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 112, 112, .92);
+  background: rgba(62, 10, 19, .94);
+  color: #fff1f1;
+  box-shadow: 0 0 0 2px rgba(255, 86, 99, .18), 0 8px 24px rgba(0, 0, 0, .55);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: .4px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+#save-health[hidden] { display: none !important; }
+#save-health[data-state="recovered"] {
+  border-color: rgba(103, 235, 190, .9);
+  background: rgba(7, 54, 49, .94);
+  color: #dffdf3;
+  box-shadow: 0 0 0 2px rgba(74, 225, 184, .15), 0 8px 24px rgba(0, 0, 0, .5);
+}
+
+.pause-panel { width: min(430px, calc(var(--app-width) - 16px)); }
+.pause-save-status {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(150, 174, 203, .52);
+  background: rgba(9, 21, 39, .97);
+  color: #cbd8e9;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, .35);
+}
+.pause-save-status strong,
+.pause-save-status span { display: block; }
+.pause-save-status strong { margin-bottom: 2px; color: #dce9f8; letter-spacing: 1px; }
+.pause-save-status[data-state="unsaved"] {
+  border-color: rgba(255, 105, 116, .86);
+  background: rgba(57, 12, 23, .98);
+  color: #ffd9dd;
+}
+.pause-save-status[data-state="unsaved"] strong { color: #ff9ea7; }
+.pause-save-status[data-state="saved"],
+.pause-save-status[data-state="recovered"] {
+  border-color: rgba(85, 222, 177, .72);
+  background: rgba(7, 48, 43, .98);
+  color: #c9f8e9;
+}
+.pause-save-status[data-state="saved"] strong,
+.pause-save-status[data-state="recovered"] strong { color: #72edc2; }
+.pause-save-feedback {
+  min-height: 18px;
+  margin: -5px 0 5px;
+  color: #bfeadf;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.pause-panel #btn-save[data-retry="true"] {
+  border-color: #ff9aa4;
+  background: #7b2431;
+}
+@media (max-width: 220px), (orientation: landscape) and (max-height: 180px) {
+  .pause-panel h2 { margin-bottom: 5px; font-size: 18px; }
+  .pause-save-status { margin-bottom: 6px; padding: 6px 7px; font-size: 10px; line-height: 1.3; }
+  .pause-panel .btn { margin: 6px 0; padding-top: 7px; padding-bottom: 7px; }
+  .pause-panel .hint { margin-top: 7px; }
+  .pause-panel .controls { margin-top: 8px; padding-top: 7px; }
+}
+/* 触控没有稳定的常驻 HUD 空位：大条改为暂停键故障角标，既保留视觉告警也
+   不遮挡准星/扫描/环境表/动作键；alert 与暂停面板提供完整文字。 */
+body[data-touch-mode="true"] #save-health { display: none !important; }
+body[data-touch-mode="true"][data-save-health="unsaved"] .touch-btn-top.pause {
+  border-color: #ff7682;
+  box-shadow: 0 0 0 2px rgba(255, 77, 93, .34), 0 0 14px rgba(255, 56, 74, .72);
+}
+body[data-touch-mode="true"][data-save-health="unsaved"] .touch-btn-top.pause::after {
+  content: '!';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid #fff0f1;
+  border-radius: 50%;
+  background: #d9253a;
+  color: #fff;
+  font: 700 10px/1 Arial, sans-serif;
+  text-shadow: none;
+}
+/* 低高桌面没有触控暂停键，以贴边小型“!”保留可见故障，不再显示横条。 */
+@media (max-width: 420px), (max-height: 500px) {
+  #save-health { display: none !important; }
+  body[data-touch-mode="false"] #save-health[data-state="unsaved"] {
+    top: 50%;
+    right: 0;
+    bottom: auto;
+    left: auto;
+    display: flex !important;
+    width: 18px;
+    height: 34px;
+    min-height: 0;
+    padding: 0;
+    border-radius: 5px 0 0 5px;
+    overflow: hidden;
+    font-size: 0;
+    transform: translateY(-50%);
+  }
+  body[data-touch-mode="false"] #save-health[data-state="unsaved"]::after {
+    content: '!';
+    font-size: 14px;
+  }
+}
 #start-hint.is-error { color: #ff9b9b; }
 
 /* ---------- 存档替换确认 ---------- */
@@ -977,7 +1106,7 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 .touch-btn.pressing { border-color: #ffd75e; color: #ffe9a8; }
 .touch-btn-main {
   right: calc(30px + env(safe-area-inset-right));
-  bottom: calc(96px + env(safe-area-inset-bottom));
+  bottom: calc(98px + env(safe-area-inset-bottom));
   width: 72px; height: 72px;
   font-size: 24px;
 }

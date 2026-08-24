@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=aca26c6a626c72d96b0773e3b89fc14bc01ac3b7b3a4d60c0fefde692caa3316">
+<link rel="stylesheet" href="css/style.css?v=34a2b286e4af3bd5284c3d387e6b0c3343213cb5abee93d21349cc1f2b629441">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -28,6 +28,7 @@
   <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="lock-hint">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
+  <div id="save-health" data-state="idle" aria-live="off" hidden>存档状态尚未验证</div>
   <div id="error-banner" role="alert" aria-live="assertive" aria-atomic="true"></div>
   <div id="dmg-flash"></div>
   <div id="uw-overlay"></div>
@@ -90,6 +91,10 @@
     </div>
   </div>
 </div>
+
+<!-- 存档故障只在健康状态由正常转为失败时播报一次；恢复走独立 polite 通道。 -->
+<div id="save-failure-announcer" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
+<div id="save-recovery-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- 背包 -->
 <div id="inventory" class="hidden">
@@ -248,14 +253,21 @@
 
 <!-- 暂停菜单 -->
 <div id="overlay-pause" class="overlay hidden">
-  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+  <div class="panel pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title"
+       aria-describedby="pause-save-status pause-save-feedback pause-autosave-hint">
     <h2 id="pause-title">游戏暂停</h2>
+    <div id="pause-save-status" class="pause-save-status" data-state="idle"
+         role="status" aria-live="off" aria-atomic="true">
+      <strong>存档待验证</strong><span>本次会话尚未完成已验证写入。</span>
+    </div>
+    <div id="pause-save-feedback" class="pause-save-feedback" role="status"
+         aria-live="polite" aria-atomic="true"></div>
     <button id="btn-resume" class="btn primary">继续游戏</button>
     <button id="btn-fullscreen" class="btn">进入全屏</button>
-    <button id="btn-save" class="btn">立即存档</button>
+    <button id="btn-save" class="btn" aria-describedby="pause-save-status">立即存档</button>
     <button id="btn-settings" class="btn">设置</button>
-    <button id="btn-menu" class="btn">存档并回主菜单</button>
-    <div class="hint">提示：游戏每 30 秒自动存档</div>
+    <button id="btn-menu" class="btn" aria-describedby="pause-save-status">存档并回主菜单</button>
+    <div id="pause-autosave-hint" class="hint">提示：游戏每 30 秒自动存档；只有写入并回读验证成功后才会显示完成。</div>
     <div class="controls">
       <div><b>WASD</b> 移动 · <b>空格</b> 跳/上浮 · <b>Shift</b> 疾跑/下降</div>
       <div><b>左键</b> 放置 · <b>右键长按</b> 挖掘/攻击 · <b>中键</b> 吸取</div>
@@ -488,11 +500,11 @@
 <script src="js/systems/space_travel.js?v=20260824q"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
-<script src="js/systems/save.js?v=20260824l"></script>
+<script src="js/systems/save.js?v=596462f305c1f857658893e06e79436d466d7150b268f6ed9a930e14a5136f74"></script>
 <script src="js/ui/handitem.js?v=20260823f"></script>
 <script src="js/ui/featured.js?v=d7f0e47d1576fc46ad75e1122bd629eed19558ce57a91ce929b15a288f81cb1b"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
 <script src="js/ui/hud.js?v=20260824o"></script>
-<script src="js/main.js?v=0363a396935b2cdb5137a1970a052a4fb430721f98cb6fb069c820b5616cb6fc"></script>
+<script src="js/main.js?v=8ce73e10a7453cc280bacc5af5e2fe880dd63ad8cdfd060bf4be964ef78ac81f"></script>
 </body>
 </html>

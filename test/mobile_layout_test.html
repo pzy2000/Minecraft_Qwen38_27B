@@ -6,7 +6,7 @@
 <title>MOBILE-LAYOUT-RUNNING</title>
 <link rel="stylesheet" href="../css/style.css">
 </head>
-<body data-game-state="playing">
+<body data-game-state="playing" data-touch-mode="true" data-save-health="unsaved">
 <canvas id="game"></canvas>
 <div id="hud">
   <div id="crosshair"></div>
@@ -50,6 +50,7 @@
   <div id="toast" class="show">空间站对接完成 · 跃迁能源已补满</div>
   <div id="use-hint" data-kind="terminal" style="display:block">航行终端：按 H 打开星图</div>
   <div id="lock-hint" style="display:block">鼠标未锁定 — 点击画面锁定鼠标</div>
+  <div id="save-health" data-state="unsaved" aria-live="off">存档失败 · 当前进度仍在内存中</div>
 </div>
 <div class="touch-btn touch-btn-main" style="display:flex">跳</div>
 <div class="touch-btn touch-btn-sub fly" style="display:flex">飞</div>
@@ -62,6 +63,23 @@
     <div class="seed-row"><input id="seed-input" placeholder="星系种子 · 留空随机"><button id="btn-seed-random" class="btn small">随机</button></div>
     <button id="btn-settings-menu" class="btn">设置</button><div id="start-hint" class="hint">导航系统已就绪</div></div>
   <details class="start-brief"><summary><span class="start-brief-code">MISSION // DEEP SPACE</span><strong>展开航行简报</strong></summary><div class="start-brief-body"><p>探索星系、传送门、飞船和空间站。</p><div class="controls"><div><b>WASD</b> 移动 · <b>H</b> 星图</div></div></div></details>
+</div></div>
+
+<div id="overlay-pause" class="overlay hidden"><div class="panel pause-panel" role="dialog"
+  aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-save-status pause-save-feedback pause-autosave-hint">
+  <h2 id="pause-title">游戏暂停</h2>
+  <div id="pause-save-status" class="pause-save-status" data-state="unsaved"
+    role="status" aria-live="off" aria-atomic="true">
+    <strong>未保存 · 自动存档失败</strong><span>当前进度仍保留在内存中。请立即重试；验证成功前不会返回主菜单。</span>
+  </div>
+  <div id="pause-save-feedback" class="pause-save-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+  <button id="btn-resume" class="btn primary">继续游戏</button>
+  <button id="btn-fullscreen" class="btn" style="display:block">进入全屏</button>
+  <button id="btn-save" class="btn" data-retry="true" aria-describedby="pause-save-status">重试存档</button>
+  <button id="btn-settings" class="btn">设置</button>
+  <button id="btn-menu" class="btn" aria-describedby="pause-save-status">存档并回主菜单</button>
+  <div id="pause-autosave-hint" class="hint">每 30 秒自动存档；仅在写入校验成功后显示完成。</div>
+  <div class="controls"><div><b>WASD</b> 移动 · <b>P/Esc</b> 暂停</div></div>
 </div></div>
 
 <div id="overlay-discovery" class="overlay discovery-overlay hidden">
@@ -337,6 +355,21 @@
       check('消息通道 ' + (mi + 1) + '/' + (mj + 1) + ' 不重叠',
         overlapArea(mr, messages[mj].getBoundingClientRect()) === 0);
   }
+  var saveHealthBanner = document.getElementById('save-health');
+  var touchSaveIndicator = document.querySelector('.touch-btn-top.pause');
+  check('触控视口隐藏大幅存档条避免遮挡关键HUD', getComputedStyle(saveHealthBanner).display === 'none');
+  check('触控暂停键保留不扩张布局的存档故障角标',
+    getComputedStyle(touchSaveIndicator, '::after').content.indexOf('!') >= 0 &&
+    getComputedStyle(touchSaveIndicator).borderColor !== 'rgba(255, 255, 255, 0.55)');
+  if (getComputedStyle(saveHealthBanner).display !== 'none') {
+    var saveHealthR = saveHealthBanner.getBoundingClientRect();
+    var saveHealthAvoid = coreHud.map(function (entry) { return entry[1]; }).concat(touchEntries);
+    check('存档条完整位于视口', inViewport(saveHealthR));
+    saveHealthAvoid.forEach(function (avoid, i) {
+      check('存档条与关键HUD/触控 ' + (i + 1) + ' 不重叠',
+        overlapArea(saveHealthR, avoid.getBoundingClientRect()) === 0);
+    });
+  }
 
   var startOverlay = document.getElementById('overlay-start');
   var startPanel = startOverlay.querySelector('.start-panel');
@@ -358,6 +391,27 @@
   check('主菜单显示时游戏HUD不穿透', getComputedStyle(document.getElementById('hud')).visibility === 'hidden');
   startOverlay.classList.add('hidden');
   check('主菜单关闭后playing HUD恢复可见', getComputedStyle(document.getElementById('hud')).visibility === 'visible');
+
+  var pauseOverlay = document.getElementById('overlay-pause');
+  var pausePanel = pauseOverlay.querySelector('.pause-panel');
+  var pauseStatus = document.getElementById('pause-save-status');
+  var pauseButtons = Array.prototype.slice.call(pausePanel.querySelectorAll('button'));
+  pauseOverlay.classList.remove('hidden');
+  var pausePanelR = pausePanel.getBoundingClientRect();
+  var pauseStatusR = pauseStatus.getBoundingClientRect();
+  check('暂停存档故障面板完整限制在视口', inViewport(pausePanelR));
+  check('暂停存档故障面板在极窄视口无横向溢出', pausePanel.scrollWidth <= pausePanel.clientWidth + 1 &&
+    document.documentElement.scrollWidth <= W + 1);
+  check('未保存状态首屏可见且语义保持', pauseStatus.dataset.state === 'unsaved' &&
+    pauseStatus.textContent.indexOf('当前进度仍保留在内存中') >= 0 && inside(pauseStatusR, pausePanelR));
+  pauseButtons.forEach(function (button, i) {
+    target44('暂停操作 ' + (i + 1), button);
+    button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    var buttonR = button.getBoundingClientRect();
+    check('暂停操作 ' + (i + 1) + ' 可滚动到面板内并命中', inside(buttonR, pausePanelR) && hit(button));
+  });
+  pausePanel.scrollTop = 0;
+  pauseOverlay.classList.add('hidden');
 
   var discoveryOverlay = document.getElementById('overlay-discovery');
   var discoveryPanel = discoveryOverlay.querySelector('.discovery-panel');
