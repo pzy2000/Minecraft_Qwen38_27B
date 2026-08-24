@@ -1354,6 +1354,13 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 }
 .featured-desc { font-size: 11px; color: #999; margin-top: 2px; }
 
+/* 基础三列规则写在早期响应式块之后；在最终级联位置重申窄屏单列，
+   防止 160px/284px 等 200% 等效视口把卡片压到 44px 以下。 */
+@media (max-width: 420px) {
+  #featured-grid { grid-template-columns: minmax(0, 1fr); }
+  .featured-card { min-width: 44px; min-height: 44px; }
+}
+
 /* ========================================================================== */
 /* 星舰扫描界面 v1：主菜单、遥测 HUD 与航行终端共用一套视觉语言 */
 /* ========================================================================== */

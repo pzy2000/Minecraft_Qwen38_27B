@@ -5,6 +5,7 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Featured = (function () {
   var SEED = 12345;   // 与 test/capture_biomes.js 相同：含全部 18 种群系的种子
+  var thumbsHydrated = false;
 
   var WORLDS = [
     { name: '全景俯瞰',   desc: '多种群系自然过渡交界',     img: 'screenshots/biomes/overview.png',        seed: SEED, overview: true,          color: '#5b7f6e' },
@@ -33,6 +34,7 @@ Voxel.Featured = (function () {
     var s = document.getElementById('overlay-start');
     if (s) s.classList.add('hidden');
     if (f) f.classList.remove('hidden');
+    hydrateThumbs();
   }
 
   function hide() {
@@ -47,9 +49,12 @@ Voxel.Featured = (function () {
     var wrap = document.createElement('div');
     wrap.className = 'featured-thumb';
     var img = document.createElement('img');
-    img.src = w.img;
+    img.setAttribute('data-src', w.img);
+    img.loading = 'lazy';
+    img.decoding = 'async';
     img.alt = w.name;
     img.onerror = function () {
+      if (img.parentNode !== wrap) return;
       wrap.removeChild(img);
       var ph = document.createElement('div');
       ph.className = 'featured-ph';
@@ -58,6 +63,23 @@ Voxel.Featured = (function () {
     };
     wrap.appendChild(img);
     return wrap;
+  }
+
+  // 卡片必须在启动时建好，供 main.js 绑定点击与焦点；图片只在精选页
+  // 第一次真正显示后挂 src，避免主菜单下载 19 张未查看的截图。
+  function hydrateThumbs() {
+    if (thumbsHydrated) return;
+    var grid = document.getElementById('featured-grid');
+    if (!grid) return;
+    thumbsHydrated = true;
+    var images = grid.querySelectorAll('img[data-src]');
+    for (var i = 0; i < images.length; i++) {
+      var src = images[i].getAttribute('data-src');
+      if (src) {
+        images[i].src = src;
+        images[i].removeAttribute('data-src');
+      }
+    }
   }
 
   function build() {

@@ -1,4 +1,4 @@
-// WebAudio 音效系统：内嵌采样（js/assets.js）优先，程序化合成为兜底
+// WebAudio 音效系统：采样按需分块加载，程序化合成为兜底
 window.Voxel = window.Voxel || {};
 
 Voxel.Sound = (function () {
@@ -8,11 +8,23 @@ Voxel.Sound = (function () {
 
   // ---- 采样层 ----
   var buffers = {};          // name -> AudioBuffer
-  var decodeStarted = false;
+  var decodeRecords = {};    // name -> { state, promise }
+  var decodeAttempts = {};   // name -> count（正常情况下永远 <= 1）
+  var chunkRecords = {};     // id -> { state, promise }
+  var chunkDecodePromises = {};
+  var chunkRequests = {};
+  var chunkDecodeCounts = {};
+  var chunkLoader = defaultChunkLoader;
+  var sfxWarmPromise = null;
+  var playedNames = [];
+  var synthesizedCount = 0;
   var musicGain = null;      // BGM 独立增益（走 master，水下闷音自然生效）
   var musicMode = 'off';     // off | day | night（当前目标模式）
-  var musicName = '';        // 当前实际在放的曲目
+  var musicName = '';        // 当前目标曲目（加载完成后才开始播放）
+  var musicPlayingName = ''; // 当前实际在放的曲目
   var musicStopTimer = null;
+  var musicEpoch = 0;
+  var activeMusicStarts = 0;
   var MUSIC_VOL = 0.32;
   var userVol = 0.5;         // 用户音量（设置菜单）
   var flightAudio = { active: false, mode: '', phase: 'idle', arrived: false };
@@ -33,7 +45,13 @@ Voxel.Sound = (function () {
       musicGain.gain.value = 0;
       musicGain.connect(master);
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended') {
+      // 某些浏览器在手势已失效时会拒绝 resume；音效仍可继续使用程序化兜底。
+      try {
+        var resumeResult = ctx.resume();
+        if (resumeResult && resumeResult.catch) resumeResult.catch(function () { });
+      } catch (e) { }
+    }
     return ctx;
   }
 
@@ -56,40 +74,221 @@ Voxel.Sound = (function () {
     return bytes.buffer;
   }
 
-  function decodeAll(c) {
-    if (decodeStarted || !Voxel.Assets || !Voxel.Assets.audio) return;
-    decodeStarted = true;
-    var names = Object.keys(Voxel.Assets.audio);
-    names.forEach(function (name) {
-      try {
-        c.decodeAudioData(dataURIToArrayBuffer(Voxel.Assets.audio[name]), function (buf) {
-          buffers[name] = buf;
-        }, function () { });
-      } catch (e) { }
+  function assets() {
+    return Voxel.Assets || null;
+  }
+
+  function chunkMeta(id) {
+    var a = assets();
+    return a && a.chunks && a.chunks[id] ? a.chunks[id] : null;
+  }
+
+  function chunkNames(id) {
+    var meta = chunkMeta(id);
+    if (meta && Array.isArray(meta.names)) return meta.names.slice();
+    // 兼容 schemaVersion 1 的单文件内嵌资源，便于旧存档/离线缓存平滑升级。
+    var a = assets();
+    var names = a && a.audio ? Object.keys(a.audio) : [];
+    if (id === 'music-day') return names.indexOf('music_day') >= 0 ? ['music_day'] : [];
+    if (id === 'music-night') return names.indexOf('music_night') >= 0 ? ['music_night'] : [];
+    if (id === 'sfx') return names.filter(function (name) { return name.indexOf('music_') !== 0; });
+    return [];
+  }
+
+  function chunkIsRegistered(id) {
+    var a = assets();
+    if (!a) return false;
+    try {
+      if (typeof a.isChunkLoaded === 'function' && a.isChunkLoaded(id)) return true;
+    } catch (e) { }
+    var meta = chunkMeta(id);
+    if (meta && a.loadedChunks && a.loadedChunks[id] === meta.hash) return true;
+    var names = chunkNames(id);
+    if (!names.length || !a.audio) return false;
+    for (var i = 0; i < names.length; i++) {
+      if (!a.audio[names[i]] && !buffers[names[i]]) return false;
+    }
+    return true;
+  }
+
+  function chunkUrl(meta) {
+    if (!meta) return '';
+    var raw = meta.url || meta.file || '';
+    if (!raw) return '';
+    try {
+      return new URL(raw, (assets() && assets().baseUrl) || document.baseURI).href;
+    } catch (e) {
+      return raw;
+    }
+  }
+
+  function defaultChunkLoader(id, url) {
+    return new Promise(function (resolve) {
+      if (!url || typeof document === 'undefined' || !document.createElement) { resolve(false); return; }
+      var parent = document.head || document.documentElement;
+      if (!parent || !parent.appendChild) { resolve(false); return; }
+      var script = document.createElement('script');
+      var settled = false;
+      function finish(ok) {
+        if (settled) return;
+        settled = true;
+        script.onload = null;
+        script.onerror = null;
+        if (script.parentNode) {
+          try { script.parentNode.removeChild(script); } catch (e) { }
+        }
+        resolve(!!ok);
+      }
+      script.async = true;
+      script.src = url;
+      script.setAttribute('data-audio-chunk', id);
+      script.onload = function () { finish(chunkIsRegistered(id)); };
+      script.onerror = function () { finish(false); };
+      try { parent.appendChild(script); } catch (e) { finish(false); }
     });
+  }
+
+  function getChunkRecord(id) {
+    if (!chunkRecords[id]) chunkRecords[id] = { state: 'idle', promise: null };
+    return chunkRecords[id];
+  }
+
+  // 只负责脚本加载。所有失败都解析为 false，调用方永远不会收到未处理的拒绝。
+  function ensureChunk(id) {
+    var record = getChunkRecord(id);
+    if (record.state === 'loaded') return record.promise || Promise.resolve(true);
+    if (record.state === 'failed') return record.promise || Promise.resolve(false);
+    if (record.state === 'loading' && record.promise) return record.promise;
+    if (chunkIsRegistered(id)) {
+      record.state = 'loaded';
+      record.promise = Promise.resolve(true);
+      return record.promise;
+    }
+    var meta = chunkMeta(id);
+    if (!meta) {
+      record.state = 'failed';
+      record.promise = Promise.resolve(false);
+      return record.promise;
+    }
+    record.state = 'loading';
+    chunkRequests[id] = (chunkRequests[id] || 0) + 1;
+    try {
+      record.promise = Promise.resolve(chunkLoader(id, chunkUrl(meta), meta)).then(function (ok) {
+        ok = !!ok && chunkIsRegistered(id);
+        record.state = ok ? 'loaded' : 'failed';
+        return ok;
+      }, function () {
+        record.state = 'failed';
+        return false;
+      });
+    } catch (e) {
+      record.state = 'failed';
+      record.promise = Promise.resolve(false);
+    }
+    return record.promise;
+  }
+
+  function decodeName(c, name, chunkId) {
+    if (buffers[name]) return Promise.resolve(true);
+    if (decodeRecords[name]) return decodeRecords[name].promise;
+    var a = assets();
+    var uri = a && a.audio ? a.audio[name] : '';
+    if (typeof uri !== 'string' || uri.indexOf(',') < 0) return Promise.resolve(false);
+    var record = { state: 'loading', promise: null };
+    decodeRecords[name] = record;
+    decodeAttempts[name] = (decodeAttempts[name] || 0) + 1;
+    chunkDecodeCounts[chunkId] = (chunkDecodeCounts[chunkId] || 0) + 1;
+    record.promise = new Promise(function (resolve) {
+      var settled = false;
+      function finish(buf) {
+        if (settled) return;
+        settled = true;
+        // 后续只依赖 AudioBuffer 或程序化兜底；永久失败也不会重试，
+        // 因此两条路径都应释放当前 chunk 注入的 base64 字符串。
+        var current = assets();
+        if (current && current.audio && current.audio[name] === uri) delete current.audio[name];
+        if (buf) {
+          buffers[name] = buf;
+          record.state = 'decoded';
+          uri = '';
+          resolve(true);
+        } else {
+          record.state = 'failed';
+          uri = '';
+          resolve(false);
+        }
+      }
+      try {
+        var result = c.decodeAudioData(dataURIToArrayBuffer(uri), function (buf) {
+          finish(buf || null);
+        }, function () {
+          finish(null);
+        });
+        // 同时兼容现代 Promise API 与旧版 callback API；settled 保证只记一次。
+        if (result && typeof result.then === 'function') result.then(finish, function () { finish(null); });
+      } catch (e) {
+        finish(null);
+      }
+    });
+    return record.promise;
+  }
+
+  function ensureDecodedChunk(id, c) {
+    if (chunkDecodePromises[id]) return chunkDecodePromises[id];
+    chunkDecodePromises[id] = ensureChunk(id).then(function (loaded) {
+      if (!loaded) return false;
+      var names = chunkNames(id);
+      return Promise.all(names.map(function (name) {
+        return decodeName(c, name, id);
+      })).then(function (results) {
+        for (var i = 0; i < results.length; i++) if (!results[i]) return false;
+        return results.length > 0;
+      });
+    }, function () { return false; }).then(function (ready) {
+      return !!ready;
+    }, function () {
+      return false;
+    });
+    return chunkDecodePromises[id];
+  }
+
+  function warmSfx(c) {
+    if (!sfxWarmPromise) {
+      // 保证 unlock 同步返回 AudioContext，资源加载从下一微任务才开始。
+      sfxWarmPromise = Promise.resolve().then(function () {
+        return ensureDecodedChunk('sfx', c);
+      }).then(function (ready) { return !!ready; }, function () { return false; });
+    }
+    return sfxWarmPromise;
   }
 
   // 播放采样；返回是否成功（失败则调用方退回合成）。pan -1(左)~1(右)
   function play(name, vol, rate, pan) {
     var c = ac();
     if (!c || !buffers[name]) return false;
-    var src = c.createBufferSource();
-    src.buffer = buffers[name];
-    var r = rate || 1;
-    src.playbackRate.value = r * (0.95 + Math.random() * 0.1); // ±5% 随机变速，消除重复感
-    var g = c.createGain();
-    g.gain.value = Math.max(0, Math.min(1.5, vol === undefined ? 1 : vol));
-    src.connect(g);
-    var tail = g;
-    if (pan && c.createStereoPanner) {
-      var p = c.createStereoPanner();
-      p.pan.value = Math.max(-1, Math.min(1, pan));
-      tail.connect(p);
-      tail = p;
+    try {
+      var src = c.createBufferSource();
+      src.buffer = buffers[name];
+      var r = rate || 1;
+      src.playbackRate.value = r * (0.95 + Math.random() * 0.1); // ±5% 随机变速，消除重复感
+      var g = c.createGain();
+      g.gain.value = Math.max(0, Math.min(1.5, vol === undefined ? 1 : vol));
+      src.connect(g);
+      var tail = g;
+      if (pan && c.createStereoPanner) {
+        var p = c.createStereoPanner();
+        p.pan.value = Math.max(-1, Math.min(1, pan));
+        tail.connect(p);
+        tail = p;
+      }
+      tail.connect(master);
+      src.start();
+      playedNames.push(name);
+      if (playedNames.length > 64) playedNames.shift();
+      return true;
+    } catch (e) {
+      return false;
     }
-    tail.connect(master);
-    src.start();
-    return true;
   }
 
   function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
@@ -123,6 +322,7 @@ Voxel.Sound = (function () {
   function noiseHit(freq, q, dur, vol) {
     var c = ac();
     if (!c) return;
+    synthesizedCount++;
     var src = c.createBufferSource();
     src.buffer = getNoise(c);
     var f = c.createBiquadFilter();
@@ -143,6 +343,7 @@ Voxel.Sound = (function () {
   function tone(type, f0, f1, dur, vol) {
     var c = ac();
     if (!c) return;
+    synthesizedCount++;
     var o = c.createOscillator();
     o.type = type;
     var t = c.currentTime;
@@ -161,6 +362,7 @@ Voxel.Sound = (function () {
   function toneVib(type, f0, f1, dur, vol, vibFreq, vibDepth, lowpass) {
     var c = ac();
     if (!c) return;
+    synthesizedCount++;
     var o = c.createOscillator();
     o.type = type;
     var t = c.currentTime;
@@ -328,51 +530,97 @@ Voxel.Sound = (function () {
     tone('sine', 60, 32, 1.2, 0.3 * v);
   }
 
-  // ---- 背景音乐：昼夜交叉淡化 ----
-  function setMusic(mode) {
+  // ---- 背景音乐：昼夜曲目按需加载，并以 epoch 隔离迟到的异步结果 ----
+  function setMusic(mode, force) {
     if (mode !== 'day' && mode !== 'night' && mode !== 'off') mode = 'off';
-    if (mode === musicMode) return;
+    if (mode === musicMode && !force) return;
     musicMode = mode;
+    var epoch = ++musicEpoch;
     var c = ac();
     if (!c) return;
     if (musicStopTimer) { clearTimeout(musicStopTimer); musicStopTimer = null; }
     var want = mode === 'off' ? '' : 'music_' + mode;
-    if (want === musicName) {
+    if (want && want === musicPlayingName && musicSrc) {
+      musicName = want;
       musicGain.gain.setTargetAtTime(MUSIC_VOL, c.currentTime, 1.0);
       return;
     }
-    var prevName = musicName;
     var prevSource = musicSrc;
     musicName = want;
     // 旧曲淡出
-    if (prevName && buffers[prevName]) {
+    if (prevSource) {
       musicGain.gain.setTargetAtTime(0.0001, c.currentTime, 0.8);
       // 切换到另一首时 startMusicTrack 会立即停止旧 source；只有真正关闭
       // 音乐才延迟停止。闭包必须捕获旧 source，绝不能在 3.5s 后停止全局
       // musicSrc（那时它可能已经是新曲）。
       if (!want && prevSource) {
-        musicStopTimer = setTimeout(function () {
+        var stopTimer = setTimeout(function () {
           try { prevSource.stop(); } catch (e) { }
-          if (musicSrc === prevSource) musicSrc = null;
-          musicStopTimer = null;
+          if (musicSrc === prevSource) {
+            musicSrc = null;
+            musicPlayingName = '';
+          }
+          if (musicStopTimer === stopTimer) musicStopTimer = null;
         }, 3500);
+        musicStopTimer = stopTimer;
       }
     }
-    // 新曲淡入
-    if (want && buffers[want]) startMusicTrack(c, want);
+    if (!want) return;
+    // 已解码曲目可以同步切换；未解码曲目只加载 day/night 对应的一个 chunk。
+    if (buffers[want]) {
+      if (epoch === musicEpoch && musicMode === mode) startMusicTrack(c, want);
+      return;
+    }
+    ensureDecodedChunk('music-' + mode, c).then(function (ready) {
+      if (!ready) {
+        // 目标曲永久失败时，旧曲已经淡出，不能让它以静音 loop 常驻。
+        // epoch 与 source 身份共同防止迟到失败误停后来启动的新曲。
+        if (epoch === musicEpoch && musicMode === mode && musicName === want && musicSrc === prevSource) {
+          if (prevSource) {
+            try { prevSource.stop(); } catch (e) { }
+            try { prevSource.disconnect(); } catch (e) { }
+          }
+          musicSrc = null;
+          musicPlayingName = '';
+          musicGain.gain.cancelScheduledValues(c.currentTime);
+          musicGain.gain.setValueAtTime(0.0001, c.currentTime);
+        }
+        return;
+      }
+      if (epoch !== musicEpoch || musicMode !== mode || musicName !== want || !buffers[want]) return;
+      startMusicTrack(c, want);
+    }, function () { });
   }
 
   var musicSrc = null;
   function startMusicTrack(c, name) {
-    if (musicSrc) { try { musicSrc.stop(); } catch (e) { } }
-    musicSrc = c.createBufferSource();
-    musicSrc.buffer = buffers[name];
-    musicSrc.loop = true;
-    musicSrc.connect(musicGain);
-    musicSrc.start();
-    musicGain.gain.cancelScheduledValues(c.currentTime);
-    musicGain.gain.setValueAtTime(Math.max(0.0001, musicGain.gain.value), c.currentTime);
-    musicGain.gain.setTargetAtTime(MUSIC_VOL, c.currentTime, 1.5);
+    var next = null;
+    try {
+      next = c.createBufferSource();
+      next.buffer = buffers[name];
+      next.loop = true;
+      next.connect(musicGain);
+      next.start();
+      if (musicSrc) { try { musicSrc.stop(); } catch (e) { } }
+      musicSrc = next;
+      musicPlayingName = name;
+      activeMusicStarts++;
+      musicGain.gain.cancelScheduledValues(c.currentTime);
+      musicGain.gain.setValueAtTime(Math.max(0.0001, musicGain.gain.value), c.currentTime);
+      musicGain.gain.setTargetAtTime(MUSIC_VOL, c.currentTime, 1.5);
+      return true;
+    } catch (e) {
+      if (next) { try { next.stop(); } catch (stopError) { } }
+      return false;
+    }
+  }
+
+  function stopEnvironment() {
+    // 强制推进音乐 epoch，使所有尚未完成的异步曲目都失效。
+    setMusic('off', true);
+    rainSet(0);
+    setUnderwater(false);
+    return true;
   }
 
   // ---- 登舰/跃迁/抵达：无常驻 oscillator，phase 幂等 ----
@@ -381,9 +629,7 @@ Voxel.Sound = (function () {
     var epoch = ++flightAudioEpoch;
     flightAudio = { active: true, mode: mode, phase: 'ignition', arrived: false };
     // 来源世界环境音不得泄漏到驾驶舱/目标loading。
-    setMusic('off');
-    rainSet(0);
-    setUnderwater(false);
+    stopEnvironment();
     if (mode === 'portal') {
       tone('sine', 280, 620, 0.18, 0.18);
       setTimeout(function () {
@@ -453,20 +699,96 @@ Voxel.Sound = (function () {
   }
 
   function musicStateSnapshot() {
+    var chunkId = musicName === 'music_day' ? 'music-day' :
+      musicName === 'music_night' ? 'music-night' : '';
+    var chunkRecord = chunkId ? chunkRecords[chunkId] : null;
+    var decodeRecord = musicName ? decodeRecords[musicName] : null;
     return {
       mode: musicMode,
       name: musicName,
+      playingName: musicPlayingName,
       sourceActive: !!musicSrc,
-      stopPending: !!musicStopTimer
+      stopPending: !!musicStopTimer,
+      epoch: musicEpoch,
+      loading: !!musicName && !buffers[musicName] &&
+        !!((chunkRecord && chunkRecord.state === 'loading') ||
+          (decodeRecord && decodeRecord.state === 'loading'))
     };
+  }
+
+  function copyMap(source) {
+    var out = {};
+    for (var key in source) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = source[key];
+    }
+    return out;
+  }
+
+  function audioStateSnapshot() {
+    var ids = ['sfx', 'music-day', 'music-night'];
+    var a = assets();
+    if (a && a.chunks) {
+      Object.keys(a.chunks).forEach(function (id) {
+        if (ids.indexOf(id) < 0) ids.push(id);
+      });
+    }
+    Object.keys(chunkRecords).forEach(function (id) {
+      if (ids.indexOf(id) < 0) ids.push(id);
+    });
+    var chunks = {}, chunkStates = {};
+    ids.forEach(function (id) {
+      var record = getChunkRecord(id);
+      // manifest 可能由另一段预加载脚本先注册，快照也应如实反映 loaded。
+      if (record.state === 'idle' && chunkIsRegistered(id)) record.state = 'loaded';
+      var meta = chunkMeta(id);
+      chunks[id] = {
+        state: record.state,
+        requestCount: chunkRequests[id] || 0,
+        decodeCount: chunkDecodeCounts[id] || 0,
+        names: meta && Array.isArray(meta.names) ? meta.names.slice() : chunkNames(id),
+        url: meta ? chunkUrl(meta) : ''
+      };
+      chunkStates[id] = record.state;
+    });
+    var decodedNames = Object.keys(buffers).sort();
+    var decodeStates = {};
+    Object.keys(decodeRecords).forEach(function (name) {
+      decodeStates[name] = decodeRecords[name].state;
+    });
+    return {
+      contextCreated: !!ctx,
+      decodedNames: decodedNames,
+      decodedCount: decodedNames.length,
+      decodeStates: decodeStates,
+      decodeAttempts: copyMap(decodeAttempts),
+      chunks: chunks,
+      chunkStates: chunkStates,
+      chunkRequests: copyMap(chunkRequests),
+      chunkDecodeCounts: copyMap(chunkDecodeCounts),
+      synthesizedCount: synthesizedCount,
+      fallbackCount: synthesizedCount,
+      playedNames: playedNames.slice(),
+      activeMusicStarts: activeMusicStarts,
+      music: musicStateSnapshot()
+    };
+  }
+
+  function setChunkLoaderForTests(loader) {
+    if (typeof loader !== 'function') return false;
+    chunkLoader = loader;
+    return true;
   }
 
   return {
     unlock: function () {
       var c = ac();
-      if (c) decodeAll(c);
+      if (c) warmSfx(c);
       return c;
     },
+    ensureChunk: ensureChunk,
+    audioStateSnapshot: audioStateSnapshot,
+    setChunkLoaderForTests: setChunkLoaderForTests,
+    stopEnvironment: stopEnvironment,
     volAt: volAt,
     spatial: spatial,
     // BGM：main.js 按昼夜切换
@@ -479,7 +801,7 @@ Voxel.Sound = (function () {
     flightAudioSnapshot: flightAudioSnapshot,
     musicStateSnapshot: musicStateSnapshot,
     matFreq: matFreq,
-    decodedCount: function () { var n = 0; for (var k in buffers) n++; return n; },
+    decodedCount: function () { return Object.keys(buffers).length; },
     setVolume: setVolume,
     rainSet: rainSet,
     thunder: thunder,

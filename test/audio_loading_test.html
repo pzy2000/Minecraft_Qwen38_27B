@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AUDIO LOADING RUNNING</title>
+<style>
+  body { margin: 16px; background: #171a20; color: #d7ffe0; font: 13px/1.5 ui-monospace, monospace; }
+  #out { white-space: pre-wrap; }
+  iframe { width: 1px; height: 1px; position: fixed; left: -100px; border: 0; }
+</style>
+</head>
+<body>
+<pre id="out">RUNNING...</pre>
+<script>
+(function () {
+  'use strict';
+  var scenario = new URLSearchParams(location.search).get('scenario') || '';
+  window.__audioScenario = scenario;
+  window.__audioScriptRequests = { sfx: 0, 'music-day': 0, 'music-night': 0 };
+  window.__delayedAudioScripts = {};
+
+  // 生产代码仍使用真实 <script src="file://...">。竞态用例只把指定脚本暂存在
+  // appendChild 边界，随后用原生 appendChild 放行，避免测试替换资源注册协议。
+  var nativeAppend = Node.prototype.appendChild;
+  Node.prototype.appendChild = function (node) {
+    var id = node && node.nodeType === 1 && node.tagName === 'SCRIPT' &&
+      node.getAttribute && node.getAttribute('data-audio-chunk');
+    if (!id) return nativeAppend.call(this, node);
+    window.__audioScriptRequests[id] = (window.__audioScriptRequests[id] || 0) + 1;
+    if ((scenario === 'race' || scenario === 'off') && id === 'music-day') {
+      window.__delayedAudioScripts[id] = { parent: this, node: node };
+      return node;
+    }
+    if ((scenario === 'failure' && id === 'music-day') ||
+      (scenario === 'replace-failure' && id === 'music-night')) {
+      setTimeout(function () {
+        if (typeof node.onerror === 'function') node.onerror(new Event('error'));
+      }, 0);
+      return node;
+    }
+    return nativeAppend.call(this, node);
+  };
+
+  window.__releaseAudioScript = function (id) {
+    var held = window.__delayedAudioScripts[id];
+    if (!held) return false;
+    delete window.__delayedAudioScripts[id];
+    nativeAppend.call(held.parent, held.node);
+    return true;
+  };
+})();
+</script>
+<script src="../js/assets.js"></script>
+<script>
+// 解码失败场景保持真实 chunk 脚本/注册流程，只把其已通过 manifest 校验的
+// payload 换成无效 MP3。这样同时覆盖 decodeAudioData 的错误回调与兜底路径。
+(function () {
+  if (window.__audioScenario !== 'failure' || !Voxel.Assets) return;
+  var register = Voxel.Assets.registerAudioChunk;
+  Voxel.Assets.registerAudioChunk = function (id, hash, entries) {
+    if (id !== 'sfx') return register(id, hash, entries);
+    var broken = {};
+    Object.keys(entries).forEach(function (name) {
+      broken[name] = 'data:audio/mpeg;base64,AAAA';
+    });
+    return register(id, hash, broken);
+  };
+})();
+</script>
+<script src="../js/systems/sound.js"></script>
+<script>
+(function () {
+  'use strict';
+  var scenario = window.__audioScenario;
+  var out = document.getElementById('out');
+  var results = [];
+  var pageErrors = [];
+  var unhandled = [];
+
+  function check(name, condition, detail) {
+    results.push((condition ? 'ok   ' : 'FAIL ') + name + (detail ? ' (' + detail + ')' : ''));
+  }
+  function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+  async function until(predicate, timeout) {
+    var end = performance.now() + (timeout || 20000);
+    while (performance.now() < end) {
+      try { if (predicate()) return true; } catch (e) { }
+      await sleep(25);
+    }
+    return false;
+  }
+  function state() { return Voxel.Sound.audioStateSnapshot(); }
+  function allAtMostOnce(map) {
+    return ['sfx', 'music-day', 'music-night'].every(function (id) { return (map[id] || 0) <= 1; });
+  }
+  function payloadReleased(names) {
+    return names.every(function (name) {
+      return !Object.prototype.hasOwnProperty.call(Voxel.Assets.audio, name);
+    });
+  }
+
+  window.addEventListener('error', function (event) {
+    // failure 场景的脚本资源错误由 Sound 的 script.onerror 消费；这里只统计
+    // 执行错误，不把预期的资源加载失败误记成未处理页面异常。
+    if (event.target && event.target.getAttribute && event.target.getAttribute('data-audio-chunk')) return;
+    pageErrors.push(event.message || String(event.error || 'page error'));
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    unhandled.push(String(event.reason || 'unhandled rejection'));
+    event.preventDefault();
+  });
+
+  async function baseScenario() {
+    var initial = state();
+    check('菜单ready前0 chunk请求、0注册、0解码', initial.decodedCount === 0 &&
+      Object.keys(Voxel.Assets.loadedChunks).length === 0 && Object.keys(Voxel.Assets.audio).length === 0 &&
+      initial.chunks.sfx.state === 'idle' && initial.chunks['music-day'].state === 'idle' &&
+      initial.chunks['music-night'].state === 'idle' &&
+      Object.keys(window.__audioScriptRequests).every(function (id) {
+        return window.__audioScriptRequests[id] === 0;
+      }));
+
+    var c1 = Voxel.Sound.unlock();
+    var c2 = Voxel.Sound.unlock();
+    var c3 = Voxel.Sound.unlock();
+    var sfxNames = Voxel.Assets.chunks.sfx.names;
+    var sfxReady = await until(function () {
+      var snap = state();
+      return snap.chunks.sfx.state === 'loaded' && snap.decodedCount === sfxNames.length;
+    });
+    var afterUnlock = state();
+    check('连续unlock复用AudioContext且SFX只请求/解码一次', sfxReady && c1 && c1 === c2 && c2 === c3 &&
+      afterUnlock.chunks.sfx.requestCount === 1 && afterUnlock.chunks.sfx.decodeCount === sfxNames.length &&
+      window.__audioScriptRequests.sfx === 1 && sfxNames.every(function (name) {
+        return afterUnlock.decodeAttempts[name] === 1;
+      }));
+    check('unlock不预取或播放昼夜音乐', afterUnlock.chunks['music-day'].requestCount === 0 &&
+      afterUnlock.chunks['music-night'].requestCount === 0 && window.__audioScriptRequests['music-day'] === 0 &&
+      window.__audioScriptRequests['music-night'] === 0 && afterUnlock.activeMusicStarts === 0 &&
+      afterUnlock.music.mode === 'off' && !afterUnlock.music.sourceActive);
+    check('SFX解码后释放所有base64 payload', payloadReleased(sfxNames) &&
+      Object.keys(Voxel.Assets.audio).length === 0);
+
+    Voxel.Sound.setMusic('day');
+    var dayReady = await until(function () {
+      var snap = state();
+      return snap.music.playingName === 'music_day' && snap.music.sourceActive;
+    });
+    var day = state();
+    check('day只加载、解码并播放day chunk', dayReady && day.chunks['music-day'].requestCount === 1 &&
+      day.chunks['music-day'].decodeCount === 1 && day.chunks['music-night'].requestCount === 0 &&
+      window.__audioScriptRequests['music-day'] === 1 && window.__audioScriptRequests['music-night'] === 0 &&
+      day.music.mode === 'day' && day.music.playingName === 'music_day');
+    check('day解码后删除其base64', payloadReleased(['music_day']));
+    var startsAfterDay = day.activeMusicStarts;
+    Voxel.Sound.setMusic('day'); Voxel.Sound.setMusic('day'); Voxel.Sound.setMusic('day');
+    await sleep(100);
+    var repeatedDay = state();
+    check('重复day不重复请求、解码或启动source', repeatedDay.chunks['music-day'].requestCount === 1 &&
+      repeatedDay.chunks['music-day'].decodeCount === 1 && repeatedDay.activeMusicStarts === startsAfterDay &&
+      window.__audioScriptRequests['music-day'] === 1);
+
+    Voxel.Sound.setMusic('night');
+    var nightReady = await until(function () {
+      var snap = state();
+      return snap.music.playingName === 'music_night' && snap.music.sourceActive;
+    });
+    var night = state();
+    check('night随后只加载、解码并播放night chunk', nightReady &&
+      night.chunks['music-day'].requestCount === 1 && night.chunks['music-night'].requestCount === 1 &&
+      night.chunks['music-night'].decodeCount === 1 && window.__audioScriptRequests['music-night'] === 1 &&
+      night.music.mode === 'night' && night.music.playingName === 'music_night');
+    check('night解码后删除其base64且全部chunk各最多请求一次', payloadReleased(['music_night']) &&
+      Object.keys(Voxel.Assets.audio).length === 0 && allAtMostOnce(window.__audioScriptRequests) &&
+      allAtMostOnce(night.chunkRequests));
+    var startsAfterNight = night.activeMusicStarts;
+    Voxel.Sound.setMusic('night'); Voxel.Sound.setMusic('night');
+    await sleep(100);
+    var repeatedNight = state();
+    check('重复night保持单次加载与单个活动曲目', repeatedNight.activeMusicStarts === startsAfterNight &&
+      repeatedNight.chunks['music-night'].requestCount === 1 &&
+      repeatedNight.music.playingName === 'music_night');
+    check('统一环境音清理API可用', Voxel.Sound.stopEnvironment() === true &&
+      state().music.mode === 'off' && state().music.name === '');
+  }
+
+  async function raceScenario() {
+    var initial = state();
+    check('竞态场景初始没有任何预取', initial.decodedCount === 0 &&
+      allAtMostOnce(window.__audioScriptRequests) && Object.keys(Voxel.Assets.loadedChunks).length === 0);
+    Voxel.Sound.setMusic('day');
+    var dayHeld = await until(function () {
+      return state().chunks['music-day'].state === 'loading' &&
+        window.__audioScriptRequests['music-day'] === 1 && !!window.__delayedAudioScripts['music-day'];
+    });
+    Voxel.Sound.setMusic('night');
+    var nightReady = await until(function () {
+      return state().music.playingName === 'music_night' && state().music.sourceActive;
+    });
+    var beforeRelease = state();
+    var released = window.__releaseAudioScript('music-day');
+    var dayEventuallyDecoded = await until(function () {
+      return state().decodeStates.music_day === 'decoded';
+    });
+    await sleep(150);
+    var finalState = state();
+    check('day迟到前night已独立加载并开始播放', dayHeld && nightReady && released &&
+      beforeRelease.chunks['music-night'].requestCount === 1 && beforeRelease.music.playingName === 'music_night');
+    check('迟到day可完成解码但epoch阻止其复活覆盖night', dayEventuallyDecoded &&
+      finalState.music.mode === 'night' && finalState.music.name === 'music_night' &&
+      finalState.music.playingName === 'music_night' && finalState.music.sourceActive &&
+      finalState.activeMusicStarts === 1);
+    check('竞态下每个chunk仍最多一次请求/解码', allAtMostOnce(window.__audioScriptRequests) &&
+      allAtMostOnce(finalState.chunkRequests) && finalState.chunks['music-day'].decodeCount === 1 &&
+      finalState.chunks['music-night'].decodeCount === 1 && payloadReleased(['music_day', 'music_night']));
+    Voxel.Sound.setMusic('off');
+  }
+
+  async function offScenario() {
+    Voxel.Sound.setMusic('day');
+    var held = await until(function () {
+      return state().chunks['music-day'].state === 'loading' && !!window.__delayedAudioScripts['music-day'];
+    });
+    Voxel.Sound.setMusic('off');
+    var released = window.__releaseAudioScript('music-day');
+    var decoded = await until(function () { return state().decodeStates.music_day === 'decoded'; });
+    await sleep(150);
+    var finalState = state();
+    check('加载中的day切off后仍允许安全完成解码', held && released && decoded &&
+      finalState.chunks['music-day'].requestCount === 1 && finalState.chunks['music-day'].decodeCount === 1 &&
+      payloadReleased(['music_day']));
+    check('off epoch阻止迟到音乐复活', finalState.music.mode === 'off' && finalState.music.name === '' &&
+      finalState.music.playingName === '' && !finalState.music.sourceActive &&
+      finalState.activeMusicStarts === 0);
+    check('off竞态没有重复chunk请求', allAtMostOnce(window.__audioScriptRequests) &&
+      allAtMostOnce(finalState.chunkRequests));
+  }
+
+  async function failureScenario() {
+    Voxel.Sound.unlock(); Voxel.Sound.unlock();
+    Voxel.Sound.setMusic('day');
+    var settled = await until(function () {
+      var snap = state();
+      var states = Object.keys(snap.decodeStates);
+      return snap.chunks.sfx.state === 'loaded' && snap.chunks['music-day'].state === 'failed' &&
+        states.length === Voxel.Assets.chunks.sfx.count && states.every(function (name) {
+          return snap.decodeStates[name] === 'failed';
+        });
+    });
+    var beforeFallback = state();
+    Voxel.Sound.step('grass');
+    await sleep(50);
+    var afterFallback = state();
+    // failed 状态必须被缓存；再次调用公开入口不会形成重试风暴。
+    await Promise.all([
+      Voxel.Sound.ensureChunk('sfx'), Voxel.Sound.ensureChunk('sfx'),
+      Voxel.Sound.ensureChunk('music-day'), Voxel.Sound.ensureChunk('music-day')
+    ]);
+    var finalState = state();
+    check('脚本失败进入failed且解码失败全部可观测', settled &&
+      finalState.chunks['music-day'].state === 'failed' &&
+      Object.keys(finalState.decodeStates).every(function (name) {
+        return finalState.decodeStates[name] === 'failed';
+      }));
+    check('采样失败后音效退回程序化合成', afterFallback.fallbackCount > beforeFallback.fallbackCount &&
+      afterFallback.synthesizedCount > beforeFallback.synthesizedCount);
+    check('失败被缓存且每个chunk最多一次请求/解码尝试', allAtMostOnce(window.__audioScriptRequests) &&
+      allAtMostOnce(finalState.chunkRequests) && finalState.chunks.sfx.decodeCount === Voxel.Assets.chunks.sfx.count &&
+      Object.keys(finalState.decodeAttempts).every(function (name) {
+        return finalState.decodeAttempts[name] === 1;
+      }) && payloadReleased(Voxel.Assets.chunks.sfx.names) && Object.keys(Voxel.Assets.audio).length === 0);
+  }
+
+  async function replaceFailureScenario() {
+    Voxel.Sound.setMusic('day');
+    var dayReady = await until(function () {
+      return state().music.playingName === 'music_day' && state().music.sourceActive;
+    });
+    Voxel.Sound.setMusic('night');
+    var nightFailed = await until(function () {
+      return state().chunks['music-night'].state === 'failed';
+    });
+    await sleep(100);
+    var finalState = state();
+    check('目标BGM加载失败后停止并释放已淡出的旧source', dayReady && nightFailed &&
+      finalState.music.mode === 'night' && finalState.music.name === 'music_night' &&
+      finalState.music.playingName === '' && !finalState.music.sourceActive &&
+      !finalState.music.loading && finalState.activeMusicStarts === 1);
+    check('替换失败不重试且已解码day payload仍释放',
+      finalState.chunks['music-day'].requestCount === 1 &&
+      finalState.chunks['music-night'].requestCount === 1 &&
+      allAtMostOnce(window.__audioScriptRequests) && payloadReleased(['music_day']));
+  }
+
+  async function runChild() {
+    try {
+      if (scenario === 'base') await baseScenario();
+      else if (scenario === 'race') await raceScenario();
+      else if (scenario === 'off') await offScenario();
+      else if (scenario === 'failure') await failureScenario();
+      else if (scenario === 'replace-failure') await replaceFailureScenario();
+      else check('未知音频场景 ' + scenario, false);
+    } catch (error) {
+      check('场景执行无异常', false, error && error.stack || error);
+    }
+    await sleep(50);
+    check('没有页面执行错误', pageErrors.length === 0, pageErrors.join(' | '));
+    check('没有未处理Promise拒绝', unhandled.length === 0, unhandled.join(' | '));
+    var failed = results.some(function (line) { return line.indexOf('FAIL ') === 0; });
+    out.textContent = results.join('\n');
+    parent.postMessage({ type: 'audio-loading-result', scenario: scenario, failed: failed, lines: results }, '*');
+  }
+
+  async function runParent() {
+    var scenarios = ['base', 'race', 'off', 'failure', 'replace-failure'];
+    var all = [];
+    for (var i = 0; i < scenarios.length; i++) {
+      var name = scenarios[i];
+      var result = await new Promise(function (resolve) {
+        var frame = document.createElement('iframe');
+        var timeout = setTimeout(function () {
+          window.removeEventListener('message', onMessage);
+          frame.remove();
+          resolve({ scenario: name, failed: true, lines: ['FAIL 场景超时'] });
+        }, 45000);
+        function onMessage(event) {
+          if (event.source !== frame.contentWindow || !event.data ||
+            event.data.type !== 'audio-loading-result' || event.data.scenario !== name) return;
+          clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+          var data = event.data;
+          frame.remove();
+          resolve(data);
+        }
+        window.addEventListener('message', onMessage);
+        frame.src = location.href.split('?')[0] + '?scenario=' + encodeURIComponent(name) + '&v=' + Date.now();
+        document.body.appendChild(frame);
+      });
+      all.push('--- ' + name + ' ---\n' + result.lines.join('\n'));
+      if (result.failed) window.__audioFailed = true;
+    }
+    out.textContent = all.join('\n\n');
+    document.title = window.__audioFailed ? 'AUDIO-LOADING-FAIL' : 'AUDIO-LOADING-PASS';
+  }
+
+  if (scenario) runChild();
+  else runParent();
+})();
+</script>
+</body>
+</html>

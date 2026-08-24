@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FEATURED-LAZY-UI-RUNNING</title>
+<base href="../">
+<link rel="stylesheet" href="css/style.css">
+<style>#results { display: none; }</style>
+</head>
+<body data-game-state="menu">
+<canvas id="game" aria-hidden="true"></canvas>
+<div id="overlay-start" class="overlay">
+  <div class="panel start-panel">
+    <button id="btn-featured" class="btn">精选世界</button>
+  </div>
+</div>
+<div id="overlay-featured" class="overlay hidden">
+  <div class="panel featured-panel" role="dialog" aria-modal="true" aria-labelledby="featured-title">
+    <h2 id="featured-title">精选世界</h2>
+    <div id="featured-grid"></div>
+    <button id="btn-featured-back" class="btn">返回</button>
+  </div>
+</div>
+<pre id="results">RUNNING...</pre>
+<script>
+window.Voxel = window.Voxel || {};
+Voxel.Game = { startFeatured: function () {} };
+</script>
+<script src="js/ui/featured.js"></script>
+<script>
+(function () {
+  'use strict';
+  var out = document.getElementById('results');
+  var lines = [];
+  var startCalls = 0;
+
+  function check(name, condition, detail) {
+    lines.push((condition ? 'ok  ' : 'FAIL ') + name + (detail ? ' :: ' + detail : ''));
+  }
+  function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+  function biomeRequests() {
+    return performance.getEntriesByType('resource').filter(function (entry) {
+      return /\/screenshots\/biomes\//.test(entry.name);
+    });
+  }
+
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.featured-card'));
+  cards.forEach(function (card, index) {
+    var world = Voxel.Featured.WORLDS[index];
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-haspopup', 'dialog');
+    card.setAttribute('aria-label', '创建精选世界：' + world.name + '，' + world.desc);
+    card.tabIndex = 0;
+  });
+  Voxel.Game.startFeatured = function () { startCalls++; };
+  document.getElementById('btn-featured').addEventListener('click', function () {
+    Voxel.Featured.show();
+    document.body.dataset.gameState = 'featured';
+    cards[0].focus();
+  });
+  document.getElementById('btn-featured-back').addEventListener('click', function () {
+    Voxel.Featured.hide();
+    document.body.dataset.gameState = 'menu';
+    document.getElementById('btn-featured').focus();
+  });
+
+  async function run() {
+    var images = Array.prototype.slice.call(document.querySelectorAll('.featured-thumb img'));
+    check('菜单ready时19卡已建且精选图0请求', cards.length === 19 && images.length === 19 &&
+      images.every(function (image) { return !image.hasAttribute('src'); }) && biomeRequests().length === 0);
+
+    document.getElementById('btn-featured').click();
+    await sleep(100);
+    var panel = document.querySelector('.featured-panel');
+    var panelRect = panel.getBoundingClientRect();
+    var cardRects = cards.map(function (card) { return card.getBoundingClientRect(); });
+    var viewportWidth = document.documentElement.clientWidth;
+    var viewportHeight = document.documentElement.clientHeight;
+    check('首次显示才注入19个唯一图片URL', images.every(function (image) {
+      return image.hasAttribute('src') && !image.hasAttribute('data-src');
+    }) && new Set(images.map(function (image) { return image.src; })).size === 19);
+    check('极窄精选卡片保持单列与44px触控目标', cardRects.every(function (rect) {
+      return rect.width >= 44 && rect.height >= 44;
+    }) && Math.abs(cardRects[0].left - cardRects[1].left) < 1,
+    Math.round(cardRects[0].width * 100) / 100 + 'px');
+    check('真实CSS面板与页面没有横向溢出', panelRect.left >= -1 && panelRect.top >= -1 &&
+      panelRect.right <= viewportWidth + 1 && panelRect.bottom <= viewportHeight + 1 &&
+      panel.scrollWidth <= panel.clientWidth + 1 && document.documentElement.scrollWidth <= viewportWidth + 1);
+
+    var first = cards[0];
+    var firstRect = first.getBoundingClientRect();
+    var hit = document.elementFromPoint(firstRect.left + firstRect.width / 2,
+      Math.min(firstRect.bottom - 1, firstRect.top + firstRect.height / 2));
+    check('首卡获焦、具语义且中心可命中', document.activeElement === first &&
+      first.getAttribute('role') === 'button' && first.tabIndex === 0 && !!hit &&
+      (hit === first || (hit.closest && hit.closest('.featured-card') === first)));
+    first.click();
+    check('真实Featured卡片点击处理仍可达', startCalls === 1);
+
+    var nodesBefore = cards.slice();
+    var sourcesBefore = images.map(function (image) { return image.src; });
+    document.getElementById('btn-featured-back').click();
+    document.getElementById('btn-featured').click();
+    await sleep(500);
+    var cardsAgain = Array.prototype.slice.call(document.querySelectorAll('.featured-card'));
+    var imagesAgain = Array.prototype.slice.call(document.querySelectorAll('.featured-thumb img'));
+    var requestCounts = {};
+    biomeRequests().forEach(function (entry) { requestCounts[entry.name] = (requestCounts[entry.name] || 0) + 1; });
+    check('重复显示复用节点/src且每URL至多请求一次', cardsAgain.every(function (card, index) {
+      return card === nodesBefore[index];
+    }) && imagesAgain.every(function (image, index) {
+      return image.src === sourcesBefore[index];
+    }) && Object.keys(requestCounts).every(function (url) { return requestCounts[url] <= 1; }) &&
+      document.activeElement === cardsAgain[0]);
+    check('fixture使用目标极窄视口', viewportWidth === innerWidth && viewportHeight === innerHeight,
+      viewportWidth + 'x' + viewportHeight);
+  }
+
+  Promise.resolve().then(run).catch(function (error) {
+    check('fixture执行无异常', false, error && error.stack || error);
+  }).then(function () {
+    var failed = lines.some(function (line) { return line.indexOf('FAIL ') === 0; });
+    out.textContent = lines.join('\n');
+    document.title = failed ? 'FEATURED-LAZY-UI-FAIL' : 'FEATURED-LAZY-UI-PASS';
+  });
+})();
+</script>
+</body>
+</html>

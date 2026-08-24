@@ -320,6 +320,38 @@
     out.push('FAIL PAGE_ERROR ' + e.message + ' @' + (e.lineno || '?'));
   });
 
+  // 精选世界卡片应在菜单 ready 时就具备完整 DOM/键盘语义，但缩略图是二级资源，
+  // 只有玩家真正打开精选面板后才允许挂载 src。MutationObserver 同时锁住重复打开
+  // 不得再次注入 URL；PerformanceResourceTiming 则覆盖实际资源请求没有增长。
+  function featuredResourceCount() {
+    return performance.getEntriesByType('resource').filter(function (entry) {
+      return /\/screenshots\/biomes\//.test(entry.name);
+    }).length;
+  }
+  var initialFeaturedCards = Array.prototype.slice.call(doc.querySelectorAll('.featured-card'));
+  var initialFeaturedImages = Array.prototype.slice.call(doc.querySelectorAll('.featured-thumb img'));
+  // 生产页位于仓库根目录；该 fixture 位于 test/，把惰性 data-src 指回同一批真实图片。
+  // 只调整测试文档的相对基准，不改变“初始化无 src、首次显示才注入”的产品契约。
+  initialFeaturedImages.forEach(function (img) {
+    var lazySrc = img.getAttribute('data-src');
+    if (lazySrc && lazySrc.indexOf('screenshots/biomes/') === 0)
+      img.setAttribute('data-src', '../' + lazySrc);
+  });
+  var featuredSrcMutations = 0;
+  var featuredObserver = new MutationObserver(function (records) {
+    for (var mi = 0; mi < records.length; mi++) {
+      if (records[mi].type === 'attributes' && records[mi].attributeName === 'src')
+        featuredSrcMutations++;
+    }
+  });
+  var featuredGridForObserver = doc.getElementById('featured-grid');
+  if (featuredGridForObserver)
+    featuredObserver.observe(featuredGridForObserver, { subtree: true, attributes: true, attributeFilter: ['src'] });
+  check('菜单ready时19张精选卡片已构建但缩略图尚未请求',
+    initialFeaturedCards.length === 19 && initialFeaturedImages.length === 19 &&
+    initialFeaturedImages.every(function (img) { return !img.hasAttribute('src'); }) &&
+    featuredResourceCount() === 0);
+
   // 手动驱动游戏主循环（无头环境下 rAF 可能不推进）
   var errCount = {};
   var autoFrameEnabled = true;
@@ -1463,20 +1495,46 @@
     Voxel.DayNight.setTime(0.3); Voxel.DayNight.update(0.016);
     check('上午判定为白天', !Voxel.DayNight.isNight());
 
-    // 音频采样解码验证（unlock 时异步解码，此时应已完成）
+    // 音频已改为三段懒加载：unlock 只解码 SFX，昼/夜 BGM 由首次需求各自加载。
+    // 停掉主循环的自动昼夜切歌，等真实 file:// 动态脚本+解码完成后再继续。
+    autoFrameEnabled = false;
+    var audioBefore = Voxel.Sound.audioStateSnapshot ? Voxel.Sound.audioStateSnapshot() : null;
+    var sfxExpected = Voxel.Assets && Voxel.Assets.chunks && Voxel.Assets.chunks.sfx
+      ? Voxel.Assets.chunks.sfx.count : 0;
     var dec = Voxel.Sound.decodedCount ? Voxel.Sound.decodedCount() : -1;
-    check('音频采样已解码 (' + dec + ' 个)', dec >= 40);
+    check('SFX已完整解码且未预解码整套BGM (' + dec + '/' + sfxExpected + '+当前BGM)', !!audioBefore &&
+      sfxExpected > 0 && dec >= sfxExpected && dec <= sfxExpected + 1 &&
+      audioBefore.chunks.sfx.state === 'loaded' &&
+      audioBefore.chunks['music-day'].requestCount <= 1 && audioBefore.chunks['music-night'].requestCount <= 1);
+
+    function waitForMusic(mode, done, tries) {
+      var snap = Voxel.Sound.musicStateSnapshot();
+      var expected = 'music_' + mode;
+      if (snap.mode === mode && snap.name === expected && snap.sourceActive &&
+        (!snap.playingName || snap.playingName === expected)) return done(snap, true);
+      if ((tries || 0) >= 120) return done(snap, false);
+      wait(50, function () { waitForMusic(mode, done, (tries || 0) + 1); });
+    }
+
     Voxel.Sound.setMusic('day');
-    var dayMusic = Voxel.Sound.musicStateSnapshot();
-    Voxel.Sound.setMusic('night');
-    var nightMusic = Voxel.Sound.musicStateSnapshot();
-    check('昼夜切歌不留下会误停新曲的旧source计时器', dayMusic.mode === 'day' &&
-      dayMusic.name === 'music_day' && dayMusic.sourceActive && nightMusic.mode === 'night' &&
-      nightMusic.name === 'music_night' && nightMusic.sourceActive && !nightMusic.stopPending);
-    Voxel.Sound.setMusic('off');
-    var offMusic = Voxel.Sound.musicStateSnapshot();
-    check('关闭音乐只为捕获的旧source安排淡出停止', offMusic.mode === 'off' &&
-      offMusic.name === '' && offMusic.sourceActive && offMusic.stopPending);
+    waitForMusic('day', function (dayMusic, dayReady) {
+      Voxel.Sound.setMusic('night');
+      waitForMusic('night', function (nightMusic, nightReady) {
+        check('昼夜BGM按需加载并且旧source不会误停新曲', dayReady && nightReady &&
+          dayMusic.mode === 'day' && dayMusic.name === 'music_day' && dayMusic.sourceActive &&
+          nightMusic.mode === 'night' && nightMusic.name === 'music_night' &&
+          (!nightMusic.playingName || nightMusic.playingName === 'music_night') && !nightMusic.stopPending);
+        Voxel.Sound.setMusic('off');
+        var offMusic = Voxel.Sound.musicStateSnapshot();
+        check('关闭音乐只为捕获的旧source安排淡出停止', offMusic.mode === 'off' &&
+          offMusic.name === '' && offMusic.sourceActive && offMusic.stopPending);
+        autoFrameEnabled = true;
+        stepEAfterAudio();
+      });
+    });
+  }
+
+  function stepEAfterAudio() {
     if (Voxel.Sound.spatial) {
       var sp = Voxel.Sound.spatial(Voxel.Player.pos().x + 5, Voxel.Player.pos().z);
       check('spatial 返回 vol/pan', typeof sp.vol === 'number' && sp.vol > 0 && sp.vol <= 1 && Math.abs(sp.pan) <= 1);
@@ -2572,20 +2630,47 @@
           settings.classList.contains('hidden') && doc.activeElement === menuSettings);
 
         var featuredTrigger = doc.getElementById('btn-featured');
+        var resourcesBeforeFeatured = featuredResourceCount();
         featuredTrigger.focus(); featuredTrigger.click();
-        wait(20, function () {
+        wait(250, function () {
           var featured = doc.getElementById('overlay-featured');
           var card = doc.querySelector('.featured-card');
           var back = doc.getElementById('btn-featured-back');
+          var firstOpenCards = Array.prototype.slice.call(doc.querySelectorAll('.featured-card'));
+          var firstOpenImages = Array.prototype.slice.call(doc.querySelectorAll('.featured-thumb img'));
           check('featured初始焦点首卡且menu背景inert', Voxel.Game.state === 'featured' &&
             doc.activeElement === card && doc.getElementById('overlay-start').inert === true);
-          back.focus(); press(back, 'Tab', 'Tab');
-          var featuredForward = doc.activeElement === card;
-          card.focus(); press(card, 'Tab', 'Tab', { shiftKey: true });
-          check('featured Tab/ShiftTab在首卡/返回间循环', featuredForward && doc.activeElement === back);
+          check('首次打开精选面板才为19张缩略图注入唯一src', firstOpenImages.length === 19 &&
+            firstOpenImages.every(function (img) {
+              return img.hasAttribute('src') && /\/screenshots\/biomes\//.test(img.getAttribute('src'));
+            }) && new Set(firstOpenImages.map(function (img) { return img.src; })).size === 19 &&
+            featuredSrcMutations === 19);
 
-          card.focus(); card.click();
-          wait(20, function () {
+          // 先关闭再打开一次，验证沿用同一批卡片与图片，不重新挂 src/发请求。
+          press(card, 'Escape', 'Escape');
+          wait(100, function () {
+            var resourcesAfterFirstOpen = featuredResourceCount();
+            featuredTrigger.click();
+            wait(250, function () {
+              var secondOpenCards = Array.prototype.slice.call(doc.querySelectorAll('.featured-card'));
+              var resourcesAfterSecondOpen = featuredResourceCount();
+              card = doc.querySelector('.featured-card');
+              check('重复打开精选面板复用卡片且不重复注入/请求缩略图',
+                secondOpenCards.length === 19 && secondOpenCards.every(function (node, index) {
+                  return node === firstOpenCards[index] && node === initialFeaturedCards[index];
+                }) && featuredSrcMutations === 19 &&
+                resourcesAfterSecondOpen === resourcesAfterFirstOpen &&
+                resourcesAfterFirstOpen - resourcesBeforeFeatured <= 19);
+              check('重复打开后精选卡片焦点与按钮语义仍正常', Voxel.Game.state === 'featured' &&
+                doc.activeElement === card && card.getAttribute('role') === 'button' && card.tabIndex === 0);
+
+              back.focus(); press(back, 'Tab', 'Tab');
+              var featuredForward = doc.activeElement === card;
+              card.focus(); press(card, 'Tab', 'Tab', { shiftKey: true });
+              check('featured Tab/ShiftTab在首卡/返回间循环', featuredForward && doc.activeElement === back);
+
+              card.focus(); card.click();
+              wait(20, function () {
             var replace = doc.getElementById('overlay-world-replace');
             var cancel = doc.getElementById('btn-world-replace-cancel');
             var confirm = doc.getElementById('btn-world-replace-confirm');
@@ -2605,6 +2690,8 @@
                   featured.classList.contains('hidden') && doc.activeElement === featuredTrigger);
                 done();
               });
+            });
+          });
             });
           });
         });
@@ -2663,12 +2750,21 @@
     var T2 = Voxel.Game._test;
     T2.clearInv();
     T2.addInv(3, 5); // 背包塞 5 个石头
+    var stopEnvironmentCalls = 0;
+    var originalStopEnvironment = Voxel.Sound.stopEnvironment;
+    Voxel.Sound.stopEnvironment = function () {
+      stopEnvironmentCalls++;
+      return originalStopEnvironment.apply(Voxel.Sound, arguments);
+    };
     if (Voxel.Game.state === 'playing') {
       Voxel.Game.onKey('KeyP');
       doc.getElementById('btn-menu').click();
     }
+    Voxel.Sound.stopEnvironment = originalStopEnvironment;
     check('存档保护与menu模态测试已回到主菜单', Voxel.Game.state === 'menu' &&
       !doc.getElementById('overlay-start').classList.contains('hidden'));
+    check('返回主菜单统一关闭BGM/雨声/水下环境音', stopEnvironmentCalls === 1 &&
+      Voxel.Sound.musicStateSnapshot().mode === 'off');
     menuDataSafetyRegression();
     menuModalRegression(function () { continueStepReset(); });
   }

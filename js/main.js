@@ -2225,6 +2225,7 @@ Voxel.Game = (function () {
     doSave(true);
     stopDig();
     manualCraftStop();
+    if (Voxel.Sound && Voxel.Sound.stopEnvironment) Voxel.Sound.stopEnvironment();
     document.getElementById('overlay-pause').classList.add('hidden');
     syncMainMenu();
     showOverlay('overlay-start');
