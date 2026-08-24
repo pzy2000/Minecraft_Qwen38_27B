@@ -15,8 +15,9 @@ const executablePath = candidates.map(which).find(Boolean);
 if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
 function check(name, ok) { if (!ok) throw new Error('FAIL ' + name); console.log('  ok  ' + name); }
 
+let browser;
 (async () => {
-  const browser = await puppeteer.launch({ executablePath, headless: 'new',
+  browser = await puppeteer.launch({ executablePath, headless: 'new',
     args: ['--no-sandbox','--disable-gpu','--use-gl=swiftshader','--enable-unsafe-swiftshader'] });
   const page = await browser.newPage();
   await page.setViewport({ width: 1100, height: 700 });
@@ -69,4 +70,9 @@ function check(name, ok) { if (!ok) throw new Error('FAIL ' + name); console.log
   check('页面无未捕获异常', errors.length === 0);
   await browser.close();
   console.log('\nCOCKPIT-RESUME-PASS');
-})().catch(e => { console.error(e.stack || e); process.exitCode = 1; });
+})().catch(e => {
+  console.error(e.stack || e);
+  process.exitCode = 1;
+  try { if (browser) browser.close(); } catch (_) { }
+  process.exit(1);
+});

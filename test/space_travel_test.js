@@ -27,8 +27,9 @@ function which(p) {
 const executablePath = candidates.map(which).find(Boolean);
 if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
 
+let browser;
 (async () => {
-  const browser = await puppeteer.launch({
+  browser = await puppeteer.launch({
     executablePath,
     headless: 'new',
     args: ['--no-sandbox', '--disable-gpu', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--window-size=1100,700']
@@ -562,12 +563,15 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     assistBoard.aboard && assistBoard.landedReason === 'landed');
 
   await page.keyboard.down('Space');
-  await new Promise(resolve => setTimeout(resolve, 900));
-  await page.keyboard.up('Space');
-  const assistAirborne = await page.waitForFunction(() => {
-    const f = Voxel.SpaceTravel.flightStatus();
-    return !f.landed && f.altitude > 1.5 ? f.altitude : null;
-  }, { timeout: 8000, polling: 100 });
+  try {
+    // 慢速软件渲染下起飞需要更多真实时间：按住推力直至离地（上限 20s），再松键
+    await page.waitForFunction(() => {
+      const f = Voxel.SpaceTravel.flightStatus();
+      return !f.landed && f.altitude > 1.5 ? f.altitude : null;
+    }, { timeout: 20000, polling: 100 });
+  } finally {
+    await page.keyboard.up('Space');
+  }
 
   const assistCancel = await page.evaluate(() => {
     const engaged = Voxel.SpaceTravel.engageLandingAssist();
@@ -1358,4 +1362,6 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
 })().catch(async e => {
   console.error(e.stack || e.message);
   process.exitCode = 1;
+  try { if (browser) await browser.close(); } catch (_) { }
+  process.exit(1);
 });
