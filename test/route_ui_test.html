@@ -10,12 +10,7 @@
 <canvas id="game" aria-hidden="true"></canvas>
 <div class="touch-capture" aria-hidden="true"></div>
 
-<div id="overlay-starmap" class="overlay" data-mode="remote" data-purging="false"
-     data-impact="false" data-hazard="none" style="--cockpit-hazard: 0%">
-  <div class="cockpit-viewport" aria-hidden="true">
-    <i class="cockpit-canopy cockpit-canopy-left"></i><i class="cockpit-canopy cockpit-canopy-right"></i>
-    <i class="cockpit-horizon"></i><i class="cockpit-reticle"></i><i class="cockpit-scanline"></i>
-  </div>
+<div id="overlay-starmap" class="overlay" data-mode="remote">
   <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title"
        aria-describedby="starmap-status starmap-help">
     <div class="panel-titlebar">
@@ -26,27 +21,6 @@
       </div>
       <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
     </div>
-
-    <section id="cockpit-systems" hidden aria-hidden="true" data-state="safe"
-             aria-labelledby="cockpit-shelter-state" aria-describedby="cockpit-shelter-detail">
-      <div class="cockpit-radar" aria-hidden="true"><i></i><i></i><i></i><b>ARK</b></div>
-      <div class="cockpit-shelter-copy">
-        <span class="cockpit-system-kicker">LIFE SUPPORT // SEALED REFUGE</span>
-        <strong id="cockpit-shelter-state">密封完成 · 净化循环</strong>
-        <small id="cockpit-shelter-detail">毒性暴露已隔绝 · 残留暴露正降至 0%</small>
-        <div id="cockpit-hazard-meter" role="progressbar" aria-label="舱内有害环境残留"
-             aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" aria-valuetext="有害环境残留 42%，正在净化">
-          <span>HAZARD PURGE</span><i aria-hidden="true"></i><b id="cockpit-hazard-value">42%</b>
-        </div>
-      </div>
-      <dl class="cockpit-telemetry" aria-label="飞船系统遥测">
-        <div><dt>舱压 / 氧气</dt><dd id="cockpit-atmosphere-value">O₂ 98% · 1.00 ATM</dd></div>
-        <div><dt>舱体完整度</dt><dd id="cockpit-hull-value">100%</dd></div>
-        <div><dt>跃迁能量</dt><dd id="cockpit-engine-value">8/100</dd></div>
-        <div><dt>外界气象</dt><dd id="cockpit-weather-value">夜间 · 孢子雨</dd></div>
-      </dl>
-      <button id="btn-cockpit-exit" type="button" hidden disabled aria-disabled="true">离舰</button>
-    </section>
 
     <section id="starmap-cockpit" data-state="insufficient" aria-labelledby="cockpit-title"
              aria-describedby="cockpit-selection">
@@ -210,38 +184,9 @@
     check('末张航线卡完整滚入grid', inside(cards[cards.length - 1], grid));
     check('末张航线卡至少44px且中心命中', rect(cards[cards.length - 1]).height >= 44 && selfHit(cards[cards.length - 1]));
 
-    var overlay = document.getElementById('overlay-starmap');
-    var systems = document.getElementById('cockpit-systems');
-    var exit = document.getElementById('btn-cockpit-exit');
-    overlay.dataset.mode = 'boarded';
-    overlay.dataset.purging = 'true';
-    overlay.style.setProperty('--cockpit-hazard', '42%');
-    systems.hidden = false;
-    systems.setAttribute('aria-hidden', 'false');
-    systems.dataset.state = 'purging';
-    exit.hidden = false;
-    exit.disabled = false;
-    exit.setAttribute('aria-disabled', 'false');
-    await frame();
-    check('登舰座舱系统面板可见且完整留在主面板/视口', visible(systems) && inside(systems, panel) &&
-      inViewport(panel) && inViewport(systems) && inViewport(exit));
-    check('座舱标题/引擎状态不会压住生命维持面板',
-      rect(document.querySelector('.starmap-panel .panel-titlebar')).bottom <= rect(systems).top + .5);
-    check('离舰入口保持44px触控目标且中心命中', rect(exit).width >= 44 && rect(exit).height >= 44 && selfHit(exit));
-    check('净化HUD保留有限progressbar与动态42%填充',
-      document.getElementById('cockpit-hazard-meter').getAttribute('aria-valuenow') === '42' &&
-      document.getElementById('cockpit-hazard-value').textContent === '42%' &&
-      Number.isFinite(parseFloat(getComputedStyle(document.querySelector('#cockpit-hazard-meter > i'), '::after').width)) &&
-      parseFloat(getComputedStyle(document.querySelector('#cockpit-hazard-meter > i'), '::after').width) > 0);
-    check('登舰座舱不扩张页面', document.documentElement.scrollWidth <= innerWidth + 1 &&
-      document.documentElement.scrollHeight <= innerHeight + 1);
-
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
       check('reduced关闭active route动画', getComputedStyle(activeRoute).animationName === 'none');
       check('reduced关闭卡片过渡', getComputedStyle(cards[1]).transitionDuration === '0s');
-      check('reduced关闭座舱扫描与雷达动画',
-        getComputedStyle(document.querySelector('.cockpit-scanline')).animationName === 'none' &&
-        getComputedStyle(document.querySelector('.cockpit-radar'), '::before').animationName === 'none');
     }
 
     results.textContent = lines.join('\n');

@@ -59,12 +59,13 @@ Voxel.Game = (function () {
   var uwFade = 0;   // 水下滤镜渐变系数 0~1
   var _uwColor = new THREE.Color(0x14507e);
   var _tint = new THREE.Color(), _sky = new THREE.Color(), _skyTop = new THREE.Color();
+  var _cockpitProxy = new THREE.Vector3(), _cockpitVelocity = new THREE.Vector3();
 
   function setState(s) {
     // playing/furnace 是活跃固定时钟；任一端跨状态都清余量，离开活跃态时
     // 使墙钟基线失效，避免 furnace→manual→furnace 等路径补算隐藏时间。
-    var wasActive = state === 'playing' || state === 'furnace';
-    var nextActive = s === 'playing' || s === 'furnace';
+    var wasActive = state === 'playing' || state === 'furnace' || state === 'cockpit';
+    var nextActive = s === 'playing' || s === 'furnace' || s === 'cockpit';
     if (state !== s && (wasActive || nextActive)) {
       simAccumulator = 0;
       // 离开活跃模拟态时先使墙钟基线失效；若面板期间仍有渲染帧，frame() 会自然
@@ -87,7 +88,7 @@ Voxel.Game = (function () {
   var modalStack = [];
   var intentionalUnlockPending = false, intentionalUnlockTimer = null;
   var MODAL_LAYER_IDS = [
-    'game', 'hud', 'btn-starmap-hud', 'btn-scan-hud', 'btn-discovery-log',
+    'game', 'hud', 'cockpit-hud', 'btn-starmap-hud', 'btn-scan-hud', 'btn-discovery-log',
     'inventory', 'crafting', 'furnace', 'chest', 'manual',
     'overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-featured',
     'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'rotate-hint'
@@ -139,11 +140,13 @@ Voxel.Game = (function () {
       // btn-starmap-hud 仍由下一项单独 inert。其他模态继续冻结整个 HUD。
       if (top && el.id === 'hud' && ['inventory', 'crafting', 'furnace', 'chest'].indexOf(top.state) >= 0)
         active = true;
-      var idleGameLayer = !top && (el.id === 'game' || el.id === 'hud' ||
+      var idleGameLayer = !top && (el.id === 'game' || el.id === 'hud' || el.id === 'cockpit-hud' ||
         el.id === 'btn-starmap-hud' || el.id === 'btn-scan-hud' || el.id === 'btn-discovery-log');
-      el.inert = top ? !active : (idleGameLayer && state !== 'playing');
+      var idleActive = el.id === 'game' ? (state === 'playing' || state === 'cockpit') :
+        (el.id === 'cockpit-hud' ? state === 'cockpit' : state === 'playing');
+      el.inert = top ? !active : (idleGameLayer && !idleActive);
       if (top) el.setAttribute('aria-hidden', active ? 'false' : 'true');
-      else if (idleGameLayer && state !== 'playing') el.setAttribute('aria-hidden', 'true');
+      else if (idleGameLayer && !idleActive) el.setAttribute('aria-hidden', 'true');
       else if (el.classList && el.classList.contains('hidden')) el.setAttribute('aria-hidden', 'true');
       else el.removeAttribute('aria-hidden');
     }
@@ -760,18 +763,20 @@ Voxel.Game = (function () {
       if (p && p.pos && p.pos.length === 3) {
         var vx = +p.pos[0], vy = +p.pos[1], vz = +p.pos[2];
         var vyaw = +p.yaw, vpitch = +p.pitch;
+        var savedAboard = p.aboard === true && currentWorld && currentWorld.kind === 'planet';
         var savedStand = new THREE.Vector3(vx, vy, vz);
         if (!isFinite(vx) || !isFinite(vy) || !isFinite(vz) || vy < 2 ||
-          (Voxel.Player.canStandAt && !Voxel.Player.canStandAt(savedStand, true))) {
+          (savedAboard && (Math.abs(vx) > 30000000 || vy > 122 || Math.abs(vz) > 30000000)) ||
+          (!savedAboard && Voxel.Player.canStandAt && !Voxel.Player.canStandAt(savedStand, true))) {
           Voxel.Player.initAtSpawn();
         } else {
           if (!isFinite(vyaw)) vyaw = 0;
           if (!isFinite(vpitch)) vpitch = 0;
           Voxel.Player.init(savedStand, vyaw, vpitch);
           Voxel.Player.setFlying(!!p.fly);
-          Voxel.Player.setHp(typeof p.hp === 'number' && isFinite(p.hp) ? p.hp : C.HP);
-          if (typeof p.food === 'number' && isFinite(p.food)) Voxel.Player.setFood(p.food);
         }
+        Voxel.Player.setHp(typeof p.hp === 'number' && isFinite(p.hp) ? p.hp : C.HP);
+        if (typeof p.food === 'number' && isFinite(p.food)) Voxel.Player.setFood(p.food);
       } else Voxel.Player.initAtSpawn();
       // 死亡画面无法跨页面恢复；重载死亡存档时按床/当前世界出生点安全重生。
       if (loadedDead) Voxel.Player.respawn();
@@ -829,7 +834,8 @@ Voxel.Game = (function () {
     }
     if (Voxel.SpaceTravel && (!Voxel.SpaceTravel.currentWorld ||
       Voxel.SpaceTravel.currentWorld() !== currentWorld))
-      Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
+      Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState,
+        saveData && Object.prototype.hasOwnProperty.call(saveData, 'shipFlight') ? saveData.shipFlight : undefined);
     if (Voxel.SpaceTravel && Voxel.SpaceTravel.syncPortalOccupancy)
       Voxel.SpaceTravel.syncPortalOccupancy();
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.hideWarp();
@@ -861,7 +867,32 @@ Voxel.Game = (function () {
       syncFlightVisual(commitTx);
       return;
     }
-    setState('playing');
+    var requestedAboardResume = !!(saveData && saveData.player && saveData.player.aboard === true &&
+      currentWorld && currentWorld.kind === 'planet');
+    var resumeAboard = !!(requestedAboardResume &&
+      currentWorld && currentWorld.kind === 'planet' && Voxel.SpaceTravel &&
+      Voxel.SpaceTravel.restoreBoarding && Voxel.SpaceTravel.restoreBoarding());
+    if (resumeAboard) {
+      Voxel.Controls.setYaw(0);
+      Voxel.Controls.setPitch(0);
+      if (Voxel.Player.setFlying) Voxel.Player.setFlying(false);
+      if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
+      setState('cockpit');
+      if (Voxel.SpaceTravel.applyCockpitCamera) Voxel.SpaceTravel.applyCockpitCamera(camera);
+      if (Voxel.SpaceTravel.syncCockpit) Voxel.SpaceTravel.syncCockpit(true);
+      tryLock();
+      Voxel.HUD.toast('已恢复飞船座舱与飞行姿态');
+    } else {
+      if (requestedAboardResume) {
+        var fallbackHp = saveData.player && isFinite(saveData.player.hp) ? saveData.player.hp : C.HP;
+        var fallbackFood = saveData.player && isFinite(saveData.player.food) ? saveData.player.food : C.FOOD_MAX;
+        Voxel.Player.initAtSpawn();
+        Voxel.Player.setHp(fallbackHp);
+        Voxel.Player.setFood(fallbackFood);
+        Voxel.HUD.toast('飞船姿态损坏 · 已安全回退到地表出生点');
+      }
+      setState('playing');
+    }
     // 新世界/普通读档的首次提交；跃迁使用上方的强制verified commit。
     // 失败恢复必须让已验证的来源存档保持逐字节权威；重新载入来源时若立刻
     // 自动保存，会因昼夜时钟的细微规范化改写原始字节，削弱事务回滚保证。
@@ -873,7 +904,7 @@ Voxel.Game = (function () {
       travelRollbackHealthPending = false;
       Voxel.HUD.toast(travelRecoveryNotice);
       travelRecoveryNotice = '';
-    } else if (Voxel.SpaceTravel && Voxel.SpaceTravel.showArrivalCard) {
+    } else if (!resumeAboard && Voxel.SpaceTravel && Voxel.SpaceTravel.showArrivalCard) {
       Voxel.SpaceTravel.showArrivalCard(null, currentWorld, saveData ? 'resume' : 'landing',
         { firstVisit: !saveData, silent: true });
     }
@@ -893,6 +924,8 @@ Voxel.Game = (function () {
     var food = Voxel.Player.food();
     var environment = Voxel.Environment && Voxel.Environment.snapshot
       ? Voxel.Environment.snapshot() : null;
+    var shipFlight = Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
+      ? Voxel.SpaceTravel.flightSnapshot() : null;
     var drops = Voxel.Drops && Voxel.Drops.snapshot ? Voxel.Drops.snapshot() : [];
     var meta = Voxel.World.getAllMeta();
     var edits = Voxel.World.getEdits();
@@ -910,8 +943,10 @@ Voxel.Game = (function () {
       weather: weather,
       player: {
         pos: [p.x, p.y, p.z], yaw: yaw, pitch: pitch,
-        fly: flying, hp: hp, food: food, environment: environment
+        fly: flying, hp: hp, food: food, environment: environment,
+        aboard: !!(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard())
       },
+      shipFlight: shipFlight,
       bed: bed ? [bed.x, bed.y, bed.z] : null,
       drops: drops
     };
@@ -1094,8 +1129,8 @@ Voxel.Game = (function () {
   function doSave(silent, source) {
     source = source || (silent ? 'game' : 'manual');
     var manualSaveable = state === 'manual' &&
-      ['playing', 'paused', 'inventory', 'crafting', 'furnace', 'chest', 'dead'].indexOf(manualReturnState) >= 0;
-    if (state !== 'playing' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
+      ['playing', 'cockpit', 'paused', 'inventory', 'crafting', 'furnace', 'chest', 'dead'].indexOf(manualReturnState) >= 0;
+    if (state !== 'playing' && state !== 'cockpit' && state !== 'paused' && state !== 'inventory' && state !== 'crafting' &&
       state !== 'furnace' && state !== 'chest' && state !== 'starmap' && state !== 'discovery' &&
       state !== 'arriving' && state !== 'sleeping' &&
       !manualSaveable && state !== 'dead') return false;
@@ -1118,6 +1153,7 @@ Voxel.Game = (function () {
         time: snapshot.time,
         weather: snapshot.weather,
         player: snapshot.player,
+        shipFlight: snapshot.shipFlight,
         inv: inv,
         cnt: cnt,
         held: heldItem,
@@ -2426,14 +2462,15 @@ Voxel.Game = (function () {
   }
 
   function pause() {
-    if (state !== 'playing') return;
+    if (state !== 'playing' && state !== 'cockpit') return;
+    var returnState = state;
     var pauseFeedback = document.getElementById('pause-save-feedback');
     setAttributeIfChanged(pauseFeedback, 'role', 'status');
     setAttributeIfChanged(pauseFeedback, 'aria-live', 'polite');
     setTextIfChanged(pauseFeedback, '');
     doSave(true, 'pause');
     openModalLayer({
-      id: 'overlay-pause', state: 'paused', returnState: 'playing',
+      id: 'overlay-pause', state: 'paused', returnState: returnState,
       initialFocus: '#btn-resume', closeKeys: ['KeyP'], manualKey: true, onEscape: resume
     });
   }
@@ -2445,6 +2482,10 @@ Voxel.Game = (function () {
     if (wasDead && Voxel.Environment && Voxel.Environment.status)
       syncEnvironmentHUD(Voxel.Environment.status(), true);
     closeModalLayer(wasDead ? 'overlay-dead' : 'overlay-pause', false);
+    if (!wasDead && state === 'cockpit') {
+      if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
+      tryLock();
+    }
     // 重生位置、已失效床位清理和恢复后的生命状态立即落盘。
     if (wasDead) doSave(true, 'respawn');
   }
@@ -2472,20 +2513,10 @@ Voxel.Game = (function () {
     return true;
   }
 
-  function openStarMap(options) {
-    if (state !== 'playing') return false;
-    options = options && typeof options === 'object' ? options : {};
-    var boardedNow = false;
-    if (options.board === true) {
-      if (!(Voxel.SpaceTravel && Voxel.SpaceTravel.boardShip && Voxel.SpaceTravel.boardShip())) {
-        Voxel.HUD.toast('需要靠近飞船舱门才能登舰');
-        return false;
-      }
-      boardedNow = true;
-    }
+  function openStarMap() {
+    if (state !== 'playing' && state !== 'cockpit') return false;
+    var returnState = state;
     if (!Voxel.SpaceTravel || !Voxel.SpaceTravel.canOpenMap()) {
-      if (boardedNow && Voxel.SpaceTravel.disembarkShip)
-        Voxel.SpaceTravel.disembarkShip({ silent: true });
       Voxel.HUD.toast('需要靠近飞船，或在空间站航行终端内使用星图');
       return false;
     }
@@ -2493,28 +2524,67 @@ Voxel.Game = (function () {
     Voxel.SpaceTravel.showMap();
     if (Voxel.SpaceTravel.setSelectedDestination) Voxel.SpaceTravel.setSelectedDestination(null);
     var opened = openModalLayer({
-      id: 'overlay-starmap', state: 'starmap', returnState: 'playing',
+      id: 'overlay-starmap', state: 'starmap', returnState: returnState,
       initialFocus: function () {
         return document.querySelector('#starmap-grid .star-card:not(:disabled)') || document.getElementById('btn-starmap-close');
       },
       closeKeys: ['KeyH', 'KeyE'], onEscape: closeStarMap
     });
-    if (!opened && boardedNow && Voxel.SpaceTravel.disembarkShip)
-      Voxel.SpaceTravel.disembarkShip({ silent: true });
     return !!opened;
   }
 
   function boardShip() {
-    return openStarMap({ board: true });
+    if (state !== 'playing' || !(Voxel.SpaceTravel && Voxel.SpaceTravel.boardShip && Voxel.SpaceTravel.boardShip())) {
+      Voxel.HUD.toast('需要靠近飞船舱门才能登舰');
+      return false;
+    }
+    stopDig();
+    mouseDown[0] = mouseDown[1] = mouseDown[2] = false;
+    Voxel.Controls.setYaw(0);
+    Voxel.Controls.setPitch(0);
+    if (Voxel.Player.setFlying) Voxel.Player.setFlying(false);
+    if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
+    setState('cockpit');
+    syncModalAccessibility();
+    tryLock();
+    Voxel.HUD.toast('座舱密封完成 · W/S推进制动 · 鼠标转向 · H星图 · E离舰');
+    return true;
+  }
+
+  function exitCockpit() {
+    if (state !== 'cockpit' || !(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard()))
+      return false;
+    var exit = Voxel.SpaceTravel.safeExitPosition && Voxel.SpaceTravel.safeExitPosition();
+    if (!exit) {
+      Voxel.HUD.toast('无法离舰 · 请先在干燥平整地面安全着陆');
+      return false;
+    }
+    var flight = Voxel.SpaceTravel.flightSnapshot ? Voxel.SpaceTravel.flightSnapshot() : null;
+    ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight'].forEach(function (code) {
+      Voxel.Controls.keys[code] = false;
+    });
+    Voxel.SpaceTravel.disembarkShip();
+    Voxel.Player.pos().copy(exit);
+    Voxel.Player.vel().set(0, 0, 0);
+    if (Voxel.Player.setFlying) Voxel.Player.setFlying(false);
+    Voxel.Controls.setYaw(flight && isFinite(flight.yaw) ? flight.yaw : 0);
+    Voxel.Controls.setPitch(-0.12);
+    if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(true);
+    setState('playing');
+    syncModalAccessibility();
+    tryLock();
+    Voxel.HUD.toast('已离舰 · 外界环境暴露重新启用');
+    return true;
   }
 
   function closeStarMap() {
     if (state !== 'starmap') return false;
     selectedTravelId = null;
-    var wasAboard = !!(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard());
-    if (wasAboard && Voxel.SpaceTravel.disembarkShip) Voxel.SpaceTravel.disembarkShip();
     var closed = closeModalLayer('overlay-starmap', false);
-    if (closed && wasAboard) Voxel.HUD.toast('已离舰 · 外界环境暴露重新启用');
+    if (closed && state === 'cockpit') {
+      if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
+      tryLock();
+    }
     return closed;
   }
 
@@ -2946,11 +3016,16 @@ Voxel.Game = (function () {
   }
 
   function requestTravel(destinationId, mode, portalProof) {
-    if ((state !== 'playing' && state !== 'starmap') || pendingTravel) return false;
+    if ((state !== 'playing' && state !== 'cockpit' && state !== 'starmap') || pendingTravel) return false;
     var travelOriginState = state;
     mode = mode === 'portal' ? 'portal' : 'ship';
     var dest = Voxel.Galaxy.find(galaxyState, destinationId);
     if (!dest || !currentWorld || dest.id === currentWorld.id) return false;
+    if (mode === 'ship' && currentWorld.kind === 'planet' &&
+      !(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard())) {
+      Voxel.HUD.toast('需要先登舰，才能启动飞船跃迁');
+      return false;
+    }
     if (mode === 'portal' && !(Voxel.SpaceTravel && Voxel.SpaceTravel.authorizePortalTravel &&
       Voxel.SpaceTravel.authorizePortalTravel(portalProof, dest.id))) {
       Voxel.HUD.toast('传送门旅行必须从当前世界的真实门径进入');
@@ -2998,6 +3073,7 @@ Voxel.Game = (function () {
       // World.spawnPoint 安全泊位进入；旧位置仍保存在 galaxy.worlds 中，
       // 但不会作为 transit 玩家坐标复用。
       player: null,
+      shipFlight: null,
       inv: inv.slice(), cnt: cnt.slice(), dur: dur.slice(),
       held: heldItem, heldCnt: heldCnt, heldDur: heldDur,
       craftGrid: craftGrid.slice(), invCraftGrid: invCraftGrid.slice(),
@@ -3105,6 +3181,9 @@ Voxel.Game = (function () {
   }
 
   function onPlayerDead() {
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard() &&
+      Voxel.SpaceTravel.disembarkShip) Voxel.SpaceTravel.disembarkShip({ silent: true });
+    if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(true);
     if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(Voxel.Player.lastDamageCause());
     doSave(true, 'death');
     openModalLayer({
@@ -3126,7 +3205,7 @@ Voxel.Game = (function () {
   }
 
   function onLockError() {
-    if (state === 'playing') Voxel.HUD.toast('鼠标锁定失败，请点击画面重试');
+    if (state === 'playing' || state === 'cockpit') Voxel.HUD.toast('鼠标锁定失败，请点击画面重试');
   }
 
   function onKey(code) {
@@ -3175,6 +3254,11 @@ Voxel.Game = (function () {
       else if (code === 'F3') debug = !debug;
       else if (code === 'KeyP') pause();
       else if (code === 'KeyM') openManual();
+    } else if (state === 'cockpit') {
+      if (code === 'KeyH') openStarMap();
+      else if (code === 'KeyE') exitCockpit();
+      else if (code === 'KeyP') pause();
+      else if (code === 'F3') debug = !debug;
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape') resume();
       else if (code === 'KeyM') openManual();
@@ -3467,7 +3551,7 @@ Voxel.Game = (function () {
       }
     }
     // 鼠标未锁定时常驻提示（值变化才写 DOM，避免每帧样式赋值）
-    var hintShow = (state === 'playing' && !Voxel.Controls.isLocked()) ? 'block' : 'none';
+    var hintShow = ((state === 'playing' || state === 'cockpit') && !Voxel.Controls.isLocked()) ? 'block' : 'none';
     if (hintShow !== lastLockHint) {
       lastLockHint = hintShow;
       document.getElementById('lock-hint').style.display = hintShow;
@@ -3551,6 +3635,67 @@ Voxel.Game = (function () {
     tickActiveScan(step);
   }
 
+  function cockpitInput() {
+    var K = Voxel.Controls.keys;
+    var yawDeflect = Math.max(-1, Math.min(1, Voxel.Controls.yaw() / 0.35));
+    var pitchDeflect = Math.max(-1, Math.min(1, Voxel.Controls.pitch() / 0.28));
+    var bank = (K.KeyD || K.ArrowRight ? 1 : 0) - (K.KeyA || K.ArrowLeft ? 1 : 0);
+    var lift = (K.Space ? 1 : 0) - (K.ShiftLeft || K.ShiftRight ? 1 : 0);
+    return {
+      steerYaw: yawDeflect,
+      steerPitch: pitchDeflect,
+      bank: bank,
+      lift: lift,
+      thrust: !!(K.KeyW || K.ArrowUp),
+      brake: !!(K.KeyS || K.ArrowDown)
+    };
+  }
+
+  function cockpitFixedUpdate(step) {
+    var result = Voxel.SpaceTravel && Voxel.SpaceTravel.updateFlight
+      ? Voxel.SpaceTravel.updateFlight(step, cockpitInput()) : null;
+    Voxel.Controls.setYaw(Voxel.Controls.yaw() * 0.86);
+    Voxel.Controls.setPitch(Voxel.Controls.pitch() * 0.86);
+    var point = Voxel.SpaceTravel && Voxel.SpaceTravel.cockpitWorldPosition
+      ? Voxel.SpaceTravel.cockpitWorldPosition() : null;
+    var flight = Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
+      ? Voxel.SpaceTravel.flightSnapshot() : null;
+    if (point) {
+      _cockpitProxy.set(point.x, point.y - C.EYE, point.z);
+      if (flight) _cockpitVelocity.set(flight.velocity[0], flight.velocity[1], flight.velocity[2]);
+      else _cockpitVelocity.set(0, 0, 0);
+      if (Voxel.Player.updateBoarded) Voxel.Player.updateBoarded(step, _cockpitProxy, _cockpitVelocity);
+    }
+    tickEnvironment(step);
+    if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
+    Voxel.Drops.update(step, { allowPickup: false });
+    updateFallers(step);
+    return result;
+  }
+
+  function tickRegeneration(simulationDt) {
+    var hp = Voxel.Player.hp();
+    if (hp < lastHp) lastDmgT = performance.now() / 1000;
+    lastHp = hp;
+    var canRegen = Voxel.Player.food !== undefined && Voxel.Player.food() >= C.HEAL_FOOD_MIN;
+    if (hp > 0 && hp < C.HP && canRegen && performance.now() / 1000 - lastDmgT > 6) {
+      regenT += simulationDt;
+      if (regenT >= 4) {
+        regenT = 0;
+        Voxel.Player.heal(1);
+        Voxel.Player.addExhaust(C.HEAL_EXHAUST);
+      }
+    } else regenT = 0;
+  }
+
+  function tickAutosave(dt) {
+    autosaveT += dt;
+    if (autosaveT >= CFG.AUTOSAVE_INTERVAL) {
+      autosaveT = 0;
+      runAutosave();
+    }
+  }
+
   function frameBody(dt) {
     var startedState = state;
     frames++;
@@ -3599,7 +3744,8 @@ Voxel.Game = (function () {
         // edits/dirty账本，不会先执行数十次局部重光再紧接一次initLight。
         if (Voxel.SpaceTravel && (!Voxel.SpaceTravel.currentWorld ||
           Voxel.SpaceTravel.currentWorld() !== currentWorld))
-          Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
+          Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState,
+            saveData && Object.prototype.hasOwnProperty.call(saveData, 'shipFlight') ? saveData.shipFlight : undefined);
         Voxel.World.initLight();
       }
       if (Voxel.World.isReady()) Voxel.World.buildMeshes(6, scene);
@@ -3616,7 +3762,7 @@ Voxel.Game = (function () {
     // playing、furnace 与已登舰的 starmap 共用同一个 60Hz 累计器；加载完成并在本帧
     // 中刚切换状态时不消费旧状态 dt。furnace 只推进炉子；飞船座舱只推进密封舱
     // 环境净化，不推进玩家、Mob、掉落物、昼夜或外界天气。
-    var boardedShelterState = startedState === 'starmap' &&
+    var boardedShelterState = startedState === 'cockpit' &&
       Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard();
     if ((startedState === 'playing' || startedState === 'furnace' || boardedShelterState) &&
       state === startedState) {
@@ -3627,7 +3773,7 @@ Voxel.Game = (function () {
         simAccumulator -= FIXED_DT;
         if (simAccumulator < 0 && simAccumulator > -STEP_EPSILON) simAccumulator = 0;
         if (startedState === 'playing') fixedUpdate(FIXED_DT);
-        else if (boardedShelterState) tickEnvironment(FIXED_DT);
+        else if (boardedShelterState) cockpitFixedUpdate(FIXED_DT);
         fixedStepsThisFrame++;
         fixedStepsTotal++;
       }
@@ -3645,8 +3791,20 @@ Voxel.Game = (function () {
       if (startedState === 'furnace') {
         if (simulationDt > 0) tickFurnaces(simulationDt);
       } else if (boardedShelterState) {
-        if (Voxel.SpaceTravel && Voxel.SpaceTravel.updateCockpit)
-          Voxel.SpaceTravel.updateCockpit(dt);
+        if (simulationDt > 0) {
+          processWater(simulationDt);
+          tickFurnaces(simulationDt);
+          Voxel.DayNight.update(simulationDt);
+          Voxel.Weather.update(simulationDt);
+        }
+        if (Voxel.SpaceTravel && Voxel.SpaceTravel.applyCockpitCamera)
+          Voxel.SpaceTravel.applyCockpitCamera(camera);
+        if (Voxel.DayNight.updateCamera) Voxel.DayNight.updateCamera(camera.position);
+        Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
+        Voxel.Particles.update(dt);
+        if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
+        tickRegeneration(simulationDt);
+        tickAutosave(dt);
       } else if (state === 'playing') {
         if (!mouseDown[2] && (digT || digProg)) stopDig();
 
@@ -3671,26 +3829,9 @@ Voxel.Game = (function () {
         }
 
         // 回血属于玩法计时，使用 simulationDt；6 秒受击宽限仍由单调墙钟判定。
-        var hp = Voxel.Player.hp();
-        if (hp < lastHp) lastDmgT = performance.now() / 1000;
-        lastHp = hp;
-        var canRegen = Voxel.Player.food !== undefined &&
-          Voxel.Player.food() >= C.HEAL_FOOD_MIN;
-        if (hp > 0 && hp < C.HP && canRegen && performance.now() / 1000 - lastDmgT > 6) {
-          regenT += simulationDt;
-          if (regenT >= 4) {
-            regenT = 0;
-            Voxel.Player.heal(1);
-            Voxel.Player.addExhaust(C.HEAL_EXHAUST);
-          }
-        } else regenT = 0;
-
+        tickRegeneration(simulationDt);
         // 自动保存是基础设施墙钟，不因过载时主动丢弃模拟步而停止。
-        autosaveT += dt;
-        if (autosaveT >= CFG.AUTOSAVE_INTERVAL) {
-          autosaveT = 0;
-          runAutosave();
-        }
+        tickAutosave(dt);
       }
     }
 
@@ -3745,14 +3886,16 @@ Voxel.Game = (function () {
       Voxel.MeshBuilder.setEnv(_sky, fogNear, fogFar);
     }
 
-    if (state === 'playing') {
-      Voxel.World.setFocus(Voxel.Player.pos().x, Voxel.Player.pos().z);
+    if (state === 'playing' || state === 'cockpit') {
+      var focusPos = state === 'cockpit' && Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
+        ? Voxel.SpaceTravel.flightSnapshot().position : [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z];
+      Voxel.World.setFocus(focusPos[0], focusPos[2]);
       // 初始 256×256 核心就绪后，generateNext 继续以小预算流式生成玩家周围区块。
       Voxel.World.generateNext(Math.max(1, CFG.STREAM_GENERATE_PER_FRAME || 1));
       Voxel.World.buildMeshes(2, scene);
     }
 
-    if (debug && (state === 'playing' || state === 'paused' || state === 'inventory')) {
+    if (debug && (state === 'playing' || state === 'cockpit' || state === 'paused' || state === 'inventory')) {
       var pp = Voxel.Player.pos();
       var gl = renderer.getContext();
       var dbg = gl.getExtension('WEBGL_debug_renderer_info');
@@ -3813,6 +3956,7 @@ Voxel.Game = (function () {
     skipFlightPresentation: skipFlightPresentation,
     disembark: disembark,
     boardShip: boardShip,
+    exitCockpit: exitCockpit,
     openStarMap: openStarMap,
     closeStarMap: closeStarMap,
     startActiveScan: startActiveScan,
@@ -4089,8 +4233,9 @@ Voxel.Game = (function () {
     fallMat = new THREE.MeshBasicMaterial({ map: Voxel.Blocks.getTexture() });
 
     canvas.addEventListener('pointerdown', function (e) {
-      if (state !== 'playing') return;
+      if (state !== 'playing' && state !== 'cockpit') return;
       if (!Voxel.Controls.isLocked()) { tryLock(); return; }
+      if (state === 'cockpit') { e.preventDefault(); return; }
       mouseDown[e.button] = true;
       var nowS = performance.now() / 1000;
       if (e.button === 0) { lastPlace = nowS; doAct(0); }
@@ -4115,10 +4260,10 @@ Voxel.Game = (function () {
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     // 游戏中未锁定时，点击窗口任意位置都可请求锁定（触控模式恒锁定，自动跳过）
     document.addEventListener('pointerdown', function (e) {
-      if (state === 'playing' && !Voxel.Controls.isLocked() && e.target !== canvas) tryLock();
+      if ((state === 'playing' || state === 'cockpit') && !Voxel.Controls.isLocked() && e.target !== canvas) tryLock();
     });
     canvas.addEventListener('click', function () {
-      if (state === 'playing' && !Voxel.Controls.isLocked()) tryLock();
+      if ((state === 'playing' || state === 'cockpit') && !Voxel.Controls.isLocked()) tryLock();
     });
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
@@ -4308,7 +4453,31 @@ Voxel.Game = (function () {
     var starmapClose = document.getElementById('btn-starmap-close');
     if (starmapClose) starmapClose.addEventListener('click', closeStarMap);
     var cockpitExit = document.getElementById('btn-cockpit-exit');
-    if (cockpitExit) cockpitExit.addEventListener('click', closeStarMap);
+    if (cockpitExit) cockpitExit.addEventListener('click', exitCockpit);
+    var cockpitMap = document.getElementById('btn-cockpit-map');
+    if (cockpitMap) cockpitMap.addEventListener('click', openStarMap);
+    function bindCockpitHold(id, code) {
+      var button = document.getElementById(id);
+      if (!button) return;
+      var release = function (e) {
+        Voxel.Controls.keys[code] = false;
+        button.classList.remove('pressing');
+        if (e && e.cancelable) e.preventDefault();
+      };
+      button.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        Voxel.Controls.keys[code] = true;
+        button.classList.add('pressing');
+        try { button.setPointerCapture(e.pointerId); } catch (captureError) { }
+      });
+      button.addEventListener('pointerup', release);
+      button.addEventListener('pointercancel', release);
+      button.addEventListener('lostpointercapture', release);
+    }
+    bindCockpitHold('btn-cockpit-thrust', 'KeyW');
+    bindCockpitHold('btn-cockpit-brake', 'KeyS');
+    bindCockpitHold('btn-cockpit-up', 'Space');
+    bindCockpitHold('btn-cockpit-down', 'ShiftLeft');
     var igniteBtn = document.getElementById('btn-travel-ignite');
     if (igniteBtn) igniteBtn.addEventListener('click', igniteSelectedTravel);
     var warpSkipBtn = document.getElementById('btn-warp-skip');

@@ -21,6 +21,9 @@ Voxel.SpaceTravel = (function () {
   var rampTarget = 0, rampFrom = 0, rampChangedAt = 0, rampProgress = 0;
   var selectedDestinationId = null, flightMode = 'ship', flightSkipping = false;
   var aboardShip = false, boardedWorldId = null, cockpitSignature = '', shieldImpactUntil = 0;
+  var cockpitLastSyncAt = -Infinity;
+  var flightState = null, flightEvents = [], lastSafeExit = null, lastLandingPose = null;
+  var flightRestoreValid = true;
   var arrivalTimer = null;
   var generation = 0;
   var owned = { geometries: [], materials: [], textures: [] };
@@ -42,6 +45,15 @@ Voxel.SpaceTravel = (function () {
     [8, 0], [-8, 0], [0, 8], [0, -8]
   ];
   var _interactionPoint = new THREE.Vector3();
+  var _cockpitPoint = new THREE.Vector3();
+  var _flightCandidate = new THREE.Object3D();
+  var _flightBox = new THREE.Box3();
+  var _flightCorner = new THREE.Vector3();
+  var SHIP_LOCAL_MIN = [-5.8, 0, -6.2];
+  var SHIP_LOCAL_MAX = [5.8, 3.15, 5.05];
+  var COCKPIT_LOCAL = [0, 2.53, -1.45];
+  var EXIT_LOCAL = [3.25, 0.8, 0.5];
+  var GEAR_LOCAL = [[-1.55, 0, -2.15], [1.55, 0, -2.15], [-1.55, 0, 2.15], [1.55, 0, 2.15]];
 
   function finite(v, fallback, min, max) {
     var n = Number(v);
@@ -219,6 +231,9 @@ Voxel.SpaceTravel = (function () {
     var weather = safeText(Voxel.Weather && Voxel.Weather.label ? Voxel.Weather.label() : '', '晴', 20);
     var phase = Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight() ? '夜间' : '日间';
     var impact = sealed && visualTime() < shieldImpactUntil;
+    var flight = flightStatus();
+    var snap = flight && flight.snapshot;
+    var wt = worldText(world);
     return {
       sealed: sealed,
       purging: purging,
@@ -232,49 +247,84 @@ Voxel.SpaceTravel = (function () {
         : '外界环境稳定 · 生命维持系统在线',
       atmosphere: sealed ? 'O₂ 98% · 1.00 ATM' : '外部链路',
       hull: impact ? '导流中' : '100%',
-      engine: st.fuel + '/' + st.maxFuel,
-      exterior: phase + ' · ' + weather
+      engine: '跃迁 ' + st.fuel + '/' + st.maxFuel,
+      exterior: phase + ' · ' + weather,
+      world: wt.icon + ' ' + wt.name,
+      position: snap ? 'X ' + signed(snap.position[0], 1) + ' · Y ' + signed(snap.position[1], 1) +
+        ' · Z ' + signed(snap.position[2], 1) : '坐标不可用',
+      speed: flight ? Math.round(flight.speed * 10) / 10 : 0,
+      altitude: flight ? Math.round(flight.altitude * 10) / 10 : 0,
+      throttle: snap ? Math.round(snap.throttle * 100) : 0,
+      roll: snap ? snap.roll : 0,
+      landed: !!(flight && flight.landed),
+      canDisembark: !!(flight && flight.canDisembark),
+      flightMode: flight && flight.landed ? 'LANDED' : (flight && flight.collided ? 'ASSIST // COLLISION' : 'ATMOSPHERIC FLIGHT')
     };
+  }
+
+  function syncCockpitRadar(model) {
+    if (typeof document === 'undefined' || !ship) return;
+    for (var i = 0; i < 4; i++) {
+      var marker = document.getElementById('cockpit-radar-marker-' + i);
+      var portal = portals[i];
+      if (!marker) continue;
+      if (!portal) { marker.style.display = 'none'; continue; }
+      var dx = portal.position.x - ship.position.x, dz = portal.position.z - ship.position.z;
+      var c = Math.cos(-ship.rotation.y), s = Math.sin(-ship.rotation.y);
+      var lx = dx * c - dz * s, lz = dx * s + dz * c;
+      var scale = Math.max(1, Math.sqrt(lx * lx + lz * lz) / 28);
+      lx /= scale; lz /= scale;
+      marker.style.display = 'block';
+      marker.style.left = (50 + Math.max(-42, Math.min(42, lx / 28 * 42))) + '%';
+      marker.style.top = (50 + Math.max(-42, Math.min(42, lz / 28 * 42))) + '%';
+    }
+    var radar = document.querySelector('#cockpit-hud .cockpit-radar');
+    if (radar) radar.style.setProperty('--radar-heading', (-model.roll * 180 / Math.PI) + 'deg');
   }
 
   function syncCockpit(force) {
     if (typeof document === 'undefined') return null;
     var model = cockpitModel();
     var overlay = document.getElementById('overlay-starmap');
-    var systems = document.getElementById('cockpit-systems');
+    var systems = document.getElementById('cockpit-hud');
     var close = document.getElementById('btn-starmap-close');
     var exit = document.getElementById('btn-cockpit-exit');
+    if (systems) {
+      systems.style.setProperty('--cockpit-throttle', Math.max(0, model.throttle) + '%');
+      systems.style.setProperty('--cockpit-reverse', Math.max(0, -model.throttle) + '%');
+      systems.style.setProperty('--cockpit-roll', (model.roll * 180 / Math.PI) + 'deg');
+    }
+    var syncNow = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!force && syncNow - cockpitLastSyncAt < SCAN_INTERVAL_MS) return model;
+    cockpitLastSyncAt = syncNow;
     var signature = [model.sealed ? 1 : 0, model.purging ? 1 : 0, model.impact ? 1 : 0,
       model.percent, model.hazardKey, model.shelter, model.detail, model.atmosphere,
-      model.hull, model.engine, model.exterior].join('|');
+      model.hull, model.engine, model.exterior, model.world, model.position, model.speed,
+      model.altitude, model.throttle, Math.round(model.roll * 1000), model.landed ? 1 : 0,
+      model.canDisembark ? 1 : 0, model.flightMode].join('|');
     if (!force && signature === cockpitSignature) return model;
     cockpitSignature = signature;
     if (overlay) {
-      setAttr(overlay, 'data-mode', model.sealed ? 'boarded' : 'remote');
-      setAttr(overlay, 'data-purging', model.purging ? 'true' : 'false');
-      setAttr(overlay, 'data-impact', model.impact ? 'true' : 'false');
-      setAttr(overlay, 'data-hazard', model.hazardKey);
-      var hazardCss = model.percent + '%';
-      if (overlay.style.getPropertyValue('--cockpit-hazard') !== hazardCss)
-        overlay.style.setProperty('--cockpit-hazard', hazardCss);
+      setAttr(overlay, 'data-mode', model.sealed ? 'cockpit-link' : 'remote');
     }
     if (document.body) document.body.setAttribute('data-ship-boarded', model.sealed ? 'true' : 'false');
     if (systems) {
-      systems.hidden = !model.sealed;
       setAttr(systems, 'aria-hidden', model.sealed ? 'false' : 'true');
       setAttr(systems, 'data-state', model.impact ? 'impact' : (model.purging ? 'purging' : 'safe'));
+      setAttr(systems, 'data-landed', model.landed ? 'true' : 'false');
+      setAttr(systems, 'data-impact', model.impact ? 'true' : 'false');
+      systems.style.setProperty('--cockpit-hazard', model.percent + '%');
     }
     if (close) {
       setAttr(close, 'aria-label', model.sealed ? '离开飞船' : '关闭星图');
       setAttr(close, 'title', model.sealed ? '离开飞船' : '关闭星图');
     }
-    setText(document.getElementById('starmap-title'), model.sealed ? '方舟座舱' : '星系航行图');
+    setText(document.getElementById('starmap-title'), '星系航行图');
     var kicker = document.querySelector('#overlay-starmap .starmap-kicker');
-    setText(kicker, model.sealed ? 'EXO-ARK // SEALED FLIGHT DECK' : 'ARK NAVIGATION // ROUTE SELECT');
+    setText(kicker, model.sealed ? 'COCKPIT LINK // ROUTE SELECT' : 'ARK NAVIGATION // ROUTE SELECT');
     if (exit) {
-      exit.hidden = !model.sealed;
-      exit.disabled = !model.sealed;
-      setAttr(exit, 'aria-disabled', model.sealed ? 'false' : 'true');
+      exit.disabled = !model.canDisembark;
+      setAttr(exit, 'aria-disabled', model.canDisembark ? 'false' : 'true');
     }
     setText(document.getElementById('cockpit-shelter-state'), model.shelter);
     setText(document.getElementById('cockpit-shelter-detail'), model.detail);
@@ -283,24 +333,50 @@ Voxel.SpaceTravel = (function () {
     setText(document.getElementById('cockpit-hull-value'), model.hull);
     setText(document.getElementById('cockpit-engine-value'), model.engine);
     setText(document.getElementById('cockpit-weather-value'), model.exterior);
+    setText(document.getElementById('cockpit-world-value'), model.world);
+    setText(document.getElementById('cockpit-position-value'), model.position);
+    var speedNumber = document.querySelector('#cockpit-speed > b');
+    setText(speedNumber, model.speed.toFixed(1).replace(/\.0$/, ''));
+    setText(document.getElementById('cockpit-throttle'), model.throttle + '%');
+    setText(document.getElementById('cockpit-altitude'), model.altitude.toFixed(1).replace(/\.0$/, '') + ' m');
+    setText(document.getElementById('cockpit-flight-mode'), model.flightMode);
+    setText(document.getElementById('cockpit-exit-status'), model.canDisembark
+      ? '安全离舰就绪' : (model.landed ? '舱门外无安全站立点' : '需先安全着陆'));
+    var throttleMeter = document.querySelector('.cockpit-throttle-track');
+    if (throttleMeter) setAttr(throttleMeter, 'aria-valuenow', String(model.throttle));
     var meter = document.getElementById('cockpit-hazard-meter');
     if (meter) {
       setAttr(meter, 'aria-valuenow', String(model.percent));
       setAttr(meter, 'aria-valuetext', model.percent === 0
         ? '有害环境残留已净化至 0%' : '有害环境残留 ' + model.percent + '%，正在净化');
     }
+    syncCockpitRadar(model);
     return model;
   }
 
   function boardShip() {
-    if (!canBoardShip()) return false;
+    if (!canBoardShip() || !flightState) return false;
     aboardShip = true;
     boardedWorldId = world.id;
     shieldImpactUntil = 0;
-    setRampTarget(1, visualTime());
+    var boardingPos = Voxel.Player && Voxel.Player.pos ? Voxel.Player.pos() : null;
+    lastSafeExit = boardingPos && boardingPos.clone ? boardingPos.clone() : null;
+    setRampTarget(0, visualTime());
     syncMapButton();
     syncCockpit(true);
     announceTravel('已进入飞船密封舱；外界环境已隔绝，生命维持与净化循环启动。');
+    return true;
+  }
+
+  function restoreBoarding() {
+    if (!flightRestoreValid || !world || world.kind !== 'planet' || !ship || !flightState) return false;
+    aboardShip = true;
+    boardedWorldId = world.id;
+    shieldImpactUntil = 0;
+    setRampTarget(0, visualTime());
+    applyVisualState(visualTime());
+    syncMapButton();
+    syncCockpit(true);
     return true;
   }
 
@@ -324,10 +400,248 @@ Voxel.SpaceTravel = (function () {
     return kind === 'lightning' || !!kind;
   }
 
+  function absorbsDamage(cause) {
+    if (!isAboard()) return false;
+    return ['lightning', 'zombie', 'heat', 'cold', 'toxic', 'ash', 'pressure'].indexOf(String(cause || '')) >= 0;
+  }
+
   function updateCockpit(renderDt) {
     if (!isAboard()) return syncCockpit(false);
     if (typeof renderDt !== 'number' || !isFinite(renderDt) || renderDt < 0) renderDt = 0;
     return syncCockpit(false);
+  }
+
+  function shipFlightConfig() {
+    var raw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
+    return {
+      maxForward: raw.MAX_FORWARD, maxReverse: raw.MAX_REVERSE,
+      maxVertical: raw.MAX_VERTICAL, forwardAccel: raw.FORWARD_ACCEL,
+      brakeDecel: raw.BRAKE_DECEL, throttleUp: raw.THROTTLE_UP,
+      throttleDown: raw.THROTTLE_DOWN, yawRate: raw.YAW_RATE,
+      pitchRate: raw.PITCH_RATE, pitchLimit: raw.PITCH_LIMIT,
+      rollMax: raw.ROLL_MAX, rollResponse: raw.ROLL_RESPONSE,
+      keyYawRate: raw.KEY_YAW_RATE
+    };
+  }
+
+  function defaultFlightSnapshot() {
+    var p = ship ? ship.position : { x: 0, y: 2, z: 0 };
+    return {
+      v: 1,
+      position: [finite(p.x, 0), finite(p.y, 2, 0, 120), finite(p.z, 0)],
+      velocity: [0, 0, 0],
+      yaw: ship ? finite(ship.rotation.y, 0) : 0,
+      pitch: 0, roll: 0, throttle: 0, landed: true
+    };
+  }
+
+  function validSavedFlight(raw) {
+    if (!raw || typeof raw !== 'object' || raw.v !== 1 || !Array.isArray(raw.position) ||
+      !Array.isArray(raw.velocity) || raw.position.length !== 3 || raw.velocity.length !== 3) return false;
+    var values = raw.position.concat(raw.velocity, [raw.yaw, raw.pitch, raw.roll, raw.throttle]);
+    return values.every(function (v) { return typeof v === 'number' && isFinite(v); }) &&
+      Math.abs(raw.position[0]) <= 30000000 && raw.position[1] >= 0 && raw.position[1] <= 120 &&
+      Math.abs(raw.position[2]) <= 30000000;
+  }
+
+  function applyFlightTransform() {
+    if (!ship || !flightState) return false;
+    ship.position.set(flightState.position[0], flightState.position[1], flightState.position[2]);
+    ship.rotation.order = 'YXZ';
+    ship.rotation.set(flightState.pitch, flightState.yaw, flightState.roll);
+    ship.updateMatrixWorld(true);
+    shipBaseY = ship.position.y;
+    return true;
+  }
+
+  function flightBounds(position, attitude) {
+    _flightCandidate.position.set(position[0], position[1], position[2]);
+    _flightCandidate.rotation.order = 'YXZ';
+    _flightCandidate.rotation.set(attitude.pitch || 0, attitude.yaw || 0, attitude.roll || 0);
+    _flightCandidate.updateMatrixWorld(true);
+    _flightBox.makeEmpty();
+    for (var xi = 0; xi < 2; xi++) for (var yi = 0; yi < 2; yi++) for (var zi = 0; zi < 2; zi++) {
+      _flightCorner.set(xi ? SHIP_LOCAL_MAX[0] : SHIP_LOCAL_MIN[0],
+        yi ? SHIP_LOCAL_MAX[1] : SHIP_LOCAL_MIN[1],
+        zi ? SHIP_LOCAL_MAX[2] : SHIP_LOCAL_MIN[2]);
+      _flightCorner.applyMatrix4(_flightCandidate.matrixWorld);
+      _flightBox.expandByPoint(_flightCorner);
+    }
+    return _flightBox;
+  }
+
+  function flightCollisionCount(position, attitude) {
+    var box3 = flightBounds(position, attitude);
+    var x0 = Math.floor(box3.min.x + 0.01), x1 = Math.floor(box3.max.x - 0.01);
+    var y0 = Math.max(0, Math.floor(box3.min.y + 0.01));
+    var y1 = Math.min((Voxel.Config && Voxel.Config.WORLD_H || 64) - 1, Math.floor(box3.max.y - 0.01));
+    var z0 = Math.floor(box3.min.z + 0.01), z1 = Math.floor(box3.max.z - 0.01);
+    var checked = 0, collisions = 0;
+    for (var x = x0; x <= x1; x++) for (var z = z0; z <= z1; z++) for (var y = y0; y <= y1; y++) {
+      if (++checked > 8192) return 8192;
+      var id = Voxel.World.get(x, y, z);
+      if (!Voxel.Blocks.isSolid(id)) continue;
+      var top = y + (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].half ? 0.5 : 1);
+      if (box3.min.y < top - 0.01 && box3.max.y > y + 0.01) collisions++;
+    }
+    return collisions;
+  }
+
+  function flightBoxCollides(position, attitude) { return flightCollisionCount(position, attitude) > 0; }
+
+  function landingSurface(position, attitude) {
+    var ys = [], dry = true;
+    _flightCandidate.position.set(position[0], position[1], position[2]);
+    _flightCandidate.rotation.order = 'YXZ';
+    _flightCandidate.rotation.set(0, attitude.yaw || 0, 0);
+    _flightCandidate.updateMatrixWorld(true);
+    for (var i = 0; i < GEAR_LOCAL.length; i++) {
+      _flightCorner.set(GEAR_LOCAL[i][0], 0, GEAR_LOCAL[i][2]).applyMatrix4(_flightCandidate.matrixWorld);
+      var gx = Math.floor(_flightCorner.x), gz = Math.floor(_flightCorner.z);
+      var gy = Voxel.World.surfaceAt(gx, gz);
+      var ground = Voxel.World.get(gx, gy, gz);
+      if (!Voxel.Blocks.isSolid(ground) || ground === 7) dry = false;
+      ys.push(gy);
+    }
+    var min = Math.min.apply(Math, ys), max = Math.max.apply(Math, ys);
+    return { stable: dry && max - min <= 1, y: max + finite(Voxel.Config.SHIP_FLIGHT.SHIP_BASE_CLEARANCE, 1.02) };
+  }
+
+  function resolveFlightMove(from, proposed, velocity, attitude) {
+    var cfg = Voxel.Config.SHIP_FLIGHT;
+    var surface = Voxel.World.surfaceAt(Math.floor(proposed[0]), Math.floor(proposed[2]));
+    var minY = surface + cfg.SHIP_BASE_CLEARANCE;
+    var maxY = Math.min(cfg.MAX_ABSOLUTE_Y, minY + cfg.MAX_ALTITUDE);
+    var floorContact = proposed[1] <= minY + 0.001 && velocity[1] < 0;
+    proposed[1] = Math.max(minY, Math.min(maxY, proposed[1]));
+    var dx = proposed[0] - from[0], dy = proposed[1] - from[1], dz = proposed[2] - from[2];
+    var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (attitude.landed && distance < 1e-7)
+      return { position: from.slice(), velocity: [0, 0, 0], landed: true, collided: false };
+    var steps = Math.max(1, Math.ceil(distance / cfg.SWEEP_STEP));
+    var current = from.slice(), collided = false;
+    var currentCollisions = flightCollisionCount(current, attitude);
+    var stepX = dx / steps, stepY = dy / steps, stepZ = dz / steps;
+    var takeoffAssist = stepY > 0 && from[1] - minY < 4;
+    var returnLandingAssist = false;
+    if (stepY < 0 && lastLandingPose) {
+      var returnDx = from[0] - lastLandingPose[0], returnDz = from[2] - lastLandingPose[2];
+      returnLandingAssist = returnDx * returnDx + returnDz * returnDz <= 4 && from[1] >= lastLandingPose[1];
+    }
+    for (var s = 0; s < steps; s++) {
+      if (Math.abs(stepX) > 1e-9) {
+        var nx = [current[0] + stepX, current[1], current[2]];
+        var xCollisions = flightCollisionCount(nx, attitude);
+        if (xCollisions === 0 || xCollisions < currentCollisions) {
+          current[0] = nx[0]; currentCollisions = xCollisions;
+        } else { velocity[0] = 0; collided = true; }
+      }
+      if (Math.abs(stepZ) > 1e-9) {
+        var nz = [current[0], current[1], current[2] + stepZ];
+        var zCollisions = flightCollisionCount(nz, attitude);
+        if (zCollisions === 0 || zCollisions < currentCollisions) {
+          current[2] = nz[2]; currentCollisions = zCollisions;
+        } else { velocity[2] = 0; collided = true; }
+      }
+      if (Math.abs(stepY) > 1e-9) {
+        var ny = [current[0], current[1] + stepY, current[2]];
+        var yCollisions = flightCollisionCount(ny, attitude);
+        if (takeoffAssist || returnLandingAssist || yCollisions === 0 || yCollisions < currentCollisions ||
+          (stepY > 0 && yCollisions <= currentCollisions)) {
+          current[1] = ny[1]; currentCollisions = yCollisions;
+        } else { velocity[1] = 0; collided = true; }
+      }
+    }
+    surface = Voxel.World.surfaceAt(Math.floor(current[0]), Math.floor(current[2]));
+    minY = surface + cfg.SHIP_BASE_CLEARANCE;
+    if (current[1] < minY) { current[1] = minY; velocity[1] = Math.max(0, velocity[1]); collided = true; }
+    if (floorContact && current[1] <= minY + 0.03) velocity[1] = 0;
+    var speed = Math.sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]);
+    var landing = landingSurface(current, attitude);
+    if (!landing.stable && lastLandingPose) {
+      var ldx = current[0] - lastLandingPose[0], ldz = current[2] - lastLandingPose[2];
+      if (ldx * ldx + ldz * ldz <= 4) landing = { stable: true, y: lastLandingPose[1] };
+    }
+    var canLand = landing.stable && velocity[1] <= 0.05 && speed <= cfg.LAND_SPEED &&
+      Math.abs(attitude.pitch || 0) <= 0.12 && Math.abs(attitude.roll || 0) <= 0.12 &&
+      current[1] <= landing.y + 0.28;
+    if (canLand) {
+      current[1] = landing.y;
+      velocity = [0, 0, 0];
+    }
+    return { position: current, velocity: velocity, landed: canLand, collided: collided };
+  }
+
+  function updateFlight(dt, input) {
+    if (!isAboard() || !flightState || !Voxel.ShipFlight) return null;
+    var previous = flightState;
+    var result = Voxel.ShipFlight.step(flightState, dt, input, {
+      config: shipFlightConfig(), resolve: resolveFlightMove
+    });
+    flightState = result.state;
+    flightEvents = result.events.slice();
+    if (flightEvents.indexOf('takeoff') >= 0) {
+      lastSafeExit = null;
+      lastLandingPose = [previous.position[0], previous.position[1], previous.position[2], previous.yaw];
+    }
+    if (flightEvents.indexOf('landed') >= 0)
+      lastLandingPose = [flightState.position[0], flightState.position[1], flightState.position[2], flightState.yaw];
+    applyFlightTransform();
+    setRampTarget(0, visualTime());
+    applyVisualState(visualTime());
+    syncCockpit(false);
+    return result;
+  }
+
+  function cockpitWorldPosition() {
+    if (!ship || !flightState) return null;
+    _cockpitPoint.set(COCKPIT_LOCAL[0], COCKPIT_LOCAL[1], COCKPIT_LOCAL[2]);
+    ship.localToWorld(_cockpitPoint);
+    return _cockpitPoint.clone();
+  }
+
+  function applyCockpitCamera(camera) {
+    if (!camera || !isAboard() || !ship) return false;
+    var point = cockpitWorldPosition();
+    camera.position.copy(point);
+    camera.quaternion.copy(ship.quaternion);
+    camera.updateMatrixWorld(true);
+    return true;
+  }
+
+  function safeExitPosition() {
+    if (!flightState || !flightState.landed || !ship) return null;
+    _interactionPoint.set(EXIT_LOCAL[0], EXIT_LOCAL[1], EXIT_LOCAL[2]);
+    ship.localToWorld(_interactionPoint);
+    var x = Math.floor(_interactionPoint.x), z = Math.floor(_interactionPoint.z);
+    var y = Voxel.World.surfaceAt(x, z) + 1.001;
+    if (Voxel.World.get(x, Math.floor(y) - 1, z) === 7) return null;
+    var candidate = new THREE.Vector3(_interactionPoint.x, y, _interactionPoint.z);
+    if (Voxel.Player && Voxel.Player.canStandAt && !Voxel.Player.canStandAt(candidate, true)) {
+      if (lastSafeExit && lastSafeExit.distanceTo(ship.position) <= 10 && Voxel.Player.canStandAt(lastSafeExit, true))
+        return lastSafeExit.clone();
+      return null;
+    }
+    lastSafeExit = candidate.clone();
+    return candidate;
+  }
+
+  function canDisembark() { return !!safeExitPosition(); }
+
+  function flightSnapshot() {
+    return flightState && Voxel.ShipFlight ? Voxel.ShipFlight.snapshot(flightState) : null;
+  }
+
+  function flightStatus() {
+    var snap = flightSnapshot();
+    if (!snap) return null;
+    var speed = Math.sqrt(snap.velocity[0] * snap.velocity[0] + snap.velocity[1] * snap.velocity[1] + snap.velocity[2] * snap.velocity[2]);
+    var surface = Voxel.World.surfaceAt(Math.floor(snap.position[0]), Math.floor(snap.position[2]));
+    return {
+      speed: speed, altitude: Math.max(0, snap.position[1] - surface - Voxel.Config.SHIP_FLIGHT.SHIP_BASE_CLEARANCE),
+      throttle: snap.throttle, landed: snap.landed, collided: !!(flightState && flightState.collided),
+      canDisembark: canDisembark(), events: flightEvents.slice(), snapshot: snap
+    };
   }
 
   function scanModel() {
@@ -775,6 +1089,9 @@ Voxel.SpaceTravel = (function () {
     shipParts.ramp.scale.x = 0.04;
     shipParts.ramp.visible = false;
     g.userData.interactionLocal = [3.25, 0.8, 0.5];
+    g.userData.cockpitLocal = COCKPIT_LOCAL.slice();
+    g.userData.exitLocal = EXIT_LOCAL.slice();
+    g.userData.gearLocal = GEAR_LOCAL.map(function (v) { return v.slice(); });
     nose.userData.forward = true;
     return g;
   }
@@ -927,12 +1244,15 @@ Voxel.SpaceTravel = (function () {
         portal.userData.field.material.opacity = reducedMotion ? 0.22 :
           0.2 + Math.sin(now * 4 + portal.userData.spinPhase) * 0.05;
     }
-    var enginePulse = reducedMotion ? 0.82 : 0.78 + Math.sin(now * 5.2) * 0.14;
+    var thrustLevel = flightState ? Math.min(1, Math.abs(flightState.throttle)) : 0;
+    var enginePulse = reducedMotion ? 0.72 + thrustLevel * 0.24 :
+      0.68 + thrustLevel * 0.22 + Math.sin(now * (5.2 + thrustLevel * 5)) * (0.08 + thrustLevel * 0.08);
     for (var e = 0; e < shipParts.engines.length; e++) {
       var engine = shipParts.engines[e];
       if (!engine) continue;
       if (engine.material) engine.material.opacity = enginePulse;
-      var engineScale = reducedMotion ? 1 : 1 + Math.sin(now * 5.2) * 0.08;
+      var engineScale = reducedMotion ? 1 + thrustLevel * 0.08 :
+        1 + thrustLevel * 0.18 + Math.sin(now * 5.2) * 0.06;
       engine.scale.x = engineScale;
       engine.scale.y = engineScale;
     }
@@ -954,6 +1274,9 @@ Voxel.SpaceTravel = (function () {
     disposeList('geometries');
     disposeList('textures');
     aboardShip = false; boardedWorldId = null; shieldImpactUntil = 0; cockpitSignature = '';
+    cockpitLastSyncAt = -Infinity;
+    flightState = null; flightEvents.length = 0; lastSafeExit = null; lastLandingPose = null;
+    flightRestoreValid = true;
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false; nearPortal = null;
     shipParts = { engines: [], door: null, ramp: null };
     stationHub = null; stationDock = null; stationTerminal = null;
@@ -974,7 +1297,7 @@ Voxel.SpaceTravel = (function () {
     return hadRoot;
   }
 
-  function loadWorld(w, g) {
+  function loadWorld(w, g, savedFlight) {
     clear();
     galaxy = g; world = w;
     scanOnline = !!world && !!galaxy;
@@ -1006,8 +1329,24 @@ Voxel.SpaceTravel = (function () {
       // 机鼻朝出生点，默认yaw=0能看到座舱三分之四正面。
       ship.rotation.y = Math.PI + yawJitter;
       group.add(ship);
+      var fallbackFlight = defaultFlightSnapshot();
+      var worldFlight = savedFlight;
+      if (worldFlight === undefined && g && g.worlds && g.worlds[w.id])
+        worldFlight = g.worlds[w.id].shipFlight;
+      flightRestoreValid = worldFlight === undefined || worldFlight === null || validSavedFlight(worldFlight);
+      flightState = Voxel.ShipFlight
+        ? Voxel.ShipFlight.restore(worldFlight, fallbackFlight) : fallbackFlight;
+      applyFlightTransform();
+      if (flightBoxCollides(flightState.position, flightState)) {
+        flightState = Voxel.ShipFlight
+          ? Voxel.ShipFlight.restore(fallbackFlight, fallbackFlight) : fallbackFlight;
+        applyFlightTransform();
+      }
+      if (flightState && flightState.landed)
+        lastLandingPose = [flightState.position[0], flightState.position[1], flightState.position[2], flightState.yaw];
       reserveObject('ship', ship, 2.5);
     } else {
+      flightState = null;
       arrivalAnchor = new THREE.Vector3(128.5, 24.01, 128.5);
       stationHub = makeStationHub();
       stationHub.position.set(128.5, 24, 112.5);
@@ -1095,20 +1434,20 @@ Voxel.SpaceTravel = (function () {
     var p = Voxel.Player.pos();
     var now = visualTime();
     if (ship) {
+      if (flightState) applyFlightTransform();
       var il = ship.userData.interactionLocal || [0, 1, 0];
       _interactionPoint.set(il[0], il[1], il[2]);
       ship.localToWorld(_interactionPoint);
-      nearShip = _interactionPoint.distanceTo(p) < 7.5;
-      ship.position.y = shipBaseY; // 起落架稳定接地；动效集中在引擎和舱门。
+      nearShip = !isAboard() && _interactionPoint.distanceTo(p) < 7.5;
     } else nearShip = world.kind === 'station';
     nearPortal = nearestPortalTo(p, 7);
-    setRampTarget(nearShip || isAboard(), now);
+    setRampTarget(nearShip && (!flightState || flightState.landed) && !isAboard(), now);
     applyVisualState(now);
     portalInside = anyPortalInside(p, false);
     var withinExitLatch = anyPortalInside(p, true);
     if (!portalArmed) {
       if (!withinExitLatch) portalArmed = true;
-    } else if (portalInside && portalCooldown <= 0) {
+    } else if (!isAboard() && portalInside && portalCooldown <= 0) {
       // 无论事务是否接受，当前inside事件已经消费；必须先离开扩大体积再重入。
       portalArmed = false;
       for (var i = 0; i < portals.length; i++) {
@@ -1163,7 +1502,7 @@ Voxel.SpaceTravel = (function () {
     };
   }
 
-  function canOpenMap() { return !!world && (world.kind === 'station' || nearShip); }
+  function canOpenMap() { return !!world && (world.kind === 'station' || nearShip || isAboard()); }
 
   function scanLandmark() {
     if (!world || !Voxel.Player || !Voxel.Player.pos) return null;
@@ -1345,9 +1684,12 @@ Voxel.SpaceTravel = (function () {
     var selection = typeof document !== 'undefined' ? document.getElementById('cockpit-selection') : null;
     var ignite = typeof document !== 'undefined' ? document.getElementById('btn-travel-ignite') : null;
     var insufficient = false;
+    var requiresBoarding = !!(world && world.kind === 'planet' && !isAboard());
     if (dest) {
       insufficient = !plan.reachable;
-      if (insufficient) {
+      if (requiresBoarding) {
+        setText(selection, '外部星图只读 · 请先按 E 登舰，再按 H 打开星图点火跃迁');
+      } else if (insufficient) {
         setText(selection, '航线不可用 · ' + worldText(dest).name + ' · 需要 ' + plan.costUnits +
           ' 能量 · 当前 ' + plan.fuel + ' · 缺少 ' + plan.shortfall + ' · 前往阿特拉斯中继站补给');
       } else {
@@ -1356,9 +1698,10 @@ Voxel.SpaceTravel = (function () {
           plan.maxFuel + ' · ' + portalRouteLabel(plan, dest.id));
       }
     } else setText(selection, '请选择目的地以锁定跃迁航线');
-    if (cockpit) cockpit.setAttribute('data-state', dest ? (insufficient ? 'insufficient' : 'locked') : 'idle');
+    if (cockpit) cockpit.setAttribute('data-state', dest ?
+      (requiresBoarding ? 'external' : (insufficient ? 'insufficient' : 'locked')) : 'idle');
     if (ignite) {
-      ignite.disabled = !dest || insufficient;
+      ignite.disabled = !dest || insufficient || requiresBoarding;
       ignite.setAttribute('aria-disabled', ignite.disabled ? 'true' : 'false');
     }
     syncRouteMap(dest, plan);
@@ -1752,6 +2095,12 @@ Voxel.SpaceTravel = (function () {
       ship: ship ? {
         position: [round4(ship.position.x), round4(ship.position.y), round4(ship.position.z)],
         rotationY: round4(ship.rotation.y),
+        rotation: [round4(ship.rotation.x), round4(ship.rotation.y), round4(ship.rotation.z)],
+        cockpit: (function () {
+          var p = cockpitWorldPosition();
+          return p ? [round4(p.x), round4(p.y), round4(p.z)] : null;
+        })(),
+        flight: flightSnapshot(),
         bounds: boundsFor(ship)
       } : null,
       station: stationHub ? {
@@ -1814,8 +2163,17 @@ Voxel.SpaceTravel = (function () {
     nearPortalInfo: nearPortalInfo,
     canBoardShip: canBoardShip,
     boardShip: boardShip,
+    restoreBoarding: restoreBoarding,
     disembarkShip: disembarkShip,
     isAboard: isAboard,
+    absorbsDamage: absorbsDamage,
+    updateFlight: updateFlight,
+    applyCockpitCamera: applyCockpitCamera,
+    cockpitWorldPosition: cockpitWorldPosition,
+    safeExitPosition: safeExitPosition,
+    canDisembark: canDisembark,
+    flightSnapshot: flightSnapshot,
+    flightStatus: flightStatus,
     syncCockpit: syncCockpit,
     updateCockpit: updateCockpit,
     registerShieldImpact: registerShieldImpact,

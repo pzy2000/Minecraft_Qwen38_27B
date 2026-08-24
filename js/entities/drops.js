@@ -102,7 +102,9 @@ Voxel.Drops = (function () {
     list.splice(i, 1);
   }
 
-  function update(dt) {
+  function update(dt, options) {
+    options = options && typeof options === 'object' ? options : {};
+    var allowPickup = options.allowPickup !== false;
     var Pl = Voxel.Player;
     var alive = Pl.alive();
     for (var i = list.length - 1; i >= 0; i--) {
@@ -121,7 +123,7 @@ Voxel.Drops = (function () {
       m.pos.copy(m.ent.pos);
 
       // 磁吸 + 拾取（出生 0.5s 后才生效，避免立刻飞回）
-      if (alive && m.age > 0.5) {
+      if (allowPickup && alive && m.age > 0.5) {
         var p = Pl.pos();
         var dx = p.x - m.pos.x, dy = (p.y + 0.9) - m.pos.y, dz = p.z - m.pos.z;
         var dist = Math.sqrt(dx * dx + dy * dy + dz * dz);

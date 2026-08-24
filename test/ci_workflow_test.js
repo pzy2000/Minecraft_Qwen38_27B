@@ -41,12 +41,13 @@ const nodeFiles = [
   'test/planet_rules_test.js',
   'test/resource_registry_test.js',
   'test/portal_network_test.js',
+  'test/ship_flight_test.js',
   'test/flight_sequence_test.js',
   'test/audio_asset_budget_test.js',
   'test/ci_workflow_test.js',
   'test/pages_workflow_test.js'
 ];
-const browserFiles = ['test/run_browser_tests.js', 'test/space_travel_test.js'];
+const browserFiles = ['test/run_browser_tests.js', 'test/space_travel_test.js', 'test/cockpit_resume_test.js'];
 check(pkg.scripts.test === 'npm run test:node && npm run test:browser',
   'test 依次组合 test:node 与 test:browser');
 for (const file of nodeFiles) {

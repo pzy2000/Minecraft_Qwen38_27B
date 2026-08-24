@@ -220,6 +220,7 @@ Voxel.Save = (function () {
         time: extra.time,
         weather: extra.weather,
         player: extra.player,
+        shipFlight: extra.shipFlight || null,
         inv: extra.inv,
         cnt: extra.cnt,
         held: extra.held,

@@ -211,11 +211,12 @@ Voxel.Touch = (function () {
   // ---- 手势主流程 ----
   function onDown(e) {
     if (!enabled) return;
-    if (!Voxel.Game || Voxel.Game.state !== 'playing') return;
+    if (!Voxel.Game || (Voxel.Game.state !== 'playing' && Voxel.Game.state !== 'cockpit')) return;
     e.preventDefault();
     var x = e.clientX, y = e.clientY;
     var W = viewportSize().width;
-    if (stickId === null && x < W * C.LEFT_ZONE_FRAC) {
+    var cockpit = Voxel.Game.state === 'cockpit';
+    if (!cockpit && stickId === null && x < W * C.LEFT_ZONE_FRAC) {
       // 浮动摇杆：底座落在手指处
       stickId = e.pointerId;
       baseX = x; baseY = y;
@@ -225,10 +226,11 @@ Voxel.Touch = (function () {
     }
     if (lookId === null) {
       lookId = e.pointerId;
-      look = { sx: x, sy: y, lx: x, ly: y, t0: performance.now(), dist: 0, digOn: false, lpTimer: null };
-      aimAt(x, y);
+      look = { sx: x, sy: y, lx: x, ly: y, t0: performance.now(), dist: 0,
+        digOn: false, lpTimer: null, cockpit: cockpit };
+      if (!cockpit) aimAt(x, y);
       // 长按挖掘：定时判定（手指完全不动也要能触发）
-      look.lpTimer = setTimeout(function () {
+      if (!cockpit) look.lpTimer = setTimeout(function () {
         if (!look || look.digOn) return;
         if (look.dist <= C.LONGPRESS_DIST) {
           look.digOn = true;
@@ -251,7 +253,7 @@ Voxel.Touch = (function () {
       look.lx = e.clientX; look.ly = e.clientY;
       look.dist += Math.abs(dx) + Math.abs(dy);
       Voxel.Controls.applyLook(dx * 1.35, dy * 1.35, tsens());
-      aimAt(look.lx, look.ly);
+      if (!look.cockpit) aimAt(look.lx, look.ly);
       // 长按已触发时允许拖动瞄准跟随；未触发且已大幅滑动则取消本次长按
       if (!look.digOn && look.lpTimer && look.dist > C.LONGPRESS_DIST) {
         clearTimeout(look.lpTimer);
@@ -271,12 +273,13 @@ Voxel.Touch = (function () {
       e.preventDefault();
       var dt = performance.now() - look.t0;
       var wasDig = look.digOn;
+      var wasCockpit = look.cockpit;
       var sx = look.sx, sy = look.sy, dist = look.dist;
       if (look.lpTimer) { clearTimeout(look.lpTimer); look.lpTimer = null; }
       lookId = null; look = null;
       if (wasDig) {
         if (Voxel.Game) Voxel.Game.setDigHold(false);
-      } else if (dist <= C.TAP_DIST && dt <= C.TAP_MS) {
+      } else if (!wasCockpit && dist <= C.TAP_DIST && dt <= C.TAP_MS) {
         // 轻点：放置 / 交互 / 攻击（MCPE 手势流）
         var size = viewportSize();
         if (Voxel.Game) Voxel.Game.touchTap(
@@ -316,6 +319,8 @@ Voxel.Touch = (function () {
     cancelLook();
     Voxel.Controls.keys.Space = false;
     Voxel.Controls.keys.ShiftLeft = false;
+    Voxel.Controls.keys.KeyW = false;
+    Voxel.Controls.keys.KeyS = false;
   }
 
   // ---- 视觉 ----
@@ -354,14 +359,20 @@ Voxel.Touch = (function () {
   function onFrame(state) {
     if (!enabled) return;
     var show = state === 'playing';
-    if (show !== (lastState === 'playing')) {
-      capture.style.display = show ? 'block' : 'none';
+    var cockpit = state === 'cockpit';
+    // 座舱把转向手势直接交给 WebGL 画布：透明视野中心仍真实命中
+    // canvas，而不是一个不可见的全屏 HUD 捕获层。普通生存态继续使用
+    // capture 来划分摇杆/观察区域。
+    var captureShow = show;
+    var previousCapture = lastState === 'playing';
+    if (captureShow !== previousCapture || show !== (lastState === 'playing')) {
+      capture.style.display = captureShow ? 'block' : 'none';
       [btnJump, btnFly, btnPause, btnBag].forEach(function (b) {
         b.style.display = show ? 'flex' : 'none';
       });
       btnDescend.style.display =
         (show && Voxel.Player && Voxel.Player.flying()) ? 'flex' : 'none';
-      if (!show) {
+      if (!captureShow) {
         resetActiveInputs();
       }
     }
@@ -386,10 +397,17 @@ Voxel.Touch = (function () {
     }
     Voxel.Controls.keys['Space'] = false;
     Voxel.Controls.keys['ShiftLeft'] = false;
+    Voxel.Controls.keys['KeyW'] = false;
+    Voxel.Controls.keys['KeyS'] = false;
   }
 
   function bindEvents() {
     capture.addEventListener('pointerdown', onDown);
+    document.addEventListener('pointerdown', function (e) {
+      if (!Voxel.Game || Voxel.Game.state !== 'cockpit') return;
+      if (!e.target || e.target.tagName !== 'CANVAS') return;
+      onDown(e);
+    });
     document.addEventListener('pointermove', onMove, { passive: false });
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onCancel);

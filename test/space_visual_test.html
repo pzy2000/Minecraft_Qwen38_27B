@@ -92,6 +92,7 @@
   };
 })();
 </script>
+<script src="../js/systems/ship_flight.js"></script>
 <script src="../js/systems/space_travel.js"></script>
 <script>
 (function () {
@@ -226,6 +227,11 @@
     fixture.player.set(128.5, 11.01, 128.5);
     S.loadWorld(planet, galaxy);
     ship = S.ship();
+    var boardPoint = new THREE.Vector3().fromArray(ship.userData.interactionLocal);
+    ship.localToWorld(boardPoint);
+    fixture.player.copy(boardPoint);
+    S.update(.016, .016);
+    S.boardShip();
 
     S.showMap();
     var destinationCard = document.querySelector('.star-card[data-destination-id="' + station.id + '"]');
@@ -249,6 +255,7 @@
       document.getElementById('scan-passive').getAttribute('aria-hidden') === 'false');
     S.hideWarp();
 
+    S.disembarkShip({ silent: true });
     fixture.player.copy(ship.position);
     S.setVisualTime(10.5); S.update(0, 0);
     S.setVisualTime(11.0); S.update(0, 0);

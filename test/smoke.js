@@ -963,8 +963,10 @@ console.log('存档序列化往返');
   var extra = {
     time: 0.42,
     weather: 'rain',
-    player: { pos: [1.5, 2.5, 3.5], yaw: 1.25, pitch: -0.3, fly: true, hp: 17,
+    player: { pos: [1.5, 2.5, 3.5], yaw: 1.25, pitch: -0.3, fly: true, hp: 17, aboard: true,
       environment: { v: 1, worlds: { 'planet-0': { exposure: 42.5, adapted: true } } } },
+    shipFlight: { v: 1, position: [12.5, 44.02, -8.5], velocity: [1, 2, 3],
+      yaw: 1.2, pitch: .1, roll: -.05, throttle: .6, landed: false },
     inv: inv,
     cnt: cnt,
     held: 102,
@@ -1006,6 +1008,8 @@ console.log('存档序列化往返');
     loaded.meta['7,8,9'].items[0].n === 5);
   check('player 往返', !!loaded && !!loaded.player && loaded.player.hp === 17 &&
     loaded.player.fly === true && Math.abs(loaded.player.pos[0] - 1.5) < 1e-9 &&
+    loaded.player.aboard === true && loaded.shipFlight && loaded.shipFlight.position[1] === 44.02 &&
+    loaded.shipFlight.landed === false && loaded.shipFlight.throttle === .6 &&
     loaded.player.environment.v === 1 && loaded.player.environment.worlds['planet-0'].exposure === 42.5 &&
     loaded.player.environment.worlds['planet-0'].adapted === true);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
@@ -1020,11 +1024,14 @@ console.log('存档序列化往返');
   delete oldShape.invCraftGrid;
   delete oldShape.drops;
   delete oldShape.player.environment;
+  delete oldShape.player.aboard;
+  delete oldShape.shipFlight;
   _store[V.Config.SAVE_KEY] = JSON.stringify(oldShape);
   var oldLoaded = V.Save.load();
   check('旧档缺失新增临时字段仍可载入', !!oldLoaded && oldLoaded.seed === loaded.seed &&
     oldLoaded.heldDur === undefined && oldLoaded.craftGrid === undefined && oldLoaded.invCraftGrid === undefined &&
-    oldLoaded.drops === undefined && oldLoaded.player.environment === undefined);
+    oldLoaded.drops === undefined && oldLoaded.player.environment === undefined &&
+    oldLoaded.player.aboard === undefined && oldLoaded.shipFlight === undefined);
   _store[V.Config.SAVE_KEY] = currentRaw;
 
   // 第二次载入后立即再存档：旧修改必须继续留在账本，第三次载入仍可恢复。

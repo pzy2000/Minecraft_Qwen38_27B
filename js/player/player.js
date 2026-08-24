@@ -176,6 +176,32 @@ Voxel.Player = (function () {
     }
   }
 
+  // 座舱内不运行玩家AABB移动，但完整推进基础代谢/饥饿；外部位置由飞船代理更新。
+  function updateBoarded(dt, proxyPos, proxyVel) {
+    if (proxyPos && isFinite(proxyPos.x) && isFinite(proxyPos.y) && isFinite(proxyPos.z)) pos.copy(proxyPos);
+    if (proxyVel && isFinite(proxyVel.x) && isFinite(proxyVel.y) && isFinite(proxyVel.z)) vel.copy(proxyVel);
+    else vel.set(0, 0, 0);
+    onGround = false;
+    inWater = false;
+    prevInWater = false;
+    headInWater = false;
+    air = C.AIR_MAX;
+    drownT = 0;
+    bubbleTimer = 0;
+    Voxel.Sound.setUnderwater(false);
+    addExhaust(C.RATE_STILL * dt);
+    while (exhaust >= C.EXHAUST_PER_FOOD && food > 0) {
+      exhaust -= C.EXHAUST_PER_FOOD;
+      food--;
+    }
+    if (food <= 0 && hp > 1) {
+      starveT += dt;
+      if (starveT >= C.STARVE_INTERVAL) { starveT = 0; damage(C.STARVE_DMG, 'starve'); }
+    } else starveT = 0;
+    if (Voxel.HUD && Voxel.HUD.drawAir) Voxel.HUD.drawAir(1);
+    if (Voxel.HUD && Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
+  }
+
   function init(p, yaw, pitch) {
     pos.copy(p);
     vel.set(0, 0, 0);
@@ -270,6 +296,10 @@ Voxel.Player = (function () {
 
   function damage(n, cause, sx, sz) {
     if (hp <= 0) return;
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.absorbsDamage && Voxel.SpaceTravel.absorbsDamage(cause)) {
+      if (Voxel.SpaceTravel.registerShieldImpact) Voxel.SpaceTravel.registerShieldImpact(cause || 'impact');
+      return false;
+    }
     hp -= n;
     if (hp < 0) hp = 0;
     lastCause = cause || 'generic';
@@ -282,6 +312,7 @@ Voxel.Player = (function () {
     }
     Voxel.HUD.drawHealth(hp);
     if (hp <= 0 && Voxel.Game) Voxel.Game.onPlayerDead();
+    return true;
   }
 
   // 外部击退冲量（方向单位向量 × 强度）
@@ -321,6 +352,7 @@ Voxel.Player = (function () {
     getSpawn: function () { return spawn.clone(); },
     respawn: respawn,
     update: update,
+    updateBoarded: updateBoarded,
     damage: damage,
     knockback: knockback,
     lastDamageCause: function () { return lastCause; },

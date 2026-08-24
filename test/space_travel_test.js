@@ -60,7 +60,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   });
 
   async function waitWorld(id) {
-    await page.waitForFunction((want) => window.Voxel && Voxel.Game && Voxel.Game.state === 'playing' &&
+    await page.waitForFunction((want) => window.Voxel && Voxel.Game &&
+      (Voxel.Game.state === 'playing' || Voxel.Game.state === 'cockpit') &&
       Voxel.Game._test.currentWorld() && Voxel.Game._test.currentWorld().id === want,
       { timeout: 180000, polling: 250 }, id);
   }
@@ -362,7 +363,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     const actualWorld = T.currentWorld();
     const originalEnvironment = Voxel.Environment.snapshot();
     const ship = Voxel.SpaceTravel.ship();
-    Voxel.Player.pos().copy(ship.position).add(new THREE.Vector3(0, 1, 1));
+    const boardingPoint = new THREE.Vector3(...ship.userData.interactionLocal);
+    ship.localToWorld(boardingPoint);
+    boardingPoint.y = Voxel.World.surfaceAt(Math.floor(boardingPoint.x), Math.floor(boardingPoint.z)) + 1.001;
+    Voxel.Player.pos().copy(boardingPoint);
     Voxel.SpaceTravel.update(0.016, 0.016);
     const beforeHp = Voxel.Player.hp();
     const toxicState = { v: 1, worlds: {} };
@@ -371,24 +375,43 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       toxicState, { grantGrace: false });
 
     Voxel.Game.onKey('KeyE');
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 80));
     const overlay = document.getElementById('overlay-starmap');
-    const systems = document.getElementById('cockpit-systems');
+    const systems = document.getElementById('cockpit-hud');
+    const cameraPoint = Voxel.SpaceTravel.cockpitWorldPosition();
     const entered = {
       state: Voxel.Game.state,
       aboard: Voxel.SpaceTravel.isAboard(),
-      mode: overlay.dataset.mode,
       bodyMode: document.body.dataset.shipBoarded,
-      systemsVisible: !systems.hidden && systems.getAttribute('aria-hidden') === 'false',
+      systemsVisible: getComputedStyle(systems).display !== 'none' && systems.getAttribute('aria-hidden') !== 'true',
+      systemsDisplay: getComputedStyle(systems).display,
+      systemsAria: systems.getAttribute('aria-hidden'),
+      bodyState: document.body.dataset.gameState,
+      mapHidden: overlay.classList.contains('hidden'),
       contextSealed: T.environmentContext().sealedShelter,
-      title: document.getElementById('starmap-title').textContent,
-      closeLabel: document.getElementById('btn-starmap-close').getAttribute('aria-label'),
+      cameraMatches: Voxel.Game.camera.position.distanceTo(cameraPoint) < 0.001,
       initialExposure: T.environmentStatus().exposure
     };
 
+    Voxel.Game.onKey('KeyH');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const mapFromCockpit = Voxel.Game.state === 'starmap' && Voxel.SpaceTravel.isAboard() &&
+      !overlay.classList.contains('hidden');
+    Voxel.Game.onKey('KeyH');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const returnedToCockpit = Voxel.Game.state === 'cockpit' && Voxel.SpaceTravel.isAboard();
+    Voxel.Game.onKey('KeyP');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const pausedFromCockpit = Voxel.Game.state === 'paused' && Voxel.SpaceTravel.isAboard();
+    Voxel.Game.onKey('KeyP');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const resumedCockpit = Voxel.Game.state === 'cockpit' && Voxel.SpaceTravel.isAboard();
+
     Voxel.Weather._test.forceStrike();
     const afterStrikeHp = Voxel.Player.hp();
-    const impactVisible = overlay.dataset.impact === 'true' &&
+    Voxel.Player.damage(3, 'zombie');
+    const afterMobHp = Voxel.Player.hp();
+    const impactVisible = systems.dataset.impact === 'true' &&
       document.getElementById('cockpit-hull-value').textContent === '导流中';
     let shelterResult = null;
     for (let i = 0; i < 17; i++) shelterResult = T.tickEnvironment(0.25);
@@ -407,30 +430,86 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     const exited = {
       state: Voxel.Game.state,
       aboard: Voxel.SpaceTravel.isAboard(),
-      mode: overlay.dataset.mode,
       bodyMode: document.body.dataset.shipBoarded,
-      hidden: overlay.classList.contains('hidden')
+      hudHidden: getComputedStyle(systems).display === 'none',
+      mapHidden: overlay.classList.contains('hidden')
     };
     Voxel.Environment.loadWorld(actualWorld, originalEnvironment, { grantGrace: false });
     T.tickEnvironment(0);
-    return { beforeHp, afterStrikeHp, impactVisible, entered, purified, exited };
+    return { beforeHp, afterStrikeHp, afterMobHp, impactVisible, entered, mapFromCockpit, returnedToCockpit,
+      pausedFromCockpit, resumedCockpit, purified, exited };
   });
   check('靠近飞船按E进入真实密封舱状态而非仅打开外部星图',
-    boardingShelter.entered.state === 'starmap' && boardingShelter.entered.aboard &&
-    boardingShelter.entered.mode === 'boarded' && boardingShelter.entered.bodyMode === 'true' &&
+    boardingShelter.entered.state === 'cockpit' && boardingShelter.entered.aboard &&
+    boardingShelter.entered.bodyMode === 'true' && boardingShelter.entered.mapHidden &&
     boardingShelter.entered.systemsVisible && boardingShelter.entered.contextSealed &&
-    boardingShelter.entered.title === '方舟座舱' && boardingShelter.entered.closeLabel === '离开飞船' &&
+    boardingShelter.entered.cameraMatches &&
     boardingShelter.entered.initialExposure === 100);
+  check('座舱H打开星图且关闭后仍返回座舱', boardingShelter.mapFromCockpit && boardingShelter.returnedToCockpit);
+  check('座舱P暂停并精确恢复到cockpit', boardingShelter.pausedFromCockpit && boardingShelter.resumedCockpit);
   check('飞船舱体导流雷击且座舱HUD动态显示冲击', boardingShelter.afterStrikeHp === boardingShelter.beforeHp &&
-    boardingShelter.impactVisible);
+    boardingShelter.afterMobHp === boardingShelter.beforeHp && boardingShelter.impactVisible);
   check('密封舱持续把有害暴露从100净化到0且HUD同步', boardingShelter.purified.damage === 0 &&
     boardingShelter.purified.status.protected && boardingShelter.purified.status.sealedShelter &&
     boardingShelter.purified.status.exposure === 0 && boardingShelter.purified.meter === '0' &&
     boardingShelter.purified.value === '0%' && boardingShelter.purified.detail.includes('有害暴露 0%') &&
     boardingShelter.purified.hp === boardingShelter.beforeHp);
-  check('座舱内按E显式离舰并恢复外界判定', boardingShelter.exited.state === 'playing' &&
-    !boardingShelter.exited.aboard && boardingShelter.exited.mode === 'remote' &&
-    boardingShelter.exited.bodyMode === 'false' && boardingShelter.exited.hidden);
+  check('座舱内按E显式离舰并恢复外界判定',
+    boardingShelter.exited.state === 'playing' &&
+    !boardingShelter.exited.aboard && boardingShelter.exited.bodyMode === 'false' &&
+    boardingShelter.exited.hudHidden && boardingShelter.exited.mapHidden);
+
+  const cockpitFlight = await page.evaluate(async () => {
+    if (Voxel.Game.state === 'paused') Voxel.Game.onKey('KeyP');
+    await new Promise(resolve => setTimeout(resolve, 80));
+    const ship = Voxel.SpaceTravel.ship();
+    const door = new THREE.Vector3(...ship.userData.interactionLocal);
+    ship.localToWorld(door);
+    Voxel.Player.pos().copy(door);
+    Voxel.SpaceTravel.update(.016, .016);
+    Voxel.Game.onKey('KeyE');
+    const stateStart = Voxel.Game.state;
+    await new Promise(resolve => setTimeout(resolve, 80));
+    const start = Voxel.SpaceTravel.flightStatus();
+    const timeBefore = Voxel.DayNight.time();
+    const drop = Voxel.Drops.spawn(10, 1, Voxel.Player.pos().clone().add(new THREE.Vector3(9, 3, 0)),
+      new THREE.Vector3(0, 0, 0), null);
+    if (drop) drop.age = 5;
+    Voxel.Controls.keys.Space = true;
+    await new Promise(resolve => setTimeout(resolve, 950));
+    Voxel.Controls.keys.Space = false;
+    Voxel.Controls.setYaw(.22);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const airborne = Voxel.SpaceTravel.flightStatus();
+    const deniedExit = Voxel.Game.exitCockpit();
+    const saveOk = Voxel.Game._test.saveNow();
+    const saved = Voxel.Save.load();
+    const dropAge = Voxel.Drops.snapshot().find(item => item.id === 10 && item.age >= 5);
+    const timeAfter = Voxel.DayNight.time();
+    for (let i = 0; i < 420; i++) Voxel.SpaceTravel.updateFlight(1 / 60, { lift: -1 });
+    Voxel.SpaceTravel.applyCockpitCamera(Voxel.Game.camera);
+    const landed = Voxel.SpaceTravel.flightStatus();
+    const exited = Voxel.Game.exitCockpit();
+    return {
+      stateStart, start, airborne, deniedExit, saveOk,
+      savedAboard: saved && saved.player && saved.player.aboard,
+      savedFlight: saved && saved.shipFlight,
+      worldAdvanced: timeAfter !== timeBefore,
+      dropAdvanced: !!dropAge && dropAge.age > 5,
+      landed, exited, state: Voxel.Game.state
+    };
+  });
+  check('座舱Space真实起飞且相机代理/飞行状态离地',
+    cockpitFlight.start.landed &&
+    !cockpitFlight.airborne.landed && cockpitFlight.airborne.altitude > 1 &&
+    cockpitFlight.airborne.snapshot.position.every(Number.isFinite));
+  check('飞行中完整世界时钟/掉落继续推进且禁止离舰', cockpitFlight.worldAdvanced &&
+    cockpitFlight.dropAdvanced && cockpitFlight.deniedExit === false);
+  check('飞行中verified存档保留shipFlight与aboard', cockpitFlight.saveOk && cockpitFlight.savedAboard === true &&
+    cockpitFlight.savedFlight && cockpitFlight.savedFlight.landed === false &&
+    cockpitFlight.savedFlight.position.every(Number.isFinite));
+  check('辅助下降软着陆后才允许离舰', cockpitFlight.landed.landed &&
+    cockpitFlight.landed.canDisembark && cockpitFlight.exited && cockpitFlight.state === 'playing');
 
   const map = await page.evaluate(async () => {
     const ship = Voxel.SpaceTravel.ship();
@@ -448,17 +527,27 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       routeNodes: document.querySelectorAll('#starmap-node-layer .starmap-node').length,
       activePortalEdges: document.querySelectorAll('#starmap-portal-edges .starmap-portal-edge[data-active="true"]').length,
       activeShipRoute: document.getElementById('starmap-active-route').dataset.active,
+      igniteDisabled: document.getElementById('btn-travel-ignite').disabled,
       currentAria: (document.querySelector('#starmap-grid .star-card.current') || {}).getAttribute('aria-current'),
       unknownText: (document.querySelector('#starmap-grid .star-card[data-visit-state="unknown"]') || {}).textContent || ''
     };
   });
   check('靠近飞船可打开 7 天体星图并把焦点置入对话框', map.state === 'starmap' &&
-    map.cards === 7 && map.visible && map.focusInside);
+    map.cards === 7 && map.visible && map.focusInside && map.igniteDisabled);
   check('SVG星图同步7节点/4条本地门径且当前位置语义完整', map.routeReady === 'true' &&
     map.routeNodes === 7 && map.activePortalEdges === 4 && map.activeShipRoute === 'false' &&
     map.currentAria === 'location');
   check('未抵达天体不提前泄漏确定危害与专属资源', map.unknownText.includes('远距档案未确认') &&
     !/烈日热负荷|硅晶富集|毒性孢子|熔核富集|深水高压/.test(map.unknownText));
+
+  check('关闭外部星图后可登舰并从座舱H重新打开可点火星图', await page.evaluate(async () => {
+    Voxel.Game.closeStarMap();
+    Voxel.Game.onKey('KeyE');
+    if (Voxel.Game.state !== 'cockpit') return false;
+    Voxel.Game.onKey('KeyH');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return Voxel.Game.state === 'starmap' && Voxel.SpaceTravel.isAboard();
+  }));
 
   const routeUnits = await page.evaluate(() => {
     const galaxy = Voxel.Game._test.galaxy();
@@ -518,7 +607,13 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       fuel: Voxel.Game._test.galaxy().ship.fuel,
       focusId: document.activeElement && document.activeElement.id,
       selectionText: document.getElementById('cockpit-selection').textContent,
-      activeRouteTo: document.getElementById('starmap-active-route').getAttribute('data-to-id')
+      activeRouteTo: document.getElementById('starmap-active-route').getAttribute('data-to-id'),
+      cardDisabled: card.disabled,
+      destinationId: card.dataset.destinationId,
+      aboard: Voxel.SpaceTravel.isAboard(),
+      cardInert: card.inert,
+      overlayInert: overlay.inert,
+      cardConnected: card.isConnected
     };
 
     const realInit = Voxel.World.init;
@@ -634,7 +729,7 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   });
   check('目标初始化与中止音频清理同时抛错仍自动恢复来源', initRecovery.failures === 1 &&
     initRecovery.cleanupFailures === 1 &&
-    initRecovery.state === 'playing' && initRecovery.currentId === 'planet-0' &&
+    initRecovery.state === 'cockpit' && initRecovery.currentId === 'planet-0' &&
     initRecovery.savedCurrentId === 'planet-0' && initRecovery.pending === null);
   check('目标初始化失败保持磁盘来源原字节且不扣燃料', initRecovery.rawSame &&
     initRecovery.fuelAfter === initRecovery.fuelBefore);
@@ -698,7 +793,7 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     return result;
   });
   check('目标Save.save=false后自动恢复来源且失败恰好一次', commitRecovery.failures === 1 &&
-    commitRecovery.state === 'playing' && commitRecovery.currentId === 'planet-0' &&
+    commitRecovery.state === 'cockpit' && commitRecovery.currentId === 'planet-0' &&
     commitRecovery.savedCurrentId === 'planet-0' && commitRecovery.pending === null);
   check('目标commit失败保持磁盘来源原字节且不扣燃料', commitRecovery.rawSame &&
     commitRecovery.fuelAfter === commitRecovery.fuelBefore && commitRecovery.saveHealth &&

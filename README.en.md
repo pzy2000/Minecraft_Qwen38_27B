@@ -9,10 +9,10 @@ One galaxy seed deterministically creates six distinct planets and an orbital st
 
 - Six seeded planet classes: lush, arid, frozen, toxic, volcanic, and oceanic.
 - Three or four deterministic portals per planet, including a route to the station.
-- A pixel starship near the landing site; press `E` nearby to board its sealed cockpit. Life support blocks planetary hazards, scrubs accumulated exposure down to `0%`, and diverts lightning strikes. Press `H` for the external star map.
+- A flyable pixel starship with a transparent real-time cockpit. Press `E` nearby to board; life support scrubs hazard exposure to `0%` and blocks lightning and mob attacks. Mouse/touch steers, `W/S` controls thrust and braking/reverse, `A/D` adds assisted banked turns, and `Space/Shift` controls vertical thrust. Terrain collision is assisted and landing is soft; press `H` in the cockpit for verified interplanetary warp.
 - Distance-based warp energy, discovery tracking, an orbital station, and automatic station refuelling.
 - Save v5 keeps edits and positions separate per world while inventory and ship progress travel with you.
-- The top-right control changes from Star Map to Board when the ship is in range, keeping the sealed cockpit, navigation, and disembark loop available on phones and tablets.
+- The top-right control changes from Star Map to Board in range. Mobile cockpit controls provide steering drag plus Thrust, Brake, Up, Down, Star Map, and Disembark while keeping the WebGL world visible across narrow and low-height viewports.
 
 <table>
   <tr>
@@ -78,16 +78,16 @@ python3 -m http.server 8080
 | Key | Action |
 |---|---|
 | Mouse | Look around (click the canvas to lock the pointer) |
-| WASD / Arrow keys | Move |
-| Space | Jump / swim up / fly up |
-| Shift | Sprint / fly down |
+| WASD / Arrow keys | Move on foot; in the cockpit W/S controls thrust/brake/reverse and A/D adds assisted banked turns |
+| Space | Jump / swim up / creative-flight up / ship vertical thrust up |
+| Shift | Sprint / creative-flight down / ship vertical thrust down |
 | Left click | Place a block (current hotbar slot) |
 | Hold right click | Mine a block (progress + crack animation; click a mob to attack) |
 | Middle click | Pick the targeted block (prefers an existing hotbar slot) |
 | 1–9 / Scroll wheel | Select hotbar slot |
 | E | Board the nearby ship / disembark from its cockpit · elsewhere, open/close inventory (2×2 crafting) · interact with a targeted crafting table, bed, furnace, or chest |
 | F | Toggle flight |
-| H | Open/close the external star map near the ship; available directly at the station terminal |
+| H | Open/close the ignitable star map in the cockpit; surface external maps are read-only; available at the station terminal |
 | N | Cycle weather (clear → rain → thunderstorm; disabled on the station) |
 | F3 | Show/hide debug overlay |
 | M | Open/close crafting handbook (recipe list + one-click craft; hold to craft continuously) |
@@ -176,7 +176,7 @@ node test/run_browser_tests.js     # Auto-detects Chrome/Edge/Chromium; you can 
 | Test file | Coverage |
 |---|---|
 | `test/smoke.js` | Noise and terrain determinism, **negative chunk coordinates, continuity across the former 255/256 edge, order-independent chunk generation, bounded streaming memory, outer-chunk edit reloads, and cross-chunk torch light**, biome signature blocks, save round-trips, crafting, smelting, and lighting |
-| `test/browser_test.html` | Full game stack: main loop, physics landing, DDA raycast, mine/place, mob spawn/death/wool drops, handbook one-click + hold-to-craft, inventory 2×2 start crafting (oak → planks → crafting table), stack-by-slot placing, drag-and-drop, crafting table 3×3 (bed), handbook, half-height bed mesh + physics, day/night, weather (rain intensity / raindrops / grey clouds / lightning flash / lightning damage / rainbow day-night conditions / G-key cycle), damage/death/respawn, save round-trip, mesh rebuild (no renderer; logic only), light init and torch lighting, new-world empty inventory, audio function smoke |
+| `test/browser_test.html` | Full game stack: main loop, physics landing, DDA raycast, mine/place, mob spawn/death/wool drops, handbook one-click + hold-to-craft, inventory 2×2 start crafting (oak → planks → crafting table), stack-by-slot placing, drag-and-drop, crafting table 3×3 (bed), handbook, half-height bed mesh + physics, day/night, weather (rain intensity / raindrops / grey clouds / lightning flash / lightning damage / rainbow day-night conditions / N-key cycle), damage/death/respawn, save round-trip, mesh rebuild (no renderer; logic only), light init and torch lighting, new-world empty inventory, audio function smoke |
 | `test/render_check.html` | Real WebGL render for 240 frames + pixel sampling (sky and terrain both visible) |
 | `test/capture_screenshots.js` | README scene screenshots (day / dusk / rain / snow mountains) |
 | `test/capture_biomes.js` | README 3×3 biome screenshots (8 biomes + overview, fixed seed) |

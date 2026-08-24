@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<title>COCKPIT-UI-RUNNING</title><link rel="stylesheet" href="../css/style.css">
+<style>#game{background:linear-gradient(#68bad2 0 55%,#386b64 56% 78%,#183b4a 79%);}</style></head>
+<body data-game-state="cockpit" data-ship-boarded="true">
+<canvas id="game"></canvas>
+<section id="cockpit-hud" aria-hidden="false" data-state="purging" data-landed="false"
+ data-impact="false" style="--cockpit-hazard:42%;--cockpit-throttle:67%;--cockpit-roll:8deg">
+ <div class="cockpit-glass" aria-hidden="true"><i class="cockpit-arch"></i><i class="cockpit-pillar left"></i><i class="cockpit-pillar right"></i><i class="cockpit-horizon"></i><i class="cockpit-reticle"></i><i class="cockpit-scanline"></i></div>
+ <section class="cockpit-monitor cockpit-monitor-left"><span class="cockpit-monitor-kicker">FLIGHT // VELOCITY</span><strong id="cockpit-speed"><b>16.1</b><small>u/s</small></strong><div class="cockpit-throttle-track" role="meter" aria-label="推进" aria-valuemin="-25" aria-valuemax="100" aria-valuenow="67"><i></i></div><div class="cockpit-monitor-row"><span>推进</span><b id="cockpit-throttle">67%</b></div><div class="cockpit-monitor-row"><span>高度</span><b id="cockpit-altitude">18.4 m</b></div></section>
+ <section class="cockpit-monitor cockpit-monitor-right"><span class="cockpit-monitor-kicker">LIFE SUPPORT // SEALED</span><strong id="cockpit-shelter-state">密封完成 · 净化循环</strong><small id="cockpit-shelter-detail">毒性暴露已隔绝 · 残留正降至0%</small><div id="cockpit-hazard-meter" role="progressbar" aria-label="舱内有害环境残留" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42"><i></i><b id="cockpit-hazard-value">42%</b></div><div class="cockpit-monitor-row"><span>舱压</span><b id="cockpit-atmosphere-value">O₂ 98% · 1.00 ATM</b></div><div class="cockpit-monitor-row"><span>舱体</span><b id="cockpit-hull-value">100%</b></div></section>
+ <div class="cockpit-console"><section class="cockpit-console-side left"><span class="cockpit-monitor-kicker">LOCAL ENVIRONMENT</span><strong id="cockpit-world-value">◆ 泽塔安-A</strong><small id="cockpit-weather-value">夜间 · 孢子雨</small><small id="cockpit-position-value">X +130.5 · Y +58.2 · Z +92.1</small></section><section class="cockpit-radar-wrap"><div class="cockpit-radar" aria-hidden="true"><i class="radar-ring r1"></i><i class="radar-ring r2"></i><i class="radar-ring r3"></i><i class="radar-sweep"></i><i class="radar-heading"></i><b style="left:28%;top:42%"></b><b style="left:66%;top:24%"></b><b style="left:74%;top:68%"></b></div><span id="cockpit-flight-mode">ATMOSPHERIC FLIGHT</span></section><section class="cockpit-console-side right"><span class="cockpit-monitor-kicker">NAV // SYSTEMS</span><strong id="cockpit-engine-value">跃迁 86/100</strong><small id="cockpit-exit-status">需先安全着陆</small><div class="cockpit-actions"><button id="btn-cockpit-map">H · 星图</button><button id="btn-cockpit-exit" disabled>E · 离舰</button></div></section></div>
+ <div id="cockpit-touch-controls"><button id="btn-cockpit-thrust">推进</button><button id="btn-cockpit-brake">制动</button><button id="btn-cockpit-up">升</button><button id="btn-cockpit-down">降</button></div>
+</section><pre id="results" class="sr-only"></pre>
+<script>(async function(){
+ if(window.__FORCE_TOUCH__)document.body.dataset.touchMode='true';
+ let failed=0,lines=[];const q=s=>document.querySelector(s),r=e=>e.getBoundingClientRect();
+ const check=(n,v,d)=>{lines.push((v?'ok  ':'FAIL ')+n+(d?' :: '+d:''));if(!v)failed++};
+ await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+ const hud=q('#cockpit-hud'),canvas=q('#game'),left=q('.cockpit-monitor-left'),right=q('.cockpit-monitor-right'),consoleEl=q('.cockpit-console');
+ const touch=document.body.dataset.touchMode==='true';
+ check('座舱HUD仅包围而不替换WebGL画布',getComputedStyle(hud).display==='block'&&r(canvas).width===innerWidth&&r(canvas).height===innerHeight);
+ const center=document.elementFromPoint(innerWidth/2,innerHeight*.45);
+ check('中央视线命中画布而非仪表面板',center===canvas||center.classList.contains('touch-capture'),center&&center.id);
+ const clearBottom=r(consoleEl).top;
+ check('中央透明视野比例达标',clearBottom/innerHeight>=(touch?.55:.60),(clearBottom/innerHeight).toFixed(3));
+ check('顶部双屏互不重叠',r(left).right<=r(right).left+.5);
+ const buttons=[...document.querySelectorAll('.cockpit-actions button')];
+ if(touch)buttons.push(...document.querySelectorAll('#cockpit-touch-controls button'));
+ check('全部座舱按钮至少44px',buttons.every(b=>r(b).width>=44&&r(b).height>=44));
+ check('座舱按钮两两不重叠',buttons.every((a,i)=>buttons.slice(i+1).every(b=>{const x=r(a),y=r(b);return x.right<=y.left||y.right<=x.left||x.bottom<=y.top||y.bottom<=x.top})));
+ check('座舱页面零溢出',document.documentElement.scrollWidth<=innerWidth+1&&document.documentElement.scrollHeight<=innerHeight+1,innerWidth+'x'+innerHeight);
+ check('净化/油门ARIA有限',Number.isFinite(Number(q('#cockpit-hazard-meter').getAttribute('aria-valuenow')))&&Number.isFinite(Number(q('.cockpit-throttle-track').getAttribute('aria-valuenow'))));
+ if(matchMedia('(prefers-reduced-motion: reduce)').matches)check('reduced关闭雷达与扫描动画',getComputedStyle(q('.radar-sweep')).animationName==='none'&&getComputedStyle(q('.cockpit-scanline')).animationName==='none');
+ q('#results').textContent=lines.join('\n');document.title=failed?'COCKPIT-UI-FAIL-'+failed:'COCKPIT-UI-PASS';
+})().catch(e=>{document.querySelector('#results').textContent='FAIL '+e.stack;document.title='COCKPIT-UI-FAIL';});</script></body></html>

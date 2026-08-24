@@ -39,7 +39,7 @@ Voxel.Controls = (function () {
       // 表单、按钮、可编辑内容、IME 和浏览器快捷键完全保留原生语义。
       if (isInteractiveTarget(e.target) || e.isComposing || isModifiedCommand(e)) return;
       keys[e.code] = true;
-      var gameplay = Voxel.Game && Voxel.Game.state === 'playing';
+      var gameplay = Voxel.Game && (Voxel.Game.state === 'playing' || Voxel.Game.state === 'cockpit');
       if (gameplay && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0)
         e.preventDefault();
       // repeat 只维持移动 keys；开关/一次性命令每次物理按键最多执行一次。

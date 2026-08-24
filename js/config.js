@@ -62,7 +62,7 @@ Voxel.Config = {
   FOG_NEAR: 60, FOG_FAR: 240,
   CHUNKS_PER_FRAME: 3,
 
-  // 天气（晴→雨→雷雨自动循环，G 键手动切换）
+  // 天气（晴→雨→雷雨自动循环，N 键手动切换）
   WEATHER: {
     CLEAR_MIN: 180, CLEAR_MAX: 360,          // 晴天持续(秒)
     RAIN_MIN: 90, RAIN_MAX: 180,             // 雨天持续(秒)
@@ -79,6 +79,28 @@ Voxel.Config = {
     STRIKE_DMG: 6,                           // 雷击伤害
     RAINBOW_DURATION: 25,                    // 彩虹持续(秒)
     FOG_NEAR_WET: 25, FOG_FAR_WET: 110       // 雨天雾距
+  },
+
+  // 行星内飞船驾驶（固定 60Hz，跨天体仍使用星图跃迁）
+  SHIP_FLIGHT: {
+    MAX_FORWARD: 24,
+    MAX_REVERSE: 6,
+    MAX_VERTICAL: 8,
+    FORWARD_ACCEL: 12,
+    BRAKE_DECEL: 18,
+    THROTTLE_UP: 0.75,
+    THROTTLE_DOWN: 1.2,
+    YAW_RATE: 70 * Math.PI / 180,
+    PITCH_RATE: 50 * Math.PI / 180,
+    PITCH_LIMIT: 50 * Math.PI / 180,
+    ROLL_MAX: 18 * Math.PI / 180,
+    ROLL_RESPONSE: 4,
+    KEY_YAW_RATE: 34 * Math.PI / 180,
+    SWEEP_STEP: 0.35,
+    LAND_SPEED: 3,
+    MAX_ALTITUDE: 64,
+    MAX_ABSOLUTE_Y: 120,
+    SHIP_BASE_CLEARANCE: 1.02
   },
 
   SAVE_KEY: 'starbound_voxel_save_v5', // v5：星系、多世界独立进度、飞船与发现状态

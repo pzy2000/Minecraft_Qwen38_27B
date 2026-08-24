@@ -45,6 +45,13 @@
     </div>
   </div>
 </div>
+<section id="cockpit-hud" aria-hidden="true" data-state="safe" data-landed="true" data-impact="false">
+  <div class="cockpit-glass"><i class="cockpit-arch"></i><i class="cockpit-pillar left"></i><i class="cockpit-pillar right"></i><i class="cockpit-horizon"></i><i class="cockpit-reticle"></i><i class="cockpit-scanline"></i></div>
+  <section class="cockpit-monitor cockpit-monitor-left"><strong id="cockpit-speed"><b>0</b><small>u/s</small></strong><div class="cockpit-throttle-track" aria-valuenow="0"><i></i></div><b id="cockpit-throttle">0%</b><b id="cockpit-altitude">0 m</b></section>
+  <section class="cockpit-monitor cockpit-monitor-right"><strong id="cockpit-shelter-state"></strong><small id="cockpit-shelter-detail"></small><div id="cockpit-hazard-meter" aria-valuenow="0"><i></i><b id="cockpit-hazard-value">0%</b></div><b id="cockpit-atmosphere-value"></b><b id="cockpit-hull-value"></b></section>
+  <div class="cockpit-console"><section class="cockpit-console-side left"><strong id="cockpit-world-value"></strong><small id="cockpit-weather-value"></small><small id="cockpit-position-value"></small></section><section class="cockpit-radar-wrap"><div class="cockpit-radar"><i class="radar-sweep"></i><b id="cockpit-radar-marker-0"></b><b id="cockpit-radar-marker-1"></b><b id="cockpit-radar-marker-2"></b><b id="cockpit-radar-marker-3"></b></div><span id="cockpit-flight-mode"></span></section><section class="cockpit-console-side right"><strong id="cockpit-engine-value"></strong><small id="cockpit-exit-status"></small><div class="cockpit-actions"><button id="btn-cockpit-map">星图</button><button id="btn-cockpit-exit">离舰</button></div></section></div>
+  <div id="cockpit-touch-controls"><button id="btn-cockpit-thrust">推进</button><button id="btn-cockpit-brake">制动</button><button id="btn-cockpit-up">升</button><button id="btn-cockpit-down">降</button></div>
+</section>
 <div id="inventory" class="hidden"><div class="panel inv-panel">
   <div class="panel-titlebar"><div class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
   <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
@@ -114,6 +121,7 @@
   <div class="discovery-stats" role="group" aria-label="发现统计"><div class="discovery-stat points"><span>探索点</span><strong id="discovery-points">0</strong></div><div class="discovery-stat"><span>已访天体</span><strong id="discovery-worlds">0</strong></div><div class="discovery-stat"><span>生物群系</span><strong id="discovery-biomes">0</strong></div><div class="discovery-stat"><span>资源样本</span><strong id="discovery-resources">0</strong></div><div class="discovery-stat"><span>生命记录</span><strong id="discovery-fauna">0</strong></div></div>
   <div id="discovery-world-list" aria-label="天体发现记录"></div>
 </div></div>
+<div id="overlay-starmap" class="overlay hidden" data-mode="remote"><div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title" aria-describedby="starmap-status starmap-help"><div class="panel-titlebar"><div class="starmap-ident"><div class="starmap-kicker">ARK NAVIGATION</div><h2 id="starmap-title">星系航行图</h2><div id="starmap-status"></div></div><button id="btn-starmap-close" class="panel-close">×</button></div><section id="starmap-cockpit" data-state="idle"><strong id="cockpit-selection"></strong><button id="btn-travel-ignite" disabled>点火跃迁</button></section><div id="starmap-route-map"></div><div id="starmap-grid"></div><div id="starmap-help"></div></div></div>
 <div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div class="rh-icon">⟳</div><div id="rotate-title" class="rh-text"></div><button id="btn-rotate-ok" class="btn primary">仍要继续</button></div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><h2></h2>
   <div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div>
@@ -152,6 +160,7 @@
 <script src="../js/interact/raycast.js"></script>
 <script src="../js/systems/settings.js"></script>
 <script src="../js/systems/environment.js"></script>
+<script src="../js/systems/ship_flight.js"></script>
 <script src="../js/systems/flight_sequence.js"></script>
 <script src="../js/systems/atmosphere.js"></script>
 <script src="../js/systems/daynight.js"></script>
@@ -269,6 +278,7 @@
       check('飞行按钮初始aria-pressed=false', fb.getAttribute('aria-pressed') === 'false');
 
       testActiveScan(function () {
+        return testCockpit(function () {
         // Rotate 使用与其余面板相同的modal栈；横屏resize与显式dismiss都精确返回。
         Voxel.Game.openRotateHint();
         wait(20, function () {
@@ -287,6 +297,7 @@
               stepB();
             });
           });
+        });
         });
       });
     });
@@ -352,6 +363,57 @@
           check('档案开关全过程不产生世界轻点', touchTapCalls === 0);
           Voxel.Game.touchTap = originalTouchTap;
           done();
+        });
+      });
+    });
+  }
+
+  function testCockpit(done) {
+    var savedPos = Voxel.Player.pos().clone();
+    var ship = Voxel.SpaceTravel.ship();
+    var door = new THREE.Vector3().fromArray(ship.userData.interactionLocal);
+    ship.localToWorld(door);
+    door.y = Voxel.World.surfaceAt(Math.floor(door.x), Math.floor(door.z)) + 1.001;
+    Voxel.Player.pos().copy(door);
+    Voxel.SpaceTravel.update(.016, .016);
+    doc.getElementById('btn-starmap-hud').click();
+    wait(120, function () {
+      var cap = doc.querySelector('.touch-capture');
+      var normalButtons = [doc.querySelector('.touch-btn-main'), doc.querySelector('.touch-btn-sub.fly'),
+        doc.querySelector('.touch-btn-top.pause'), doc.querySelector('.touch-btn-top.bag')];
+      var cockpitButtons = ['btn-cockpit-thrust','btn-cockpit-brake','btn-cockpit-up','btn-cockpit-down',
+        'btn-cockpit-map','btn-cockpit-exit'].map(function (id) { return doc.getElementById(id); });
+      check('移动端登舰进入cockpit且星图保持关闭', Voxel.Game.state === 'cockpit' &&
+        Voxel.SpaceTravel.isAboard() && doc.getElementById('overlay-starmap').classList.contains('hidden'));
+      var gameCanvas = doc.getElementById('game');
+      check('座舱透明视野由画布直接接收转向且隐藏地表动作', cap.style.display === 'none' &&
+        doc.elementFromPoint(innerWidth / 2, innerHeight * .45) === gameCanvas &&
+        normalButtons.every(function (b) { return b.style.display === 'none'; }));
+      check('六个座舱按钮均至少44px且可见', cockpitButtons.every(function (b) {
+        var r = b.getBoundingClientRect(); return r.width >= 44 && r.height >= 44 && getComputedStyle(b).display !== 'none';
+      }));
+      var originalTouchTap = Voxel.Game.touchTap, touchTapCalls = 0;
+      Voxel.Game.touchTap = function () { touchTapCalls++; return originalTouchTap.apply(this, arguments); };
+      var yawBefore = Voxel.SpaceTravel.flightSnapshot().yaw;
+      pev('pointerdown', 88, innerWidth / 2, innerHeight * .45, gameCanvas);
+      pev('pointermove', 88, innerWidth / 2 + 70, innerHeight * .45, gameCanvas);
+      pev('pointerup', 88, innerWidth / 2 + 70, innerHeight * .45, gameCanvas);
+      wait(180, function () {
+        var yawAfter = Voxel.SpaceTravel.flightSnapshot().yaw;
+        check('座舱触摸拖动只转向飞船且不触发世界轻点', Math.abs(yawAfter - yawBefore) > .001 && touchTapCalls === 0);
+        Voxel.Game.touchTap = originalTouchTap;
+        doc.getElementById('btn-cockpit-map').click();
+        wait(40, function () {
+          check('移动端星图按钮打开模态且仍保持登舰', Voxel.Game.state === 'starmap' && Voxel.SpaceTravel.isAboard());
+          doc.getElementById('btn-starmap-close').click();
+          wait(40, function () {
+            doc.getElementById('btn-cockpit-exit').click();
+            wait(80, function () {
+              check('移动端关闭星图回座舱并可安全离舰', Voxel.Game.state === 'playing' && !Voxel.SpaceTravel.isAboard());
+              Voxel.Player.pos().copy(savedPos);
+              done();
+            });
+          });
         });
       });
     });

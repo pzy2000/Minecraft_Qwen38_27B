@@ -95,11 +95,16 @@ Voxel.HandItem = (function () {
     if (matItem) matItem.color.copy(t);
   }
 
+  function setVisible(value) {
+    if (group) group.visible = !!value && !!curId;
+  }
+
   return {
     init: init,
     setId: setId,
     swing: swing,
     update: update,
-    applyTint: applyTint
+    applyTint: applyTint,
+    setVisible: setVisible
   };
 })();
