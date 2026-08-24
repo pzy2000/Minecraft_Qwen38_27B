@@ -9,10 +9,10 @@ One galaxy seed deterministically creates six distinct planets and an orbital st
 
 - Six seeded planet classes: lush, arid, frozen, toxic, volcanic, and oceanic.
 - Three or four deterministic portals per planet, including a route to the station.
-- A pixel starship near the landing site; press `E` or `H` nearby to open the star map.
+- A pixel starship near the landing site; press `E` nearby to board its sealed cockpit. Life support blocks planetary hazards, scrubs accumulated exposure down to `0%`, and diverts lightning strikes. Press `H` for the external star map.
 - Distance-based warp energy, discovery tracking, an orbital station, and automatic station refuelling.
 - Save v5 keeps edits and positions separate per world while inventory and ship progress travel with you.
-- The top-right Star Map control keeps the same loop available on phones and tablets.
+- The top-right control changes from Star Map to Board when the ship is in range, keeping the sealed cockpit, navigation, and disembark loop available on phones and tablets.
 
 <table>
   <tr>
@@ -85,8 +85,9 @@ python3 -m http.server 8080
 | Hold right click | Mine a block (progress + crack animation; click a mob to attack) |
 | Middle click | Pick the targeted block (prefers an existing hotbar slot) |
 | 1–9 / Scroll wheel | Select hotbar slot |
-| E | Open/close inventory (2×2 crafting) · look at a crafting table and press E for 3×3 · look at a bed and press E to sleep / set spawn |
+| E | Board the nearby ship / disembark from its cockpit · elsewhere, open/close inventory (2×2 crafting) · interact with a targeted crafting table, bed, furnace, or chest |
 | F | Toggle flight |
+| H | Open/close the external star map near the ship; available directly at the station terminal |
 | N | Cycle weather (clear → rain → thunderstorm; disabled on the station) |
 | F3 | Show/hide debug overlay |
 | M | Open/close crafting handbook (recipe list + one-click craft; hold to craft continuously) |

@@ -197,6 +197,19 @@
   var outsideSpawn = advance(32, outdoor({ spawnDistance: 12.01 }));
   check('出生安全半径外恢复正常伤害节拍', outsideSpawn.damageDue === 1 && outsideSpawn.status.active);
 
+  var sealedSaved = { v: 1, worlds: { 'planet-sealed': { exposure: 100, adapted: true } } };
+  E.loadWorld(world('toxic', 'planet-sealed'), sealedSaved, { grantGrace: false });
+  var ordinaryShelter = advance(2, outdoor({ sheltered: true, outdoors: false }));
+  E.loadWorld(world('toxic', 'planet-sealed'), sealedSaved, { grantGrace: false });
+  var sealedPartial = advance(2, outdoor({ sealedShelter: true }));
+  var sealedZero = advance(2.25, outdoor({ inShip: true }));
+  check('飞船密封舱优先隔绝危害且净化快于普通遮蔽', ordinaryShelter.status.exposure === 84 &&
+    sealedPartial.status.exposure === 52 && sealedPartial.damageDue === 0 && sealedPartial.status.protected &&
+    sealedPartial.status.sealedShelter && sealedPartial.status.reason === '飞船密封舱净化');
+  check('飞船生命维持持续把累计有害暴露降至0且不反转伤害阈值', sealedZero.status.exposure === 0 &&
+    sealedZero.status.percent === 0 && sealedZero.status.threshold === 90 && sealedZero.damageDue === 0 &&
+    E._test.SEALED_SHELTER_RECOVERY === 24);
+
   E.loadWorld(world('toxic', 'planet-damage'), saved('planet-damage', 100));
   var damageGrace = advance(30, outdoor());
   var damage175 = advance(1.75, outdoor());

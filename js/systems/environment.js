@@ -1,7 +1,8 @@
 // 行星环境危害：纯状态机，不直接读写 Player，也不依赖 DOM/THREE。
 // 主循环以固定步调用 update(dt, context)，再自行应用返回的 damageDue。
 // context: isNight/sunlight、sheltered|underCover、outdoors|skyExposed、
-// inWater|headInWater、waterDepth|depth、blockLight、spawnDistance|inSpawnSafeZone。
+// inWater|headInWater、waterDepth|depth、blockLight、spawnDistance|inSpawnSafeZone，
+// sealedShelter（飞船密封舱；完全隔绝危害并加速把累计暴露净化到 0）。
 window.Voxel = window.Voxel || {};
 
 Voxel.Environment = (function () {
@@ -15,6 +16,7 @@ Voxel.Environment = (function () {
   var SPAWN_SAFE_RADIUS = 12;
   var DAMAGE_THRESHOLD = 90;
   var DAMAGE_INTERVAL = 2;
+  var SEALED_SHELTER_RECOVERY = 24;
   var MAX_WORLDS = 64;
   var MAX_SAVED_SCAN = 256;
   var MAX_ID_LENGTH = 64;
@@ -163,6 +165,7 @@ Voxel.Environment = (function () {
       waterDepth: finiteNumber(raw.waterDepth) ? clamp(raw.waterDepth, 0, 10000) :
         (finiteNumber(raw.depth) ? clamp(raw.depth, 0, 10000) : 0),
       blockLight: finiteNumber(raw.blockLight) ? clamp(raw.blockLight, 0, 15) : 0,
+      sealedShelter: raw.sealedShelter === true || raw.inShip === true,
       spawnSafe: raw.inSpawnSafeZone === true || (spawnDistance !== null && spawnDistance <= SPAWN_SAFE_RADIUS),
       spawnDistance: spawnDistance
     };
@@ -170,6 +173,8 @@ Voxel.Environment = (function () {
 
   function conditionFor(typeKey, context) {
     var profile = profileFor(typeKey);
+    if (context.sealedShelter)
+      return { active: false, protected: true, reason: '飞船密封舱净化', sealedShelter: true, profile: profile };
     if (context.spawnSafe)
       return { active: false, protected: true, reason: '出生安全区', profile: profile };
     if (profile.hazard === 'none')
@@ -236,6 +241,7 @@ Voxel.Environment = (function () {
       graceRemaining: rounded(clamp(graceRemaining, 0, LOAD_GRACE)),
       active: !!condition.active,
       protected: !!condition.protected || graceRemaining > 0,
+      sealedShelter: !!(lastContext && lastContext.sealedShelter),
       reason: graceRemaining > 0 && condition.active ? '环境适应期' : condition.reason
     };
   }
@@ -307,7 +313,11 @@ Voxel.Environment = (function () {
     var inGrace = graceRemaining > 0;
     graceRemaining = Math.max(0, graceRemaining - FIXED_STEP);
     if (condition.active && !inGrace) record.exposure += profile.gain * FIXED_STEP;
-    else if (!condition.active) record.exposure -= profile.recover * FIXED_STEP;
+    else if (!condition.active) {
+      var recovery = condition.sealedShelter
+        ? Math.max(profile.recover, SEALED_SHELTER_RECOVERY) : profile.recover;
+      record.exposure -= recovery * FIXED_STEP;
+    }
     record.exposure = safeExposure(record.exposure);
 
     if (inGrace || !condition.active || record.exposure < profile.threshold || profile.interval <= 0 || profile.damage <= 0) {
@@ -387,6 +397,7 @@ Voxel.Environment = (function () {
       SPAWN_SAFE_RADIUS: SPAWN_SAFE_RADIUS,
       DAMAGE_THRESHOLD: DAMAGE_THRESHOLD,
       DAMAGE_INTERVAL: DAMAGE_INTERVAL,
+      SEALED_SHELTER_RECOVERY: SEALED_SHELTER_RECOVERY,
       profileFor: profileFor,
       hydrate: hydrate,
       normalizeContext: normalizeContext,

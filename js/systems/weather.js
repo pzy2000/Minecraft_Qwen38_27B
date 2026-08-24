@@ -214,6 +214,26 @@ Voxel.Weather = (function () {
     bolt.visible = true;
   }
 
+  function playerInSealedShip() {
+    try {
+      return !!(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard());
+    } catch (e) { return false; }
+  }
+
+  function applyPlayerStrike(p) {
+    if (!p) return false;
+    if (playerInSealedShip()) {
+      if (Voxel.SpaceTravel && Voxel.SpaceTravel.registerShieldImpact)
+        Voxel.SpaceTravel.registerShieldImpact('lightning');
+      if (Voxel.HUD) Voxel.HUD.toast('雷击已被飞船舱体导流 · 生命维持稳定');
+      return false;
+    }
+    var W = Voxel.Config.WEATHER;
+    Voxel.Player.damage(W.STRIKE_DMG, "lightning", p.x + 0.01, p.z);
+    if (Voxel.HUD) Voxel.HUD.toast('你被雷劈了！(-' + W.STRIKE_DMG + ')');
+    return true;
+  }
+
   function fireBolt() {
     var W = Voxel.Config.WEATHER;
     var p = (Voxel.Player && Voxel.Player.hp() > 0) ? Voxel.Player.pos() : null;
@@ -233,10 +253,7 @@ Voxel.Weather = (function () {
     boltT = 0.13;
     thunderT = 0.35 + random() * 1.3;
     setBolt(sx, sy0, sz);
-    if (strike && p) {
-      Voxel.Player.damage(W.STRIKE_DMG, "lightning", p ? p.x + 0.01 : undefined, p ? p.z : undefined);
-      if (Voxel.HUD) Voxel.HUD.toast('你被雷劈了！(-' + W.STRIKE_DMG + ')');
-    }
+    if (strike && p) applyPlayerStrike(p);
   }
 
   // ---------- 主更新 ----------
@@ -516,14 +533,12 @@ Voxel.Weather = (function () {
         setBolt(x, y, z);
       },
       forceStrike: function () {
-        var W = Voxel.Config.WEATHER;
         if (!(Voxel.Player && Voxel.Player.hp() > 0)) return;
         var p = Voxel.Player.pos();
         flash = 1; flash2 = 0.07; boltT = 0.13;
         thunderT = 0.3;
         setBolt(p.x, p.y, p.z);
-        Voxel.Player.damage(W.STRIKE_DMG, "lightning", p ? p.x + 0.01 : undefined, p ? p.z : undefined);
-        if (Voxel.HUD) Voxel.HUD.toast('你被雷劈了！(-' + W.STRIKE_DMG + ')');
+        applyPlayerStrike(p);
       },
       triggerRainbow: function () { rainbowT = 0; rainFadeT = 90; },
       layoutSignature: function () {

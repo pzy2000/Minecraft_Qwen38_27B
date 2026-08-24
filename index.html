@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=34a2b286e4af3bd5284c3d387e6b0c3343213cb5abee93d21349cc1f2b629441">
+<link rel="stylesheet" href="css/style.css?v=90c454cdd0344df5409d6e4bb9ff2c8c71c62c10a046735b48eae2c9255e440d">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -277,8 +277,16 @@
   </div>
 </div>
 
-<!-- 飞船星图 -->
-<div id="overlay-starmap" class="overlay hidden">
+<!-- 飞船座舱 / 外部星图 -->
+<div id="overlay-starmap" class="overlay hidden" data-mode="remote" data-purging="false"
+     data-impact="false" data-hazard="none" style="--cockpit-hazard: 0%">
+  <div class="cockpit-viewport" aria-hidden="true">
+    <i class="cockpit-canopy cockpit-canopy-left"></i>
+    <i class="cockpit-canopy cockpit-canopy-right"></i>
+    <i class="cockpit-horizon"></i>
+    <i class="cockpit-reticle"></i>
+    <i class="cockpit-scanline"></i>
+  </div>
   <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title"
        aria-describedby="starmap-status starmap-help">
     <div class="panel-titlebar">
@@ -287,8 +295,31 @@
         <h2 id="starmap-title">星系航行图</h2>
         <div id="starmap-status" class="terminal-line">导航引擎待机 · 等待星域数据</div>
       </div>
-      <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
+      <button id="btn-starmap-close" class="panel-close" type="button"
+              aria-label="关闭星图" title="关闭星图">×</button>
     </div>
+    <section id="cockpit-systems" hidden aria-hidden="true" data-state="safe"
+             aria-labelledby="cockpit-shelter-state" aria-describedby="cockpit-shelter-detail">
+      <div class="cockpit-radar" aria-hidden="true"><i></i><i></i><i></i><b>ARK</b></div>
+      <div class="cockpit-shelter-copy">
+        <span class="cockpit-system-kicker">LIFE SUPPORT // SEALED REFUGE</span>
+        <strong id="cockpit-shelter-state" role="status" aria-live="polite" aria-atomic="true">密封完成 · 舱内安全</strong>
+        <small id="cockpit-shelter-detail">外界环境稳定 · 生命维持系统在线</small>
+        <div id="cockpit-hazard-meter" role="progressbar" aria-label="舱内有害环境残留"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+             aria-valuetext="有害环境残留已净化至 0%">
+          <span>HAZARD PURGE</span><i aria-hidden="true"></i><b id="cockpit-hazard-value">0%</b>
+        </div>
+      </div>
+      <dl class="cockpit-telemetry" aria-label="飞船系统遥测">
+        <div><dt>舱压 / 氧气</dt><dd id="cockpit-atmosphere-value">O₂ 98% · 1.00 ATM</dd></div>
+        <div><dt>舱体完整度</dt><dd id="cockpit-hull-value">100%</dd></div>
+        <div><dt>跃迁能量</dt><dd id="cockpit-engine-value">0/100</dd></div>
+        <div><dt>外界气象</dt><dd id="cockpit-weather-value">日间 · 晴</dd></div>
+      </dl>
+      <button id="btn-cockpit-exit" type="button" hidden disabled aria-disabled="true"
+              aria-label="离开飞船并返回地表" aria-keyshortcuts="E Escape">离舰</button>
+    </section>
     <section id="starmap-cockpit" data-state="idle" aria-labelledby="cockpit-title"
              aria-describedby="cockpit-selection">
       <div class="cockpit-frame" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -489,15 +520,15 @@
 <script src="js/player/player.js?v=20260824q"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260823f"></script>
-<script src="js/systems/environment.js?v=20260824o"></script>
+<script src="js/systems/environment.js?v=745d33c6d3bec2b5c80715954f067ba67d8a1170d774eab681e064189dc1bba8"></script>
 <script src="js/systems/flight_sequence.js?v=20260824p"></script>
 <script src="js/systems/atmosphere.js?v=20260824m"></script>
 <script src="js/systems/daynight.js?v=20260824m"></script>
-<script src="js/systems/weather.js?v=20260824m"></script>
+<script src="js/systems/weather.js?v=78431820e28f720856a88ad76845d4d24c680f7d6b61b8db29612a8c5d76f40b"></script>
 <script src="js/systems/sound.js?v=0764c78374d7cfec2469c059568e9d1f358584b372d27d316fa32312b53f5c93"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=20260824q"></script>
+<script src="js/systems/space_travel.js?v=46419669cbfb97cf317473b5c0932a2c04670009bc6dffe11734205fbdbecd35"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=596462f305c1f857658893e06e79436d466d7150b268f6ed9a930e14a5136f74"></script>
@@ -505,6 +536,6 @@
 <script src="js/ui/featured.js?v=d7f0e47d1576fc46ad75e1122bd629eed19558ce57a91ce929b15a288f81cb1b"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
 <script src="js/ui/hud.js?v=20260824o"></script>
-<script src="js/main.js?v=5577c0d4bab0ebe9c333d63e922bc1bbb7f8319a074475064bd4b4eb0089a685"></script>
+<script src="js/main.js?v=71ed368bb7c7a4ec1c954a824306d2cac3f27aa89cb879979275cc83e88ce4c9"></script>
 </body>
 </html>

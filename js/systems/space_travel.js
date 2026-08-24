@@ -4,7 +4,7 @@ window.Voxel = window.Voxel || {};
 Voxel.SpaceTravel = (function () {
   var scene = null, group = null, ship = null, portals = [];
   var galaxy = null, world = null, nearShip = false, nearPortal = null, portalCooldown = 0;
-  var fuelEl = null, worldEl = null, coordEl = null, mapGrid = null;
+  var fuelEl = null, worldEl = null, coordEl = null, mapGrid = null, mapButton = null;
   var scanEl = null, scanWorldEl = null, scanPositionEl = null, scanBiomeEl = null;
   var scanEnvironmentEl = null, scanTargetEl = null, scanDistanceEl = null;
   var scanTarget = { kind: 'none', label: '无锁定目标', distance: null };
@@ -20,6 +20,7 @@ Voxel.SpaceTravel = (function () {
   var reducedMotion = false, visualTimeOverride = null;
   var rampTarget = 0, rampFrom = 0, rampChangedAt = 0, rampProgress = 0;
   var selectedDestinationId = null, flightMode = 'ship', flightSkipping = false;
+  var aboardShip = false, boardedWorldId = null, cockpitSignature = '', shieldImpactUntil = 0;
   var arrivalTimer = null;
   var generation = 0;
   var owned = { geometries: [], materials: [], textures: [] };
@@ -180,6 +181,153 @@ Voxel.SpaceTravel = (function () {
       setText(fuelEl, '跃迁待机');
       fuelEl.style.setProperty('--fuel', '0%');
     }
+    if (mapButton) {
+      setText(mapButton, '星图');
+      setAttr(mapButton, 'aria-label', '打开星图');
+    }
+  }
+
+  function isAboard() {
+    return !!(aboardShip && ship && world && world.kind === 'planet' && boardedWorldId === world.id);
+  }
+
+  function canBoardShip() {
+    return !!(world && world.kind === 'planet' && ship && nearShip && !aboardShip);
+  }
+
+  function syncMapButton() {
+    if (!mapButton) return;
+    var boardingAvailable = canBoardShip();
+    setText(mapButton, boardingAvailable ? '登舰' : '星图');
+    setAttr(mapButton, 'aria-label', boardingAvailable
+      ? '进入飞船避难并打开座舱导航' : '打开星图');
+    setAttr(mapButton, 'data-action', boardingAvailable ? 'board' : 'starmap');
+  }
+
+  function cockpitModel() {
+    var sealed = isAboard();
+    var status = null;
+    try { status = Voxel.Environment && Voxel.Environment.status ? Voxel.Environment.status() : null; }
+    catch (e) { status = null; }
+    status = status && typeof status === 'object' ? status : {};
+    var exposure = finite(status.exposure, 0, 0, 100);
+    var percent = Math.round(exposure);
+    var hazard = safeText(status.label, '环境危害', 32);
+    var hasHazard = status.hazard && status.hazard !== 'none';
+    var purging = sealed && hasHazard && exposure > 0;
+    var st = shipText(galaxy);
+    var weather = safeText(Voxel.Weather && Voxel.Weather.label ? Voxel.Weather.label() : '', '晴', 20);
+    var phase = Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight() ? '夜间' : '日间';
+    var impact = sealed && visualTime() < shieldImpactUntil;
+    return {
+      sealed: sealed,
+      purging: purging,
+      impact: impact,
+      exposure: exposure,
+      percent: percent,
+      hazardKey: hasHazard ? safeText(status.hazard, 'hazard', 18) : 'none',
+      shelter: impact ? '电磁冲击已导流' : (purging ? '密封完成 · 净化循环' : '密封完成 · 舱内安全'),
+      detail: hasHazard
+        ? (purging ? hazard + '已隔绝 · 残留暴露正降至 0%' : hazard + '已隔绝 · 有害暴露 0%')
+        : '外界环境稳定 · 生命维持系统在线',
+      atmosphere: sealed ? 'O₂ 98% · 1.00 ATM' : '外部链路',
+      hull: impact ? '导流中' : '100%',
+      engine: st.fuel + '/' + st.maxFuel,
+      exterior: phase + ' · ' + weather
+    };
+  }
+
+  function syncCockpit(force) {
+    if (typeof document === 'undefined') return null;
+    var model = cockpitModel();
+    var overlay = document.getElementById('overlay-starmap');
+    var systems = document.getElementById('cockpit-systems');
+    var close = document.getElementById('btn-starmap-close');
+    var exit = document.getElementById('btn-cockpit-exit');
+    var signature = [model.sealed ? 1 : 0, model.purging ? 1 : 0, model.impact ? 1 : 0,
+      model.percent, model.hazardKey, model.shelter, model.detail, model.atmosphere,
+      model.hull, model.engine, model.exterior].join('|');
+    if (!force && signature === cockpitSignature) return model;
+    cockpitSignature = signature;
+    if (overlay) {
+      setAttr(overlay, 'data-mode', model.sealed ? 'boarded' : 'remote');
+      setAttr(overlay, 'data-purging', model.purging ? 'true' : 'false');
+      setAttr(overlay, 'data-impact', model.impact ? 'true' : 'false');
+      setAttr(overlay, 'data-hazard', model.hazardKey);
+      var hazardCss = model.percent + '%';
+      if (overlay.style.getPropertyValue('--cockpit-hazard') !== hazardCss)
+        overlay.style.setProperty('--cockpit-hazard', hazardCss);
+    }
+    if (document.body) document.body.setAttribute('data-ship-boarded', model.sealed ? 'true' : 'false');
+    if (systems) {
+      systems.hidden = !model.sealed;
+      setAttr(systems, 'aria-hidden', model.sealed ? 'false' : 'true');
+      setAttr(systems, 'data-state', model.impact ? 'impact' : (model.purging ? 'purging' : 'safe'));
+    }
+    if (close) {
+      setAttr(close, 'aria-label', model.sealed ? '离开飞船' : '关闭星图');
+      setAttr(close, 'title', model.sealed ? '离开飞船' : '关闭星图');
+    }
+    setText(document.getElementById('starmap-title'), model.sealed ? '方舟座舱' : '星系航行图');
+    var kicker = document.querySelector('#overlay-starmap .starmap-kicker');
+    setText(kicker, model.sealed ? 'EXO-ARK // SEALED FLIGHT DECK' : 'ARK NAVIGATION // ROUTE SELECT');
+    if (exit) {
+      exit.hidden = !model.sealed;
+      exit.disabled = !model.sealed;
+      setAttr(exit, 'aria-disabled', model.sealed ? 'false' : 'true');
+    }
+    setText(document.getElementById('cockpit-shelter-state'), model.shelter);
+    setText(document.getElementById('cockpit-shelter-detail'), model.detail);
+    setText(document.getElementById('cockpit-hazard-value'), model.percent + '%');
+    setText(document.getElementById('cockpit-atmosphere-value'), model.atmosphere);
+    setText(document.getElementById('cockpit-hull-value'), model.hull);
+    setText(document.getElementById('cockpit-engine-value'), model.engine);
+    setText(document.getElementById('cockpit-weather-value'), model.exterior);
+    var meter = document.getElementById('cockpit-hazard-meter');
+    if (meter) {
+      setAttr(meter, 'aria-valuenow', String(model.percent));
+      setAttr(meter, 'aria-valuetext', model.percent === 0
+        ? '有害环境残留已净化至 0%' : '有害环境残留 ' + model.percent + '%，正在净化');
+    }
+    return model;
+  }
+
+  function boardShip() {
+    if (!canBoardShip()) return false;
+    aboardShip = true;
+    boardedWorldId = world.id;
+    shieldImpactUntil = 0;
+    setRampTarget(1, visualTime());
+    syncMapButton();
+    syncCockpit(true);
+    announceTravel('已进入飞船密封舱；外界环境已隔绝，生命维持与净化循环启动。');
+    return true;
+  }
+
+  function disembarkShip(options) {
+    options = options || {};
+    if (!aboardShip) { syncCockpit(true); return false; }
+    aboardShip = false;
+    boardedWorldId = null;
+    shieldImpactUntil = 0;
+    syncMapButton();
+    syncCockpit(true);
+    if (!options.silent)
+      announceTravel('已离开飞船；外界环境防护由玩家当前位置重新判定。');
+    return true;
+  }
+
+  function registerShieldImpact(kind) {
+    if (!isAboard()) return false;
+    shieldImpactUntil = visualTime() + (reducedMotion ? 0.7 : 1.25);
+    syncCockpit(true);
+    return kind === 'lightning' || !!kind;
+  }
+
+  function updateCockpit(renderDt) {
+    if (!isAboard()) return syncCockpit(false);
+    if (typeof renderDt !== 'number' || !isFinite(renderDt) || renderDt < 0) renderDt = 0;
+    return syncCockpit(false);
   }
 
   function scanModel() {
@@ -805,6 +953,7 @@ Voxel.SpaceTravel = (function () {
     disposeList('materials');
     disposeList('geometries');
     disposeList('textures');
+    aboardShip = false; boardedWorldId = null; shieldImpactUntil = 0; cockpitSignature = '';
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false; nearPortal = null;
     shipParts = { engines: [], door: null, ramp: null };
     stationHub = null; stationDock = null; stationTerminal = null;
@@ -821,6 +970,7 @@ Voxel.SpaceTravel = (function () {
     resetScanTarget();
     setScanOffline();
     setHudOffline();
+    syncCockpit(true);
     return hadRoot;
   }
 
@@ -929,9 +1079,11 @@ Voxel.SpaceTravel = (function () {
     worldEl = document.getElementById('world-name');
     coordEl = document.getElementById('world-coord');
     mapGrid = document.getElementById('starmap-grid');
+    mapButton = document.getElementById('btn-starmap-hud');
     bindScanDom();
-    if (world && galaxy) { syncHud(); syncScan(true); }
+    if (world && galaxy) { syncHud(); syncScan(true); syncMapButton(); }
     else { setHudOffline(); setScanOffline(); }
+    syncCockpit(true);
   }
 
   function update(dt, renderDt) {
@@ -950,7 +1102,7 @@ Voxel.SpaceTravel = (function () {
       ship.position.y = shipBaseY; // 起落架稳定接地；动效集中在引擎和舱门。
     } else nearShip = world.kind === 'station';
     nearPortal = nearestPortalTo(p, 7);
-    setRampTarget(nearShip, now);
+    setRampTarget(nearShip || isAboard(), now);
     applyVisualState(now);
     portalInside = anyPortalInside(p, false);
     var withinExitLatch = anyPortalInside(p, true);
@@ -978,6 +1130,8 @@ Voxel.SpaceTravel = (function () {
       }
     }
     syncHud();
+    syncMapButton();
+    if (isAboard()) syncCockpit(false);
   }
 
   function actionHint() {
@@ -985,7 +1139,8 @@ Voxel.SpaceTravel = (function () {
     if (nearPortal && nearPortal.userData)
       return '传送门 → ' + worldText(nearPortal.userData.destination).name + ' · 接触后免费传送';
     if (world.kind === 'station') return '航行终端：' + (Voxel.Controls.touchMode() ? '点右上角「星图」' : '按 H 打开星图');
-    if (nearShip) return '飞船已就绪：' + (Voxel.Controls.touchMode() ? '点右上角「星图」' : '按 E 登舰 / H 打开星图');
+    if (nearShip) return '飞船舱门已就绪：' + (Voxel.Controls.touchMode()
+      ? '点右上角「登舰」进入密封舱' : '按 E 登舰避难 · H 打开外部星图');
     return '';
   }
 
@@ -1304,6 +1459,7 @@ Voxel.SpaceTravel = (function () {
     var st = shipText(galaxy);
     setText(title, st.engine + ' · 能量 ' + st.fuel + '/' + st.maxFuel);
     setSelectedDestination(null);
+    syncCockpit(true);
   }
 
   var FLIGHT_PHASES = {
@@ -1656,6 +1812,13 @@ Voxel.SpaceTravel = (function () {
     actionHint: actionHint,
     actionHintKind: actionHintKind,
     nearPortalInfo: nearPortalInfo,
+    canBoardShip: canBoardShip,
+    boardShip: boardShip,
+    disembarkShip: disembarkShip,
+    isAboard: isAboard,
+    syncCockpit: syncCockpit,
+    updateCockpit: updateCockpit,
+    registerShieldImpact: registerShieldImpact,
     canOpenMap: canOpenMap,
     authorizePortalTravel: authorizePortalTravel,
     syncPortalOccupancy: syncPortalOccupancy,

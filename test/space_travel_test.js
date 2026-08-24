@@ -357,6 +357,81 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   check('坏world/ship/目标字段不会泄漏程序字符串', noLeak(badTelemetry.values) && !badTelemetry.placeholderLeak);
   check('星图字段只按文本写入且不会注入标记', badTelemetry.injectedMarkup === false);
 
+  const boardingShelter = await page.evaluate(async () => {
+    const T = Voxel.Game._test;
+    const actualWorld = T.currentWorld();
+    const originalEnvironment = Voxel.Environment.snapshot();
+    const ship = Voxel.SpaceTravel.ship();
+    Voxel.Player.pos().copy(ship.position).add(new THREE.Vector3(0, 1, 1));
+    Voxel.SpaceTravel.update(0.016, 0.016);
+    const beforeHp = Voxel.Player.hp();
+    const toxicState = { v: 1, worlds: {} };
+    toxicState.worlds[actualWorld.id] = { exposure: 100, adapted: true };
+    Voxel.Environment.loadWorld({ id: actualWorld.id, kind: 'planet', typeKey: 'toxic' },
+      toxicState, { grantGrace: false });
+
+    Voxel.Game.onKey('KeyE');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const overlay = document.getElementById('overlay-starmap');
+    const systems = document.getElementById('cockpit-systems');
+    const entered = {
+      state: Voxel.Game.state,
+      aboard: Voxel.SpaceTravel.isAboard(),
+      mode: overlay.dataset.mode,
+      bodyMode: document.body.dataset.shipBoarded,
+      systemsVisible: !systems.hidden && systems.getAttribute('aria-hidden') === 'false',
+      contextSealed: T.environmentContext().sealedShelter,
+      title: document.getElementById('starmap-title').textContent,
+      closeLabel: document.getElementById('btn-starmap-close').getAttribute('aria-label'),
+      initialExposure: T.environmentStatus().exposure
+    };
+
+    Voxel.Weather._test.forceStrike();
+    const afterStrikeHp = Voxel.Player.hp();
+    const impactVisible = overlay.dataset.impact === 'true' &&
+      document.getElementById('cockpit-hull-value').textContent === '导流中';
+    let shelterResult = null;
+    for (let i = 0; i < 17; i++) shelterResult = T.tickEnvironment(0.25);
+    Voxel.SpaceTravel.syncCockpit(true);
+    const purified = {
+      damage: shelterResult.damageDue,
+      status: shelterResult.status,
+      meter: document.getElementById('cockpit-hazard-meter').getAttribute('aria-valuenow'),
+      value: document.getElementById('cockpit-hazard-value').textContent,
+      detail: document.getElementById('cockpit-shelter-detail').textContent,
+      state: systems.dataset.state,
+      hp: Voxel.Player.hp()
+    };
+
+    Voxel.Game.onKey('KeyE');
+    const exited = {
+      state: Voxel.Game.state,
+      aboard: Voxel.SpaceTravel.isAboard(),
+      mode: overlay.dataset.mode,
+      bodyMode: document.body.dataset.shipBoarded,
+      hidden: overlay.classList.contains('hidden')
+    };
+    Voxel.Environment.loadWorld(actualWorld, originalEnvironment, { grantGrace: false });
+    T.tickEnvironment(0);
+    return { beforeHp, afterStrikeHp, impactVisible, entered, purified, exited };
+  });
+  check('靠近飞船按E进入真实密封舱状态而非仅打开外部星图',
+    boardingShelter.entered.state === 'starmap' && boardingShelter.entered.aboard &&
+    boardingShelter.entered.mode === 'boarded' && boardingShelter.entered.bodyMode === 'true' &&
+    boardingShelter.entered.systemsVisible && boardingShelter.entered.contextSealed &&
+    boardingShelter.entered.title === '方舟座舱' && boardingShelter.entered.closeLabel === '离开飞船' &&
+    boardingShelter.entered.initialExposure === 100);
+  check('飞船舱体导流雷击且座舱HUD动态显示冲击', boardingShelter.afterStrikeHp === boardingShelter.beforeHp &&
+    boardingShelter.impactVisible);
+  check('密封舱持续把有害暴露从100净化到0且HUD同步', boardingShelter.purified.damage === 0 &&
+    boardingShelter.purified.status.protected && boardingShelter.purified.status.sealedShelter &&
+    boardingShelter.purified.status.exposure === 0 && boardingShelter.purified.meter === '0' &&
+    boardingShelter.purified.value === '0%' && boardingShelter.purified.detail.includes('有害暴露 0%') &&
+    boardingShelter.purified.hp === boardingShelter.beforeHp);
+  check('座舱内按E显式离舰并恢复外界判定', boardingShelter.exited.state === 'playing' &&
+    !boardingShelter.exited.aboard && boardingShelter.exited.mode === 'remote' &&
+    boardingShelter.exited.bodyMode === 'false' && boardingShelter.exited.hidden);
+
   const map = await page.evaluate(async () => {
     const ship = Voxel.SpaceTravel.ship();
     Voxel.Player.pos().copy(ship.position).add(new THREE.Vector3(0, 1, 1));
