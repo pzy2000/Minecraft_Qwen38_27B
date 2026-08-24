@@ -358,6 +358,36 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   check('坏world/ship/目标字段不会泄漏程序字符串', noLeak(badTelemetry.values) && !badTelemetry.placeholderLeak);
   check('星图字段只按文本写入且不会注入标记', badTelemetry.injectedMarkup === false);
 
+  const physicalBoardReady = await page.evaluate(() => {
+    const ship = Voxel.SpaceTravel.ship();
+    const boardingPoint = new THREE.Vector3(...ship.userData.interactionLocal);
+    ship.localToWorld(boardingPoint);
+    boardingPoint.y = Voxel.World.surfaceAt(Math.floor(boardingPoint.x), Math.floor(boardingPoint.z)) + 1.001;
+    Voxel.Player.pos().copy(boardingPoint);
+    Voxel.SpaceTravel.update(0.016, 0.016);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    return Voxel.SpaceTravel.canBoardShip();
+  });
+  check('真实E键登舰前位于可登舰范围', physicalBoardReady);
+  await page.keyboard.down('KeyE');
+  await new Promise(resolve => setTimeout(resolve, 180));
+  const heldBoardingKey = await page.evaluate(() => ({
+    state: Voxel.Game.state,
+    aboard: Voxel.SpaceTravel.isAboard(),
+    held: !!Voxel.Controls.keys.KeyE
+  }));
+  await page.keyboard.up('KeyE');
+  await new Promise(resolve => setTimeout(resolve, 80));
+  const releasedBoardingKey = await page.evaluate(() => ({
+    state: Voxel.Game.state,
+    aboard: Voxel.SpaceTravel.isAboard(),
+    held: !!Voxel.Controls.keys.KeyE
+  }));
+  check('真实E键保持与释放不会把登舰按压复用为立即离舰',
+    heldBoardingKey.state === 'cockpit' && heldBoardingKey.aboard && heldBoardingKey.held &&
+    releasedBoardingKey.state === 'cockpit' && releasedBoardingKey.aboard && !releasedBoardingKey.held);
+  check('真实E键登舰回归清理可正常离舰', await page.evaluate(() => Voxel.Game.exitCockpit()));
+
   const boardingShelter = await page.evaluate(async () => {
     const T = Voxel.Game._test;
     const actualWorld = T.currentWorld();
@@ -426,7 +456,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       hp: Voxel.Player.hp()
     };
 
-    Voxel.Game.onKey('KeyE');
+    // 座舱离舰语义：轻按 E（松开判定）→ exitCockpit；这里直接调用生产入口。
+    Voxel.Game.exitCockpit();
     const exited = {
       state: Voxel.Game.state,
       aboard: Voxel.SpaceTravel.isAboard(),
@@ -510,6 +541,87 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     cockpitFlight.savedFlight.position.every(Number.isFinite));
   check('辅助下降软着陆后才允许离舰', cockpitFlight.landed.landed &&
     cockpitFlight.landed.canDisembark && cockpitFlight.exited && cockpitFlight.state === 'playing');
+
+  // ---------- 着陆辅助：长按E自动着陆、手动取消、HUD AUTO LAND ----------
+  const assistBoard = await page.evaluate(async () => {
+    const ship = Voxel.SpaceTravel.ship();
+    const door = new THREE.Vector3(...ship.userData.interactionLocal);
+    ship.localToWorld(door);
+    Voxel.Player.pos().copy(door);
+    Voxel.SpaceTravel.update(.016, .016);
+    Voxel.Game.onKey('KeyE');
+    await new Promise(resolve => setTimeout(resolve, 80));
+    return {
+      state: Voxel.Game.state,
+      aboard: Voxel.SpaceTravel.isAboard(),
+      landedReason: Voxel.SpaceTravel.flightSnapshot().landed
+        ? Voxel.SpaceTravel.engageLandingAssist().reason : null
+    };
+  });
+  check('重新登舰且已着陆时辅助激活被拒绝', assistBoard.state === 'cockpit' &&
+    assistBoard.aboard && assistBoard.landedReason === 'landed');
+
+  await page.keyboard.down('Space');
+  await new Promise(resolve => setTimeout(resolve, 900));
+  await page.keyboard.up('Space');
+  const assistAirborne = await page.waitForFunction(() => {
+    const f = Voxel.SpaceTravel.flightStatus();
+    return !f.landed && f.altitude > 1.5 ? f.altitude : null;
+  }, { timeout: 8000, polling: 100 });
+
+  const assistCancel = await page.evaluate(() => {
+    const engaged = Voxel.SpaceTravel.engageLandingAssist();
+    const initialPhase = Voxel.SpaceTravel.landingAssistInfo().phase;
+    const activeAfterEngage = Voxel.SpaceTravel.landingAssistInfo().active;
+    for (let i = 0; i < 5; i++) Voxel.SpaceTravel.updateFlight(1 / 60, { thrust: true });
+    const info = Voxel.SpaceTravel.landingAssistInfo();
+    return {
+      engagedOk: engaged.ok,
+      phase: initialPhase,
+      activeAfterEngage,
+      cancelledByPilot: !info.active && info.lastResult === 'cancelled'
+    };
+  });
+  check('空中可激活着陆辅助且任意手动输入立即取消', assistCancel.engagedOk &&
+    assistCancel.activeAfterEngage && assistCancel.phase === 'brake' &&
+    assistCancel.cancelledByPilot);
+
+  await page.keyboard.down('KeyE');
+  await page.waitForFunction(() => Voxel.SpaceTravel.landingAssistInfo().active,
+    { timeout: 5000, polling: 50 });
+  await page.keyboard.up('KeyE');
+  await page.waitForFunction(
+    () => document.getElementById('cockpit-flight-mode').textContent === 'AUTO LAND',
+    { timeout: 5000, polling: 100 });
+  check('长按E真实触发辅助且HUD切换AUTO LAND',
+    await page.evaluate(() => document.getElementById('cockpit-hud').dataset.assist === 'true'));
+  await page.waitForFunction(() => {
+    const info = Voxel.SpaceTravel.landingAssistInfo();
+    return !info.active && info.lastResult === 'completed' &&
+      Voxel.SpaceTravel.flightSnapshot().landed === true;
+  }, { timeout: 60000, polling: 200 });
+  await page.waitForFunction(() => document.getElementById('cockpit-flight-mode').textContent === 'LANDED' &&
+    document.getElementById('cockpit-hud').dataset.assist === 'false',
+  { timeout: 5000, polling: 100 });
+  const assistLanded = await page.evaluate(() => ({
+    info: Voxel.SpaceTravel.landingAssistInfo(),
+    flight: Voxel.SpaceTravel.flightStatus(),
+    modeText: document.getElementById('cockpit-flight-mode').textContent,
+    assistAttr: document.getElementById('cockpit-hud').dataset.assist,
+    exitStatus: document.getElementById('cockpit-exit-status').textContent
+  }));
+  if (!(assistLanded.info.active === false && assistLanded.info.lastResult === 'completed' &&
+    assistLanded.flight.landed && assistLanded.flight.canDisembark))
+    console.log('DEBUG assistLanded:', JSON.stringify(assistLanded));
+  check('自动驾驶完成软着陆并恢复离舰就绪HUD', assistLanded.info.active === false &&
+    assistLanded.info.lastResult === 'completed' && assistLanded.flight.landed &&
+    assistLanded.flight.canDisembark && assistLanded.modeText === 'LANDED' &&
+    assistLanded.assistAttr === 'false' && assistLanded.exitStatus === '安全离舰就绪');
+  await page.keyboard.press('KeyE');
+  await page.waitForFunction(() => Voxel.Game.state === 'playing',
+    { timeout: 5000, polling: 50 });
+  check('轻按E在自动着陆后正常离舰',
+    await page.evaluate(() => Voxel.Game.state === 'playing' && !Voxel.SpaceTravel.isAboard()));
 
   const map = await page.evaluate(async () => {
     const ship = Voxel.SpaceTravel.ship();

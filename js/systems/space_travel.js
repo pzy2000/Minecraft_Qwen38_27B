@@ -24,6 +24,7 @@ Voxel.SpaceTravel = (function () {
   var cockpitLastSyncAt = -Infinity;
   var flightState = null, flightEvents = [], lastSafeExit = null, lastLandingPose = null;
   var flightRestoreValid = true;
+  var landingAssist = null, landingAssistDistance = null;
   var arrivalTimer = null;
   var generation = 0;
   var owned = { geometries: [], materials: [], textures: [] };
@@ -234,6 +235,7 @@ Voxel.SpaceTravel = (function () {
     var flight = flightStatus();
     var snap = flight && flight.snapshot;
     var wt = worldText(world);
+    var assist = landingAssistInfo();
     return {
       sealed: sealed,
       purging: purging,
@@ -258,7 +260,11 @@ Voxel.SpaceTravel = (function () {
       roll: snap ? snap.roll : 0,
       landed: !!(flight && flight.landed),
       canDisembark: !!(flight && flight.canDisembark),
-      flightMode: flight && flight.landed ? 'LANDED' : (flight && flight.collided ? 'ASSIST // COLLISION' : 'ATMOSPHERIC FLIGHT')
+      assist: assist.active,
+      assistPhase: assist.phase,
+      assistDistance: assist.distance,
+      flightMode: assist.active ? 'AUTO LAND' :
+        (flight && flight.landed ? 'LANDED' : (flight && flight.collided ? 'ASSIST // COLLISION' : 'ATMOSPHERIC FLIGHT'))
     };
   }
 
@@ -301,7 +307,8 @@ Voxel.SpaceTravel = (function () {
       model.percent, model.hazardKey, model.shelter, model.detail, model.atmosphere,
       model.hull, model.engine, model.exterior, model.world, model.position, model.speed,
       model.altitude, model.throttle, Math.round(model.roll * 1000), model.landed ? 1 : 0,
-      model.canDisembark ? 1 : 0, model.flightMode].join('|');
+      model.canDisembark ? 1 : 0, model.flightMode, model.assistPhase,
+      model.assistDistance === null ? '' : Math.round(model.assistDistance)].join('|');
     if (!force && signature === cockpitSignature) return model;
     cockpitSignature = signature;
     if (overlay) {
@@ -313,6 +320,7 @@ Voxel.SpaceTravel = (function () {
       setAttr(systems, 'data-state', model.impact ? 'impact' : (model.purging ? 'purging' : 'safe'));
       setAttr(systems, 'data-landed', model.landed ? 'true' : 'false');
       setAttr(systems, 'data-impact', model.impact ? 'true' : 'false');
+      setAttr(systems, 'data-assist', model.assist ? 'true' : 'false');
       systems.style.setProperty('--cockpit-hazard', model.percent + '%');
     }
     if (close) {
@@ -340,8 +348,9 @@ Voxel.SpaceTravel = (function () {
     setText(document.getElementById('cockpit-throttle'), model.throttle + '%');
     setText(document.getElementById('cockpit-altitude'), model.altitude.toFixed(1).replace(/\.0$/, '') + ' m');
     setText(document.getElementById('cockpit-flight-mode'), model.flightMode);
-    setText(document.getElementById('cockpit-exit-status'), model.canDisembark
-      ? '安全离舰就绪' : (model.landed ? '舱门外无安全站立点' : '需先安全着陆'));
+    setText(document.getElementById('cockpit-exit-status'), model.assist
+      ? '自动着陆中 · 距目标 ' + Math.max(0, Math.round(model.assistDistance || 0)) + ' m'
+      : (model.canDisembark ? '安全离舰就绪' : (model.landed ? '舱门外无安全站立点' : '需先安全着陆')));
     var throttleMeter = document.querySelector('.cockpit-throttle-track');
     if (throttleMeter) setAttr(throttleMeter, 'aria-valuenow', String(model.throttle));
     var meter = document.getElementById('cockpit-hazard-meter');
@@ -422,6 +431,59 @@ Voxel.SpaceTravel = (function () {
       rollMax: raw.ROLL_MAX, rollResponse: raw.ROLL_RESPONSE,
       keyYawRate: raw.KEY_YAW_RATE
     };
+  }
+
+  function landingAssistConfig() {
+    var raw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
+    return {
+      searchRadius: raw.LANDING_ASSIST_SEARCH_RADIUS,
+      maxAltitude: raw.LANDING_ASSIST_MAX_ALT,
+      holdMs: raw.LANDING_ASSIST_HOLD_MS,
+      landSpeed: raw.LAND_SPEED,
+      brakeDecel: raw.BRAKE_DECEL,
+      baseClearance: raw.SHIP_BASE_CLEARANCE,
+      gearOffsets: GEAR_LOCAL.map(function (g) { return [g[0], g[2]]; })
+    };
+  }
+
+  function assistWorldApi() {
+    return {
+      surfaceAt: function (x, z) { return Voxel.World.surfaceAt(x, z); },
+      get: function (x, y, z) { return Voxel.World.get(x, y, z); },
+      isSolid: function (id) { return !!Voxel.Blocks.isSolid(id); }
+    };
+  }
+
+  function assistController() {
+    if (!landingAssist && Voxel.LandingAssist)
+      landingAssist = Voxel.LandingAssist.create(landingAssistConfig());
+    return landingAssist;
+  }
+
+  function manualFlightInput(input) {
+    if (!input || typeof input !== 'object' || !Voxel.ShipFlight) return false;
+    var n = Voxel.ShipFlight.normalizeInput(input);
+    return Math.abs(n.steerYaw) > 1e-3 || Math.abs(n.steerPitch) > 1e-3 ||
+      Math.abs(n.bank) > 1e-3 || Math.abs(n.lift) > 1e-3 ||
+      n.thrust === true || n.brake === true;
+  }
+
+  function engageLandingAssist() {
+    var controller = assistController();
+    if (!isAboard() || !flightState || !controller) return { ok: false, reason: 'aboard' };
+    return controller.begin(flightState, assistWorldApi());
+  }
+
+  function cancelLandingAssist(reason) {
+    landingAssistDistance = null;
+    return !!(landingAssist && landingAssist.cancel(reason));
+  }
+
+  function landingAssistInfo() {
+    if (!landingAssist) return { active: false, phase: 'idle', target: null, distance: null, lastResult: null };
+    var s = landingAssist.status();
+    return { active: s.active, phase: s.phase, target: s.target,
+      distance: s.active ? landingAssistDistance : null, lastResult: s.lastResult };
   }
 
   function defaultFlightSnapshot() {
@@ -575,7 +637,23 @@ Voxel.SpaceTravel = (function () {
   function updateFlight(dt, input) {
     if (!isAboard() || !flightState || !Voxel.ShipFlight) return null;
     var previous = flightState;
-    var result = Voxel.ShipFlight.step(flightState, dt, input, {
+    var controller = assistController();
+    var effectiveInput = input;
+    if (controller && controller.isActive()) {
+      if (manualFlightInput(input)) {
+        controller.cancel('cancelled');
+        landingAssistDistance = null;
+      } else {
+        var assist = controller.tick(flightState, dt, assistWorldApi());
+        effectiveInput = assist.input;
+        landingAssistDistance = assist.distance;
+        if (!assist.active) {
+          if (assist.expired) controller.cancel('expired');
+          else if (assist.blocked) controller.cancel('blocked');
+        }
+      }
+    }
+    var result = Voxel.ShipFlight.step(flightState, dt, effectiveInput, {
       config: shipFlightConfig(), resolve: resolveFlightMove
     });
     flightState = result.state;
@@ -584,8 +662,11 @@ Voxel.SpaceTravel = (function () {
       lastSafeExit = null;
       lastLandingPose = [previous.position[0], previous.position[1], previous.position[2], previous.yaw];
     }
-    if (flightEvents.indexOf('landed') >= 0)
+    if (flightEvents.indexOf('landed') >= 0) {
       lastLandingPose = [flightState.position[0], flightState.position[1], flightState.position[2], flightState.yaw];
+      if (controller && controller.isActive()) controller.notifyLanded();
+      landingAssistDistance = null;
+    }
     applyFlightTransform();
     setRampTarget(0, visualTime());
     applyVisualState(visualTime());
@@ -1279,6 +1360,7 @@ Voxel.SpaceTravel = (function () {
     cockpitLastSyncAt = -Infinity;
     flightState = null; flightEvents.length = 0; lastSafeExit = null; lastLandingPose = null;
     flightRestoreValid = true;
+    landingAssist = null; landingAssistDistance = null;
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false; nearPortal = null;
     shipParts = { engines: [], door: null, ramp: null };
     stationHub = null; stationDock = null; stationTerminal = null;
@@ -2170,6 +2252,9 @@ Voxel.SpaceTravel = (function () {
     isAboard: isAboard,
     absorbsDamage: absorbsDamage,
     updateFlight: updateFlight,
+    engageLandingAssist: engageLandingAssist,
+    cancelLandingAssist: cancelLandingAssist,
+    landingAssistInfo: landingAssistInfo,
     applyCockpitCamera: applyCockpitCamera,
     cockpitWorldPosition: cockpitWorldPosition,
     safeExitPosition: safeExitPosition,

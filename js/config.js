@@ -100,7 +100,11 @@ Voxel.Config = {
     LAND_SPEED: 3,
     MAX_ALTITUDE: 64,
     MAX_ABSOLUTE_Y: 120,
-    SHIP_BASE_CLEARANCE: 1.02
+    SHIP_BASE_CLEARANCE: 1.02,
+    // 着陆辅助（长按 E 自动着陆）
+    LANDING_ASSIST_MAX_ALT: 24,        // 激活高度上限(相对地面)
+    LANDING_ASSIST_SEARCH_RADIUS: 32,  // 着陆点螺旋搜索半径(格)
+    LANDING_ASSIST_HOLD_MS: 600        // 长按 E 触发阈值
   },
 
   SAVE_KEY: 'starbound_voxel_save_v5', // v5：星系、多世界独立进度、飞船与发现状态

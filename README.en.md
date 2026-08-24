@@ -9,7 +9,7 @@ One galaxy seed deterministically creates six distinct planets and an orbital st
 
 - Six seeded planet classes: lush, arid, frozen, toxic, volcanic, and oceanic.
 - Three or four deterministic portals per planet, including a route to the station.
-- A flyable pixel starship with a transparent real-time cockpit. Press `E` nearby to board; life support scrubs hazard exposure to `0%` and blocks lightning and mob attacks. Mouse/touch steers, `W/S` controls thrust and braking/reverse, `A/D` adds assisted banked turns, and `Space/Shift` controls vertical thrust. Terrain collision is assisted and landing is soft; press `H` in the cockpit for verified interplanetary warp.
+- A flyable pixel starship with a transparent real-time cockpit. Press `E` nearby to board; life support scrubs hazard exposure to `0%` and blocks lightning and mob attacks. Mouse/touch steers, `W/S` controls thrust and braking/reverse, `A/D` adds assisted banked turns, and `Space/Shift` controls vertical thrust. Terrain collision is assisted and landing is soft. While airborne, hold `E` for 0.6s below 24 m above ground to engage the landing assist: it finds a flat, dry spot automatically and lands itself (HUD shows `AUTO LAND`); tap `E` after touchdown to disembark. Press `H` in the cockpit for verified interplanetary warp.
 - Distance-based warp energy, discovery tracking, an orbital station, and automatic station refuelling.
 - Save v5 keeps edits and positions separate per world while inventory and ship progress travel with you.
 - The top-right control changes from Star Map to Board in range. Mobile cockpit controls provide steering drag plus Thrust, Brake, Up, Down, Star Map, and Disembark while keeping the WebGL world visible across narrow and low-height viewports.
@@ -85,7 +85,7 @@ python3 -m http.server 8080
 | Hold right click | Mine a block (progress + crack animation; click a mob to attack) |
 | Middle click | Pick the targeted block (prefers an existing hotbar slot) |
 | 1–9 / Scroll wheel | Select hotbar slot |
-| E | Board the nearby ship / disembark from its cockpit · elsewhere, open/close inventory (2×2 crafting) · interact with a targeted crafting table, bed, furnace, or chest |
+| E | Board the nearby ship / tap in the cockpit to disembark (after landing) · while airborne, hold for 0.6s to engage the **landing assist** (below 24 m above ground it finds a flat, dry spot and lands automatically; any manual input cancels) · elsewhere, open/close inventory (2×2 crafting) · interact with a targeted crafting table, bed, furnace, or chest |
 | F | Toggle flight |
 | H | Open/close the ignitable star map in the cockpit; surface external maps are read-only; available at the station terminal |
 | N | Cycle weather (clear → rain → thunderstorm; disabled on the station) |

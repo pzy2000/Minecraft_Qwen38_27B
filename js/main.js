@@ -2545,9 +2545,14 @@ Voxel.Game = (function () {
     if (Voxel.Player.setFlying) Voxel.Player.setFlying(false);
     if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
     setState('cockpit');
+    // 物理键盘的登舰 keydown 会在状态切换后继续保持；先等这次按键释放，
+    // 避免下一物理帧把同一次 E 当作座舱内离舰/长按手势。
+    cockpitKeyE.t = 0;
+    cockpitKeyE.fired = false;
+    cockpitKeyE.waitRelease = !!Voxel.Controls.keys.KeyE;
     syncModalAccessibility();
     tryLock();
-    Voxel.HUD.toast('座舱密封完成 · W/S推进制动 · 鼠标转向 · H星图 · E离舰');
+    Voxel.HUD.toast('座舱密封完成 · W/S推进制动 · 鼠标转向 · H星图 · 长按E自动着陆 · E离舰');
     return true;
   }
 
@@ -2575,6 +2580,76 @@ Voxel.Game = (function () {
     tryLock();
     Voxel.HUD.toast('已离舰 · 外界环境暴露重新启用');
     return true;
+  }
+
+  // ---------- 着陆辅助：长按 E 自动着陆，轻按 E 离舰 ----------
+
+  var cockpitKeyE = { t: 0, fired: false, waitRelease: false };
+  var assistWatch = { active: false };
+
+  function landingAssistHoldSeconds() {
+    var raw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
+    var ms = +raw.LANDING_ASSIST_HOLD_MS;
+    return isFinite(ms) && ms > 0 ? ms / 1000 : 0.6;
+  }
+
+  function attemptLandingAssist() {
+    if (!(Voxel.SpaceTravel && Voxel.SpaceTravel.engageLandingAssist)) return;
+    var res = Voxel.SpaceTravel.engageLandingAssist();
+    if (res.ok) {
+      Voxel.HUD.toast('着陆辅助启动 · 自动寻找合适着陆点');
+      return;
+    }
+    if (res.reason === 'high') {
+      var cap = Voxel.Config && Voxel.Config.SHIP_FLIGHT ? Voxel.Config.SHIP_FLIGHT.LANDING_ASSIST_MAX_ALT : 24;
+      Voxel.HUD.toast('高度过高 · 相对地面低于 ' + Math.round(cap) + 'm 才能启动着陆辅助');
+    } else if (res.reason === 'nospot') {
+      Voxel.HUD.toast('附近没有合适着陆点 · 请移动后重试');
+    }
+  }
+
+  function tickCockpitKeyE(step) {
+    var held = !!(state === 'cockpit' && Voxel.Controls.keys.KeyE);
+    if (cockpitKeyE.waitRelease) {
+      if (!held) cockpitKeyE.waitRelease = false;
+      cockpitKeyE.t = 0;
+      cockpitKeyE.fired = false;
+      return;
+    }
+    if (!held) {
+      if (cockpitKeyE.t > 0 && !cockpitKeyE.fired) exitCockpit();
+      cockpitKeyE.t = 0;
+      cockpitKeyE.fired = false;
+      return;
+    }
+    var pressEdge = cockpitKeyE.t <= 0;
+    cockpitKeyE.t += step;
+    if (pressEdge) {
+      // 已着陆时保持旧语义：按下立即离舰。
+      var snap = Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
+        ? Voxel.SpaceTravel.flightSnapshot() : null;
+      if (snap && snap.landed) {
+        cockpitKeyE.fired = true;
+        exitCockpit();
+        return;
+      }
+    }
+    if (!cockpitKeyE.fired && cockpitKeyE.t >= landingAssistHoldSeconds()) {
+      cockpitKeyE.fired = true;
+      attemptLandingAssist();
+    }
+  }
+
+  function pollLandingAssist() {
+    if (!(Voxel.SpaceTravel && Voxel.SpaceTravel.landingAssistInfo)) return;
+    var info = Voxel.SpaceTravel.landingAssistInfo();
+    var wasActive = assistWatch.active;
+    assistWatch.active = info.active;
+    if (!wasActive || info.active) return;
+    if (info.lastResult === 'completed') Voxel.HUD.toast('自动着陆完成 · 按 E 离舰');
+    else if (info.lastResult === 'cancelled') Voxel.HUD.toast('着陆辅助已解除 · 手动控制');
+    else if (info.lastResult === 'expired' || info.lastResult === 'blocked')
+      Voxel.HUD.toast('着陆辅助中断 · 请手动着陆');
   }
 
   function closeStarMap() {
@@ -3255,8 +3330,8 @@ Voxel.Game = (function () {
       else if (code === 'KeyP') pause();
       else if (code === 'KeyM') openManual();
     } else if (state === 'cockpit') {
+      // KeyE 不在这里处理：长按触发着陆辅助、轻按离舰，由 tickCockpitKeyE 按固定步计时。
       if (code === 'KeyH') openStarMap();
-      else if (code === 'KeyE') exitCockpit();
       else if (code === 'KeyP') pause();
       else if (code === 'F3') debug = !debug;
     } else if (state === 'paused') {
@@ -3655,8 +3730,10 @@ Voxel.Game = (function () {
   }
 
   function cockpitFixedUpdate(step) {
+    tickCockpitKeyE(step);
     var result = Voxel.SpaceTravel && Voxel.SpaceTravel.updateFlight
       ? Voxel.SpaceTravel.updateFlight(step, cockpitInput()) : null;
+    pollLandingAssist();
     Voxel.Controls.setYaw(Voxel.Controls.yaw() * 0.86);
     Voxel.Controls.setPitch(Voxel.Controls.pitch() * 0.86);
     var point = Voxel.SpaceTravel && Voxel.SpaceTravel.cockpitWorldPosition
@@ -4261,6 +4338,10 @@ Voxel.Game = (function () {
     });
     window.addEventListener('blur', function () {
       if (dragState) { dragState = null; Voxel.HUD.endGhost(); } // 窗口外松开：取消拖拽
+      // 失焦时 keys 被清空；重置 E 计时避免误触发轻按离舰。
+      cockpitKeyE.t = 0;
+      cockpitKeyE.fired = false;
+      cockpitKeyE.waitRelease = false;
     });
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     // 游戏中未锁定时，点击窗口任意位置都可请求锁定（触控模式恒锁定，自动跳过）
