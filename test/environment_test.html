@@ -19,6 +19,7 @@
   <div id="environment-meter" role="meter" aria-label="环境危害暴露" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="环境稳定 0%" data-hazard="none" data-level="safe" data-active="false" data-protected="true">
     <span class="environment-icon" aria-hidden="true">◇</span>
     <span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span>
+    <span id="environment-intensity" aria-hidden="true"></span>
     <span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span>
     <span id="environment-value" aria-hidden="true">0%</span>
   </div>
@@ -305,6 +306,68 @@
   check(reduced ? 'reduced-motion环境警报静态' : '标准环境警报周期固定', reduced
     ? meterStyle.animationName === 'none' && fillStyle.transitionDuration === '0s'
     : meterStyle.animationName === 'environmentWarning' && Math.abs(parseFloat(meterStyle.animationDuration) - 1.15) < .001);
+
+  // ---- 环境强度指标：公式、单位、临界一致性 ----
+  var I = E._test.intensityFor;
+  check('强度指标：正午晴空户外 lux 满量程', I('arid', outdoor()).value === 100000 &&
+    I('arid', outdoor()).unit === 'lux' && I('arid', outdoor()).critical === 45000);
+  check('强度指标：降雨按 0.55 系数衰减 lux', I('arid', outdoor({ rain: 1 })).value === 45000 &&
+    I('arid', outdoor({ sunlight: 0.6, rain: 1 })).value === 27000);
+  check('强度指标：遮蔽处 lux 随天空光衰减', I('arid', { outdoors: false, sheltered: true, sunlight: 1, sky: 6 }).value === 40000);
+  check('强度指标：frozen 温度模型', I('frozen', outdoor()).value === -4 &&
+    I('frozen', { outdoors: false, sheltered: true, sunlight: 1 }).value === 16 &&
+    I('frozen', { outdoors: false, sheltered: true, sunlight: 0, blockLight: 10 }).value === 32);
+  check('强度指标：toxic/volcanic 浓度三态', I('toxic', outdoor()).value === 900 &&
+    I('toxic', { outdoors: false, sheltered: true }).value === 120 &&
+    I('toxic', { outdoors: true, inWater: true, headInWater: true }).value === 40 &&
+    I('volcanic', outdoor()).value === 260 && I('volcanic', { outdoors: true, inWater: true, headInWater: true }).value === 15);
+  check('强度指标：oceanic 水压随深度线性', I('oceanic', { outdoors: true, inWater: true, headInWater: true, waterDepth: 8 }).value === 182.3 &&
+    I('oceanic', { outdoors: true }).value === 101.3 && I('oceanic', outdoor()).critical === 162.08);
+
+  var metricTypes = [['arid', [outdoor(), outdoor({ sunlight: 0.3 }), { outdoors: false, sheltered: true, sunlight: 1 }]],
+    ['frozen', [outdoor(), { outdoors: false, sheltered: true, sunlight: 0 }, { outdoors: false, sheltered: true, blockLight: 10, sunlight: 0 }]],
+    ['toxic', [outdoor(), { outdoors: false, sheltered: true }, { outdoors: true, inWater: true, headInWater: true, waterDepth: 8 }]],
+    ['volcanic', [outdoor(), { outdoors: false, sheltered: true }, { outdoors: true, inWater: true, headInWater: true, waterDepth: 8 }]],
+    ['oceanic', [{ outdoors: true, inWater: true, headInWater: true, waterDepth: 8 },
+      { outdoors: true, inWater: true, headInWater: true, waterDepth: 3 }, outdoor()]]];
+  metricTypes.forEach(function (entry) {
+    E.clear();
+    E.loadWorld(world(entry[0], 'planet-metric-' + entry[0]), undefined, { grantGrace: false });
+    entry[1].forEach(function (ctx, i) {
+      var st = E.update(0.25, ctx).status;
+      check(entry[0] + ' 强度越界 ⟺ 暴露激活 #' + i,
+        st.overCritical === st.active &&
+        typeof st.intensityText === 'string' && st.intensityText.indexOf('临界') > 0);
+    });
+  });
+
+  E.clear();
+  E.loadWorld(world('arid', 'planet-heat-rain'), undefined, { grantGrace: false });
+  var rainy = advance(6, outdoor({ sunlight: 0.6, rain: 1 }));
+  check('降雨削弱日照，热负荷不再积累', rainy.status.protected === true && rainy.status.reason === '光照不足' &&
+    rainy.status.exposure === 0 && rainy.status.intensity === 27000);
+  var noonStorm = E.update(0.25, outdoor({ rain: 1 })).status;
+  check('正午暴雨恰在临界值仍激活', noonStorm.active === true && noonStorm.reason === '烈日暴晒' &&
+    noonStorm.intensity === 45000 && noonStorm.intensityText === '45,000 lux · 临界 45,000 lux');
+
+  var overModel = H.setEnvironment({ hazard: 'heat', exposure: 10, level: 'safe', active: true,
+    protected: false, graceRemaining: 0, reason: '烈日暴晒', intensity: 92000, criticalIntensity: 45000,
+    intensityText: '92,000 lux · 临界 45,000 lux', overCritical: true });
+  check('HUD渲染强度行与超临界高亮', overModel.overCritical === true &&
+    document.getElementById('environment-intensity').textContent === '92,000 lux · 临界 45,000 lux' &&
+    meter.getAttribute('data-over') === 'true' && /92,000 lux/.test(meter.getAttribute('aria-valuetext')));
+  var underModel = H.setEnvironment({ hazard: 'toxic', exposure: 5, level: 'safe', active: false,
+    protected: true, intensity: 120, criticalIntensity: 500, intensityText: '120 ppm · 临界 500 ppm',
+    overCritical: false });
+  check('HUD低于临界不高亮且净化坏强度输入', underModel.overCritical === false &&
+    meter.getAttribute('data-over') === 'false');
+  var badIntensityModel = H.setEnvironment({ hazard: 'toxic', exposure: 5, level: 'safe',
+    intensity: NaN, criticalIntensity: NaN, intensityText: 'undefined ppm', overCritical: 'yes' });
+  check('HUD拒绝NaN强度与程序字符串', badIntensityModel.intensity === 0 && badIntensityModel.intensityText === '' &&
+    document.getElementById('environment-intensity').textContent === '' && meter.getAttribute('data-over') === 'false');
+  var noneModel = H.setEnvironment({ hazard: 'none', exposure: 0, level: 'safe' });
+  check('无危害世界强度行清空', noneModel.intensityText === '' &&
+    document.getElementById('environment-intensity').textContent === '');
 
   var cleared = E.clear();
   check('clear幂等并回环境离线', cleared.worldId === '' && E.clear().exposure === 0 && Object.keys(E.snapshot().worlds).length === 0);

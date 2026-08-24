@@ -118,11 +118,11 @@ body { position: relative; }
   z-index: 6;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
-  grid-template-areas: "icon copy value" "track track track";
+  grid-template-areas: "icon copy value" "intensity intensity intensity" "track track track";
   gap: 3px 7px;
   align-items: center;
   width: 212px;
-  min-height: 38px;
+  min-height: 48px;
   padding: 5px 7px;
   overflow: hidden;
   color: #e7f8ff;
@@ -163,6 +163,19 @@ body { position: relative; }
   grid-area: value;
   color: var(--environment-accent);
   font: bold 10px/1 'Courier New', monospace;
+}
+#environment-intensity {
+  grid-area: intensity;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #90a5bb;
+  font: 7px/1.2 'Courier New', monospace;
+  letter-spacing: .4px;
+}
+#environment-meter[data-over="true"] #environment-intensity {
+  color: var(--environment-accent);
+  text-shadow: 0 0 7px color-mix(in srgb, var(--environment-accent) 60%, transparent);
 }
 .environment-track {
   grid-area: track;
@@ -3519,6 +3532,7 @@ body.scan-scanning #scan-progress i,
   .environment-icon { font-size: 11px; }
   .environment-copy strong { font-size: 7px; }
   .environment-copy small { display: none; }
+  #environment-intensity { display: none; }
   #environment-value { font-size: 8px; }
   .environment-track {
     position: absolute;
@@ -3624,7 +3638,8 @@ body.scan-scanning #scan-progress i,
   }
   #environment-meter .environment-icon,
   #environment-meter .environment-copy,
-  #environment-meter #environment-value { display: none; }
+  #environment-meter #environment-value,
+  #environment-meter #environment-intensity { display: none; }
   #environment-meter .environment-track {
     position: absolute;
     inset: 0;
@@ -3801,7 +3816,8 @@ body.scan-scanning #scan-progress i,
   }
   #environment-meter .environment-icon,
   #environment-meter .environment-copy,
-  #environment-meter #environment-value { display: none; }
+  #environment-meter #environment-value,
+  #environment-meter #environment-intensity { display: none; }
   #environment-meter .environment-track {
     position: absolute;
     inset: 0;

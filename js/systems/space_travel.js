@@ -661,9 +661,11 @@ Voxel.SpaceTravel = (function () {
       var weather = safeText(Voxel.Weather && Voxel.Weather.label ? Voxel.Weather.label() : '', '晴', 16);
       environment = phase + ' · ' + weather;
       var hazard = Voxel.Environment && Voxel.Environment.status ? Voxel.Environment.status() : null;
-      if (hazard && hazard.hazard && hazard.hazard !== 'none')
+      if (hazard && hazard.hazard && hazard.hazard !== 'none') {
         environment += ' · ' + safeText(hazard.label, '环境危害', 18) + ' ' +
           Math.max(0, Math.min(100, Math.round(Number(hazard.percent) || 0))) + '%';
+        if (hazard.intensityText) environment += ' · ' + safeText(hazard.intensityText, '', 64);
+      }
     }
     var kind = scanTarget.kind;
     var label = kind === 'none' ? '无锁定目标' : safeText(scanTarget.label, '未命名目标', 48);

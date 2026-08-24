@@ -9,7 +9,7 @@ Voxel.HUD = (function () {
   var manualBtns = [];
   var healthCtx, debugEl, toastEl, heldCanvas, craftHeldCanvas, furHeldCanvas;
   var environmentEl = null, environmentFillEl = null, environmentLabelEl = null;
-  var environmentDetailEl = null, environmentValueEl = null;
+  var environmentDetailEl = null, environmentValueEl = null, environmentIntensityEl = null;
   var resultSlot = null, invResultSlot = null;
   var lastCraftGrid = [], lastInvCraftGrid = [];
   var selectedHotbar = 0;
@@ -477,6 +477,7 @@ Voxel.HUD = (function () {
     environmentLabelEl = document.getElementById('environment-label');
     environmentDetailEl = document.getElementById('environment-detail');
     environmentValueEl = document.getElementById('environment-value');
+    environmentIntensityEl = document.getElementById('environment-intensity');
 
     document.getElementById('btn-manual').addEventListener('click', function () {
       Voxel.Game.openManual();
@@ -634,6 +635,14 @@ Voxel.HUD = (function () {
     var detail = grace > 0
       ? '适应期 ' + Math.ceil(grace) + ' 秒 · ' + reason
       : (protectedNow ? '防护 · ' : '暴露 · ') + reason;
+    var intensity = typeof raw.intensity === 'number' && isFinite(raw.intensity)
+      ? Math.max(0, raw.intensity) : 0;
+    var criticalIntensity = typeof raw.criticalIntensity === 'number' && isFinite(raw.criticalIntensity)
+      ? Math.max(0, raw.criticalIntensity) : 0;
+    var intensityText = hazard === 'none' ? '' :
+      safeEnvironmentText(raw.intensityText, '', 64);
+    // 越界方向由 Environment 按 hazard 的 direction 判定（低温为跌破临界）。
+    var overCritical = hazard !== 'none' && raw.overCritical === true;
     return {
       hazard: hazard,
       label: label,
@@ -643,7 +652,12 @@ Voxel.HUD = (function () {
       protected: protectedNow,
       active: activeNow,
       detail: detail,
-      ariaText: label + ' ' + percent + '%，' + detail
+      intensity: intensity,
+      criticalIntensity: criticalIntensity,
+      intensityText: intensityText,
+      overCritical: overCritical,
+      ariaText: label + ' ' + percent + '%，' + detail +
+        (intensityText ? '，' + intensityText : '')
     };
   }
 
@@ -654,11 +668,13 @@ Voxel.HUD = (function () {
     if (!environmentLabelEl) environmentLabelEl = document.getElementById('environment-label');
     if (!environmentDetailEl) environmentDetailEl = document.getElementById('environment-detail');
     if (!environmentValueEl) environmentValueEl = document.getElementById('environment-value');
+    if (!environmentIntensityEl) environmentIntensityEl = document.getElementById('environment-intensity');
     var model = environmentModel(raw);
     environmentEl.setAttribute('data-hazard', model.hazard);
     environmentEl.setAttribute('data-level', model.level);
     environmentEl.setAttribute('data-active', model.active ? 'true' : 'false');
     environmentEl.setAttribute('data-protected', model.protected ? 'true' : 'false');
+    environmentEl.setAttribute('data-over', model.overCritical ? 'true' : 'false');
     environmentEl.setAttribute('aria-valuenow', String(model.percent));
     environmentEl.setAttribute('aria-valuetext', model.ariaText);
     if (environmentFillEl) environmentFillEl.style.width = model.percent + '%';
@@ -668,6 +684,8 @@ Voxel.HUD = (function () {
       environmentDetailEl.textContent = model.detail;
     if (environmentValueEl && environmentValueEl.textContent !== model.percent + '%')
       environmentValueEl.textContent = model.percent + '%';
+    if (environmentIntensityEl && environmentIntensityEl.textContent !== model.intensityText)
+      environmentIntensityEl.textContent = model.intensityText;
     return model;
   }
 

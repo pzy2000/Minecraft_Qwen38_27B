@@ -21,6 +21,22 @@ Voxel.Environment = (function () {
   var MAX_SAVED_SCAN = 256;
   var MAX_ID_LENGTH = 64;
 
+  // 各危害的实时环境强度指标：unit 为显示单位，critical 是暴露开始积累的
+  // 临界强度。direction 表示越界方向——'above' 强度升破临界才危险（炎热/浓
+  // 度/压强），'below' 强度跌破临界才危险（严寒）。intensityFor 与
+  // conditionFor 共用同一套数字，保证 over ⟺ 暴露激活在显示上严格成立。
+  var METRICS = {
+    lush:     { unit: '',      critical: 0,     direction: 'above' },
+    station:  { unit: '',      critical: 0,     direction: 'above' },
+    arid:     { unit: 'lux',   critical: 45000, direction: 'above' },  // 0.45 × 100000，与旧 sunlight 激活线一致
+    frozen:   { unit: '°C',    critical: 0,     direction: 'below' },
+    toxic:    { unit: 'ppm',   critical: 500,   direction: 'above' },
+    volcanic: { unit: 'mg/m³', critical: 130,   direction: 'above' },
+    oceanic:  { unit: 'kPa',   critical: 162.08, direction: 'above' }  // 101.3 × (1 + 6/10)，对应 6 格水深
+  };
+  var HEAT_MAX_LUX = 100000;
+  var HEAT_RAIN_ATTENUATION = 0.55;
+
   var PROFILES = {
     lush:     { hazard: 'none',     label: '环境稳定',   gain: 0,   recover: 12, threshold: 90, interval: 2, damage: 0 },
     station:  { hazard: 'none',     label: '环境稳定',   gain: 0,   recover: 12, threshold: 90, interval: 2, damage: 0 },
@@ -154,20 +170,62 @@ Voxel.Environment = (function () {
     var outdoorSignal = raw.outdoors === true || raw.skyExposed === true ||
       raw.sheltered === false || raw.underCover === false;
     var inWater = raw.inWater === true || raw.headInWater === true;
+    var sealedShelter = raw.sealedShelter === true || raw.inShip === true;
     var spawnDistance = finiteNumber(raw.spawnDistance) && raw.spawnDistance >= 0
       ? clamp(raw.spawnDistance, 0, 10000000) : null;
+    var outdoors = outdoorSignal && !sheltered && !sealedShelter;
     return {
       isNight: raw.isNight === true,
       sunlight: finiteNumber(raw.sunlight) ? clamp(raw.sunlight, 0, 1) : 0,
-      sheltered: sheltered,
-      outdoors: outdoorSignal && !sheltered,
+      rain: finiteNumber(raw.rain) ? clamp(raw.rain, 0, 1) : 0,
+      sky: finiteNumber(raw.sky) ? clamp(raw.sky, 0, 15) : (outdoors ? 15 : 0),
+      sheltered: sheltered || sealedShelter,
+      outdoors: outdoors,
+      sealedShelter: sealedShelter,
       inWater: inWater,
       waterDepth: finiteNumber(raw.waterDepth) ? clamp(raw.waterDepth, 0, 10000) :
         (finiteNumber(raw.depth) ? clamp(raw.depth, 0, 10000) : 0),
       blockLight: finiteNumber(raw.blockLight) ? clamp(raw.blockLight, 0, 15) : 0,
-      sealedShelter: raw.sealedShelter === true || raw.inShip === true,
       spawnSafe: raw.inSpawnSafeZone === true || (spawnDistance !== null && spawnDistance <= SPAWN_SAFE_RADIUS),
       spawnDistance: spawnDistance
+    };
+  }
+
+  function groupedNumber(value) {
+    return String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function formatIntensity(value, unit) {
+    return unit ? groupedNumber(value) + ' ' + unit : groupedNumber(value);
+  }
+
+  // 实时环境强度：与 conditionFor 同源的连续量。arid 的 lux 与激活条件共用
+  // 公式（含降雨衰减），其余类型在临界值处与既有二元激活条件精确重合。
+  // over 按 direction 判定越界，供 HUD 高亮当前强度是否已越过临界值。
+  function intensityFor(typeKey, context) {
+    var metric = METRICS[typeKey];
+    if (!metric || !metric.unit) return { value: 0, unit: '', critical: 0, over: false, text: '' };
+    var ctx = normalizeContext(context);
+    var value = 0;
+    if (typeKey === 'arid') {
+      value = ctx.sunlight * HEAT_MAX_LUX * (1 - HEAT_RAIN_ATTENUATION * ctx.rain) * (ctx.sky / 15);
+    } else if (typeKey === 'frozen') {
+      value = -18 + 14 * ctx.sunlight + (ctx.outdoors ? 0 : 20) + (ctx.blockLight >= 10 ? 30 : 0);
+    } else if (typeKey === 'toxic') {
+      value = ctx.inWater ? 40 : (ctx.outdoors ? 900 : 120);
+    } else if (typeKey === 'volcanic') {
+      value = ctx.inWater ? 15 : (ctx.outdoors ? 260 : 25);
+    } else if (typeKey === 'oceanic') {
+      value = 101.3 * (1 + ctx.waterDepth / 10);
+    }
+    value = Math.round(value * 10) / 10;
+    var over = metric.direction === 'below' ? value <= metric.critical : value >= metric.critical;
+    return {
+      value: value,
+      unit: metric.unit,
+      critical: metric.critical,
+      over: over,
+      text: formatIntensity(value, metric.unit) + ' · 临界 ' + formatIntensity(metric.critical, metric.unit)
     };
   }
 
@@ -180,9 +238,11 @@ Voxel.Environment = (function () {
     if (profile.hazard === 'none')
       return { active: false, protected: true, reason: '环境稳定', profile: profile };
     if (typeKey === 'arid') {
+      var heat = intensityFor('arid', context);
       if (context.inWater) return { active: false, protected: true, reason: '水体降温', profile: profile };
-      if (context.isNight || context.sunlight < 0.45)
-        return { active: false, protected: true, reason: '夜间降温', profile: profile };
+      // 降雨会衰减到达地面的日照强度；lux 跌破临界值即不再积累热负荷。
+      if (heat.value < heat.critical)
+        return { active: false, protected: true, reason: '光照不足', profile: profile };
       if (!context.outdoors) return { active: false, protected: true, reason: '遮阴降温', profile: profile };
       return { active: true, protected: false, reason: '烈日暴晒', profile: profile };
     }
@@ -223,11 +283,13 @@ Voxel.Environment = (function () {
     if (!current) return {
       worldId: '', typeKey: '', hazard: 'none', damageCause: 'none', label: '环境系统离线',
       exposure: 0, percent: 0, threshold: 100, level: 'safe', graceRemaining: 0,
+      intensity: 0, intensityUnit: '', criticalIntensity: 0, intensityText: '', overCritical: false,
       active: false, protected: true, reason: '环境系统离线'
     };
     var record = worlds[current.id] || { exposure: 0 };
     var profile = profileFor(current.typeKey);
     var condition = lastCondition || { active: false, protected: true, reason: '等待环境数据' };
+    var metric = intensityFor(current.typeKey, lastContext);
     return {
       worldId: current.id,
       typeKey: current.typeKey,
@@ -239,6 +301,11 @@ Voxel.Environment = (function () {
       threshold: rounded(profile.threshold),
       level: levelFor(record.exposure, profile.threshold),
       graceRemaining: rounded(clamp(graceRemaining, 0, LOAD_GRACE)),
+      intensity: metric.value,
+      intensityUnit: metric.unit,
+      criticalIntensity: metric.critical,
+      intensityText: metric.text,
+      overCritical: metric.over === true && profile.hazard !== 'none',
       active: !!condition.active,
       protected: !!condition.protected || graceRemaining > 0,
       sealedShelter: !!(lastContext && lastContext.sealedShelter),
@@ -398,10 +465,12 @@ Voxel.Environment = (function () {
       DAMAGE_THRESHOLD: DAMAGE_THRESHOLD,
       DAMAGE_INTERVAL: DAMAGE_INTERVAL,
       SEALED_SHELTER_RECOVERY: SEALED_SHELTER_RECOVERY,
-      profileFor: profileFor,
-      hydrate: hydrate,
-      normalizeContext: normalizeContext,
-      conditionFor: conditionFor
+    profileFor: profileFor,
+    hydrate: hydrate,
+    normalizeContext: normalizeContext,
+    conditionFor: conditionFor,
+    intensityFor: intensityFor,
+    METRICS: METRICS
     }
   };
 })();

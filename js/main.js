@@ -3578,6 +3578,8 @@ Voxel.Game = (function () {
     return {
       isNight: !!(Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight()),
       sunlight: Voxel.DayNight && Voxel.DayNight.sunlight ? Voxel.DayNight.sunlight() : 0,
+      rain: Voxel.Weather && Voxel.Weather.intensity ? Voxel.Weather.intensity() : 0,
+      sky: sky,
       sheltered: sealedShelter || sky < 14,
       outdoors: !sealedShelter && sky >= 14,
       skyExposed: !sealedShelter && sky >= 14,
@@ -3595,7 +3597,8 @@ Voxel.Game = (function () {
   function syncEnvironmentHUD(status, force) {
     if (!status || !Voxel.HUD || !Voxel.HUD.setEnvironment) return;
     var signature = [status.hazard, status.percent, status.level, Math.ceil(status.graceRemaining || 0),
-      status.active ? 1 : 0, status.protected ? 1 : 0, status.reason].join('|');
+      status.active ? 1 : 0, status.protected ? 1 : 0, status.reason,
+      status.intensityText || ''].join('|');
     if (force || signature !== environmentUiSignature) {
       environmentUiSignature = signature;
       Voxel.HUD.setEnvironment(status);
@@ -3909,7 +3912,9 @@ Voxel.Game = (function () {
         '  ' + (Voxel.DayNight.time() * 24).toFixed(1) + '时' + (Voxel.DayNight.isNight() ? ' 夜' : ' 昼') +
         '  天气 ' + Voxel.Weather.label() + (Voxel.Weather.rainbowVisible() ? ' 彩虹' : '') +
         (envDebug && envDebug.hazard !== 'none'
-          ? '  环境 ' + envDebug.label + ' ' + envDebug.percent + '%' + (envDebug.protected ? ' [防护]' : '') : '') +
+          ? '  环境 ' + envDebug.label + ' ' + envDebug.percent + '%' +
+            (envDebug.intensityText ? ' [' + envDebug.intensityText + ']' : '') +
+            (envDebug.protected ? ' [防护]' : '') : '') +
         '  天体 ' + (currentWorld ? currentWorld.name + '/' + currentWorld.typeName : '?') +
         '  跃迁 ' + (galaxyState ? Math.round(galaxyState.ship.fuel) : 0) + '%'+
         '  生物 ' + Voxel.Mobs.count() +
