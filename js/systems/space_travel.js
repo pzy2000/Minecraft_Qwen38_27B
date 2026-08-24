@@ -3,7 +3,7 @@ window.Voxel = window.Voxel || {};
 
 Voxel.SpaceTravel = (function () {
   var scene = null, group = null, ship = null, portals = [];
-  var galaxy = null, world = null, nearShip = false, portalCooldown = 0;
+  var galaxy = null, world = null, nearShip = false, nearPortal = null, portalCooldown = 0;
   var fuelEl = null, worldEl = null, coordEl = null, mapGrid = null;
   var scanEl = null, scanWorldEl = null, scanPositionEl = null, scanBiomeEl = null;
   var scanEnvironmentEl = null, scanTargetEl = null, scanDistanceEl = null;
@@ -13,6 +13,9 @@ Voxel.SpaceTravel = (function () {
   var shipBaseY = 0;
   var shipParts = { engines: [], door: null, ramp: null };
   var stationHub = null, stationDock = null, stationTerminal = null;
+  var reservedBounds = [], resolvedPortalSites = [];
+  var portalArmed = false, portalInside = false;
+  var activePortalProof = null;
   var animatedRings = [];
   var reducedMotion = false, visualTimeOverride = null;
   var rampTarget = 0, rampFrom = 0, rampChangedAt = 0, rampProgress = 0;
@@ -23,6 +26,20 @@ Voxel.SpaceTravel = (function () {
   var created = { roots: 0, geometries: 0, materials: 0, textures: 0 };
   var disposed = { roots: 0, geometries: 0, materials: 0, textures: 0 };
   var SCAN_INTERVAL_MS = 125; // 约 8Hz；目标种类/名称改变时允许立即刷新。
+  var PORTAL_ENTER_R2 = 1.35, PORTAL_ENTER_Y = 2.2;
+  var PORTAL_EXIT_R2 = 1.8 * 1.8, PORTAL_EXIT_Y = 2.7;
+  var PORTAL_MIN_DISTANCE = 8;
+  var FUNCTIONAL_BLOCKS = { 15: true, 17: true, 37: true, 38: true };
+  var ORGANIC_BLOCKS = { 4: true, 5: true, 20: true, 21: true, 22: true, 23: true,
+    24: true, 26: true, 33: true, 34: true, 35: true, 36: true };
+  var STATION_PADS = [
+    [104, 128], [152, 128], [108, 144], [148, 144], [116, 152], [140, 152]
+  ];
+  var STATION_SITE_OFFSETS = [
+    [0, 0], [4, 0], [-4, 0], [0, 4], [0, -4],
+    [4, 4], [-4, 4], [4, -4], [-4, -4],
+    [8, 0], [-8, 0], [0, 8], [0, -8]
+  ];
   var _interactionPoint = new THREE.Vector3();
 
   function finite(v, fallback, min, max) {
@@ -225,7 +242,7 @@ Voxel.SpaceTravel = (function () {
   }
 
   function setScanTarget(kind, label, distance) {
-    kind = kind === 'block' || kind === 'mob' ? kind : 'none';
+    kind = kind === 'block' || kind === 'mob' || kind === 'portal' ? kind : 'none';
     var nextLabel = kind === 'none' ? '无锁定目标' : safeText(label, '未命名目标', 48);
     var nextDistance = kind === 'none' ? null : finite(distance, 0, 0, 9999.9);
     // 距离显示到 0.1m，先量化可避免微小浮点抖动制造无意义 DOM 写入。
@@ -288,6 +305,282 @@ Voxel.SpaceTravel = (function () {
     }
     var sy = Voxel.World.surfaceAt(x, z);
     return { x: x, y: Math.max(2, Math.min(58, sy)), z: z };
+  }
+
+  function worldHeight() {
+    return Voxel.Config && isFinite(Voxel.Config.WORLD_H) ? Voxel.Config.WORLD_H : 64;
+  }
+
+  function waterLevel() {
+    return Voxel.Config && isFinite(Voxel.Config.WATER_LEVEL) ? Voxel.Config.WATER_LEVEL : 23;
+  }
+
+  function editedAt(x, y, z) {
+    try { return !!(Voxel.World.isEdited && Voxel.World.isEdited(x, y, z)); }
+    catch (e) { return true; }
+  }
+
+  function metaAt(x, y, z) {
+    try { return Voxel.World.getMeta ? Voxel.World.getMeta(x, y, z) : null; }
+    catch (e) { return {}; }
+  }
+
+  function solidBlock(id) {
+    if (Voxel.Blocks && Voxel.Blocks.isSolid) return !!Voxel.Blocks.isSolid(id);
+    return id > 0 && id !== 7 && id !== 19;
+  }
+
+  // 精确门址只接受干燥实体地板和五格净空；附近已有玩家编辑、容器或功能块时
+  // 宁可换候选，也不能把传送门覆盖到玩家建筑上。
+  function dryPortalSite(x, z) {
+    x = Math.round(x); z = Math.round(z);
+    if (!isFinite(x) || !isFinite(z) || Math.abs(x) > 30000000 || Math.abs(z) > 30000000) return null;
+    var y;
+    try { y = Voxel.World.surfaceAt(x, z); } catch (e) { return null; }
+    if (!isFinite(y) || Math.floor(y) !== y || y < 2 || y >= worldHeight() - 6) return null;
+    var floor = Voxel.World.get(x, y, z);
+    if (!solidBlock(floor) || floor === 7 || FUNCTIONAL_BLOCKS[floor] || ORGANIC_BLOCKS[floor] ||
+      editedAt(x, y, z) || metaAt(x, y, z)) return null;
+    for (var airY = y + 1; airY <= y + 5; airY++) if (Voxel.World.get(x, airY, z) !== 0) return null;
+    return { x: x, y: y, z: z, platform: false };
+  }
+
+  function platformMarkerMatches(x, y, z) {
+    var marker = metaAt(x, y, z);
+    return !!marker && marker.type === 'portal-platform' && marker.v === 1 &&
+      marker.networkVersion === (Voxel.Galaxy && Voxel.Galaxy.PORTAL_NETWORK_VERSION || 2) &&
+      marker.worldId === (world && world.id);
+  }
+
+  function platformMatches(x, y, z) {
+    if (!platformMarkerMatches(x, y, z)) return false;
+    for (var dx = -3; dx <= 3; dx++) for (var dz = -3; dz <= 3; dz++) {
+      if (Voxel.World.get(x + dx, y, z + dz) !== 3) return false;
+      for (var ay = y + 1; ay <= y + 5; ay++) if (Voxel.World.get(x + dx, ay, z + dz) !== 0) return false;
+    }
+    return true;
+  }
+
+  function wetColumn(x, z) {
+    var surface;
+    try { surface = Voxel.World.surfaceAt(x, z); } catch (e) { return false; }
+    var top = Math.min(waterLevel(), worldHeight() - 2);
+    for (var y = Math.max(0, surface + 1); y <= top; y++) if (Voxel.World.get(x, y, z) === 7) return true;
+    return false;
+  }
+
+  // 海洋世界的固定pad可能完全无干地。仅在未编辑的水/空气中铺7×7石质甲板，
+  // 并清掉上方水体；完全匹配时直接复用，保证保存/重载幂等。
+  function ensureOceanPlatform(x, z) {
+    x = Math.round(x); z = Math.round(z);
+    var y = Math.max(3, Math.min(worldHeight() - 6, waterLevel() + 1));
+    if (platformMatches(x, y, z)) return { x: x, y: y, z: z, platform: true };
+    if (!Voxel.World.set || !Voxel.World.setMeta || !wetColumn(x, z)) return null;
+    for (var dx = -3; dx <= 3; dx++) for (var dz = -3; dz <= 3; dz++) {
+      for (var yy = y; yy <= y + 5; yy++) {
+        var id = Voxel.World.get(x + dx, yy, z + dz);
+        if (editedAt(x + dx, yy, z + dz) || metaAt(x + dx, yy, z + dz) ||
+          FUNCTIONAL_BLOCKS[id] || (yy === y ? (id !== 0 && id !== 7) : (id !== 0 && id !== 7))) return null;
+      }
+    }
+    var changes = [];
+    for (var px = -3; px <= 3; px++) for (var pz = -3; pz <= 3; pz++) {
+      if (Voxel.World.get(x + px, y, z + pz) !== 3)
+        changes.push({ x: x + px, y: y, z: z + pz, id: 3 });
+      for (var py = y + 1; py <= y + 5; py++)
+        if (Voxel.World.get(x + px, py, z + pz) === 7)
+          changes.push({ x: x + px, y: py, z: z + pz, id: 0 });
+    }
+    if (changes.length) {
+      var written = Voxel.World.applyInfrastructure
+        ? Voxel.World.applyInfrastructure(changes) : 0;
+      if (written !== changes.length) {
+        for (var wi = 0; wi < changes.length; wi++)
+          Voxel.World.set(changes[wi].x, changes[wi].y, changes[wi].z, changes[wi].id);
+      }
+    }
+    Voxel.World.setMeta(x, y, z, {
+      type: 'portal-platform',
+      v: 1,
+      networkVersion: Voxel.Galaxy && Voxel.Galaxy.PORTAL_NETWORK_VERSION || 2,
+      worldId: world && world.id || ''
+    });
+    return platformMatches(x, y, z) ? { x: x, y: y, z: z, platform: true } : null;
+  }
+
+  function portalYaw(site, anchor) {
+    var dx = finite(anchor && anchor.x, 128.5) - (site.x + 0.5);
+    var dz = finite(anchor && anchor.z, 128.5) - (site.z + 0.5);
+    return Math.atan2(dx, dz);
+  }
+
+  function conservativePortalBounds(site, yaw) {
+    var c = Math.cos(yaw), s = Math.sin(yaw);
+    var hx = Math.abs(c) * 2.7 + Math.abs(s) * 0.55;
+    var hz = Math.abs(s) * 2.7 + Math.abs(c) * 0.55;
+    return new THREE.Box3(
+      new THREE.Vector3(site.x + 0.5 - hx, site.y + 0.35, site.z + 0.5 - hz),
+      new THREE.Vector3(site.x + 0.5 + hx, site.y + 6.25, site.z + 0.5 + hz)
+    );
+  }
+
+  function reserveBox(role, box) {
+    if (!box || box.isEmpty && box.isEmpty()) return;
+    reservedBounds.push({ role: role, box: box.clone ? box.clone() : box });
+  }
+
+  function reserveObject(role, object, padding) {
+    if (!object) return;
+    var box = new THREE.Box3().setFromObject(object);
+    if (padding && box.expandByScalar) box.expandByScalar(padding);
+    reserveBox(role, box);
+  }
+
+  function boundsConflict(box, sites) {
+    for (var i = 0; i < reservedBounds.length; i++) if (box.intersectsBox(reservedBounds[i].box)) return true;
+    for (var j = 0; j < sites.length; j++) if (box.intersectsBox(sites[j].bounds)) return true;
+    return false;
+  }
+
+  function deterministicOffsets(gate, index) {
+    var out = [[0, 0]], ring = [];
+    for (var r = 2; r <= 18; r += 2) {
+      ring.length = 0;
+      for (var x = -r; x <= r; x += 2) ring.push([x, -r]);
+      for (var z = -r + 2; z <= r; z += 2) ring.push([r, z]);
+      for (var x2 = r - 2; x2 >= -r; x2 -= 2) ring.push([x2, r]);
+      for (var z2 = r - 2; z2 > -r; z2 -= 2) ring.push([-r, z2]);
+      var salt = 0;
+      if (Voxel.SeedUtil && Voxel.SeedUtil.derive32)
+        salt = Voxel.SeedUtil.derive32((world && world.seed) || '0', 0x7710 + index * 31 + r);
+      var start = ring.length ? salt % ring.length : 0;
+      for (var q = 0; q < ring.length; q++) out.push(ring[(start + q) % ring.length]);
+    }
+    return out;
+  }
+
+  function sitePlacementClear(site, bounds, sites) {
+    for (var i = 0; i < sites.length; i++) {
+      var dx = site.x - sites[i].x, dz = site.z - sites[i].z;
+      if (dx * dx + dz * dz < PORTAL_MIN_DISTANCE * PORTAL_MIN_DISTANCE) return false;
+    }
+    return !boundsConflict(bounds, sites);
+  }
+
+  function portalVolumeClear(site, bounds) {
+    var x0 = Math.floor(bounds.min.x), x1 = Math.ceil(bounds.max.x) - 1;
+    var y0 = Math.max(0, Math.floor(bounds.min.y)), y1 = Math.min(worldHeight() - 1, Math.ceil(bounds.max.y) - 1);
+    var z0 = Math.floor(bounds.min.z), z1 = Math.ceil(bounds.max.z) - 1;
+    for (var x = x0; x <= x1; x++) for (var z = z0; z <= z1; z++)
+      for (var y = y0; y <= y1; y++) {
+        var id = Voxel.World.get(x, y, z), metadata = metaAt(x, y, z);
+        if (y >= site.y + 1) {
+          if (id !== 0 || editedAt(x, y, z) || metadata) return false;
+        } else {
+          // 地板层允许天然地形；系统自有平台的stone edits和中心marker也允许。
+          var ownPlatformMarker = site.platform && metadata && metadata.type === 'portal-platform';
+          if (FUNCTIONAL_BLOCKS[id] || (metadata && !ownPlatformMarker) ||
+            (editedAt(x, y, z) && !site.platform)) return false;
+        }
+      }
+    return true;
+  }
+
+  function acceptResolvedSite(site, gate, anchor, sites) {
+    if (!site) return null;
+    var yaw = portalYaw(site, anchor);
+    var bounds = conservativePortalBounds(site, yaw);
+    if (!portalVolumeClear(site, bounds) || !sitePlacementClear(site, bounds, sites)) return null;
+    site.gate = gate;
+    site.rotationY = yaw;
+    site.bounds = bounds;
+    return site;
+  }
+
+  function resolvePortalSites(layout, anchor) {
+    var sites = [], max = world && world.kind === 'station' ? Math.min(6, layout.length) : layout.length;
+    for (var i = 0; i < max; i++) {
+      var gate = layout[i] || {};
+      var base = world && world.kind === 'station' ? STATION_PADS[i] : [Number(gate.x), Number(gate.z)];
+      if (!base || !isFinite(base[0]) || !isFinite(base[1])) continue;
+      var offsets = world && world.kind === 'station' ? STATION_SITE_OFFSETS : deterministicOffsets(gate, i);
+      var accepted = null;
+      for (var oi = 0; oi < offsets.length && !accepted; oi++) {
+        var candidateX = Math.round(base[0] + offsets[oi][0]);
+        var candidateZ = Math.round(base[1] + offsets[oi][1]);
+        var platformY = Math.max(3, Math.min(worldHeight() - 6, waterLevel() + 1));
+        var dry = platformMatches(candidateX, platformY, candidateZ)
+          ? { x: candidateX, y: platformY, z: candidateZ, platform: true }
+          : dryPortalSite(candidateX, candidateZ);
+        accepted = acceptResolvedSite(dry, gate, anchor, sites);
+      }
+      // 严格搜索仍无干地时，只在确定的水面候选上建有限平台；编辑冲突时直接跳过，
+      // 绝不退回危险原坐标。
+      if (!accepted && world && world.kind !== 'station') {
+        for (var pi = 0; pi < offsets.length && !accepted; pi++) {
+          var px = Math.round(base[0] + offsets[pi][0]), pz = Math.round(base[1] + offsets[pi][1]);
+          if (!wetColumn(px, pz)) continue;
+          var preview = { x: px, y: Math.max(3, Math.min(worldHeight() - 6, waterLevel() + 1)), z: pz };
+          var previewYaw = portalYaw(preview, anchor);
+          if (!sitePlacementClear(preview, conservativePortalBounds(preview, previewYaw), sites)) continue;
+          var platform = ensureOceanPlatform(px, pz);
+          accepted = acceptResolvedSite(platform, gate, anchor, sites);
+        }
+      }
+      if (accepted) sites.push(accepted);
+    }
+    return sites;
+  }
+
+  function insidePortalTrigger(portal, player, expanded) {
+    if (!portal || !player) return false;
+    var dx = player.x - portal.position.x;
+    var dy = player.y - (portal.position.y + 2);
+    var dz = player.z - portal.position.z;
+    return dx * dx + dz * dz < (expanded ? PORTAL_EXIT_R2 : PORTAL_ENTER_R2) &&
+      Math.abs(dy) < (expanded ? PORTAL_EXIT_Y : PORTAL_ENTER_Y);
+  }
+
+  function anyPortalInside(player, expanded) {
+    for (var i = 0; i < portals.length; i++) if (insidePortalTrigger(portals[i], player, expanded)) return true;
+    return false;
+  }
+
+  // Main只在真实inside边沿的同步调用栈内接受这份不可猜引用；公开
+  // requestTravel(destination,'portal') 无法绕过物理门径免费跳转。
+  function authorizePortalTravel(proof, destinationId) {
+    if (!proof || proof !== activePortalProof || !proof.portal ||
+      portals.indexOf(proof.portal) < 0 || !Voxel.Player || !Voxel.Player.pos) return false;
+    var gate = proof.portal.userData && proof.portal.userData.portal;
+    if (!gate || gate.id !== proof.gateId || gate.pairId !== proof.pairId ||
+      gate.destinationGateId !== proof.destinationGateId || gate.destinationId !== destinationId ||
+      !insidePortalTrigger(proof.portal, Voxel.Player.pos(), false)) return false;
+    var planned = Voxel.Galaxy && Voxel.Galaxy.portalsFor ? Voxel.Galaxy.portalsFor(galaxy, world) : [];
+    for (var i = 0; i < planned.length; i++) if (planned[i].id === gate.id)
+      return planned[i].pairId === gate.pairId && planned[i].destinationGateId === gate.destinationGateId &&
+        planned[i].destinationId === destinationId;
+    return false;
+  }
+
+  function nearestPortalTo(player, limit) {
+    var best = null, bestDistance = limit === undefined ? Infinity : limit;
+    for (var i = 0; i < portals.length; i++) {
+      var portal = portals[i];
+      var dx = player.x - portal.position.x;
+      var dy = player.y - (portal.position.y + 2);
+      var dz = player.z - portal.position.z;
+      var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (distance < bestDistance) { bestDistance = distance; best = portal; }
+    }
+    return best;
+  }
+
+  function syncPortalOccupancy() {
+    var currentPlayer = Voxel.Player && Voxel.Player.pos ? Voxel.Player.pos() : null;
+    portalInside = anyPortalInside(currentPlayer, false);
+    portalArmed = !anyPortalInside(currentPlayer, true);
+    nearPortal = currentPlayer ? nearestPortalTo(currentPlayer, 7) : null;
+    return { armed: portalArmed, inside: portalInside };
   }
 
   function makeShip() {
@@ -512,9 +805,12 @@ Voxel.SpaceTravel = (function () {
     disposeList('materials');
     disposeList('geometries');
     disposeList('textures');
-    group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false;
+    group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false; nearPortal = null;
     shipParts = { engines: [], door: null, ramp: null };
     stationHub = null; stationDock = null; stationTerminal = null;
+    reservedBounds.length = 0;
+    resolvedPortalSites.length = 0;
+    portalArmed = false; portalInside = false; activePortalProof = null;
     animatedRings.length = 0;
     rampTarget = rampFrom = rampProgress = 0;
     rampChangedAt = visualTime();
@@ -544,18 +840,12 @@ Voxel.SpaceTravel = (function () {
     created.roots++;
     scene.add(group);
 
-    var layout = Voxel.Galaxy.portalsFor(galaxy, world);
-    for (var i = 0; i < layout.length; i++) {
-      var pos = safeSurface(layout[i].x, layout[i].z);
-      var dest = Voxel.Galaxy.find(galaxy, layout[i].destinationId) || {};
-      var pg = makePortal(layout[i], dest);
-      pg.position.set(pos.x + 0.5, pos.y + 1, pos.z + 0.5);
-      group.add(pg);
-      portals.push(pg);
-    }
-
+    reservedBounds.length = 0;
+    resolvedPortalSites.length = 0;
+    var arrivalAnchor;
     if (safeWorldKind(world) === 'planet') {
       var sp = Voxel.World.spawnPoint();
+      arrivalAnchor = sp.clone ? sp.clone() : new THREE.Vector3(sp.x, sp.y, sp.z);
       var sPos = safeShipSurface(sp);
       ship = makeShip();
       ship.position.set(sPos.x + 0.5, sPos.y + 1.02, sPos.z + 0.5);
@@ -566,7 +856,9 @@ Voxel.SpaceTravel = (function () {
       // 机鼻朝出生点，默认yaw=0能看到座舱三分之四正面。
       ship.rotation.y = Math.PI + yawJitter;
       group.add(ship);
+      reserveObject('ship', ship, 2.5);
     } else {
+      arrivalAnchor = new THREE.Vector3(128.5, 24.01, 128.5);
       stationHub = makeStationHub();
       stationHub.position.set(128.5, 24, 112.5);
       group.add(stationHub);
@@ -575,10 +867,39 @@ Voxel.SpaceTravel = (function () {
       group.add(stationDock);
       // 与可见屏幕中心一致；扫描/测试不再依赖旧的出生点硬编码。
       stationTerminal = new THREE.Vector3(128.5, 27.7, 114.22);
+      reserveObject('station-hub', stationHub, 2.25);
+      reserveObject('station-dock', stationDock, 1.75);
     }
+    reserveBox('arrival', new THREE.Box3(
+      new THREE.Vector3(arrivalAnchor.x - 3, arrivalAnchor.y - 2, arrivalAnchor.z - 3),
+      new THREE.Vector3(arrivalAnchor.x + 3, arrivalAnchor.y + 5, arrivalAnchor.z + 3)));
+
+    var layout = Voxel.Galaxy.portalsFor(galaxy, world);
+    resolvedPortalSites = resolvePortalSites(Array.isArray(layout) ? layout : [], arrivalAnchor);
+    for (var i = 0; i < resolvedPortalSites.length; i++) {
+      var site = resolvedPortalSites[i], gate = site.gate || {};
+      var dest = Voxel.Galaxy.find(galaxy, gate.destinationId) || {};
+      var pg = makePortal(gate, dest);
+      pg.position.set(site.x + 0.5, site.y + 1, site.z + 0.5);
+      pg.rotation.y = site.rotationY;
+      pg.userData.pairId = gate.pairId || null;
+      pg.userData.destinationGateId = gate.destinationGateId || null;
+      pg.userData.slot = gate.slot || null;
+      pg.userData.kind = gate.kind || null;
+      pg.userData.platform = !!site.platform;
+      pg.userData.resolvedSite = site;
+      group.add(pg);
+      portals.push(pg);
+    }
+    group.userData.portalPlanCount = Array.isArray(layout) ? layout.length : 0;
+    group.userData.portalLayoutComplete = portals.length === group.userData.portalPlanCount;
+    if (!group.userData.portalLayoutComplete && Voxel.HUD && Voxel.HUD.toast)
+      Voxel.HUD.toast('部分传送门泊位被玩家建筑阻挡：可移开附近方块后重新载入');
     rampChangedAt = visualTime();
     applyVisualState(rampChangedAt);
-    portalCooldown = 2.5;
+    portalCooldown = 0;
+    // enterWorld完成玩家位置恢复后会再次同步；提前准备基础设施时这里只建立安全默认值。
+    syncPortalOccupancy();
     syncHud();
     syncScan(true);
   }
@@ -628,18 +949,32 @@ Voxel.SpaceTravel = (function () {
       nearShip = _interactionPoint.distanceTo(p) < 7.5;
       ship.position.y = shipBaseY; // 起落架稳定接地；动效集中在引擎和舱门。
     } else nearShip = world.kind === 'station';
+    nearPortal = nearestPortalTo(p, 7);
     setRampTarget(nearShip, now);
     applyVisualState(now);
-    for (var i = 0; i < portals.length; i++) {
-      var o = portals[i];
-      if (portalCooldown <= 0) {
-        var dx = p.x - o.position.x, dy = p.y - (o.position.y + 2), dz = p.z - o.position.z;
-        if (dx * dx + dz * dz < 1.35 && Math.abs(dy) < 2.2) {
-          portalCooldown = 5;
-          if (Voxel.Game && Voxel.Game.requestTravel)
-            Voxel.Game.requestTravel(o.userData.portal.destinationId, 'portal');
-          break;
+    portalInside = anyPortalInside(p, false);
+    var withinExitLatch = anyPortalInside(p, true);
+    if (!portalArmed) {
+      if (!withinExitLatch) portalArmed = true;
+    } else if (portalInside && portalCooldown <= 0) {
+      // 无论事务是否接受，当前inside事件已经消费；必须先离开扩大体积再重入。
+      portalArmed = false;
+      for (var i = 0; i < portals.length; i++) {
+        var o = portals[i];
+        if (!insidePortalTrigger(o, p, false)) continue;
+        if (Voxel.Game && Voxel.Game.requestTravel) {
+          var gate = o.userData.portal || {};
+          var proof = {
+            portal: o,
+            gateId: gate.id,
+            pairId: gate.pairId,
+            destinationGateId: gate.destinationGateId
+          };
+          activePortalProof = proof;
+          try { Voxel.Game.requestTravel(gate.destinationId, 'portal', proof); }
+          finally { activePortalProof = null; }
         }
+        break;
       }
     }
     syncHud();
@@ -647,9 +982,30 @@ Voxel.SpaceTravel = (function () {
 
   function actionHint() {
     if (!world) return '';
+    if (nearPortal && nearPortal.userData)
+      return '传送门 → ' + worldText(nearPortal.userData.destination).name + ' · 接触后免费传送';
     if (world.kind === 'station') return '航行终端：' + (Voxel.Controls.touchMode() ? '点右上角「星图」' : '按 H 打开星图');
     if (nearShip) return '飞船已就绪：' + (Voxel.Controls.touchMode() ? '点右上角「星图」' : '按 E 登舰 / H 打开星图');
     return '';
+  }
+
+  function actionHintKind() {
+    if (nearPortal) return 'portal';
+    if (world && world.kind === 'station') return 'terminal';
+    return nearShip ? 'ship' : '';
+  }
+
+  function nearPortalInfo() {
+    if (!nearPortal || !nearPortal.userData || !Voxel.Player || !Voxel.Player.pos) return null;
+    var p = Voxel.Player.pos();
+    var dx = p.x - nearPortal.position.x;
+    var dy = p.y - (nearPortal.position.y + 2);
+    var dz = p.z - nearPortal.position.z;
+    return {
+      destinationId: nearPortal.userData.portal && nearPortal.userData.portal.destinationId || '',
+      label: '传送门 → ' + worldText(nearPortal.userData.destination).name + ' · 免费',
+      distance: Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz) * 10) / 10
+    };
   }
 
   function canOpenMap() { return !!world && (world.kind === 'station' || nearShip); }
@@ -685,15 +1041,142 @@ Voxel.SpaceTravel = (function () {
     catch (e) { return 0; }
   }
 
-  function galaxyFuelCost(dest) {
-    try { return Math.round(finite(Voxel.Galaxy.fuelCost(world, dest), 0, 0, 100)); }
-    catch (e) { return 0; }
+  function routePlanFor(dest) {
+    try {
+      if (Voxel.Galaxy && Voxel.Galaxy.routePlan)
+        return Voxel.Galaxy.routePlan(galaxy, world, dest, galaxy && galaxy.ship);
+    } catch (e) { }
+    var distance = dest && world ? galaxyDistance(dest) : 0;
+    var cost = dest && world && dest.id !== world.id
+      ? Math.round(finite(Voxel.Galaxy.fuelCost(world, dest), 0, 0, 1000000)) : 0;
+    var st = shipText(galaxy);
+    return {
+      valid: !!dest && !!world,
+      distanceLy: distance,
+      costUnits: cost,
+      fuel: st.fuel,
+      maxFuel: st.maxFuel,
+      remainingFuel: Math.max(0, st.fuel - cost),
+      shortfall: Math.max(0, cost - st.fuel),
+      reachable: !!dest && st.fuel >= cost,
+      portalPath: [],
+      portalHops: -1,
+      directPortal: false
+    };
+  }
+
+  function visitStateFor(dest, current, known, surveyed) {
+    if (current) return 'current';
+    if (surveyed) return 'surveyed';
+    if (known) return 'visited';
+    return 'unknown';
+  }
+
+  function hasPhysicalPortalTo(destinationId) {
+    for (var i = 0; i < portals.length; i++) {
+      var gate = portals[i].userData && portals[i].userData.portal;
+      if (gate && gate.destinationId === destinationId) return true;
+    }
+    return false;
+  }
+
+  function physicalPortalLayoutComplete() {
+    try {
+      var planned = Voxel.Galaxy.portalsFor(galaxy, world);
+      return planned.length > 0 && portals.length === planned.length;
+    } catch (e) { return false; }
+  }
+
+  function portalRouteLabel(plan, destinationId) {
+    if (!plan || plan.portalHops < 1) return '无可用门网路径';
+    if (hasPhysicalPortalTo(destinationId)) return '本地门径直达 · 免费';
+    if (!physicalPortalLayoutComplete()) return '本地门径受阻 · 请检查附近建筑';
+    return '门网 ' + plan.portalHops + ' 跳 · 免费';
+  }
+
+  function routeMapCoordinates() {
+    var out = Object.create(null), list = galaxy && Array.isArray(galaxy.catalog) ? galaxy.catalog : [];
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var x = finite(list[i] && list[i].x, 0, -1000000, 1000000);
+      var y = finite(list[i] && list[i].y, 0, -1000000, 1000000);
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+    if (!isFinite(minX)) return out;
+    var spanX = Math.max(1, maxX - minX), spanY = Math.max(1, maxY - minY);
+    for (var j = 0; j < list.length; j++) {
+      var wx = finite(list[j] && list[j].x, 0, -1000000, 1000000);
+      var wy = finite(list[j] && list[j].y, 0, -1000000, 1000000);
+      out[list[j].id] = {
+        x: Math.round((38 + (wx - minX) / spanX * 624) * 100) / 100,
+        y: Math.round((102 - (wy - minY) / spanY * 84) * 100) / 100
+      };
+    }
+    return out;
+  }
+
+  function syncRouteMap(selected, selectedPlan) {
+    if (typeof document === 'undefined') return false;
+    var root = document.getElementById('starmap-route-map');
+    if (!root || !galaxy || !world) return false;
+    var coords = routeMapCoordinates();
+    var list = Array.isArray(galaxy.catalog) ? galaxy.catalog : [];
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i], node = document.getElementById('starmap-node-' + item.id), point = coords[item.id];
+      if (!node || !point) continue;
+      var summary = Voxel.Discovery && Voxel.Discovery.worldSummary
+        ? Voxel.Discovery.worldSummary(galaxy.discovery, item.id) : null;
+      var surveyed = !!(summary && summary.surveyed);
+      var known = surveyed || !!(galaxy.discovered && galaxy.discovered[item.id]);
+      var base = visitStateFor(item, item.id === world.id, known, surveyed);
+      var stateName = base;
+      if (selected && selected.id === item.id)
+        stateName = selectedPlan && !selectedPlan.reachable ? 'insufficient' : 'selected';
+      node.setAttribute('data-base-state', base);
+      node.setAttribute('data-state', stateName);
+      node.setAttribute('data-x', String(point.x));
+      node.setAttribute('data-y', String(point.y));
+      node.setAttribute('transform', 'translate(' + point.x + ' ' + point.y + ')');
+    }
+    var edgeEls = document.querySelectorAll('#starmap-portal-edges .starmap-portal-edge');
+    for (var e = 0; e < edgeEls.length; e++) edgeEls[e].setAttribute('data-active', 'false');
+    var gates = [];
+    for (var pi = 0; pi < portals.length; pi++)
+      if (portals[pi].userData && portals[pi].userData.portal) gates.push(portals[pi].userData.portal);
+    var origin = coords[world.id];
+    for (var g = 0; origin && g < gates.length && g < edgeEls.length; g++) {
+      var target = coords[gates[g].destinationId];
+      if (!target) continue;
+      edgeEls[g].setAttribute('x1', String(origin.x));
+      edgeEls[g].setAttribute('y1', String(origin.y));
+      edgeEls[g].setAttribute('x2', String(target.x));
+      edgeEls[g].setAttribute('y2', String(target.y));
+      edgeEls[g].setAttribute('data-destination-id', gates[g].destinationId);
+      edgeEls[g].setAttribute('data-active', 'true');
+    }
+    var active = document.getElementById('starmap-active-route');
+    var destinationPoint = selected && coords[selected.id];
+    if (active && origin && destinationPoint) {
+      active.setAttribute('x1', String(origin.x)); active.setAttribute('y1', String(origin.y));
+      active.setAttribute('x2', String(destinationPoint.x)); active.setAttribute('y2', String(destinationPoint.y));
+      active.setAttribute('data-from-id', world.id);
+      active.setAttribute('data-to-id', selected.id);
+      active.setAttribute('data-active', 'true');
+    } else if (active) {
+      active.removeAttribute('data-from-id'); active.removeAttribute('data-to-id');
+      active.setAttribute('data-active', 'false');
+    }
+    root.setAttribute('data-ready', Object.keys(coords).length === list.length && list.length === 7 ? 'true' : 'false');
+    return true;
   }
 
   function setSelectedDestination(destinationId) {
     var dest = destinationId === null || destinationId === undefined || !galaxy
       ? null : Voxel.Galaxy.find(galaxy, destinationId);
     if (!dest || !world || dest.id === world.id) dest = null;
+    var plan = dest ? routePlanFor(dest) : null;
+    if (dest && (!plan || !plan.valid)) { dest = null; plan = null; }
     selectedDestinationId = dest ? dest.id : null;
     if (mapGrid) {
       var cards = mapGrid.querySelectorAll('.star-card');
@@ -708,16 +1191,22 @@ Voxel.SpaceTravel = (function () {
     var ignite = typeof document !== 'undefined' ? document.getElementById('btn-travel-ignite') : null;
     var insufficient = false;
     if (dest) {
-      var cost = galaxyFuelCost(dest), st = shipText(galaxy);
-      insufficient = st.fuel < cost;
-      setText(selection, (insufficient ? '能量不足：' : '航线已锁定：') + worldText(dest).name +
-        ' · 距离 ' + galaxyDistance(dest) + ' LY · 能量 ' + cost + '%');
+      insufficient = !plan.reachable;
+      if (insufficient) {
+        setText(selection, '航线不可用 · ' + worldText(dest).name + ' · 需要 ' + plan.costUnits +
+          ' 能量 · 当前 ' + plan.fuel + ' · 缺少 ' + plan.shortfall + ' · 前往阿特拉斯中继站补给');
+      } else {
+        setText(selection, '航线已锁定：' + worldText(dest).name + ' · 距离 ' + plan.distanceLy +
+          ' LY · 飞船消耗 ' + plan.costUnits + ' 能量 · 到达后 ' + plan.remainingFuel + '/' +
+          plan.maxFuel + ' · ' + portalRouteLabel(plan, dest.id));
+      }
     } else setText(selection, '请选择目的地以锁定跃迁航线');
     if (cockpit) cockpit.setAttribute('data-state', dest ? (insufficient ? 'insufficient' : 'locked') : 'idle');
     if (ignite) {
       ignite.disabled = !dest || insufficient;
       ignite.setAttribute('aria-disabled', ignite.disabled ? 'true' : 'false');
     }
+    syncRouteMap(dest, plan);
     return !!dest && !insufficient;
   }
 
@@ -727,38 +1216,56 @@ Voxel.SpaceTravel = (function () {
     var list = Array.isArray(galaxy.catalog) ? galaxy.catalog.filter(function (d) {
       return d && typeof d === 'object';
     }).slice() : [];
-    list.sort(function (a, b) { return galaxyDistance(a) - galaxyDistance(b); });
+    list.sort(function (a, b) {
+      if (a.id === world.id) return -1;
+      if (b.id === world.id) return 1;
+      var delta = galaxyDistance(a) - galaxyDistance(b);
+      return delta || String(a.id).localeCompare(String(b.id));
+    });
     for (var i = 0; i < list.length; i++) {
       (function (dest) {
         var current = dest.id === world.id;
-        var distance = galaxyDistance(dest);
-        var cost = current ? 0 : galaxyFuelCost(dest);
-        var known = !!(galaxy.discovered && galaxy.discovered[dest.id]);
+        var plan = routePlanFor(dest);
+        var distance = plan.distanceLy;
+        var cost = plan.costUnits;
+        var visited = !!(galaxy.discovered && galaxy.discovered[dest.id]);
         var discovery = Voxel.Discovery && Voxel.Discovery.worldSummary
           ? Voxel.Discovery.worldSummary(galaxy.discovery, dest.id) : null;
         var surveyed = !!(discovery && discovery.surveyed);
+        var known = visited || surveyed;
+        var visitState = visitStateFor(dest, current, known, surveyed);
+        var routeState = current ? 'current' : (plan.reachable ? 'available' : 'insufficient');
         var wt = worldText(dest);
         var card = document.createElement('button');
         card.type = 'button';
         card.className = 'star-card' + (current ? ' current' : '') + (known ? ' discovered' : '') +
-          (surveyed ? ' surveyed' : '');
+          (surveyed ? ' surveyed' : '') + (!known && !current ? ' unknown' : '') +
+          (routeState === 'insufficient' ? ' insufficient' : '');
         card.disabled = current;
         card.setAttribute('data-destination-id', String(dest.id));
+        card.setAttribute('data-route-state', routeState);
+        card.setAttribute('data-visit-state', visitState);
+        card.setAttribute('data-distance-ly', String(distance));
+        card.setAttribute('data-fuel-cost', String(cost));
+        card.setAttribute('data-portal-reachable', hasPhysicalPortalTo(dest.id) ? 'true' : 'false');
         card.setAttribute('aria-pressed', 'false');
-        card.style.setProperty('--accent', safeAccent(dest.accent));
+        if (current) card.setAttribute('aria-current', 'location');
+        card.style.setProperty('--accent', safeAccent(!known && !current ? '#8190a8' : dest.accent));
         var icon = document.createElement('span');
         icon.className = 'star-icon';
-        icon.textContent = wt.icon;
+        icon.textContent = !known && !current ? '◇' : wt.icon;
         var main = document.createElement('span');
         main.className = 'star-main';
         var name = document.createElement('b');
         name.textContent = wt.name;
         var detail = document.createElement('small');
-        detail.textContent = wt.typeName + ' · ' + safeText(dest.desc, '暂无环境档案', 80);
+        detail.textContent = !known && !current
+          ? '远距档案未确认'
+          : wt.typeName + ' · ' + safeText(dest.desc, '暂无环境档案', 80);
         main.appendChild(name); main.appendChild(detail);
         var meta = document.createElement('span');
         meta.className = 'star-meta';
-        meta.appendChild(document.createTextNode(current ? '当前位置' : (known ? '已抵达' : '未抵达')));
+        meta.appendChild(document.createTextNode(current ? '当前位置' : (known ? '已抵达' : '未抵达 · 光谱未确认')));
         if (surveyed) {
           meta.appendChild(document.createElement('br'));
           meta.appendChild(document.createTextNode('已测绘 · 群系 ' + discovery.counts.biomes +
@@ -769,14 +1276,26 @@ Voxel.SpaceTravel = (function () {
         }
         if (!current) {
           meta.appendChild(document.createElement('br'));
-          meta.appendChild(document.createTextNode('距离 ' + distance + ' LY · 能量 ' + cost + '%'));
+          meta.appendChild(document.createTextNode('距离 ' + distance + ' LY · 飞船 ' + cost + ' 能量'));
+          meta.appendChild(document.createElement('br'));
+          meta.appendChild(document.createTextNode(plan.reachable
+            ? portalRouteLabel(plan, dest.id)
+            : '能量不足 · 缺少 ' + plan.shortfall));
         }
+        var accessibleState = current ? '当前位置' : (surveyed ? '已测绘' : (known ? '已抵达未测绘' : '未抵达'));
+        var accessibleRoute = current ? '' : '，距离 ' + distance + ' 光年，飞船消耗 ' + cost +
+          ' 能量，' + (plan.reachable ? '到达后剩余 ' + plan.remainingFuel : '能量不足，缺少 ' + plan.shortfall) +
+          '，' + portalRouteLabel(plan, dest.id);
+        card.setAttribute('aria-label', wt.name + '，' + accessibleState + accessibleRoute);
         card.appendChild(icon); card.appendChild(main); card.appendChild(meta);
-        card.addEventListener('click', function () {
+        card.addEventListener('click', function (event) {
           if (Voxel.Game && Voxel.Game.selectTravelDestination &&
             (typeof dest.id === 'string' || typeof dest.id === 'number'))
             Voxel.Game.selectTravelDestination(dest.id);
           else setSelectedDestination(dest.id);
+          var ignite = document.getElementById('btn-travel-ignite');
+          if (event && event.detail === 0 && ignite && !ignite.disabled && ignite.focus)
+            ignite.focus({ preventScroll: true });
         });
         mapGrid.appendChild(card);
       })(list[i]);
@@ -863,6 +1382,43 @@ Voxel.SpaceTravel = (function () {
     return true;
   }
 
+  function relativeDirection(dx, dz) {
+    var yaw = Voxel.Controls && Voxel.Controls.yaw ? finite(Voxel.Controls.yaw(), 0) : 0;
+    var targetYaw = Math.atan2(-dx, -dz);
+    var delta = targetYaw - yaw;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    var names = ['前方', '左前方', '左侧', '左后方', '后方', '右后方', '右侧', '右前方'];
+    var index = Math.round(delta / (Math.PI / 4));
+    if (index < 0) index += 8;
+    return names[index % 8];
+  }
+
+  function arrivalGuidance(from, mode) {
+    if (!Voxel.Player || !Voxel.Player.pos) return '';
+    var target = null, label = '';
+    if (mode === 'portal' && from && from.id) {
+      for (var i = 0; i < portals.length; i++) {
+        var gate = portals[i].userData && portals[i].userData.portal;
+        if (gate && gate.destinationId === from.id) { target = portals[i].position; label = '返程门'; break; }
+      }
+    }
+    if (!target && world && world.kind === 'station' && stationTerminal) {
+      target = stationTerminal; label = '航行终端';
+    }
+    if (!target && ship) {
+      var il = ship.userData.interactionLocal || [0, 1, 0];
+      _interactionPoint.set(il[0], il[1], il[2]);
+      ship.localToWorld(_interactionPoint);
+      target = _interactionPoint; label = '飞船';
+    }
+    if (!target) return '';
+    var p = Voxel.Player.pos();
+    var dx = target.x - p.x, dz = target.z - p.z;
+    var distance = Math.max(0, Math.round(Math.sqrt(dx * dx + dz * dz) * 10) / 10);
+    return label + ' · ' + relativeDirection(dx, dz) + ' ' + distance.toFixed(1) + 'm';
+  }
+
   function showWarp(from, to, mode, tx) {
     flightMode = mode === 'portal' ? 'portal' : 'ship';
     setFlightSkipping(false);
@@ -919,12 +1475,15 @@ Voxel.SpaceTravel = (function () {
     else details.push('导航链路已重连');
     if (options.refueled) details.push('跃迁能量已补满');
     else details.push('启动主动扫描以建立档案');
+    var guidance = arrivalGuidance(from, mode);
+    setText(document.getElementById('arrival-guidance'), guidance || '导航锚点正在同步');
     setText(document.getElementById('arrival-detail'), details.join(' · '));
     terminal.setAttribute('data-view', 'arrival');
     terminal.setAttribute('aria-labelledby', 'arrival-world');
     if (passive) passive.setAttribute('aria-hidden', 'true');
     card.classList.remove('hidden');
-    if (!options.silent) announceTravel('已抵达 ' + wt.name + '，' + wt.typeName + '。');
+    if (!options.silent) announceTravel('已抵达 ' + wt.name + '，' + wt.typeName +
+      (guidance ? '；' + guidance : '') + '。');
     return true;
   }
 
@@ -983,11 +1542,45 @@ Voxel.SpaceTravel = (function () {
     });
     var engineOpacity = shipParts.engines.length && shipParts.engines[0].material
       ? round4(shipParts.engines[0].material.opacity) : null;
+    var player = Voxel.Player && Voxel.Player.pos ? Voxel.Player.pos() : null;
+    var portalSnapshots = portals.map(function (portal) {
+      var normal = new THREE.Vector3(0, 0, 1);
+      if (portal.getWorldQuaternion) normal.applyQuaternion(portal.getWorldQuaternion(new THREE.Quaternion()));
+      return {
+        id: portal.userData && portal.userData.portal ? portal.userData.portal.id : null,
+        destinationId: portal.userData && portal.userData.portal ? portal.userData.portal.destinationId : null,
+        destinationGateId: portal.userData ? portal.userData.destinationGateId : null,
+        pairId: portal.userData ? portal.userData.pairId : null,
+        slot: portal.userData ? portal.userData.slot : null,
+        kind: portal.userData ? portal.userData.kind : null,
+        position: [round4(portal.position.x), round4(portal.position.y), round4(portal.position.z)],
+        rotationY: round4(portal.rotation.y),
+        normal: [round4(normal.x), round4(normal.y), round4(normal.z)],
+        bounds: boundsFor(portal),
+        platform: !!(portal.userData && portal.userData.platform),
+        armed: portalArmed,
+        inside: insidePortalTrigger(portal, player, false),
+        near: nearPortal === portal,
+        trigger: { radius: round4(Math.sqrt(PORTAL_ENTER_R2)), halfHeight: PORTAL_ENTER_Y,
+          exitRadius: round4(Math.sqrt(PORTAL_EXIT_R2)), exitHalfHeight: PORTAL_EXIT_Y }
+      };
+    });
+    var reserved = reservedBounds.map(function (entry) {
+      return {
+        role: entry.role,
+        bounds: {
+          min: [round4(entry.box.min.x), round4(entry.box.min.y), round4(entry.box.min.z)],
+          max: [round4(entry.box.max.x), round4(entry.box.max.y), round4(entry.box.max.z)]
+        }
+      };
+    });
     return {
       generation: generation,
       worldId: world ? world.id : null,
       kind: world ? safeWorldKind(world) : null,
       rootCount: group ? 1 : 0,
+      portalPlanCount: group && group.userData ? finite(group.userData.portalPlanCount, 0, 0, 64) : 0,
+      portalLayoutComplete: !!(group && group.userData && group.userData.portalLayoutComplete),
       roles: roles,
       counts: {
         nodes: nodes,
@@ -1010,6 +1603,8 @@ Voxel.SpaceTravel = (function () {
         dockBounds: boundsFor(stationDock),
         terminal: stationTerminal ? [round4(stationTerminal.x), round4(stationTerminal.y), round4(stationTerminal.z)] : null
       } : null,
+      portals: portalSnapshots,
+      reserved: reserved,
       animation: {
         reducedMotion: reducedMotion,
         engineOpacity: engineOpacity,
@@ -1059,7 +1654,11 @@ Voxel.SpaceTravel = (function () {
     update: update,
     setScanTarget: setScanTarget,
     actionHint: actionHint,
+    actionHintKind: actionHintKind,
+    nearPortalInfo: nearPortalInfo,
     canOpenMap: canOpenMap,
+    authorizePortalTravel: authorizePortalTravel,
+    syncPortalOccupancy: syncPortalOccupancy,
     scanLandmark: scanLandmark,
     showMap: showMap,
     setSelectedDestination: setSelectedDestination,

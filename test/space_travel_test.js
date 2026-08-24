@@ -73,6 +73,26 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
         pending.sequence.phase === 'cockpit_arrived';
     }, { timeout: 180000, polling: 100 }, id);
   }
+  async function triggerPhysicalPortal(destinationId) {
+    return page.evaluate((targetId) => {
+      const gate = Voxel.SpaceTravel.portals().find(portal =>
+        portal.userData && portal.userData.portal && portal.userData.portal.destinationId === targetId);
+      if (!gate || Voxel.Game.state !== 'playing') return { ok: false, reason: 'missing_gate_or_state' };
+      Voxel.Player.pos().copy(Voxel.World.spawnPoint());
+      Voxel.SpaceTravel.update(0.016, 0);
+      Voxel.Player.pos().set(gate.position.x, gate.position.y + 2, gate.position.z);
+      Voxel.SpaceTravel.update(0.016, 0);
+      const pending = Voxel.Game._test.travelPending();
+      const flight = Voxel.Game._test.flightState();
+      return {
+        ok: Voxel.Game.state === 'warping' && !!pending && pending.toId === targetId &&
+          !!flight && flight.mode === 'portal',
+        fuel: Voxel.Game._test.galaxy().ship.fuel,
+        gateId: gate.userData.portal.id,
+        pairId: gate.userData.portal.pairId
+      };
+    }, destinationId);
+  }
   function check(name, ok) {
     if (!ok) throw new Error('FAIL ' + name);
     console.log('  ok  ' + name);
@@ -87,6 +107,7 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     count: Voxel.Game._test.galaxy().catalog.length,
     kind: Voxel.World.getProfile().kind,
     portals: Voxel.SpaceTravel.portals().length,
+    portalSnapshot: Voxel.SpaceTravel.visualSnapshot().portals,
     ship: !!Voxel.SpaceTravel.ship(),
     hud: document.getElementById('world-name').textContent,
     coord: document.getElementById('world-coord').textContent,
@@ -128,7 +149,11 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   check('起始繁茂行星无危害且环境快照已落盘', first.environment &&
     first.environment.hazard === 'none' && first.environment.exposure === 0 &&
     first.environmentSaved && first.environmentSaved.v === 1 && first.environmentSaved.worlds['planet-0']);
-  check('行星生成 3-4 扇种子传送门', first.portals >= 3 && first.portals <= 4);
+  check('行星生成4扇唯一双向安全传送门', first.portals === 4 &&
+    new Set(first.portalSnapshot.map(portal => portal.destinationId)).size === 4 &&
+    new Set(first.portalSnapshot.map(portal => portal.pairId)).size === 4 &&
+    first.portalSnapshot.every(portal => portal.destinationGateId && portal.armed &&
+      portal.normal.every(Number.isFinite) && portal.bounds && portal.trigger.exitRadius > portal.trigger.radius));
   check('HUD 显示当前天体', first.hud && first.hud.indexOf('未知') < 0);
   check('行星遥测首帧立即online且无残留目标', first.scan.status === 'online' &&
     first.scan.kind === 'none' && first.scan.target === '无锁定目标' && first.scan.distance === '—');
@@ -149,6 +174,54 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     ['geometries', 'materials', 'textures'].every(key =>
       first.atmosphereStats.created[key] - first.atmosphereStats.disposed[key] === first.atmosphereStats.live[key] &&
       first.atmosphereStats.live[key] >= 0 && first.atmosphereStats.live[key] <= 64));
+
+  const portalLatch = await page.evaluate(() => {
+    const realRequest = Voxel.Game.requestTravel;
+    const calls = [];
+    Voxel.Game.requestTravel = function (destinationId, mode) {
+      calls.push({ destinationId, mode });
+      return false;
+    };
+    let gate = Voxel.SpaceTravel.portals()[0];
+    Voxel.Player.pos().set(gate.position.x, gate.position.y + 2, gate.position.z);
+    Voxel.SpaceTravel.loadWorld(Voxel.Game._test.currentWorld(), Voxel.Game._test.galaxy());
+    gate = Voxel.SpaceTravel.portals()[0];
+    const loadedInside = Voxel.SpaceTravel.visualSnapshot().portals[0];
+    Voxel.SpaceTravel.update(99, 0);
+    const heldInsideCalls = calls.length;
+    Voxel.Player.pos().copy(Voxel.World.spawnPoint());
+    Voxel.SpaceTravel.update(0.016, 0);
+    const armedAfterExit = Voxel.SpaceTravel.visualSnapshot().portals[0].armed;
+    Voxel.Player.pos().set(gate.position.x, gate.position.y + 2, gate.position.z);
+    Voxel.SpaceTravel.update(0.016, 0);
+    const firstEntryCalls = calls.length;
+    Voxel.SpaceTravel.update(99, 0);
+    const heldRejectedCalls = calls.length;
+    Voxel.Player.pos().copy(Voxel.World.spawnPoint());
+    Voxel.SpaceTravel.update(0.016, 0);
+    Voxel.Player.pos().set(gate.position.x, gate.position.y + 2, gate.position.z);
+    Voxel.SpaceTravel.update(0.016, 0);
+    const secondEntryCalls = calls.length;
+    const hint = Voxel.SpaceTravel.actionHint();
+    Voxel.Game.requestTravel = realRequest;
+    Voxel.Player.pos().copy(Voxel.World.spawnPoint());
+    Voxel.SpaceTravel.update(0.016, 0);
+    return {
+      loadedInside,
+      heldInsideCalls,
+      armedAfterExit,
+      firstEntryCalls,
+      heldRejectedCalls,
+      secondEntryCalls,
+      firstMode: calls[0] && calls[0].mode,
+      hint
+    };
+  });
+  check('传送门采用离开后重武装且拒绝请求不逐帧重试', portalLatch.loadedInside.inside &&
+    !portalLatch.loadedInside.armed && portalLatch.heldInsideCalls === 0 && portalLatch.armedAfterExit &&
+    portalLatch.firstEntryCalls === 1 && portalLatch.heldRejectedCalls === 1 &&
+    portalLatch.secondEntryCalls === 2 && portalLatch.firstMode === 'portal' &&
+    /传送门 → .+免费传送/.test(portalLatch.hint));
 
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.waitForFunction(() => Voxel.SpaceTravel.visualSnapshot().animation.reducedMotion === true,
@@ -294,11 +367,53 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       state: Voxel.Game.state,
       cards: document.querySelectorAll('#starmap-grid .star-card').length,
       visible: !overlay.classList.contains('hidden'),
-      focusInside: overlay.contains(document.activeElement)
+      focusInside: overlay.contains(document.activeElement),
+      routeReady: document.getElementById('starmap-route-map').dataset.ready,
+      routeNodes: document.querySelectorAll('#starmap-node-layer .starmap-node').length,
+      activePortalEdges: document.querySelectorAll('#starmap-portal-edges .starmap-portal-edge[data-active="true"]').length,
+      activeShipRoute: document.getElementById('starmap-active-route').dataset.active,
+      currentAria: (document.querySelector('#starmap-grid .star-card.current') || {}).getAttribute('aria-current'),
+      unknownText: (document.querySelector('#starmap-grid .star-card[data-visit-state="unknown"]') || {}).textContent || ''
     };
   });
   check('靠近飞船可打开 7 天体星图并把焦点置入对话框', map.state === 'starmap' &&
     map.cards === 7 && map.visible && map.focusInside);
+  check('SVG星图同步7节点/4条本地门径且当前位置语义完整', map.routeReady === 'true' &&
+    map.routeNodes === 7 && map.activePortalEdges === 4 && map.activeShipRoute === 'false' &&
+    map.currentAria === 'location');
+  check('未抵达天体不提前泄漏确定危害与专属资源', map.unknownText.includes('远距档案未确认') &&
+    !/烈日热负荷|硅晶富集|毒性孢子|熔核富集|深水高压/.test(map.unknownText));
+
+  const routeUnits = await page.evaluate(() => {
+    const galaxy = Voxel.Game._test.galaxy();
+    const before = { fuel: galaxy.ship.fuel, maxFuel: galaxy.ship.maxFuel };
+    galaxy.ship.fuel = 0;
+    galaxy.ship.maxFuel = 200;
+    Voxel.SpaceTravel.showMap();
+    const card = document.querySelector('#starmap-grid .star-card[data-destination-id="station-0"]');
+    Voxel.SpaceTravel.setSelectedDestination('station-0');
+    const result = {
+      routeState: card.dataset.routeState,
+      visitState: card.dataset.visitState,
+      cost: Number(card.dataset.fuelCost),
+      cardText: card.textContent,
+      selection: document.getElementById('cockpit-selection').textContent,
+      cockpitState: document.getElementById('starmap-cockpit').dataset.state,
+      igniteDisabled: document.getElementById('btn-travel-ignite').disabled,
+      activeRoute: document.getElementById('starmap-active-route').dataset.active,
+      activeTo: document.getElementById('starmap-active-route').getAttribute('data-to-id')
+    };
+    galaxy.ship.fuel = before.fuel;
+    galaxy.ship.maxFuel = before.maxFuel;
+    Voxel.SpaceTravel.showMap();
+    return result;
+  });
+  check('routePlan以绝对能量单位驱动不足态/缺口/路线图', routeUnits.routeState === 'insufficient' &&
+    routeUnits.cost > 0 && routeUnits.cockpitState === 'insufficient' && routeUnits.igniteDisabled &&
+    routeUnits.selection.includes('需要 ' + routeUnits.cost + ' 能量') &&
+    routeUnits.selection.includes('当前 0') && routeUnits.selection.includes('缺少 ' + routeUnits.cost) &&
+    !routeUnits.selection.includes('%') && !routeUnits.cardText.includes('%') &&
+    routeUnits.activeRoute === 'true' && routeUnits.activeTo === 'station-0');
 
   // 星图卡只锁定航线；点火才启动一次事务。第一次目标初始化故障必须自动回到来源，
   // 且不得扣能量或把磁盘 currentId 提前推进到目标。
@@ -324,7 +439,10 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       pressed: card.getAttribute('aria-pressed'),
       cardSelected: card.classList.contains('selected'),
       igniteDisabled: ignite.disabled,
-      fuel: Voxel.Game._test.galaxy().ship.fuel
+      fuel: Voxel.Game._test.galaxy().ship.fuel,
+      focusId: document.activeElement && document.activeElement.id,
+      selectionText: document.getElementById('cockpit-selection').textContent,
+      activeRouteTo: document.getElementById('starmap-active-route').getAttribute('data-to-id')
     };
 
     const realInit = Voxel.World.init;
@@ -380,7 +498,9 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     !initFaultStart.selected.pending && initFaultStart.selected.currentId === initFaultStart.before.currentId &&
     initFaultStart.selected.selectedId === 'station-0' && initFaultStart.selected.pressed === 'true' &&
     initFaultStart.selected.cardSelected && !initFaultStart.selected.igniteDisabled &&
-    initFaultStart.selected.fuel === 100);
+    initFaultStart.selected.fuel === 100 && initFaultStart.selected.focusId === 'btn-travel-ignite' &&
+    /飞船消耗 \d+ 能量/.test(initFaultStart.selected.selectionText) &&
+    !initFaultStart.selected.selectionText.includes('%') && initFaultStart.selected.activeRouteTo === 'station-0');
   check('点火按钮只启动一个同serial旅行事务', initFaultStart.first && initFaultStart.second &&
     initFaultStart.state === 'warping' && initFaultStart.first.serial === initFaultStart.second.serial &&
     initFaultStart.first.fromId === 'planet-0' && initFaultStart.first.toId === 'station-0');
@@ -508,6 +628,11 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
   // 在源行星留下带耐久/年龄/速度的工具掉落，并在跃迁动画尚未完成时检查一致源存档。
   const firstDeparture = await page.evaluate(() => {
     const sourceId = Voxel.Game._test.currentWorld().id;
+    // 跨世界旅行不得复用目标旧玩家坐标：该有限坐标位于空间站甲板外真空。
+    Voxel.Game._test.galaxy().worlds['station-0'] = {
+      player: { pos: [20, 30, 20], yaw: 1.2, pitch: 0, fly: true, hp: 1, food: 1 },
+      time: 0.3, weather: 'clear', meta: {}, edits: {}, drops: []
+    };
     const p = Voxel.Player.pos().clone().add(new THREE.Vector3(8, 3, 0));
     const d = Voxel.Drops.spawn(102, 1, p, new THREE.Vector3(1.25, 2.5, -0.75), 37);
     if (d) d.age = 12.5;
@@ -528,6 +653,7 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       state: Voxel.Game.state,
       pending: Voxel.Game._test.travelPending(),
       sourceWeatherTint,
+      pollutedTargetPos: [20, 30, 20],
       sourceDiscovery: Voxel.Discovery.worldSummary(beforePagehide.galaxy.discovery, sourceId),
       pagehideDiscoverySame: JSON.stringify(beforePagehide.galaxy.discovery) === JSON.stringify(afterPagehide.galaxy.discovery),
       beforePagehide,
@@ -574,7 +700,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       pending,
       overlayVisible: !overlay.classList.contains('hidden'),
       phase: overlay.getAttribute('data-phase'),
-      buttonReady: !button.hidden && !button.disabled && button.getAttribute('aria-disabled') === 'false'
+      buttonReady: !button.hidden && !button.disabled && button.getAttribute('aria-disabled') === 'false',
+      announcement: document.getElementById('travel-announcer').textContent
     };
   });
   check('飞船先在cockpit_arrived停泊且目标存档已提交回读', stationCockpit.state === 'arriving' &&
@@ -582,7 +709,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     stationCockpit.pending && stationCockpit.pending.committed === true &&
     stationCockpit.pending.sequence.phase === 'cockpit_arrived');
   check('驾驶舱抵达阶段保持可见并启用显式下船入口', stationCockpit.overlayVisible &&
-    stationCockpit.phase === 'cockpit_arrived' && stationCockpit.buttonReady);
+    stationCockpit.phase === 'cockpit_arrived' && stationCockpit.buttonReady &&
+    /航行终端.+\d+\.\d+m/.test(stationCockpit.announcement));
   const stationDisembark = await page.evaluate(() => {
     const button = document.getElementById('btn-disembark');
     button.focus();
@@ -621,6 +749,13 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       max: galaxy.ship.maxFuel,
       deck: Voxel.World.get(128, 23, 128),
       portals: Voxel.SpaceTravel.portals().length,
+      portalDestinations: Voxel.SpaceTravel.portals().map(portal => portal.userData.portal.destinationId).sort(),
+      portalPairs: Voxel.SpaceTravel.portals().map(portal => portal.userData.pairId),
+      activePortalEdges: document.querySelectorAll('#starmap-portal-edges .starmap-portal-edge[data-active="true"]').length,
+      player: [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z],
+      spawn: Voxel.World.spawnPoint().toArray(),
+      playerStandable: Voxel.Player.canStandAt(Voxel.Player.pos(), false),
+      voidStandable: Voxel.Player.canStandAt(new THREE.Vector3(20, 30, 20), true),
       drops: Voxel.Drops.snapshot(),
       savedCurrent: (Voxel.Save.load().galaxy || {}).currentId,
       actionHint: Voxel.SpaceTravel.actionHint(),
@@ -633,6 +768,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       discovery: Voxel.Discovery.worldSummary(galaxy.discovery, world.id),
       planetDiscovery: Voxel.Discovery.worldSummary(galaxy.discovery, 'planet-0'),
       mapCurrent: (document.querySelector('#starmap-grid .star-card.current') || {}).textContent || '',
+      arrivalDetail: document.getElementById('arrival-detail').textContent,
+      arrivalGuidance: document.getElementById('arrival-guidance').textContent,
       scan: {
         status: document.getElementById('scan-terminal').dataset.status,
         kind: document.getElementById('scan-terminal').dataset.targetKind,
@@ -651,7 +788,14 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     station.environment.hazard === 'none' && station.environment.exposure === 0 &&
     station.environmentSaved && station.environmentSaved.worlds['planet-0'] &&
     station.environmentSaved.worlds['station-0']);
-  check('空间站拥有返回用传送门', station.portals === 3);
+  check('空间站拥有通往全部六颗行星的唯一返程门', station.portals === 6 &&
+    JSON.stringify(station.portalDestinations) === JSON.stringify([
+      'planet-0', 'planet-1', 'planet-2', 'planet-3', 'planet-4', 'planet-5'
+    ]) && new Set(station.portalPairs).size === 6 && station.activePortalEdges === 6);
+  check('跨世界旅行忽略目标旧真空坐标并使用安全泊位', station.player.every(Number.isFinite) &&
+    station.player.every((value, index) => Math.abs(value - station.spawn[index]) < 0.05) &&
+    station.playerStandable && !station.voidStandable &&
+    Math.hypot(station.player[0] - 20, station.player[2] - 20) > 100);
   check('抵达后提交目标世界存档', station.savedCurrent === 'station-0');
   check('源行星掉落未泄漏到空间站', station.drops.length === 0);
   check('空间站遥测首帧切换世界且清除行星目标', station.scan.status === 'online' &&
@@ -662,6 +806,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     station.scan.environment === '真空 · 人工重力' && noLeak(Object.values(station.scan)));
   check('空间站航行终端提示与只读遥测终端保持独立', /航行终端/.test(station.actionHint) &&
     /打开星图/.test(station.actionHint) && station.scan.target === '无锁定目标');
+  check('抵达卡提供有限的航行终端方向与距离', /航行终端 · (?:前方|后方|左|右)/.test(station.arrivalGuidance) &&
+    /\d+\.\d+m/.test(station.arrivalGuidance) && noLeak(station.arrivalGuidance));
   check('空间站切换为唯一deep-space天空且无行星日月/重复星场',
     station.atmosphere.typeKey === 'station' && station.atmosphere.roles.includes('deep-space-dome') &&
     station.atmosphere.roles.includes('station-stars') && station.atmosphere.roles.includes('ringed-landmark') &&
@@ -796,7 +942,16 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     backOnPlanet.environment && backOnPlanet.environment.worldId === 'planet-0' &&
     backOnPlanet.environment.graceRemaining === 0);
 
-  const portalJump = await page.evaluate(() => {
+  const forgedPortal = await page.evaluate(() => ({
+    accepted: Voxel.Game.requestTravel('station-0', 'portal'),
+    state: Voxel.Game.state,
+    pending: Voxel.Game._test.travelPending(),
+    fuel: Voxel.Game._test.galaxy().ship.fuel
+  }));
+  check('公开requestTravel不能伪造免费portal旅行', forgedPortal.accepted === false &&
+    forgedPortal.state === 'playing' && forgedPortal.pending === null && forgedPortal.fuel === afterShipFuel);
+
+  await page.evaluate(() => {
     const realWarpPhase = Voxel.Sound.warpPhase;
     window.__committedPresentationFault = { realWarpPhase, failures: 0 };
     Voxel.Sound.warpPhase = function (mode, phase) {
@@ -808,11 +963,8 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
       }
       return realWarpPhase.apply(this, arguments);
     };
-    return {
-      ok: Voxel.Game.requestTravel('station-0', 'portal'),
-      fuel: Voxel.Game._test.galaxy().ship.fuel
-    };
   });
+  const portalJump = await triggerPhysicalPortal('station-0');
   check('传送门接受免费旅行请求', portalJump.ok === true);
   check('传送门离场时不扣跃迁能量', portalJump.fuel === afterShipFuel);
   await waitWorld('station-0');
@@ -856,13 +1008,11 @@ if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
     roundTrip.stationDiscovery.counts.landmarks === 1);
 
   // 再离场并第三次进入空间站：applyEdits 回放后的修改仍须进入下一份世界快照。
-  check('二次离开空间站请求成功',
-    await page.evaluate(() => Voxel.Game.requestTravel('planet-0', 'portal')) === true);
+  check('二次离开空间站请求成功', (await triggerPhysicalPortal('planet-0')).ok === true);
   await waitWorld('planet-0');
   check('正常传送门抵达自动完成且不要求下船', await page.evaluate(() =>
     Voxel.Game._test.travelPending() === null && Voxel.Game.disembark() === false));
-  check('第三次进入空间站请求成功',
-    await page.evaluate(() => Voxel.Game.requestTravel('station-0', 'portal')) === true);
+  check('第三次进入空间站请求成功', (await triggerPhysicalPortal('station-0')).ok === true);
   await waitWorld('station-0');
   check('多次离场后空间站修改仍保留',
     await page.evaluate(() => Voxel.World.get(130, 24, 130)) === 13);

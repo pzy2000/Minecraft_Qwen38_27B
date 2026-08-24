@@ -34,15 +34,37 @@
 <script>
 (function () {
   var activeKind = 'planet';
+  var wet = false;
   var playerPos = new THREE.Vector3(128.5, 11.01, 128.5);
-  var requestCount = 0;
+  var requestCount = 0, requestResult = true, setCalls = 0;
+  var cells = Object.create(null), edits = Object.create(null), metadata = Object.create(null);
+  function key(x, y, z) { return Math.floor(x) + ',' + Math.floor(y) + ',' + Math.floor(z); }
+  function own(obj, name) { return Object.prototype.hasOwnProperty.call(obj, name); }
+  Voxel.Blocks = { isSolid: function (id) { return id > 0 && id !== 7 && id !== 19; } };
   Voxel.World = {
-    surfaceAt: function () { return activeKind === 'station' ? 23 : 10; },
-    get: function (x, y, z) { return y === (activeKind === 'station' ? 23 : 10) ? 3 : 0; },
+    surfaceAt: function (x, z) {
+      for (var y = 63; y >= 0; y--) if (Voxel.Blocks.isSolid(Voxel.World.get(x, y, z))) return y;
+      return -1;
+    },
+    get: function (x, y, z) {
+      var k = key(x, y, z);
+      if (own(cells, k)) return cells[k];
+      if (activeKind === 'station') return y === 23 ? 3 : 0;
+      if (wet) return y === 5 ? 3 : (y > 5 && y <= Voxel.Config.WATER_LEVEL ? 7 : 0);
+      return y === 10 ? 3 : 0;
+    },
+    set: function (x, y, z, id) { cells[key(x, y, z)] = id; edits[key(x, y, z)] = true; setCalls++; return true; },
+    isEdited: function (x, y, z) { return !!edits[key(x, y, z)]; },
+    getMeta: function (x, y, z) { return metadata[key(x, y, z)] || null; },
+    setMeta: function (x, y, z, value) {
+      var k = key(x, y, z);
+      if (value) metadata[k] = value;
+      else delete metadata[k];
+    },
     spawnPoint: function () {
       return activeKind === 'station'
         ? new THREE.Vector3(128.5, 24.01, 128.5)
-        : new THREE.Vector3(128.5, 11.01, 128.5);
+        : new THREE.Vector3(128.5, wet ? Voxel.Config.WATER_LEVEL + 2.01 : 11.01, 128.5);
     },
     biomeAt: function () { return 1; }
   };
@@ -52,11 +74,21 @@
   Voxel.DayNight = { isNight: function () { return false; } };
   Voxel.Weather = { label: function () { return '晴'; } };
   Voxel.Environment = { status: function () { return { hazard: 'none' }; } };
-  Voxel.Game = { requestTravel: function () { requestCount++; return true; } };
+  Voxel.Game = { requestTravel: function () { requestCount++; return requestResult; } };
   window.__spaceVisualFixture = {
-    setKind: function (kind) { activeKind = kind; },
+    setKind: function (kind) { activeKind = kind; wet = false; },
+    setWet: function (value, reset) {
+      wet = !!value; activeKind = 'planet';
+      if (reset) { cells = Object.create(null); edits = Object.create(null); metadata = Object.create(null); setCalls = 0; }
+    },
+    markEdit: function (x, y, z, id) { cells[key(x, y, z)] = id; edits[key(x, y, z)] = true; },
+    setNatural: function (x, y, z, id) { cells[key(x, y, z)] = id; },
+    clearCells: function () { cells = Object.create(null); edits = Object.create(null); metadata = Object.create(null); setCalls = 0; },
+    setRequestResult: function (value) { requestResult = !!value; },
+    resetRequests: function () { requestCount = 0; },
     player: playerPos,
-    requestCount: function () { return requestCount; }
+    requestCount: function () { return requestCount; },
+    setCalls: function () { return setCalls; }
   };
 })();
 </script>
@@ -79,6 +111,27 @@
     if (!bounds) return false;
     for (var i = 0; i < 3; i++)
       if (point[i] < bounds.min[i] || point[i] > bounds.max[i]) return false;
+    return true;
+  }
+  function boundsIntersect(a, b) {
+    return !!a && !!b && a.min[0] <= b.max[0] && a.max[0] >= b.min[0] &&
+      a.min[1] <= b.max[1] && a.max[1] >= b.min[1] &&
+      a.min[2] <= b.max[2] && a.max[2] >= b.min[2];
+  }
+  function portalGeometryOK(snapshot, anchor) {
+    var list = snapshot.portals || [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i], dx = anchor[0] - p.position[0], dz = anchor[2] - p.position[2];
+      var length = Math.sqrt(dx * dx + dz * dz) || 1;
+      var dot = Math.abs((p.normal[0] * dx + p.normal[2] * dz) / length);
+      if (!allFinite(p) || dot < 0.85) return false;
+      for (var r = 0; r < snapshot.reserved.length; r++)
+        if (boundsIntersect(p.bounds, snapshot.reserved[r].bounds)) return false;
+      for (var j = i + 1; j < list.length; j++) {
+        var q = list[j], ddx = p.position[0] - q.position[0], ddz = p.position[2] - q.position[2];
+        if (ddx * ddx + ddz * ddz < 64 || boundsIntersect(p.bounds, q.bounds)) return false;
+      }
+    }
     return true;
   }
   function roots(scene) {
@@ -129,6 +182,50 @@
       planetSnap.counts.triangles <= 1000 && planetSnap.counts.geometries <= 40 &&
       planetSnap.counts.materials <= 40, JSON.stringify(planetSnap.counts));
     check('行星视觉快照全部数值有限且场景仅一个root', allFinite(planetSnap) && roots(scene).length === 1);
+    check('A版行星网络四门双向字段完整', planetSnap.portals.length === 4 &&
+      planetSnap.portals.every(function (p) {
+        return !!p.id && !!p.destinationId && !!p.destinationGateId && !!p.pairId && !!p.slot && !!p.kind;
+      }));
+    check('行星最终门址间距/AABB/保留区/朝向全部安全',
+      portalGeometryOK(planetSnap, fixture.player.toArray()));
+
+    // outside→inside：失败请求也消费本次进入事件，必须离开扩大体积后才能重新触发。
+    fixture.resetRequests(); fixture.setRequestResult(false);
+    var firstPortal = S.portals()[0];
+    fixture.player.set(firstPortal.position.x + 4, firstPortal.position.y, firstPortal.position.z);
+    S.update(0, 0);
+    fixture.player.set(firstPortal.position.x, firstPortal.position.y, firstPortal.position.z);
+    S.update(0, 0);
+    var rejectedOnce = fixture.requestCount(), rejectedSnap = S.visualSnapshot();
+    S.update(0, 0);
+    check('request=false后门保持未武装且不会每帧重试', rejectedOnce === 1 &&
+      fixture.requestCount() === 1 && rejectedSnap.portals.every(function (p) { return !p.armed; }));
+    check('靠近门提示安全目标名与免费传送', /传送门 → .+ · 接触后免费传送/.test(S.actionHint()));
+    fixture.player.set(firstPortal.position.x + 2.1, firstPortal.position.y, firstPortal.position.z);
+    S.update(0, 0);
+    check('离开扩大迟滞体积后重新武装', S.visualSnapshot().portals.every(function (p) { return p.armed; }));
+    fixture.player.set(firstPortal.position.x, firstPortal.position.y, firstPortal.position.z);
+    S.update(0, 0);
+    check('重新进入只触发第二次请求', fixture.requestCount() === 2);
+
+    // 载入时若恢复在门内，不得靠计时自动触发；同样要求先离开再重入。
+    S.loadWorld(planet, galaxy);
+    firstPortal = S.portals()[0];
+    fixture.player.set(firstPortal.position.x, firstPortal.position.y, firstPortal.position.z);
+    S.loadWorld(planet, galaxy);
+    S.update(99, 0);
+    check('load恢复门内保持未武装且长时间不回跳', fixture.requestCount() === 2 &&
+      S.visualSnapshot().portals.every(function (p) { return !p.armed; }));
+    firstPortal = S.portals()[0];
+    fixture.player.set(firstPortal.position.x + 2.1, firstPortal.position.y, firstPortal.position.z);
+    S.update(0, 0);
+    fixture.player.set(firstPortal.position.x, firstPortal.position.y, firstPortal.position.z);
+    S.update(0, 0);
+    check('load门内离开再进入后恰好触发', fixture.requestCount() === 3);
+    fixture.setRequestResult(true); fixture.resetRequests();
+    fixture.player.set(128.5, 11.01, 128.5);
+    S.loadWorld(planet, galaxy);
+    ship = S.ship();
 
     S.showMap();
     var destinationCard = document.querySelector('.star-card[data-destination-id="' + station.id + '"]');
@@ -171,6 +268,29 @@
       reducedA.rampProgress === reducedB.rampProgress &&
       JSON.stringify(reducedA.ringRotations) === JSON.stringify(reducedB.ringRotations));
 
+    // 旧算法失败形态：两门同坐标且落在ship目标点。resolver必须确定性移开全部冲突。
+    var originalPortalsFor = Voxel.Galaxy.portalsFor;
+    Voxel.Galaxy.portalsFor = function (g, w) {
+      if (w && w.id === planet.id) return [
+        { id: 'legacy-overlap-0', pairId: 'legacy-pair-0', destinationId: 'planet-1',
+          destinationGateId: 'legacy-back-0', x: 128, z: 110, slot: 'legacy-0', kind: 'cycle' },
+        { id: 'legacy-overlap-1', pairId: 'legacy-pair-1', destinationId: 'planet-2',
+          destinationGateId: 'legacy-back-1', x: 128, z: 110, slot: 'legacy-1', kind: 'cycle' },
+        { id: 'legacy-overlap-2', pairId: 'legacy-pair-2', destinationId: 'planet-3',
+          destinationGateId: 'legacy-back-2', x: 130, z: 110, slot: 'legacy-2', kind: 'opposite' },
+        { id: 'legacy-overlap-3', pairId: 'legacy-pair-3', destinationId: station.id,
+          destinationGateId: 'legacy-back-3', x: 128, z: 110, slot: 'legacy-3', kind: 'station' }
+      ];
+      return originalPortalsFor(g, w);
+    };
+    fixture.setKind('planet'); fixture.player.set(128.5, 11.01, 128.5);
+    S.loadWorld(planet, galaxy);
+    var legacyResolved = S.visualSnapshot();
+    check('旧同坐标/ship重叠形态被确定性解析为四个安全门址', legacyResolved.portals.length === 4 &&
+      new Set(legacyResolved.portals.map(function (p) { return p.position.join(','); })).size === 4 &&
+      portalGeometryOK(legacyResolved, fixture.player.toArray()));
+    Voxel.Galaxy.portalsFor = originalPortalsFor;
+
     fixture.setKind('station');
     fixture.player.set(128.5, 24.001, 128.5);
     S.loadWorld(station, galaxy);
@@ -186,14 +306,63 @@
       'navigation-light', 'station-ring'].forEach(function (role) {
       check('空间站包含语义部件 ' + role, stationSnap.roles.indexOf(role) >= 0);
     });
-    check('空间站对象预算有界', stationSnap.counts.drawables <= 40 &&
-      stationSnap.counts.triangles <= 1000 && stationSnap.counts.geometries <= 40 &&
-      stationSnap.counts.materials <= 40, JSON.stringify(stationSnap.counts));
+    check('空间站六门网络与固定甲板pads完整', stationSnap.portals.length === 6 &&
+      stationSnap.portals.every(function (p) { return !!p.pairId && !!p.destinationGateId; }) &&
+      JSON.stringify(stationSnap.portals.map(function (p) { return [p.position[0], p.position[2]]; })) ===
+        JSON.stringify([[104.5,128.5],[152.5,128.5],[108.5,144.5],[148.5,144.5],[116.5,152.5],[140.5,152.5]]));
+    check('空间站六门间距/AABB/保留区/面向dock全部安全',
+      portalGeometryOK(stationSnap, fixture.player.toArray()));
+    check('空间站对象预算有界', stationSnap.counts.drawables <= 55 &&
+      stationSnap.counts.triangles <= 1500 && stationSnap.counts.geometries <= 55 &&
+      stationSnap.counts.materials <= 55, JSON.stringify(stationSnap.counts));
     var stationLandmark = S.scanLandmark();
     check('scanLandmark使用移动后的真实终端坐标', stationLandmark &&
       stationLandmark.kind === 'station-terminal' && stationLandmark.distance > 10 && stationLandmark.distance < 20,
       stationLandmark && stationLandmark.distance.toFixed(2));
     check('换世界释放旧root且资源账本守恒', roots(scene).length === 1 && resourcesBalanced(S.resourceStats()));
+
+    // 全水面无干地：四个固定pad各自建立有限7×7甲板，重载不得重复写入。
+    fixture.setWet(true, true); fixture.player.set(128.5, Voxel.Config.WATER_LEVEL + 2.01, 128.5);
+    S.loadWorld(planet, galaxy);
+    var oceanSnap = S.visualSnapshot(), firstPlatformWrites = fixture.setCalls();
+    check('海洋无干地时四门全部使用确定性可走平台', oceanSnap.portals.length === 4 &&
+      oceanSnap.portals.every(function (p) { return p.platform && p.position[1] === Voxel.Config.WATER_LEVEL + 2; }) &&
+      portalGeometryOK(oceanSnap, fixture.player.toArray()) && firstPlatformWrites === 196,
+      'writes=' + firstPlatformWrites);
+    S.loadWorld(planet, galaxy);
+    check('海洋平台保存式编辑重载幂等零追加写', fixture.setCalls() === firstPlatformWrites &&
+      S.visualSnapshot().portals.every(function (p) { return p.platform; }));
+
+    // 玩家编辑与功能块优先：不得覆盖原格，resolver必须选择另一个安全水面候选。
+    fixture.setWet(true, true);
+    fixture.markEdit(80, Voxel.Config.WATER_LEVEL + 1, 128, 38);
+    fixture.player.set(128.5, Voxel.Config.WATER_LEVEL + 2.01, 128.5);
+    S.loadWorld(planet, galaxy);
+    var editedOcean = S.visualSnapshot();
+    check('海洋平台不覆盖玩家edited功能块并移到安全候选',
+      Voxel.World.get(80, Voxel.Config.WATER_LEVEL + 1, 128) === 38 && editedOcean.portals.length === 4 &&
+      !(editedOcean.portals[0].position[0] === 80.5 && editedOcean.portals[0].position[2] === 128.5) &&
+      portalGeometryOK(editedOcean, fixture.player.toArray()));
+
+    // 形状相同也不能冒充系统平台：没有portal-platform meta的49格玩家石台必须避让。
+    fixture.setWet(true, true);
+    for (var ex = -3; ex <= 3; ex++) for (var ez = -3; ez <= 3; ez++)
+      fixture.markEdit(80 + ex, Voxel.Config.WATER_LEVEL + 1, 128 + ez, 3);
+    fixture.player.set(128.5, Voxel.Config.WATER_LEVEL + 2.01, 128.5);
+    S.loadWorld(planet, galaxy);
+    var playerPlatform = S.visualSnapshot();
+    check('无系统meta的玩家7x7石台不被误认作portal平台', playerPlatform.portals.length === 4 &&
+      !(playerPlatform.portals[0].position[0] === 80.5 && playerPlatform.portals[0].position[2] === 128.5));
+
+    // 最终旋转门框可伸到中心±2.7格，±3边沿edited方块同样必须避让。
+    fixture.clearCells(); fixture.setKind('planet');
+    fixture.setNatural(80, 11, 131, 3);
+    fixture.player.set(128.5, 11.01, 128.5);
+    S.loadWorld(planet, galaxy);
+    var edgeEdit = S.visualSnapshot();
+    check('门框AABB边沿±3格自然实体障碍得到避让', edgeEdit.portals.length === 4 &&
+      !(edgeEdit.portals[0].position[0] === 80.5 && edgeEdit.portals[0].position[2] === 128.5));
+    fixture.clearCells(); fixture.setKind('planet');
 
     for (var cycle = 0; cycle < 20; cycle++) {
       var useStation = cycle % 2 === 1;
@@ -203,7 +372,8 @@
       S.update(0, 0);
       var cycleSnap = S.visualSnapshot(), live = S.resourceStats();
       check('第' + (cycle + 1) + '次load单root/预算/账本', roots(scene).length === 1 &&
-        cycleSnap.counts.drawables <= 40 && cycleSnap.counts.triangles <= 1000 && resourcesBalanced(live));
+        cycleSnap.counts.drawables <= (useStation ? 55 : 40) &&
+        cycleSnap.counts.triangles <= (useStation ? 1500 : 1000) && resourcesBalanced(live));
       S.clear();
       var cleared = S.resourceStats();
       check('第' + (cycle + 1) + '次clear唯一释放至零', roots(scene).length === 0 &&

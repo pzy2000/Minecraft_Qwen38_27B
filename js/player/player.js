@@ -209,10 +209,18 @@ Voxel.Player = (function () {
   function setBed(v) { bedPos = v || null; }
   function getBed() { return bedPos; }
 
+  function canStandAt(v, allowWater) {
+    if (!v || !isFinite(v.x) || !isFinite(v.y) || !isFinite(v.z) || v.y <= 1 ||
+      Voxel.Physics.aabbCollides(v.x, v.y, v.z, C.W, C.H)) return false;
+    var bx = Math.floor(v.x), by = Math.floor(v.y), bz = Math.floor(v.z);
+    var feet = Voxel.World.get(bx, by, bz), head = Voxel.World.get(bx, Math.floor(v.y + C.EYE), bz);
+    // 菜单继续游戏允许恢复真实游泳位置；旅行/重生泊位则必须有实体地板。
+    if (allowWater && (feet === 7 || head === 7)) return true;
+    return feet !== 7 && head !== 7 && Voxel.Physics.hasFloor(v.x, v.y, v.z, C.W);
+  }
+
   function canRespawnAt(v) {
-    return !!v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z) && v.y > 1 &&
-      !Voxel.Physics.aabbCollides(v.x, v.y, v.z, C.W, C.H) &&
-      Voxel.Physics.hasFloor(v.x, v.y, v.z, C.W);
+    return canStandAt(v, false);
   }
 
   function respawn() {
@@ -308,6 +316,7 @@ Voxel.Player = (function () {
   return {
     init: init,
     initAtSpawn: initAtSpawn,
+    canStandAt: canStandAt,
     setSpawn: setSpawn,
     getSpawn: function () { return spawn.clone(); },
     respawn: respawn,

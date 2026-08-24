@@ -1905,6 +1905,7 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 }
 #arrival-world,
 #arrival-type,
+#arrival-guidance,
 #arrival-detail {
   display: block;
   min-width: 0;
@@ -1914,6 +1915,7 @@ body[data-game-state="paused"] #scan-terminal[aria-hidden="false"]:has(> #scan-w
 }
 #arrival-world { color: #f2fff9; font-size: 15px; line-height: 1.2; letter-spacing: .5px; }
 #arrival-type { color: #b9e9d5; font-size: 10px; line-height: 1.3; }
+#arrival-guidance { color: #ffe7a3; font-size: 9px; line-height: 1.3; }
 #arrival-detail { color: #91aeb1; font-size: 9px; line-height: 1.3; }
 
 /* ---------- 主动扫描：独立于只读 PASSIVE 遥测终端 ---------- */
@@ -2357,6 +2359,99 @@ body.scan-scanning #scan-progress i,
     rgba(19, 20, 29, .94);
   box-shadow: inset 4px 0 0 rgba(255,226,111,.72), 0 0 20px rgba(255,226,111,.08);
 }
+#starmap-cockpit[data-state="insufficient"] {
+  border-color: rgba(255,112,79,.84);
+  background:
+    linear-gradient(105deg, rgba(255,91,58,.20), transparent 58%),
+    rgba(36, 13, 20, .96);
+  box-shadow: inset 4px 0 0 rgba(255,112,79,.82), 0 0 22px rgba(255,72,48,.13);
+}
+#starmap-cockpit[data-state="insufficient"] #cockpit-selection { color: #ffc0a8; }
+#starmap-cockpit[data-state="insufficient"] #btn-travel-ignite:disabled {
+  opacity: 1;
+  color: #ffd2c2;
+  border-color: rgba(255,112,79,.72);
+  background: rgba(57, 17, 24, .92);
+  box-shadow: inset 3px 0 0 rgba(255,112,79,.56);
+}
+
+/* 低成本展示层：真实交互仍由下方 .star-card 按钮承担。 */
+#starmap-route-map {
+  position: relative;
+  flex: 0 0 82px;
+  height: 82px;
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(89,232,255,.22);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(89,232,255,.08), transparent 54%),
+    rgba(1, 8, 20, .72);
+  pointer-events: none;
+}
+#starmap-route-map::after {
+  content: 'GALAXY ROUTE DISPLAY';
+  position: absolute;
+  right: 7px;
+  bottom: 4px;
+  color: rgba(125,161,191,.58);
+  font-size: 6px;
+  letter-spacing: 1px;
+}
+#starmap-route-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.starmap-route-grid path {
+  fill: none;
+  stroke: rgba(89,232,255,.09);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.starmap-portal-edge,
+#starmap-active-route {
+  opacity: 0;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.starmap-portal-edge {
+  stroke: rgba(198,108,255,.72);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+}
+.starmap-portal-edge[data-active="true"] { opacity: .72; }
+#starmap-active-route {
+  stroke: #ffe57e;
+  stroke-width: 2.5;
+  stroke-dasharray: 10 6;
+  filter: drop-shadow(0 0 2px rgba(255,229,126,.68));
+}
+#starmap-active-route[data-active="true"] {
+  opacity: 1;
+  animation: starmapRouteFlow .9s linear infinite;
+}
+@keyframes starmapRouteFlow { to { stroke-dashoffset: -32; } }
+.starmap-node { color: #708aa3; }
+.starmap-node circle,
+.starmap-node rect {
+  fill: rgba(7,22,41,.96);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.starmap-node text {
+  fill: currentColor;
+  font: bold 7px/1 'Courier New', monospace;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.starmap-node[data-state="current"] { color: #75f0bb; }
+.starmap-node[data-state="available"],
+.starmap-node[data-state="visited"] { color: #67e7ff; }
+.starmap-node[data-state="surveyed"] { color: #ffe57e; }
+.starmap-node[data-state="insufficient"] { color: #ff704f; }
+.starmap-node[data-state="selected"] circle,
+.starmap-node[data-state="selected"] rect {
+  fill: rgba(255,229,126,.18);
+  stroke-width: 2.5;
+}
 .cockpit-frame {
   position: absolute;
   inset: 0;
@@ -2433,6 +2528,80 @@ body.scan-scanning #scan-progress i,
     linear-gradient(105deg, rgba(255,226,111,.21), transparent 58%),
     rgba(24, 26, 37, .96);
   box-shadow: inset 4px 0 0 #ffe67d, 0 0 20px rgba(255,226,111,.12);
+}
+
+/* 卡片同时支持当前 class 与后续 route-model data 契约。 */
+.star-card::after {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  z-index: 2;
+  padding: 2px 4px;
+  color: #92a8be;
+  border: 1px solid rgba(117,154,194,.26);
+  background: rgba(3,12,27,.80);
+  font-size: 6px;
+  font-weight: bold;
+  line-height: 1;
+  letter-spacing: .8px;
+  pointer-events: none;
+}
+.star-card.current::after,
+.star-card[data-visit-state="current"]::after { content: 'CURRENT'; color: #9ff5d2; border-color: rgba(117,240,187,.46); }
+.star-card.surveyed::after,
+.star-card[data-visit-state="surveyed"]::after { content: 'SURVEYED'; color: #ffeba1; border-color: rgba(255,229,126,.48); }
+.star-card.discovered:not(.surveyed)::after,
+.star-card[data-visit-state="visited"]::after { content: 'VISITED'; color: #9eeeff; border-color: rgba(89,232,255,.42); }
+.star-card:not([data-visit-state]):not(.current):not(.discovered):not(.surveyed)::after,
+.star-card[data-visit-state="unknown"]::after { content: 'UNKNOWN'; }
+.star-card:not([data-visit-state]):not(.current):not(.discovered):not(.surveyed),
+.star-card[data-visit-state="unknown"] {
+  border-style: dashed;
+  color: #b8c5d2;
+  background:
+    linear-gradient(105deg, rgba(117,154,194,.07), transparent 48%),
+    rgba(6, 15, 29, .92);
+}
+.star-card:not([data-visit-state]):not(.current):not(.discovered):not(.surveyed) .star-main small,
+.star-card[data-visit-state="unknown"] .star-main small { display: none; }
+.star-card:not([data-visit-state]):not(.current):not(.discovered):not(.surveyed) .star-main::after,
+.star-card[data-visit-state="unknown"] .star-main::after {
+  content: '远距档案未确认';
+  display: block;
+  margin-top: 4px;
+  color: #7f93a8;
+  font-size: 9px;
+  line-height: 1.3;
+}
+.star-card[data-route-state="insufficient"],
+.star-card.insufficient {
+  --accent: #ff704f;
+  border-color: rgba(255,112,79,.66);
+  background:
+    linear-gradient(105deg, rgba(255,91,58,.15), transparent 54%),
+    rgba(34, 12, 20, .94);
+  box-shadow: inset 4px 0 0 rgba(255,112,79,.70);
+}
+.star-card[data-route-state="insufficient"][aria-pressed="true"],
+.star-card.insufficient[aria-pressed="true"] {
+  border-color: #ff8a68;
+  background:
+    linear-gradient(105deg, rgba(255,91,58,.24), transparent 58%),
+    rgba(45, 13, 21, .98);
+  box-shadow: inset 4px 0 0 #ff704f, 0 0 20px rgba(255,72,48,.16);
+}
+.star-card[data-route-state="insufficient"]::after,
+.star-card.insufficient::after {
+  content: 'FUEL LOW';
+  color: #ffc0a8;
+  border-color: rgba(255,112,79,.56);
+}
+/* 当前天体可能同时已测绘；CURRENT必须覆盖后置SURVEYED fallback。 */
+.star-card.current::after,
+.star-card[data-visit-state="current"]::after {
+  content: 'CURRENT';
+  color: #9ff5d2;
+  border-color: rgba(117,240,187,.46);
 }
 
 /* ---------- 发现档案 ---------- */
@@ -3248,6 +3417,7 @@ body.scan-scanning #scan-progress i,
     padding: 16px 18px 14px;
   }
   #warp-console h2 { font-size: clamp(21px, 5vw, 29px); }
+  #starmap-route-map { flex-basis: 64px; height: 64px; }
   #starmap-cockpit { gap: 8px; }
   #btn-travel-ignite { min-width: 96px; }
 }
@@ -3266,6 +3436,7 @@ body.scan-scanning #scan-progress i,
   #arrival-card { padding: 6px 7px; }
   #arrival-world { font-size: 11px; }
   #arrival-detail { display: none; }
+  #starmap-route-map { flex-basis: 52px; height: 52px; }
   #starmap-cockpit { min-height: 52px; padding: 4px 5px 4px 8px; }
   #cockpit-title { font-size: 7px; letter-spacing: .8px; }
   #cockpit-selection { font-size: 9px; }
@@ -3302,6 +3473,7 @@ body.scan-scanning #scan-progress i,
   .starmap-kicker { display: none; }
   .terminal-line { min-height: 18px; padding-block: 1px; font-size: 8px; }
   #starmap-cockpit { min-height: 46px; padding-block: 1px; }
+  #starmap-route-map { flex-basis: 44px; height: 44px; margin-top: 4px; }
   #starmap-grid { margin-top: 5px; }
   .starmap-footer { display: none; }
 }
@@ -3361,6 +3533,8 @@ body.scan-scanning #scan-progress i,
     font-size: 8px;
     line-height: 1.1;
   }
+  #starmap-route-map,
+  .starmap-footer { display: none; }
   #starmap-grid { margin-top: 3px; }
 }
 
@@ -3423,7 +3597,65 @@ body.scan-scanning #scan-progress i,
     font-size: 8px;
     line-height: 1.1;
   }
+  #starmap-route-map,
+  .starmap-footer { display: none; }
   #starmap-grid { margin-top: 2px; }
+}
+
+/* 极窄最终覆盖必须晚于82px基础卡规则：一张卡能完整进入内部滚动口。 */
+@media (max-width: 220px), (orientation: landscape) and (max-height: 180px) {
+  #starmap-grid {
+    gap: 3px;
+    scroll-padding-block: 1px;
+  }
+  #starmap-grid .star-card {
+    grid-template-columns: 16px minmax(0, 1fr) minmax(48px, auto);
+    gap: 3px;
+    width: 100%;
+    min-height: 44px;
+    height: 44px;
+    padding: 2px 4px;
+  }
+  #starmap-grid .star-icon { font-size: 11px; }
+  #starmap-grid .star-main { min-width: 0; }
+  #starmap-grid .star-main b {
+    margin: 0;
+    overflow: hidden;
+    font-size: 8px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #starmap-grid .star-main small,
+  #starmap-grid .star-main::after,
+  #starmap-grid .star-card::after { display: none !important; }
+  #starmap-grid .star-meta {
+    grid-column: auto;
+    max-width: 64px;
+    max-height: 30px;
+    overflow: hidden;
+    font-size: 6.5px;
+    line-height: 1.1;
+    text-align: right;
+    white-space: normal;
+  }
+}
+
+/* 极窄抵达卡保留方向；物理门目的地复用PASSIVE扫描终端，避免新增中央浮层。 */
+@media (max-width: 220px), (orientation: landscape) and (max-height: 180px) {
+  #use-hint[data-kind="portal"] {
+    display: block !important;
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+  #arrival-guidance { display: block; font-size: 7px; }
 }
 
 @media (max-width: 520px) {
@@ -3441,6 +3673,7 @@ body.scan-scanning #scan-progress i,
   .warp-stars,
   .warp-track i,
   #warp-progress-fill,
+  #starmap-active-route,
   .start-overlay::before,
   .start-overlay::after,
   .start-panel::after,

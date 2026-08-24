@@ -284,9 +284,18 @@ async function validatePngs(browser) {
   await capture(desktop, 'desktop-starmap', 1280, 720, {
     rootSelector: '#overlay-starmap', containSelector: '#overlay-starmap .starmap-panel', state: 'starmap', scanHidden: true
   });
-  await desktop.evaluate(() => Voxel.Game.requestTravel('station-0', 'ship'));
+  await desktop.evaluate(() => {
+    Voxel.Game.requestTravel('station-0', 'ship');
+    Voxel.Game.skipFlightPresentation();
+  });
+  await desktop.waitForFunction(() => {
+    const pending = Voxel.Game._test.travelPending();
+    return Voxel.Game.state === 'arriving' && pending && pending.committed &&
+      pending.sequence && pending.sequence.phase === 'cockpit_arrived';
+  }, { timeout: 180000, polling: 200 });
+  await desktop.evaluate(() => Voxel.Game.disembark());
   await desktop.waitForFunction(() => Voxel.Game.state === 'playing' &&
-    Voxel.Game._test.currentWorld().id === 'station-0', { timeout: 180000, polling: 200 });
+    Voxel.Game._test.currentWorld().id === 'station-0', { timeout: 30000, polling: 100 });
   await desktop.evaluate(() => {
     Voxel.Player.pos().set(128.5, 27, 143.5);
     Voxel.Controls.setYaw(0);

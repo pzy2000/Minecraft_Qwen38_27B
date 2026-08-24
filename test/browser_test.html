@@ -2379,14 +2379,26 @@
     TT.setInvCraft(0, 4); TT.setInvCraft(3, 20);
     var beforeWorld = TT.currentWorld();
     var catalog = TT.galaxy().catalog;
+    var directPortalIds = Voxel.Galaxy.portalsFor(TT.galaxy(), beforeWorld)
+      .map(function (gate) { return gate.destinationId; });
     var dest = null;
     for (var ti = 0; ti < catalog.length; ti++) {
-      if (catalog[ti].id !== beforeWorld.id && catalog[ti].kind === 'planet') { dest = catalog[ti]; break; }
+      if (catalog[ti].id !== beforeWorld.id && catalog[ti].kind === 'planet' &&
+        directPortalIds.indexOf(catalog[ti].id) >= 0) { dest = catalog[ti]; break; }
     }
     window.__travelOldAtmosphereRoot = Voxel.Game.scene.children.filter(function (o) {
       return o.userData && o.userData.system === 'atmosphere';
     })[0] || null;
-    var accepted = !!dest && TT.requestTravel(dest.id, 'portal');
+    var gate = dest && Voxel.SpaceTravel.portals().filter(function (portal) {
+      return portal.userData && portal.userData.portal && portal.userData.portal.destinationId === dest.id;
+    })[0];
+    if (gate) {
+      Voxel.Player.pos().copy(Voxel.World.spawnPoint());
+      Voxel.SpaceTravel.update(0.016, 0);
+      Voxel.Player.pos().set(gate.position.x, gate.position.y + 2, gate.position.z);
+      Voxel.SpaceTravel.update(0.016, 0);
+    }
+    var accepted = !!gate && Voxel.Game.state === 'warping';
     check('跨世界临时格保留测试请求已接受', accepted);
     var travelPoll = 0;
     (function pollTravelTransient() {

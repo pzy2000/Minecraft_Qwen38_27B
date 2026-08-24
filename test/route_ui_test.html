@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ROUTE-UI-RUNNING</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-game-state="starmap">
+<canvas id="game" aria-hidden="true"></canvas>
+<div class="touch-capture" aria-hidden="true"></div>
+
+<div id="overlay-starmap" class="overlay">
+  <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title"
+       aria-describedby="starmap-status starmap-help">
+    <div class="panel-titlebar">
+      <div class="starmap-ident">
+        <div class="starmap-kicker">ARK NAVIGATION // ROUTE SELECT</div>
+        <h2 id="starmap-title">星系航行图</h2>
+        <div id="starmap-status" class="terminal-line">脉冲跃迁引擎 MK-I · 能量 8/100</div>
+      </div>
+      <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
+    </div>
+
+    <section id="starmap-cockpit" data-state="insufficient" aria-labelledby="cockpit-title"
+             aria-describedby="cockpit-selection">
+      <div class="cockpit-frame" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="cockpit-route-copy">
+        <span id="cockpit-title">FLIGHT DECK // ROUTE LOCK</span>
+        <strong id="cockpit-selection" role="status" aria-live="polite" aria-atomic="true">航线不可用 · 需要 15 能量 · 当前 8 · 缺少 7</strong>
+      </div>
+      <button id="btn-travel-ignite" type="button" disabled aria-disabled="true"
+              aria-label="点火并前往所选目的地" aria-controls="starmap-grid"
+              aria-describedby="cockpit-selection">点火跃迁</button>
+    </section>
+
+    <div id="starmap-route-map" data-ready="true" aria-hidden="true">
+      <svg id="starmap-route-svg" viewBox="0 0 700 120" preserveAspectRatio="xMidYMid meet" focusable="false">
+        <g class="starmap-route-grid"><path d="M20 30H680M20 60H680M20 90H680"></path><path d="M100 10V110M250 10V110M400 10V110M550 10V110"></path></g>
+        <g id="starmap-portal-edges">
+          <line id="starmap-portal-edge-0" class="starmap-portal-edge" data-edge-index="0" data-active="true" x1="70" y1="68" x2="210" y2="32"></line>
+          <line id="starmap-portal-edge-1" class="starmap-portal-edge" data-edge-index="1" data-active="true" x1="70" y1="68" x2="470" y2="76"></line>
+          <line id="starmap-portal-edge-2" class="starmap-portal-edge" data-edge-index="2" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+          <line id="starmap-portal-edge-3" class="starmap-portal-edge" data-edge-index="3" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+          <line id="starmap-portal-edge-4" class="starmap-portal-edge" data-edge-index="4" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+          <line id="starmap-portal-edge-5" class="starmap-portal-edge" data-edge-index="5" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+        </g>
+        <line id="starmap-active-route" data-active="true" x1="70" y1="68" x2="310" y2="82"></line>
+        <g id="starmap-node-layer">
+          <g id="starmap-node-planet-0" class="starmap-node" data-world-id="planet-0" data-state="current" data-x="70" data-y="68" transform="translate(70 68)"><circle r="8"></circle><text y="3">A</text></g>
+          <g id="starmap-node-planet-1" class="starmap-node" data-world-id="planet-1" data-state="unknown" data-x="210" data-y="32" transform="translate(210 32)"><circle r="7"></circle><text y="3">B</text></g>
+          <g id="starmap-node-planet-2" class="starmap-node" data-world-id="planet-2" data-state="selected" data-x="310" data-y="82" transform="translate(310 82)"><circle r="7"></circle><text y="3">C</text></g>
+          <g id="starmap-node-planet-3" class="starmap-node" data-world-id="planet-3" data-state="visited" data-x="400" data-y="25" transform="translate(400 25)"><circle r="7"></circle><text y="3">D</text></g>
+          <g id="starmap-node-planet-4" class="starmap-node" data-world-id="planet-4" data-state="surveyed" data-x="470" data-y="76" transform="translate(470 76)"><circle r="7"></circle><text y="3">E</text></g>
+          <g id="starmap-node-planet-5" class="starmap-node" data-world-id="planet-5" data-state="insufficient" data-x="580" data-y="28" transform="translate(580 28)"><circle r="7"></circle><text y="3">F</text></g>
+          <g id="starmap-node-station-0" class="starmap-node station" data-world-id="station-0" data-state="available" data-x="620" data-y="76" transform="translate(620 76)"><rect x="-7" y="-7" width="14" height="14"></rect><text y="3">S</text></g>
+        </g>
+      </svg>
+    </div>
+
+    <div id="starmap-grid" role="group" aria-label="目的地航线，按距离由近到远">
+      <button class="star-card current surveyed" data-destination-id="planet-0" data-route-state="current" data-visit-state="current" disabled aria-current="location" aria-pressed="false">
+        <span class="star-icon">◆</span><span class="star-main"><b>奥尔洛斯-A</b><small>繁茂星球 · 当前环境</small></span><span class="star-meta">当前位置<br>尚未主动测绘</span>
+      </button>
+      <button class="star-card" data-destination-id="planet-1" data-route-state="available" data-visit-state="unknown" aria-pressed="false">
+        <span class="star-icon">▲</span><span class="star-main"><b>远距信号 B</b><small>这段未确认档案必须隐藏</small></span><span class="star-meta">未抵达<br>20 LY · 15 能量</span>
+      </button>
+      <button class="star-card discovered" data-destination-id="station-0" data-route-state="available" data-visit-state="visited" aria-pressed="false">
+        <span class="star-icon">▣</span><span class="star-main"><b>阿特拉斯中继站</b><small>轨道空间站 · 已抵达</small></span><span class="star-meta">已抵达<br>23 LY · 16 能量</span>
+      </button>
+      <button class="star-card discovered surveyed" data-destination-id="planet-3" data-route-state="available" data-visit-state="surveyed" aria-pressed="false">
+        <span class="star-icon">⬡</span><span class="star-main"><b>诺瓦塔恩-D</b><small>已测绘 · 资源 3 · 生命 2</small></span><span class="star-meta">已测绘<br>45 LY · 25 能量</span>
+      </button>
+      <button id="route-insufficient-card" class="star-card selected insufficient" data-destination-id="planet-2" data-route-state="insufficient" data-visit-state="unknown" aria-pressed="true">
+        <span class="star-icon">✦</span><span class="star-main"><b>远距信号 C</b><small>未确认的冰核矿脉</small></span><span class="star-meta">燃料不足<br>65 LY · 34 能量</span>
+      </button>
+      <button class="star-card" data-destination-id="planet-4" data-route-state="available" data-visit-state="unknown" aria-pressed="false">
+        <span class="star-icon">◈</span><span class="star-main"><b>远距信号 E</b><small>未确认的熔核富集</small></span><span class="star-meta">未抵达<br>67 LY · 35 能量</span>
+      </button>
+      <button class="star-card" data-destination-id="planet-5" data-route-state="available" data-visit-state="unknown" aria-pressed="false">
+        <span class="star-icon">●</span><span class="star-main"><b>远距信号 F</b><small>未确认的潮汐晶矿</small></span><span class="star-meta">未抵达<br>75 LY · 38 能量</span>
+      </button>
+    </div>
+    <div id="starmap-help" class="starmap-footer hint"><span>ROUTE PROTOCOL</span>星图点火使用飞船能量 · 地表传送门目的地固定且免费 · 空间站自动补满能量</div>
+  </div>
+</div>
+
+<pre id="results" class="sr-only"></pre>
+<script>
+(function () {
+  'use strict';
+  var failed = 0, lines = [], results = document.getElementById('results');
+  function check(name, ok, detail) {
+    lines.push((ok ? 'ok  ' : 'FAIL ') + name + (detail ? ' :: ' + detail : ''));
+    if (!ok) failed++;
+  }
+  function rect(el) { return el.getBoundingClientRect(); }
+  function visible(el) {
+    var r = rect(el), cs = getComputedStyle(el);
+    return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+  }
+  function inside(child, parent) {
+    var a = rect(child), b = rect(parent);
+    return a.left >= b.left - .5 && a.top >= b.top - .5 && a.right <= b.right + .5 && a.bottom <= b.bottom + .5;
+  }
+  function inViewport(el) {
+    var r = rect(el);
+    return r.left >= -.5 && r.top >= -.5 && r.right <= innerWidth + .5 && r.bottom <= innerHeight + .5;
+  }
+  function selfHit(el) {
+    var r = rect(el), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && (hit === el || el.contains(hit));
+  }
+  function finiteAttr(el, names) { return names.every(function (name) { return Number.isFinite(Number(el.getAttribute(name))); }); }
+  function frame() { return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); }); }
+
+  async function run() {
+    var panel = document.querySelector('.starmap-panel');
+    var grid = document.getElementById('starmap-grid');
+    var cockpit = document.getElementById('starmap-cockpit');
+    var ignite = document.getElementById('btn-travel-ignite');
+    var help = document.getElementById('starmap-help');
+    var map = document.getElementById('starmap-route-map');
+    var nodes = Array.from(document.querySelectorAll('.starmap-node'));
+    var portals = Array.from(document.querySelectorAll('.starmap-portal-edge'));
+    var activeRoute = document.getElementById('starmap-active-route');
+    var cards = Array.from(document.querySelectorAll('.star-card'));
+    var extreme = innerWidth <= 220 || (innerWidth > innerHeight && innerHeight <= 180);
+
+    check('星图dialog关联燃料状态与帮助', panel.getAttribute('aria-describedby') === 'starmap-status starmap-help');
+    check('航线按钮组具有排序名称', grid.getAttribute('role') === 'group' && /距离由近到远/.test(grid.getAttribute('aria-label')));
+    check('当前天体具有aria-current且不可旅行', cards[0].getAttribute('aria-current') === 'location' && cards[0].disabled);
+    check('恰有一个选择态', cards.filter(function (card) { return card.getAttribute('aria-pressed') === 'true'; }).length === 1);
+    check('帮助明确区分飞船与固定传送门', /飞船能量/.test(help.textContent) && /目的地固定且免费/.test(help.textContent));
+
+    check('展示型SVG不进入可访问树', map.getAttribute('aria-hidden') === 'true' &&
+      document.getElementById('starmap-route-svg').getAttribute('focusable') === 'false');
+    check('SVG固定提供7个唯一world节点', nodes.length === 7 &&
+      new Set(nodes.map(function (node) { return node.dataset.worldId; })).size === 7);
+    check('SVG节点坐标全部有限', nodes.every(function (node) {
+      return Number.isFinite(Number(node.dataset.x)) && Number.isFinite(Number(node.dataset.y));
+    }));
+    check('SVG固定提供6条portal槽且坐标有限', portals.length === 6 &&
+      portals.every(function (edge) { return finiteAttr(edge, ['x1', 'y1', 'x2', 'y2']); }));
+    check('active ship route槽坐标有限且可激活', finiteAttr(activeRoute, ['x1', 'y1', 'x2', 'y2']) &&
+      activeRoute.dataset.active === 'true');
+
+    var currentBadge = getComputedStyle(cards[0], '::after').content;
+    var unknown = cards[1], visited = cards[2], surveyed = cards[3], insufficient = document.getElementById('route-insufficient-card');
+    check('current/unknown/visited/surveyed状态视觉可区分', /CURRENT/.test(currentBadge) &&
+      /UNKNOWN/.test(getComputedStyle(unknown, '::after').content) &&
+      /VISITED/.test(getComputedStyle(visited, '::after').content) &&
+      /SURVEYED/.test(getComputedStyle(surveyed, '::after').content));
+    check('unknown隐藏未确认详情但保留替代提示', getComputedStyle(unknown.querySelector('small')).display === 'none' &&
+      /远距档案未确认/.test(getComputedStyle(unknown.querySelector('.star-main'), '::after').content));
+    check('不足态使用红橙视觉而非锁定黄', cockpit.dataset.state === 'insufficient' && ignite.disabled &&
+      getComputedStyle(cockpit).borderColor !== getComputedStyle(visited).borderColor &&
+      /FUEL LOW/.test(getComputedStyle(insufficient, '::after').content));
+    check('不足反馈包含需要/当前/缺口', /需要 15/.test(document.getElementById('cockpit-selection').textContent) &&
+      /当前 8/.test(document.getElementById('cockpit-selection').textContent) &&
+      /缺少 7/.test(document.getElementById('cockpit-selection').textContent));
+
+    check('panel/cockpit/点火完整位于视口', inViewport(panel) && inViewport(cockpit) && inViewport(ignite));
+    check('点火保持44px且中心命中', rect(ignite).width >= 44 && rect(ignite).height >= 44 && selfHit(ignite));
+    check('页面不被星图扩张', document.documentElement.scrollWidth <= innerWidth + 1 &&
+      document.documentElement.scrollHeight <= innerHeight + 1, innerWidth + 'x' + innerHeight);
+
+    if (extreme) {
+      check('极窄隐藏展示图与次要帮助', !visible(map) && !visible(help));
+      check('极窄grid至少容纳一张44px卡', grid.clientHeight >= 44, String(grid.clientHeight));
+      check('极窄每张紧凑卡恰当且无自身横溢出', cards.every(function (card) {
+        return rect(card).height >= 44 && rect(card).height <= grid.clientHeight + .5 && card.scrollWidth <= card.clientWidth + 1;
+      }));
+    } else {
+      check('常规视口展示SVG且active route可见', visible(map) && Number(getComputedStyle(activeRoute).opacity) > 0);
+    }
+
+    grid.scrollTop = 0;
+    await frame();
+    check('首张航线卡完整滚入grid', inside(cards[0], grid));
+    if (!cards[0].disabled) check('首张航线卡中心命中', selfHit(cards[0]));
+    grid.scrollTop = grid.scrollHeight;
+    await frame();
+    check('末张航线卡完整滚入grid', inside(cards[cards.length - 1], grid));
+    check('末张航线卡至少44px且中心命中', rect(cards[cards.length - 1]).height >= 44 && selfHit(cards[cards.length - 1]));
+
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      check('reduced关闭active route动画', getComputedStyle(activeRoute).animationName === 'none');
+      check('reduced关闭卡片过渡', getComputedStyle(cards[1]).transitionDuration === '0s');
+    }
+
+    results.textContent = lines.join('\n');
+    document.title = failed ? 'ROUTE-UI-FAIL-' + failed : 'ROUTE-UI-PASS';
+  }
+  run().catch(function (error) {
+    failed++;
+    lines.push('FAIL uncaught :: ' + error.message);
+    results.textContent = lines.join('\n');
+    document.title = 'ROUTE-UI-FAIL-' + failed;
+  });
+})();
+</script>
+</body>
+</html>

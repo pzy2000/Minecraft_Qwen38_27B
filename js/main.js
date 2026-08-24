@@ -740,12 +740,14 @@ Voxel.Game = (function () {
       if (p && p.pos && p.pos.length === 3) {
         var vx = +p.pos[0], vy = +p.pos[1], vz = +p.pos[2];
         var vyaw = +p.yaw, vpitch = +p.pitch;
-        if (!isFinite(vx) || !isFinite(vy) || !isFinite(vz) || vy < 2) {
+        var savedStand = new THREE.Vector3(vx, vy, vz);
+        if (!isFinite(vx) || !isFinite(vy) || !isFinite(vz) || vy < 2 ||
+          (Voxel.Player.canStandAt && !Voxel.Player.canStandAt(savedStand, true))) {
           Voxel.Player.initAtSpawn();
         } else {
           if (!isFinite(vyaw)) vyaw = 0;
           if (!isFinite(vpitch)) vpitch = 0;
-          Voxel.Player.init(new THREE.Vector3(vx, vy, vz), vyaw, vpitch);
+          Voxel.Player.init(savedStand, vyaw, vpitch);
           Voxel.Player.setFlying(!!p.fly);
           Voxel.Player.setHp(typeof p.hp === 'number' && isFinite(p.hp) ? p.hp : C.HP);
           if (typeof p.food === 'number' && isFinite(p.food)) Voxel.Player.setFood(p.food);
@@ -805,7 +807,11 @@ Voxel.Game = (function () {
       galaxyState.ship.fuel = galaxyState.ship.maxFuel;
       if (!commitTx) Voxel.HUD.toast('空间站对接完成 · 跃迁能量已补满');
     }
-    if (Voxel.SpaceTravel) Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
+    if (Voxel.SpaceTravel && (!Voxel.SpaceTravel.currentWorld ||
+      Voxel.SpaceTravel.currentWorld() !== currentWorld))
+      Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.syncPortalOccupancy)
+      Voxel.SpaceTravel.syncPortalOccupancy();
     if (Voxel.SpaceTravel) Voxel.SpaceTravel.hideWarp();
     if (Voxel.DayNight.updateCamera && camera) Voxel.DayNight.updateCamera(camera.position);
     refreshDiscoveryUI();
@@ -2674,19 +2680,33 @@ Voxel.Game = (function () {
     return false;
   }
 
-  function requestTravel(destinationId, mode) {
+  function requestTravel(destinationId, mode, portalProof) {
     if ((state !== 'playing' && state !== 'starmap') || pendingTravel) return false;
     var travelOriginState = state;
     mode = mode === 'portal' ? 'portal' : 'ship';
     var dest = Voxel.Galaxy.find(galaxyState, destinationId);
     if (!dest || !currentWorld || dest.id === currentWorld.id) return false;
-    var cost = 0;
-    if (mode !== 'portal') {
-      cost = Voxel.Galaxy.fuelCost(currentWorld, dest);
-      if (galaxyState.ship.fuel < cost) {
-        Voxel.HUD.toast('跃迁能量不足：需要 ' + cost + '%，请先前往空间站补给');
-        return false;
-      }
+    if (mode === 'portal' && !(Voxel.SpaceTravel && Voxel.SpaceTravel.authorizePortalTravel &&
+      Voxel.SpaceTravel.authorizePortalTravel(portalProof, dest.id))) {
+      Voxel.HUD.toast('传送门旅行必须从当前世界的真实门径进入');
+      return false;
+    }
+    var route = Voxel.Galaxy.routePlan
+      ? Voxel.Galaxy.routePlan(galaxyState, currentWorld, dest, galaxyState.ship)
+      : null;
+    if (!route || !route.valid) {
+      Voxel.HUD.toast('航线数据不可用，已取消旅行');
+      return false;
+    }
+    if (mode === 'portal' && !route.directPortal) {
+      Voxel.HUD.toast('当前世界没有直达该天体的物理传送门');
+      return false;
+    }
+    var cost = mode === 'portal' ? 0 : route.costUnits;
+    if (mode === 'ship' && !route.reachable) {
+      Voxel.HUD.toast('跃迁能量不足：需要 ' + route.costUnits + '，当前 ' + route.fuel +
+        '，还缺 ' + route.shortfall + '；请先前往空间站补给');
+      return false;
     }
 
     // 先提交完全一致的源世界。跃迁动画/目标加载期间页面退出时，可靠回到源世界，
@@ -2708,7 +2728,11 @@ Voxel.Game = (function () {
       seed: dest.seed,
       time: typeof snap.time === 'number' ? snap.time : 0.3,
       weather: snap.weather || 'clear',
-      player: snap.player || null,
+      // 跨世界旅行与菜单“继续游戏”是不同语义：目标世界的旧位置可能在
+      // 传送门触发体、水下、封闭 edits 或空间站真空中。旅行一律从目标
+      // World.spawnPoint 安全泊位进入；旧位置仍保存在 galaxy.worlds 中，
+      // 但不会作为 transit 玩家坐标复用。
+      player: null,
       inv: inv.slice(), cnt: cnt.slice(), dur: dur.slice(),
       held: heldItem, heldCnt: heldCnt, heldDur: heldDur,
       craftGrid: craftGrid.slice(), invCraftGrid: invCraftGrid.slice(),
@@ -2733,6 +2757,7 @@ Voxel.Game = (function () {
       from: from,
       to: dest,
       cost: cost,
+      route: route,
       fuelBefore: galaxyState.ship.fuel,
       sourceSave: sourceSave,
       sourceState: travelOriginState,
@@ -3041,9 +3066,16 @@ Voxel.Game = (function () {
     }
     var isTouch = Voxel.Controls.touchMode();
     var spaceHint = Voxel.SpaceTravel && Voxel.SpaceTravel.actionHint ? Voxel.SpaceTravel.actionHint() : '';
+    var spaceHintKind = Voxel.SpaceTravel && Voxel.SpaceTravel.actionHintKind
+      ? Voxel.SpaceTravel.actionHintKind() : '';
+    if (spaceHintKind === 'portal' && Voxel.SpaceTravel.nearPortalInfo) {
+      var portalInfo = Voxel.SpaceTravel.nearPortalInfo();
+      if (portalInfo) Voxel.SpaceTravel.setScanTarget('portal', portalInfo.label, portalInfo.distance);
+    }
     if (spaceHint) {
-      hitEl.textContent = spaceHint;
-      hitEl.dataset.kind = currentWorld && currentWorld.kind === 'station' ? 'terminal' : 'ship';
+      if (hitEl.textContent !== spaceHint) hitEl.textContent = spaceHint;
+      hitEl.dataset.kind = spaceHintKind ||
+        (currentWorld && currentWorld.kind === 'station' ? 'terminal' : 'ship');
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 15) {
       hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
@@ -3252,10 +3284,20 @@ Voxel.Game = (function () {
       if (!wasReady && Voxel.World.isReady()) {
         // 生成完毕：以玩家落点（存档位置或出生点）为焦点优先建网格
         var fx, fz;
-        if (saveData && saveData.player && saveData.player.pos &&
-          isFinite(+saveData.player.pos[0]) && isFinite(+saveData.player.pos[2])) {
-          fx = +saveData.player.pos[0];
-          fz = +saveData.player.pos[2];
+        var savedFx = saveData && saveData.player && saveData.player.pos
+          ? +saveData.player.pos[0] : NaN;
+        var savedFz = saveData && saveData.player && saveData.player.pos
+          ? +saveData.player.pos[2] : NaN;
+        var savedFocusValid = isFinite(savedFx) && isFinite(savedFz);
+        // 有限空间站只有中心半径32的甲板；先拒绝明显真空坐标，不能先在
+        // 污染位置建完网格、进入世界后才把玩家回退到中心安全泊位。
+        if (savedFocusValid && currentWorld && currentWorld.kind === 'station') {
+          var stationDx = savedFx - 128.5, stationDz = savedFz - 128.5;
+          savedFocusValid = stationDx * stationDx + stationDz * stationDz <= 32 * 32;
+        }
+        if (savedFocusValid) {
+          fx = savedFx;
+          fz = savedFz;
         } else {
           var sp0 = Voxel.World.spawnPoint();
           fx = sp0.x; fz = sp0.z;
@@ -3268,7 +3310,14 @@ Voxel.Game = (function () {
       }
       // 世界完全生成后先算光照（一次性），再开始渐进建网格
       // （不能边生成边建：placeTrees 在全部地形生成完后才种树，提前建网格会导致树丢失）
-      if (Voxel.World.isReady() && !Voxel.World.lightReady()) Voxel.World.initLight();
+      if (Voxel.World.isReady() && !Voxel.World.lightReady()) {
+        // 在首次全量光照之前解析传送门基础设施；海上7×7平台因此只进入
+        // edits/dirty账本，不会先执行数十次局部重光再紧接一次initLight。
+        if (Voxel.SpaceTravel && (!Voxel.SpaceTravel.currentWorld ||
+          Voxel.SpaceTravel.currentWorld() !== currentWorld))
+          Voxel.SpaceTravel.loadWorld(currentWorld, galaxyState);
+        Voxel.World.initLight();
+      }
       if (Voxel.World.isReady()) Voxel.World.buildMeshes(6, scene);
       var p = Voxel.World.progress();
       var loadingBar = document.getElementById('loading-bar');

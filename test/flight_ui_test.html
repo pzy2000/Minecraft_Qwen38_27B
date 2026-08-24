@@ -32,6 +32,7 @@
       <span id="arrival-kicker" aria-hidden="true">NAV // ARRIVAL</span>
       <strong id="arrival-world">赤曜荒漠</strong>
       <span id="arrival-type">干旱行星</span>
+      <span id="arrival-guidance">返程门 · 左前方 18.0m</span>
       <span id="arrival-detail">首次抵达 · 启动主动扫描以建立档案</span>
     </article>
   </section>
@@ -81,7 +82,7 @@
         <span class="star-icon">◆</span><span class="star-main"><b>奥尔洛斯-A</b><small>繁茂星球 · 当前位置</small></span><span class="star-meta">当前位置</span>
       </button>
       <button id="flight-destination" class="star-card" type="button" aria-pressed="false">
-        <span class="star-icon">◇</span><span class="star-main"><b>赤曜荒漠 - 远征测绘区</b><small>干旱行星 · 极端环境档案</small></span><span class="star-meta">距离 38 LY<br>能量 14%</span>
+        <span class="star-icon">◇</span><span class="star-main"><b>赤曜荒漠 - 远征测绘区</b><small>干旱行星 · 极端环境档案</small></span><span class="star-meta">距离 38 LY<br>飞船 14 能量</span>
       </button>
       <button class="star-card discovered" type="button" aria-pressed="false">
         <span class="star-icon">▣</span><span class="star-main"><b>深空补给站</b><small>轨道空间站</small></span><span class="star-meta">已抵达</span>
@@ -182,7 +183,7 @@
       destination.setAttribute('aria-pressed', 'true');
       destination.classList.add('selected');
       cockpit.setAttribute('data-state', 'locked');
-      selection.textContent = '航线已锁定：赤曜荒漠 · 能量 14%';
+      selection.textContent = '航线已锁定：赤曜荒漠 · 飞船消耗 14 能量';
       ignite.disabled = false;
       ignite.setAttribute('aria-disabled', 'false');
     });

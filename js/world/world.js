@@ -566,6 +566,40 @@ Voxel.World = (function () {
     if (z % CS === CS - 1) markDirty(x, z + 1);
   }
 
+  // 系统基础设施批量写入：与set使用同一edits账本，但把重光/网格失效
+  // 合并为一次。Portal海上平台若逐格set，会触发49次31×31×64重光。
+  function applyInfrastructure(changes) {
+    if (!Array.isArray(changes) || !changes.length || changes.length > 2048) return 0;
+    var valid = [], minX = W, maxX = -1, minZ = D, maxZ = -1;
+    for (var i = 0; i < changes.length; i++) {
+      var c = changes[i] || {};
+      var x = Math.floor(Number(c.x)), y = Math.floor(Number(c.y));
+      var z = Math.floor(Number(c.z)), id = Math.floor(Number(c.id));
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(id) ||
+        x < 0 || x >= W || y < 0 || y >= H || z < 0 || z >= D || id < 0 || id > 255 ||
+        (id !== 0 && !Voxel.Blocks.defs[id])) return 0;
+      valid.push({ x: x, y: y, z: z, id: id });
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    for (var j = 0; j < valid.length; j++) {
+      var v = valid[j];
+      data[idx(v.x, v.y, v.z)] = v.id;
+      edits[v.x + ',' + v.y + ',' + v.z] = v.id;
+      if (v.id === 0) delete meta[v.x + ',' + v.y + ',' + v.z];
+    }
+    if (lightReady) {
+      var R = LIGHT_RANGE;
+      relightRegion(minX - R, maxX + R, minZ - R, maxZ + R);
+      for (var cx = (minX - R) / CS | 0; cx <= (maxX + R) / CS | 0; cx++)
+        for (var cz = (minZ - R) / CS | 0; cz <= (maxZ + R) / CS | 0; cz++)
+          markChunkDirty(cx, cz);
+    } else {
+      for (var k = 0; k < valid.length; k++) markDirty(valid[k].x, valid[k].z);
+    }
+    return valid.length;
+  }
+
   function generateChunkData(cx, cz) {
     var lat = shaper.computeChunkLattice(cx, cz, climateAt);
     var x0 = cx * CS, z0 = cz * CS;
@@ -822,6 +856,7 @@ Voxel.World = (function () {
     markChunkDirty: markChunkDirty,
     get: get,
     set: set,
+    applyInfrastructure: applyInfrastructure,
     surfaceAt: surfaceAt,
     biomeAt: function (x, z) {
       if (x < 0 || x >= W || z < 0 || z >= D) return -1;

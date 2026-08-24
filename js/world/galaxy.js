@@ -4,6 +4,7 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Galaxy = (function () {
   var CURRENT_TERRAIN_VERSION = 2;
+  var PORTAL_NETWORK_VERSION = 2;
   var TYPES = [
     { key: 'lush', name: '繁茂星球', icon: '◆', desc: '温和生态 · 活性晶体', accent: '#63f5a6', skyTop: 0x183e63, horizon: 0x6bbfa1 },
     { key: 'arid', name: '荒漠星球', icon: '▲', desc: '烈日热负荷 · 硅晶富集', accent: '#ffb35c', skyTop: 0x5b2836, horizon: 0xd77b55 },
@@ -35,6 +36,8 @@ Voxel.Galaxy = (function () {
   function plainObject(value) {
     return !!value && Object.prototype.toString.call(value) === '[object Object]';
   }
+
+  function own(value, key) { return Object.prototype.hasOwnProperty.call(value, key); }
 
   // 版本是存档兼容边界，不接受字符串/小数/未来值。只要“已有存档”没有一个
   // 明确合法的 1/2，就必须按 v1 解释，避免升级后给旧 edits 更换底图。
@@ -152,40 +155,287 @@ Voxel.Galaxy = (function () {
 
   function distance(a, b) {
     if (!a || !b) return 0;
+    if (typeof a.x !== 'number' || !isFinite(a.x) || typeof a.y !== 'number' || !isFinite(a.y) ||
+      typeof b.x !== 'number' || !isFinite(b.x) || typeof b.y !== 'number' || !isFinite(b.y)) return 0;
     var dx = a.x - b.x, dy = a.y - b.y;
-    return Math.max(1, Math.round(Math.sqrt(dx * dx + dy * dy)));
+    if (!isFinite(dx) || !isFinite(dy)) return 0;
+    var result = Math.sqrt(dx * dx + dy * dy);
+    return isFinite(result) ? Math.max(1, Math.round(result)) : 0;
   }
 
   function fuelCost(a, b) {
     return Math.max(8, Math.min(42, 6 + Math.ceil(distance(a, b) * 0.42)));
   }
 
-  function portalsFor(galaxy, world) {
-    if (!galaxy || !world) return [];
-    var all = galaxy.catalog;
-    var count = world.kind === 'station' ? 3 : 3 + (Voxel.SeedUtil.derive32(world.seed, 0x9911) % 2);
-    var candidates = [];
-    for (var i = 0; i < all.length; i++) if (all[i].id !== world.id) candidates.push(all[i]);
-    var out = [];
-    for (var p = 0; p < count; p++) {
-      var r = Voxel.SeedUtil.derive32(world.seed, 0xaa00 + p);
-      var dest = candidates[(r + p) % candidates.length];
-      var ang = (Voxel.SeedUtil.derive32(world.seed, 0xbb00 + p) / 4294967296) * Math.PI * 2;
-      var rad = 18 + (Voxel.SeedUtil.derive32(world.seed, 0xcc00 + p) % 30);
-      out.push({
-        id: world.id + '-gate-' + p,
-        destinationId: dest.id,
-        x: 128 + Math.round(Math.cos(ang) * rad),
-        z: 128 + Math.round(Math.sin(ang) * rad)
-      });
+  var PLANET_PORTAL_PADS = [
+    { x: 80, z: 128, slot: 'station' },
+    { x: 176, z: 128, slot: 'cycle-prev' },
+    { x: 96, z: 176, slot: 'cycle-next' },
+    { x: 160, z: 176, slot: 'opposite' }
+  ];
+  // 全部位于半径 32 的空间站甲板内，避开中心 dock、北侧终端/塔楼走廊；
+  // 最近两个 pad 的中心距仍大于 8 格，门户模型与触发体积不会互相覆盖。
+  var STATION_PORTAL_PADS = [
+    { x: 104, z: 128, slot: 'planet-0' },
+    { x: 152, z: 128, slot: 'planet-1' },
+    { x: 108, z: 144, slot: 'planet-2' },
+    { x: 148, z: 144, slot: 'planet-3' },
+    { x: 116, z: 152, slot: 'planet-4' },
+    { x: 140, z: 152, slot: 'planet-5' }
+  ];
+
+  function networkShell(root) {
+    return {
+      version: PORTAL_NETWORK_VERSION,
+      rootSeed: root || '',
+      cycle: [],
+      edges: [],
+      byWorld: {}
+    };
+  }
+
+  function canonicalNetworkRoot(value) {
+    try {
+      if (typeof value === 'string' && value.trim()) return rootString(value);
+      if (typeof value === 'number' && isFinite(value)) return rootString(value);
+      if (typeof value === 'bigint') return rootString(value);
+    } catch (e) { }
+    return null;
+  }
+
+  function requiredNetworkWorlds(galaxy) {
+    if (!plainObject(galaxy) || !own(galaxy, 'rootSeed') || !own(galaxy, 'catalog') ||
+      !Array.isArray(galaxy.catalog) || galaxy.catalog.length !== 7)
+      return null;
+    var worlds = {}, planets = [];
+    for (var i = 0; i < 6; i++) {
+      var id = 'planet-' + i;
+      var planet = find(galaxy, id);
+      if (!plainObject(planet) || !own(planet, 'id') || !own(planet, 'kind') ||
+        !own(planet, 'x') || !own(planet, 'y') || planet.id !== id || planet.kind !== 'planet' ||
+        typeof planet.x !== 'number' || !isFinite(planet.x) || Math.abs(planet.x) > 10000000 ||
+        typeof planet.y !== 'number' || !isFinite(planet.y) || Math.abs(planet.y) > 10000000) return null;
+      worlds[id] = planet;
+      planets.push(planet);
     }
-    // 每颗行星至少有一扇门通往空间站。
-    if (world.kind === 'planet' && out.length) out[out.length - 1].destinationId = 'station-0';
+    var station = find(galaxy, 'station-0');
+    if (!plainObject(station) || !own(station, 'id') || !own(station, 'kind') ||
+      !own(station, 'x') || !own(station, 'y') || station.id !== 'station-0' || station.kind !== 'station' ||
+      typeof station.x !== 'number' || !isFinite(station.x) || Math.abs(station.x) > 10000000 ||
+      typeof station.y !== 'number' || !isFinite(station.y) || Math.abs(station.y) > 10000000) return null;
+    worlds['station-0'] = station;
+    return { planets: planets, station: station, worlds: worlds };
+  }
+
+  function seededPlanetCycle(root, planets) {
+    var cycle = [];
+    for (var i = 0; i < planets.length; i++) cycle.push(planets[i].id);
+    // 纯派生 Fisher-Yates；不读 Math.random，同 root 在任何加载顺序下完全一致。
+    for (var p = cycle.length - 1; p > 0; p--) {
+      var j = Voxel.SeedUtil.derive32(root, 0xd170 + p) % (p + 1);
+      var tmp = cycle[p]; cycle[p] = cycle[j]; cycle[j] = tmp;
+    }
+    return cycle;
+  }
+
+  function pairKey(a, b) { return a < b ? a + '--' + b : b + '--' + a; }
+  function pairId(a, b) { return 'portal-pair-v' + PORTAL_NETWORK_VERSION + '-' + pairKey(a, b); }
+  function gateId(from, to) {
+    return 'portal-gate-v' + PORTAL_NETWORK_VERSION + '-' + from + '--' + to;
+  }
+
+  function addEdge(edges, edgeMap, a, b, kind) {
+    if (a === b) return false;
+    var key = pairKey(a, b);
+    if (edgeMap[key]) return false;
+    var edge = {
+      pairId: pairId(a, b),
+      kind: kind,
+      a: a,
+      b: b,
+      aGateId: gateId(a, b),
+      bGateId: gateId(b, a)
+    };
+    edgeMap[key] = edge;
+    edges.push(edge);
+    return true;
+  }
+
+  function gateFor(edgeMap, from, to, pad, kind) {
+    var edge = edgeMap[pairKey(from, to)];
+    if (!edge) return null;
+    return {
+      id: gateId(from, to),
+      pairId: edge.pairId,
+      destinationId: to,
+      destinationGateId: gateId(to, from),
+      x: pad.x,
+      z: pad.z,
+      slot: pad.slot,
+      kind: kind || edge.kind
+    };
+  }
+
+  function cloneGate(gate) {
+    return {
+      id: gate.id,
+      pairId: gate.pairId,
+      destinationId: gate.destinationId,
+      destinationGateId: gate.destinationGateId,
+      x: gate.x,
+      z: gate.z,
+      slot: gate.slot,
+      kind: gate.kind
+    };
+  }
+
+  function cloneEdge(edge) {
+    return {
+      pairId: edge.pairId,
+      kind: edge.kind,
+      a: edge.a,
+      b: edge.b,
+      aGateId: edge.aGateId,
+      bGateId: edge.bGateId
+    };
+  }
+
+  // 整个星系一次派生一张双向网络，而不是让每个世界各自有放回抽样：
+  // station 星形边保证任意两世界最多两跳；seeded 行星环与对径匹配提供地表捷径。
+  function portalNetwork(galaxy) {
+    var root = canonicalNetworkRoot(galaxy && galaxy.rootSeed);
+    var required = requiredNetworkWorlds(galaxy);
+    var empty = networkShell(root);
+    if (!root || !required) return empty;
+
+    var cycle = seededPlanetCycle(root, required.planets);
+    var edges = [], edgeMap = {};
+    var i;
+    for (i = 0; i < required.planets.length; i++)
+      addEdge(edges, edgeMap, 'station-0', required.planets[i].id, 'station');
+    for (i = 0; i < cycle.length; i++)
+      addEdge(edges, edgeMap, cycle[i], cycle[(i + 1) % cycle.length], 'cycle');
+    for (i = 0; i < cycle.length / 2; i++)
+      addEdge(edges, edgeMap, cycle[i], cycle[i + cycle.length / 2], 'opposite');
+
+    var byWorld = {}, cycleIndex = {};
+    for (i = 0; i < cycle.length; i++) cycleIndex[cycle[i]] = i;
+    for (i = 0; i < required.planets.length; i++) {
+      var planetId = required.planets[i].id;
+      var ci = cycleIndex[planetId];
+      var destinations = [
+        { id: 'station-0', kind: 'station' },
+        { id: cycle[(ci + cycle.length - 1) % cycle.length], kind: 'cycle' },
+        { id: cycle[(ci + 1) % cycle.length], kind: 'cycle' },
+        { id: cycle[(ci + cycle.length / 2) % cycle.length], kind: 'opposite' }
+      ];
+      byWorld[planetId] = [];
+      for (var d = 0; d < destinations.length; d++)
+        byWorld[planetId].push(gateFor(
+          edgeMap, planetId, destinations[d].id, PLANET_PORTAL_PADS[d], destinations[d].kind));
+    }
+    byWorld['station-0'] = [];
+    for (i = 0; i < required.planets.length; i++)
+      byWorld['station-0'].push(gateFor(
+        edgeMap, 'station-0', required.planets[i].id, STATION_PORTAL_PADS[i], 'station'));
+
+    var out = networkShell(root);
+    out.cycle = cycle.slice();
+    for (i = 0; i < edges.length; i++) out.edges.push(cloneEdge(edges[i]));
+    var ids = ['planet-0', 'planet-1', 'planet-2', 'planet-3', 'planet-4', 'planet-5', 'station-0'];
+    for (i = 0; i < ids.length; i++) {
+      out.byWorld[ids[i]] = [];
+      for (var g = 0; g < byWorld[ids[i]].length; g++)
+        out.byWorld[ids[i]].push(cloneGate(byWorld[ids[i]][g]));
+    }
     return out;
+  }
+
+  function portalsFor(galaxy, world) {
+    if (!plainObject(world) || !own(world, 'id') || typeof world.id !== 'string') return [];
+    var network = portalNetwork(galaxy);
+    var gates = network.byWorld[world.id];
+    if (!Array.isArray(gates)) return [];
+    var out = [];
+    for (var i = 0; i < gates.length; i++) out.push(cloneGate(gates[i]));
+    return out;
+  }
+
+  function networkWorldId(value) {
+    if (typeof value === 'string') return value;
+    if (plainObject(value) && own(value, 'id') && typeof value.id === 'string') return value.id;
+    return '';
+  }
+
+  function portalRoute(galaxy, from, to) {
+    var network = portalNetwork(galaxy);
+    var fromId = networkWorldId(from), toId = networkWorldId(to);
+    if (!Array.isArray(network.byWorld[fromId]) || !Array.isArray(network.byWorld[toId])) return [];
+    if (fromId === toId) return [fromId];
+    var queue = [fromId], head = 0, seen = {}, previous = {};
+    seen[fromId] = true;
+    while (head < queue.length && !seen[toId]) {
+      var id = queue[head++], gates = network.byWorld[id];
+      for (var i = 0; i < gates.length; i++) {
+        var next = gates[i].destinationId;
+        if (!Array.isArray(network.byWorld[next]) || seen[next]) continue;
+        seen[next] = true;
+        previous[next] = id;
+        queue.push(next);
+        if (next === toId) break;
+      }
+    }
+    if (!seen[toId]) return [];
+    var path = [toId], cursor = toId;
+    while (cursor !== fromId) {
+      cursor = previous[cursor];
+      if (!cursor) return [];
+      path.push(cursor);
+      if (path.length > 8) return [];
+    }
+    path.reverse();
+    return path;
+  }
+
+  function boundedUnits(value, fallback, min, max) {
+    return typeof value === 'number' && isFinite(value)
+      ? Math.max(min, Math.min(max, Math.floor(value))) : fallback;
+  }
+
+  // 权威航线视图：燃料字段使用绝对单位而非百分比；portalPath 与船燃料
+  // 可达性并列返回，UI 不必再各自复制距离、扣费或门户直达判断。
+  function routePlan(galaxy, from, to, ship) {
+    var maxFuel = boundedUnits(ship && ship.maxFuel, 100, 1, 1000000);
+    var fuel = boundedUnits(ship && ship.fuel, 0, 0, maxFuel);
+    var fromId = networkWorldId(from), toId = networkWorldId(to);
+    var network = portalNetwork(galaxy);
+    var fromWorld = find(galaxy, fromId), toWorld = find(galaxy, toId);
+    var valid = !!fromWorld && !!toWorld && Array.isArray(network.byWorld[fromId]) &&
+      Array.isArray(network.byWorld[toId]);
+    var portalPath = valid ? portalRoute(galaxy, fromId, toId) : [];
+    var distanceLy = valid && fromId !== toId ? distance(fromWorld, toWorld) : 0;
+    var costUnits = valid && fromId !== toId ? fuelCost(fromWorld, toWorld) : 0;
+    var shortfall = valid ? Math.max(0, costUnits - fuel) : 0;
+    return {
+      valid: valid,
+      fromId: valid ? fromId : '',
+      toId: valid ? toId : '',
+      distanceLy: distanceLy,
+      costUnits: costUnits,
+      fuel: fuel,
+      maxFuel: maxFuel,
+      remainingFuel: valid ? Math.max(0, fuel - costUnits) : fuel,
+      shortfall: shortfall,
+      reachable: valid && fuel >= costUnits,
+      portalPath: portalPath.slice(),
+      portalHops: portalPath.length ? portalPath.length - 1 : -1,
+      directPortal: portalPath.length === 2
+    };
   }
 
   return {
     CURRENT_TERRAIN_VERSION: CURRENT_TERRAIN_VERSION,
+    PORTAL_NETWORK_VERSION: PORTAL_NETWORK_VERSION,
     normalizeTerrainVersion: normalizeTerrainVersion,
     TYPES: TYPES,
     create: create,
@@ -193,6 +443,9 @@ Voxel.Galaxy = (function () {
     find: find,
     distance: distance,
     fuelCost: fuelCost,
-    portalsFor: portalsFor
+    portalNetwork: portalNetwork,
+    portalsFor: portalsFor,
+    portalRoute: portalRoute,
+    routePlan: routePlan
   };
 })();

@@ -975,6 +975,35 @@ window.Voxel = window.Voxel || {};
     markNeighborhood(ch.cx, ch.cz);
   }
 
+  function applyInfrastructure(changes) {
+    if (!Array.isArray(changes) || !changes.length || changes.length > 2048) return 0;
+    var normalized = [], allCore = true;
+    for (var i = 0; i < changes.length; i++) {
+      var c = changes[i] || {};
+      var x = Math.floor(Number(c.x)), y = Math.floor(Number(c.y));
+      var z = Math.floor(Number(c.z)), id = Math.floor(Number(c.id));
+      if (!validXYZ(x, y, z) || !Number.isFinite(id) || id < 0 || id > 255 ||
+        (id !== 0 && !Voxel.Blocks.defs[id])) return 0;
+      normalized.push({ x: x, y: y, z: z, id: id });
+      if (!inCore(x, z)) allCore = false;
+    }
+    if (!planetMode || allCore) {
+      var count = FiniteWorld.applyInfrastructure ? FiniteWorld.applyInfrastructure(normalized) : 0;
+      if (planetMode && count && FiniteWorld.lightReady()) {
+        for (var j = 0; j < normalized.length; j++) {
+          var nx = normalized[j].x, nz = normalized[j].z;
+          if (nx <= BLOCK_LIGHT_RANGE || nx >= W - 1 - BLOCK_LIGHT_RANGE ||
+            nz <= BLOCK_LIGHT_RANGE || nz >= D - 1 - BLOCK_LIGHT_RANGE)
+            refreshCoreLightBandAt(nx, nz);
+        }
+      }
+      return count;
+    }
+    for (var k = 0; k < normalized.length; k++)
+      set(normalized[k].x, normalized[k].y, normalized[k].z, normalized[k].id);
+    return normalized.length;
+  }
+
   function surfaceAt(x, z) {
     x = Math.floor(x); z = Math.floor(z);
     if (!planetMode || inCore(x, z)) return FiniteWorld.surfaceAt(x, z);
@@ -1144,6 +1173,7 @@ window.Voxel = window.Voxel || {};
     markChunkDirty: markChunkDirty,
     get: get,
     set: set,
+    applyInfrastructure: applyInfrastructure,
     surfaceAt: surfaceAt,
     biomeAt: biomeAt,
     spawnPoint: function () { return FiniteWorld.spawnPoint(); },

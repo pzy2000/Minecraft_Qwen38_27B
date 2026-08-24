@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=20260824p">
+<link rel="stylesheet" href="css/style.css?v=20260824q">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -63,6 +63,7 @@
       <span id="arrival-kicker" aria-hidden="true">NAV // ARRIVAL</span>
       <strong id="arrival-world">目标天体</strong>
       <span id="arrival-type">航行数据待同步</span>
+      <span id="arrival-guidance">导航方向待同步</span>
       <span id="arrival-detail">正在建立地表与探索链路</span>
     </article>
   </section>
@@ -266,7 +267,8 @@
 
 <!-- 飞船星图 -->
 <div id="overlay-starmap" class="overlay hidden">
-  <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title">
+  <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title"
+       aria-describedby="starmap-status starmap-help">
     <div class="panel-titlebar">
       <div class="starmap-ident">
         <div class="starmap-kicker">ARK NAVIGATION // ROUTE SELECT</div>
@@ -286,8 +288,34 @@
               aria-label="点火并前往所选目的地" aria-controls="starmap-grid"
               aria-describedby="cockpit-selection">点火跃迁</button>
     </section>
-    <div id="starmap-grid"></div>
-    <div class="starmap-footer hint"><span>ROUTE PROTOCOL</span>选择目的地后点火 · 传送门旅行不消耗引擎能量 · 空间站自动补满能量</div>
+    <div id="starmap-route-map" data-ready="false" aria-hidden="true">
+      <svg id="starmap-route-svg" viewBox="0 0 700 120" preserveAspectRatio="xMidYMid meet" focusable="false">
+        <g class="starmap-route-grid">
+          <path d="M20 30H680M20 60H680M20 90H680"></path>
+          <path d="M100 10V110M250 10V110M400 10V110M550 10V110"></path>
+        </g>
+        <g id="starmap-portal-edges">
+          <line id="starmap-portal-edge-0" class="starmap-portal-edge" data-edge-index="0" data-active="false" x1="70" y1="68" x2="210" y2="32"></line>
+          <line id="starmap-portal-edge-1" class="starmap-portal-edge" data-edge-index="1" data-active="false" x1="70" y1="68" x2="310" y2="82"></line>
+          <line id="starmap-portal-edge-2" class="starmap-portal-edge" data-edge-index="2" data-active="false" x1="70" y1="68" x2="470" y2="38"></line>
+          <line id="starmap-portal-edge-3" class="starmap-portal-edge" data-edge-index="3" data-active="false" x1="70" y1="68" x2="620" y2="76"></line>
+          <line id="starmap-portal-edge-4" class="starmap-portal-edge" data-edge-index="4" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+          <line id="starmap-portal-edge-5" class="starmap-portal-edge" data-edge-index="5" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+        </g>
+        <line id="starmap-active-route" data-active="false" x1="70" y1="68" x2="210" y2="32"></line>
+        <g id="starmap-node-layer">
+          <g id="starmap-node-planet-0" class="starmap-node" data-world-id="planet-0" data-state="current" data-x="70" data-y="68" transform="translate(70 68)"><circle r="8"></circle><text y="3">A</text></g>
+          <g id="starmap-node-planet-1" class="starmap-node" data-world-id="planet-1" data-state="unknown" data-x="210" data-y="32" transform="translate(210 32)"><circle r="7"></circle><text y="3">B</text></g>
+          <g id="starmap-node-planet-2" class="starmap-node" data-world-id="planet-2" data-state="unknown" data-x="310" data-y="82" transform="translate(310 82)"><circle r="7"></circle><text y="3">C</text></g>
+          <g id="starmap-node-planet-3" class="starmap-node" data-world-id="planet-3" data-state="unknown" data-x="400" data-y="25" transform="translate(400 25)"><circle r="7"></circle><text y="3">D</text></g>
+          <g id="starmap-node-planet-4" class="starmap-node" data-world-id="planet-4" data-state="unknown" data-x="470" data-y="76" transform="translate(470 76)"><circle r="7"></circle><text y="3">E</text></g>
+          <g id="starmap-node-planet-5" class="starmap-node" data-world-id="planet-5" data-state="unknown" data-x="580" data-y="28" transform="translate(580 28)"><circle r="7"></circle><text y="3">F</text></g>
+          <g id="starmap-node-station-0" class="starmap-node station" data-world-id="station-0" data-state="unknown" data-x="620" data-y="76" transform="translate(620 76)"><rect x="-7" y="-7" width="14" height="14"></rect><text y="3">S</text></g>
+        </g>
+      </svg>
+    </div>
+    <div id="starmap-grid" role="group" aria-label="目的地航线，按距离由近到远"></div>
+    <div id="starmap-help" class="starmap-footer hint"><span>ROUTE PROTOCOL</span>星图点火使用飞船能量 · 地表传送门目的地固定且免费 · 空间站自动补满能量</div>
   </div>
 </div>
 
@@ -432,7 +460,7 @@
 <script src="js/config.js?v=20260824c"></script>
 <script src="js/assets.js?v=20260823f"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
-<script src="js/world/galaxy.js?v=20260824o"></script>
+<script src="js/world/galaxy.js?v=20260824q"></script>
 <script src="js/systems/atmosphere_profiles.js?v=20260824m"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
 <script src="js/world/biomes.js?v=20260824o"></script>
@@ -441,12 +469,12 @@
 <script src="js/blocks.js?v=20260824o"></script>
 <script src="js/systems/discovery.js?v=20260824o"></script>
 <script src="js/crafting.js?v=20260823f"></script>
-<script src="js/world/world.js?v=20260824o"></script>
-<script src="js/world/infinite.js?v=20260824o"></script>
+<script src="js/world/world.js?v=20260824q"></script>
+<script src="js/world/infinite.js?v=20260824q"></script>
 <script src="js/world/mesh.js?v=20260823f"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=20260824j"></script>
-<script src="js/player/player.js?v=20260824o"></script>
+<script src="js/player/player.js?v=20260824q"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260823f"></script>
 <script src="js/systems/environment.js?v=20260824o"></script>
@@ -457,7 +485,7 @@
 <script src="js/systems/sound.js?v=20260824p"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=20260824p"></script>
+<script src="js/systems/space_travel.js?v=20260824q"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=20260824l"></script>
@@ -465,6 +493,6 @@
 <script src="js/ui/featured.js?v=20260824l"></script>
 <script src="js/ui/touch.js?v=20260824k"></script>
 <script src="js/ui/hud.js?v=20260824o"></script>
-<script src="js/main.js?v=20260824p"></script>
+<script src="js/main.js?v=20260824q"></script>
 </body>
 </html>

@@ -106,9 +106,11 @@ check('每个天体的独立种子唯一', new Set(galA.catalog.map(function (w)
 check('首颗行星适合开局', galA.catalog[0].typeKey === 'lush');
 check('单星系完整覆盖六类行星', new Set(galA.catalog.filter(function (w) { return w.kind === 'planet'; }).map(function (w) { return w.typeKey; })).size === 6);
 var gatesA = GA.portalsFor(galA, galA.catalog[0]);
-check('行星稳定生成 3-4 扇传送门', gatesA.length >= 3 && gatesA.length <= 4 &&
+check('行星稳定生成4扇唯一双向传送门', gatesA.length === 4 &&
+  new Set(gatesA.map(function (gate) { return gate.destinationId; })).size === 4 &&
+  gatesA.every(function (gate) { return !!gate.pairId && !!gate.destinationGateId; }) &&
   JSON.stringify(gatesA) === JSON.stringify(GA.portalsFor(galA, galA.catalog[0])));
-check('行星至少一扇门通往空间站', gatesA.some(function (p) { return p.destinationId === 'station-0'; }));
+check('行星恰有一扇门通往空间站', gatesA.filter(function (p) { return p.destinationId === 'station-0'; }).length === 1);
 check('跃迁成本有界且随距离计算', GA.fuelCost(galA.catalog[0], galA.catalog[5]) >= 8 &&
   GA.fuelCost(galA.catalog[0], galA.catalog[5]) <= 42);
 var hydrated = GA.hydrate({ rootSeed: galA.rootSeed, currentId: 'planet-2', discovered: { 'planet-2': true }, ship: { fuel: 27, maxFuel: 100 }, worlds: { 'planet-0': { edits: { '1,2,3': 4 } } } }, galA.rootSeed);
@@ -936,6 +938,19 @@ check('还原前为原值', V.World.get(bx, by, bz) === before);
 V.World.applyEdits(edits);
 check('applyEdits 还原', V.World.get(bx, by, bz) === 10);
 check('applyEdits 继承到增量账本', V.World.getEdits()[bx + ',' + by + ',' + bz] === 10);
+var infraY = Math.min(V.Config.WORLD_H - 3, by + 3);
+var infraCount = V.World.applyInfrastructure([
+  { x: bx + 2, y: infraY, z: bz, id: 3 },
+  { x: bx + 3, y: infraY, z: bz, id: 3 }
+]);
+check('系统基础设施批量写入共享edits账本', infraCount === 2 &&
+  V.World.get(bx + 2, infraY, bz) === 3 && V.World.get(bx + 3, infraY, bz) === 3 &&
+  V.World.getEdits()[[bx + 2, infraY, bz].join(',')] === 3);
+var atomicBefore = V.World.get(bx + 4, infraY, bz);
+check('损坏基础设施批次原子拒绝', V.World.applyInfrastructure([
+  { x: bx + 4, y: infraY, z: bz, id: 3 },
+  { x: Infinity, y: infraY, z: bz, id: 3 }
+]) === 0 && V.World.get(bx + 4, infraY, bz) === atomicBefore);
 
 console.log('存档序列化往返');
 (function () {
