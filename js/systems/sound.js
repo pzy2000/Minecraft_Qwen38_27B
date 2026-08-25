@@ -969,11 +969,14 @@ Voxel.Sound = (function () {
       if (v <= 0.02 || !catOn('Rabbit')) return;
       tone('sine', 1400 + Math.random() * 300, 900, 0.11, v * 0.34);
     },
-    // 猫叫（真猫采样）：vol 0~1（已含距离衰减），pan -1~1
-    cat: function (vol, pan) {
+    // 猫叫（真猫采样）：每品种专属叫声（cat_0 橘猫 / cat_1 玄猫 / cat_2 白猫 / cat_3 布偶猫）
+    // vol 0~1（已含距离衰减），pan -1~1，breed 为品种叫声索引（0~3，缺省随机）
+    cat: function (vol, pan, breed) {
       var v = Math.max(0, Math.min(1, vol || 0));
       if (v <= 0.02 || !catOn('Cat')) return;
-      if (play(pick(['cat_0', 'cat_1', 'cat_2']), v * 0.75, 0.94 + Math.random() * 0.12, pan)) return;
+      var names = ['cat_0', 'cat_1', 'cat_2', 'cat_3'];
+      var name = (breed >= 0 && breed < names.length) ? names[breed] : pick(names);
+      if (play(name, v * 0.75, 0.94 + Math.random() * 0.12, pan)) return;
       toneVib('sawtooth', 620, 420, 0.42, v * 0.26, 9, 26, 1600);
       toneVib('sine', 310, 210, 0.42, v * 0.22, 9, 14, 0);
     },

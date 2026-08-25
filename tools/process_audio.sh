@@ -13,9 +13,9 @@ sfx() { # sfx <src> <out名> [附加filter]
   local src="$1" name="$2" extra="${3:-}"
   ffmpeg -y -v error -i "$src" -af "$TRIM${extra:+,$extra}" -ac 1 -ar 44100 -codec:a libmp3lame -b:a 96k "$OUT/$name.mp3"
 }
-sfxnorm() { # 带响度归一（用于 Yo Frankie flac 等）
-  local src="$1" name="$2"
-  ffmpeg -y -v error -i "$src" -af "$TRIM,loudnorm=I=-18:TP=-2:LRA=7" -ac 1 -ar 44100 -codec:a libmp3lame -b:a 96k "$OUT/$name.mp3"
+sfxnorm() { # 带响度归一（用于 Yo Frankie flac 等）[附加filter]
+  local src="$1" name="$2" extra="${3:-}"
+  ffmpeg -y -v error -i "$src" -af "$TRIM,loudnorm=I=-18:TP=-2:LRA=7${extra:+,$extra}" -ac 1 -ar 44100 -codec:a libmp3lame -b:a 96k "$OUT/$name.mp3"
 }
 
 # 脚步
@@ -48,10 +48,13 @@ sfxnorm "$DL/oga/sheep2.flac" "sheep_1"
 sfxnorm "$DL/oga/sheepBleet.flac" "sheep_2"
 sfxnorm "$DL/oga/sheepHit.flac" "sheep_hurt"
 ffmpeg -y -v error -i "$DL/oga/zombie.wav" -af "$TRIM,loudnorm=I=-18:TP=-2:LRA=7" -ar 44100 -codec:a libmp3lame -b:a 96k "$OUT/zombie_0.mp3"
-sfxnorm "$DL/oga/cat/Cat 1.wav" "cat_0"
-sfxnorm "$DL/oga/cat/Cat 5.wav" "cat_1"
-sfxnorm "$DL/oga/cat/Cat 4.wav" "cat_2"
-sfxnorm "$DL/oga/cat/Cat 7.wav" "cat_hurt"
+# 猫：每品种一种叫声（cat_0 橘猫 / cat_1 玄猫 / cat_2 白猫 / cat_3 布偶猫）
+# 白猫体型小，整体升调 2 半音更奶；hurt 由短喵降调派生（全部 CC0）
+sfxnorm "$DL/freesound/tuberatanka_cat_meow_hungry.mp3" "cat_0"
+sfxnorm "$DL/freesound/skymary_cat_meow_short.mp3" "cat_1"
+sfxnorm "$DL/freesound/suicdxsaturday_meow.mp3" "cat_2" "asetrate=44100*1.122,aresample=44100"
+sfxnorm "$DL/freesound/freemaster2_siamese_meow9.mp3" "cat_3"
+sfxnorm "$DL/freesound/skymary_cat_meow_short.mp3" "cat_hurt" "asetrate=44100*0.82,aresample=44100"
 
 # UI
 sfx "$DL/kenney/generic_light_000.ogg" "ui_0"

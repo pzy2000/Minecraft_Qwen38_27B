@@ -322,7 +322,10 @@ node test/run_browser_tests.js     # 自动查找 Chrome/Edge/Chromium，也可�
 | 沙砾/树叶脚步 | ["Different steps..." by kdd @ OpenGameArt](https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud) | CC0 1.0 |
 | 沙地/水中脚步、羊叫（含受击）、大水花 | [Yo Frankie! 游戏素材 @ OpenGameArt](https://opengameart.org/content/sheep-sound-bleats-yo-frankie) | CC-BY 3.0（Blender 基金会） |
 | 僵尸呻吟 | ["Zombie Sound" @ OpenGameArt](https://opengameart.org/content/zombie-sound) | CC0 1.0 |
-| 猫叫（含受击） | ["Cat SFX" by Dan Knoflicek / Macro @ OpenGameArt](https://opengameart.org/content/cat-sfx) | CC-BY 3.0 |
+| 橘猫叫 | ["cat meow" by tuberatanka @ Freesound](https://freesound.org/s/110011/) | CC0 1.0 |
+| 玄猫叫、猫受击（降调处理） | ["cat meow short" by skymary @ Freesound](https://freesound.org/s/412017/) | CC0 1.0 |
+| 白猫叫（升调处理） | ["meow" by suicdxsaturday @ Freesound](https://freesound.org/s/698633/) | CC0 1.0 |
+| 布偶猫叫 | ["meow9.wav (Siamese)" by freemaster2 @ Freesound](https://freesound.org/s/66518/) | CC0 1.0 |
 | 白天 BGM | ["Calm Ambient 3 - Lifewave 2k" by The Cynic Project / Pixelsphere](https://opengameart.org/content/calm-ambient-3-lifewave-2k) | CC0 1.0 |
 | 夜晚 BGM | ["Calm Piano 1 - Vaporware" by The Cynic Project / Pixelsphere](https://opengameart.org/content/cc0-calm-relaxing-music) | CC0 1.0 |
 

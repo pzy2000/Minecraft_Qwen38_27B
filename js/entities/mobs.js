@@ -138,15 +138,17 @@ Voxel.Mobs = (function () {
     ] };
   }
   // 猫：纤细身形 + 立耳/圆眼/粉鼻/上翘双段尾；4 种花色（橘猫带背纹、玄猫白尾尖、白猫、重点色布偶）
+  // voice 为各品种专属叫声（cat_0~3），size 控制品种体型缩放
   var CAT_VARIANTS = [
-    { fur: 0xd98e4a, accent: 0xb96f2e, muzzle: 0xe8b87d, eye: 0x6fae4e, legs: 0xc9833f, tailTip: 0xb96f2e, striped: true },  // 橘猫
-    { fur: 0x37322f, accent: 0x2a2523, muzzle: 0x45403c, eye: 0xd9a53a, legs: 0x2e2a28, tailTip: 0xe8e4dc, striped: false }, // 玄猫
-    { fur: 0xf3efe7, accent: 0xe3cdc5, muzzle: 0xffffff, eye: 0x5a8fd0, legs: 0xeae5db, tailTip: 0xf3efe7, striped: false }, // 白猫
-    { fur: 0xcfc4b6, accent: 0x6e5d4f, muzzle: 0xdfd6ca, eye: 0x4a9ad8, legs: 0x6e5d4f, tailTip: 0x6e5d4f, striped: false }  // 布偶猫
+    { fur: 0xd98e4a, accent: 0xb96f2e, muzzle: 0xe8b87d, eye: 0x6fae4e, legs: 0xc9833f, tailTip: 0xb96f2e, striped: true,  voice: 0, size: 1.10 }, // 橘猫
+    { fur: 0x37322f, accent: 0x2a2523, muzzle: 0x45403c, eye: 0xd9a53a, legs: 0x2e2a28, tailTip: 0xe8e4dc, striped: false, voice: 1, size: 0.95 }, // 玄猫
+    { fur: 0xf3efe7, accent: 0xe3cdc5, muzzle: 0xffffff, eye: 0x5a8fd0, legs: 0xeae5db, tailTip: 0xf3efe7, striped: false, voice: 2, size: 0.85 }, // 白猫
+    { fur: 0xcfc4b6, accent: 0x6e5d4f, muzzle: 0xdfd6ca, eye: 0x4a9ad8, legs: 0x6e5d4f, tailTip: 0x6e5d4f, striped: false, voice: 3, size: 1.15 }  // 布偶猫
   ];
   function catBuild() {
     var vi = (Math.random() * CAT_VARIANTS.length) | 0;
     var v = CAT_VARIANTS[vi];
+    var s = v.size;
     var parts = [
       [0.40, 0.32, 0.68, 0, 0.34, -0.04, v.fur],        // 躯干
       [0.30, 0.26, 0.26, 0, 0.56, 0.38, v.fur],         // 头
@@ -162,13 +164,15 @@ Voxel.Mobs = (function () {
       [0.09, 0.24, 0.09, 0.13, 0.12, -0.28, v.legs],    // 后右腿
       [0.09, 0.09, 0.22, 0, 0.40, -0.42, v.fur],        // 尾根（上翘）
       [0.08, 0.18, 0.08, 0, 0.55, -0.47, v.tailTip]     // 尾尖
-    ];
+    ].map(function (p) {
+      return [p[0] * s, p[1] * s, p[2] * s, p[3] * s, p[4] * s, p[5] * s, p[6]];
+    });
     if (v.striped) {
-      parts.push([0.30, 0.05, 0.09, 0, 0.49, -0.18, v.accent]);  // 背纹 ×3
-      parts.push([0.30, 0.05, 0.09, 0, 0.49, 0.00, v.accent]);
-      parts.push([0.26, 0.05, 0.09, 0, 0.49, 0.18, v.accent]);
+      parts.push([0.30 * s, 0.05 * s, 0.09 * s, 0, 0.49 * s, -0.18 * s, v.accent]);  // 背纹 ×3
+      parts.push([0.30 * s, 0.05 * s, 0.09 * s, 0, 0.49 * s, 0.00 * s, v.accent]);
+      parts.push([0.26 * s, 0.05 * s, 0.09 * s, 0, 0.49 * s, 0.18 * s, v.accent]);
     }
-    return { variant: String(vi), w: 0.5, h: 0.75, mainColor: v.fur, parts: parts };
+    return { variant: String(vi), voice: v.voice, w: 0.5 * s, h: 0.75 * s, mainColor: v.fur, parts: parts };
   }
 
   var BUILDERS = {
@@ -229,6 +233,7 @@ Voxel.Mobs = (function () {
       pos: pos.clone(),
       vel: new THREE.Vector3(),
       w: b.w, h: b.h,
+      voiceVariant: b.voice,                 // 猫品种专属叫声索引（其他生物为 undefined）
       speedMul: BUILDERS[type].speedMul,
       group: mesh,
       baseColors: [b.mainColor],
@@ -491,7 +496,7 @@ Voxel.Mobs = (function () {
           // 逃跑时叫得更急
           var panic = m.fleeT > 0;
           m.voiceTimer = (panic ? 1.2 : 8) + Math.random() * (panic ? 2 : 14);
-          Voxel.Sound[VOICE[m.type]](sp.vol * 0.8, sp.pan);
+          Voxel.Sound[VOICE[m.type]](sp.vol * 0.8, sp.pan, m.voiceVariant);
         }
       }
 

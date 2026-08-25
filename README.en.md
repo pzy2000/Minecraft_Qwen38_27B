@@ -212,7 +212,10 @@ Sound effects and background music come from these open-source sources (build sc
 | Gravel / leaf footsteps | ["Different steps..." by kdd @ OpenGameArt](https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud) | CC0 1.0 |
 | Sand / water footsteps, sheep bleats (including hurt), large splash | [Yo Frankie! assets @ OpenGameArt](https://opengameart.org/content/sheep-sound-bleats-yo-frankie) | CC-BY 3.0 (Blender Foundation) |
 | Zombie groan | ["Zombie Sound" @ OpenGameArt](https://opengameart.org/content/zombie-sound) | CC0 1.0 |
-| Cat meows (including hurt) | ["Cat SFX" by Dan Knoflicek / Macro @ OpenGameArt](https://opengameart.org/content/cat-sfx) | CC-BY 3.0 |
+| Orange tabby meow | ["cat meow" by tuberatanka @ Freesound](https://freesound.org/s/110011/) | CC0 1.0 |
+| Black cat meow, cat hurt (pitch-shifted) | ["cat meow short" by skymary @ Freesound](https://freesound.org/s/412017/) | CC0 1.0 |
+| White cat meow (pitch-shifted) | ["meow" by suicdxsaturday @ Freesound](https://freesound.org/s/698633/) | CC0 1.0 |
+| Ragdoll cat meow | ["meow9.wav (Siamese)" by freemaster2 @ Freesound](https://freesound.org/s/66518/) | CC0 1.0 |
 | Day BGM | ["Calm Ambient 3 - Lifewave 2k" by The Cynic Project / Pixelsphere](https://opengameart.org/content/calm-ambient-3-lifewave-2k) | CC0 1.0 |
 | Night BGM | ["Calm Piano 1 - Vaporware" by The Cynic Project / Pixelsphere](https://opengameart.org/content/cc0-calm-relaxing-music) | CC0 1.0 |
 

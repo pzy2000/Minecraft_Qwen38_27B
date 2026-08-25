@@ -20,13 +20,14 @@
     "sfx": {
       "id": "sfx",
       "file": "assets-sfx.js",
-      "hash": "460da33559c48c812f7fcd7756b581c99dcfb0c61158b18c1ce5580bd467378f",
-      "payloadHash": "2314311d3c1c99053c6b7a5ca5c32539a23807ba4f2ad1c7d190ccb8913657e3",
-      "version": "sha256-460da33559c48c812f7fcd7756b581c99dcfb0c61158b18c1ce5580bd467378f",
+      "hash": "491cb498760c4fd8cef548a774356ded1096164218f2296f24ec86efdec8b82d",
+      "payloadHash": "27f20fa2ddb403473aeff57fb2b9c5dc12134857fe075b2e494bbe2da6ecc860",
+      "version": "sha256-491cb498760c4fd8cef548a774356ded1096164218f2296f24ec86efdec8b82d",
       "names": [
         "cat_0",
         "cat_1",
         "cat_2",
+        "cat_3",
         "cat_hurt",
         "dig_0",
         "dig_1",
@@ -71,8 +72,8 @@
         "ui_0",
         "zombie_0"
       ],
-      "count": 46,
-      "bytes": 315798
+      "count": 47,
+      "bytes": 426183
     },
     "music-day": {
       "id": "music-day",
@@ -133,6 +134,7 @@
       "cat_0": "sfx",
       "cat_1": "sfx",
       "cat_2": "sfx",
+      "cat_3": "sfx",
       "cat_hurt": "sfx",
       "dig_0": "sfx",
       "dig_1": "sfx",
@@ -210,9 +212,24 @@
         "license": "CC0 1.0"
       },
       {
-        "files": "cat_0, cat_1, cat_2, cat_hurt",
-        "source": "\"Cat SFX\" by Dan Knoflicek / Macro (opengameart.org/content/cat-sfx)",
-        "license": "CC-BY 3.0"
+        "files": "cat_0",
+        "source": "\"cat meow\" by tuberatanka (freesound.org/s/110011)",
+        "license": "CC0 1.0"
+      },
+      {
+        "files": "cat_1, cat_hurt (pitch-shifted)",
+        "source": "\"cat meow short\" by skymary (freesound.org/s/412017)",
+        "license": "CC0 1.0"
+      },
+      {
+        "files": "cat_2 (pitch-shifted)",
+        "source": "\"meow51252153\" by suicdxsaturday (freesound.org/s/698633)",
+        "license": "CC0 1.0"
+      },
+      {
+        "files": "cat_3",
+        "source": "\"meow9.wav\" by freemaster2 (freesound.org/s/66518)",
+        "license": "CC0 1.0"
       },
       {
         "files": "music_day",
