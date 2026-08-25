@@ -13,8 +13,11 @@ Voxel.Settings = (function () {
     // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
     sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
-    sndUi: 1, sndMusic: 1, sndRain: 1, sndThunder: 1
+    sndUi: 1, sndMusic: 1, sndRain: 1, sndThunder: 1,
+    difficulty: 2           // 0=和平 1=简单 2=困难 3=噩梦
   };
+  // 游戏难度（供 UI 与测试使用）
+  var DIFFICULTY_LABELS = ['和平', '简单', '困难', '噩梦'];
   // 分音效开关的中文标签（供 UI 与测试使用）
   var SND_LABELS = {
     sndSheep: '羊叫', sndPig: '猪叫', sndChicken: '鸡叫', sndZombie: '僵尸', sndRabbit: '兔子', sndCat: '猫叫',
@@ -31,7 +34,8 @@ Voxel.Settings = (function () {
     fpsCap: [0, 60],
     particleDensity: [0.25, 1],
     rainDensity: [0.25, 1],
-    mobDensity: [0.25, 1]
+    mobDensity: [0.25, 1],
+    difficulty: [0, 3]
   };
   // 分音效开关均为 0/1
   for (var sndKey in SND_LABELS) LIMITS[sndKey] = [0, 1];
@@ -104,6 +108,7 @@ Voxel.Settings = (function () {
     defaults: DEFAULTS,
     limits: LIMITS,
     touchDefaults: TOUCH_DEFAULTS,
-    sndLabels: SND_LABELS
+    sndLabels: SND_LABELS,
+    difficultyLabels: DIFFICULTY_LABELS
   };
 })();

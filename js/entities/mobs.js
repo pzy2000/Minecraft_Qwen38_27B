@@ -193,6 +193,14 @@ Voxel.Mobs = (function () {
   var VOICE_HURT = { sheep: 'sheepHurt', pig: 'pigHurt', chicken: 'chickenHurt', rabbit: 'rabbitHurt', cat: 'catHurt' };
 
   var mobDensityF = 1;
+
+  // 游戏难度：0=和平 1=简单 2=困难 3=噩梦（未加载设置时按困难处理）
+  function diffLevel() {
+    if (!Voxel.Settings) return 2;
+    var d = Voxel.Settings.get('difficulty');
+    return (typeof d === 'number' && isFinite(d)) ? Math.round(d) : 2;
+  }
+
   var TARGET_KEYS = {
     sheep: 'SHEEP_TARGET',
     pig: 'PIG_TARGET',
@@ -275,6 +283,14 @@ Voxel.Mobs = (function () {
     trimToDensity();
   }
 
+  // 难度切换钩子：切到和平时立即清空所有敌对生物
+  function setDifficulty(v) {
+    if (v !== 0) return;
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (!PASSIVE[list[i].type]) removeAt(i);
+    }
+  }
+
   function setFlash(m, on) {
     m.group.material = on ? flashMat : sharedMat;
   }
@@ -347,7 +363,12 @@ Voxel.Mobs = (function () {
     if ((counts.chicken || 0) < densityTarget('chicken')) trySpawn('chicken');
     if ((counts.rabbit || 0) < densityTarget('rabbit')) trySpawn('rabbit');
     if ((counts.cat || 0) < densityTarget('cat')) trySpawn('cat');
-    if (night && (counts.zombie || 0) < densityTarget('zombie')) trySpawn('zombie');
+    // 和平难度不刷怪；噩梦难度怪物目标 ×1.5
+    var diff = diffLevel();
+    if (night && diff > 0) {
+      var zTarget = Math.round(densityTarget('zombie') * (diff >= 3 ? 1.5 : 1));
+      if ((counts.zombie || 0) < zTarget) trySpawn('zombie');
+    }
   }
 
   // 僵尸眼 → 玩家眼 的视线是否无遮挡
@@ -394,11 +415,16 @@ Voxel.Mobs = (function () {
         if (dist < C.ZOMBIE_RANGE && losClear(m)) {
           m.dir = Math.atan2(-px, -pz);
           m.moveTime = 1;
-          speed = dist < 8 ? C.ZOMBIE_SPEED * 1.35 : C.ZOMBIE_SPEED;
+          // 难度修正：简单 ×0.9，困难 ×1，噩梦速度 +18%
+          var diff = diffLevel();
+          var spdMul = diff <= 1 ? 0.9 : (diff >= 3 ? 1.18 : 1);
+          speed = dist < 8 ? C.ZOMBIE_SPEED * spdMul * 1.35 : C.ZOMBIE_SPEED * spdMul;
           // 攻击需近距离、高度接近且视线无遮挡；命中带方向指示与击退
           if (dist < 1.6 && Math.abs(Pl.pos().y - m.pos.y) < 2.4 && m.attackCd <= 0) {
             m.attackCd = 1.2;
-            Pl.damage(C.ZOMBIE_DMG, 'zombie', m.pos.x, m.pos.z);
+            // 难度伤害：简单 ×0.7（≈2），困难 ×1（3），噩梦 ×2（6）
+            var dmgMul = diff <= 1 ? 0.7 : (diff >= 3 ? 2 : 1);
+            Pl.damage(Math.max(1, Math.round(C.ZOMBIE_DMG * dmgMul)), 'zombie', m.pos.x, m.pos.z);
             if (Pl.knockback) {
               var klen = Math.sqrt(px * px + pz * pz) || 1;
               Pl.knockback(px / klen, pz / klen, 8);
@@ -517,6 +543,7 @@ Voxel.Mobs = (function () {
 
   return {
     setDensity: setDensity,
+    setDifficulty: setDifficulty,
     init: init,
     update: update,
     applyTint: applyTint,
@@ -526,7 +553,8 @@ Voxel.Mobs = (function () {
     count: function () { return list.length; },
     spawn: spawn,
     _test: {
-      densityTarget: densityTarget
+      densityTarget: densityTarget,
+      diffLevel: diffLevel
     }
   };
 })();

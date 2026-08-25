@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=9ddf603207bb2efed061f728e16b22c8d1a3b5ce4753629823a79d0ebc55ff8f">
+<link rel="stylesheet" href="css/style.css?v=2d90838ad24481fff3a02133cd74ddca5ef642cfc93ef5418505603c3fafdc60">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -492,6 +492,7 @@
     <h2 id="dead-title" class="dead">你死了！</h2>
     <div id="death-cause" class="hint"></div>
     <button id="btn-respawn" class="btn primary">重生</button>
+    <button id="btn-dead-menu" class="btn danger hidden">存档已删除 · 回到主菜单</button>
   </div>
 </div>
 
@@ -513,6 +514,12 @@
       <button class="btn small" data-fps="0" aria-pressed="false">原生</button>
       <button class="btn small" data-fps="30" aria-pressed="false">30</button>
       <button class="btn small" data-fps="60" aria-pressed="false">60</button>
+    </span></div>
+    <div class="set-row"><span id="difficulty-label" class="set-label">游戏难度</span><span class="btn-row" id="difficulty-row" role="group" aria-labelledby="difficulty-label">
+      <button class="btn small" data-diff="0" aria-pressed="false">和平</button>
+      <button class="btn small" data-diff="1" aria-pressed="false">简单</button>
+      <button class="btn small" data-diff="2" aria-pressed="false">困难</button>
+      <button class="btn small" data-diff="3" aria-pressed="false">噩梦</button>
     </span></div>
     <div class="set-row"><label for="set-particleDensity">粒子密度</label><input id="set-particleDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-particleDensity-v"><span><output id="set-particleDensity-v" for="set-particleDensity"></output></span></div>
     <div class="set-row"><label for="set-rainDensity">雨滴密度</label><input id="set-rainDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-rainDensity-v"><span><output id="set-rainDensity-v" for="set-rainDensity"></output></span></div>
@@ -564,9 +571,9 @@
 <script src="js/world/mesh.js?v=20260823f"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=7650a80bae65366d5d4e345bdc37004584d64dab1bf5281d9d163c683f8f0091"></script>
-<script src="js/player/player.js?v=406b11f3c531d7901d0ba2e6e4f50eec75bbf2ac404b0e9aa0641577bd16389d"></script>
+<script src="js/player/player.js?v=f7d28a25bd17f961e271c22ec10ca9f9ecedb571cdf146bfebefce1f408dcaf8"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
-<script src="js/systems/settings.js?v=20260823f"></script>
+<script src="js/systems/settings.js?v=8a70ea4b"></script>
 <script src="js/systems/environment.js?v=f5bb638810a2f8a7f3c85bac6ab743f79845340f39ac175dcfdff1dbb038568d"></script>
 <script src="js/systems/ship_flight.js?v=6620cbc652dfa166bad1fabc040d2b196579f5a2ffb62abc3350de8b300548df"></script>
 <script src="js/systems/landing_assist.js?v=c8ad9f9a73e15cd4f8b3ad54337e6c5a3657357f842c4689854908b9c9c14635"></script>
@@ -579,13 +586,13 @@
 <script src="js/systems/particles.js?v=20260823f"></script>
 <script src="js/ui/galaxy_map.js?v=20260825a"></script>
 <script src="js/systems/space_travel.js?v=20260825b"></script>
-<script src="js/entities/mobs.js?v=20260824e"></script>
+<script src="js/entities/mobs.js?v=4d697886"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=5c3699619f41fe0dd5efb67341d8ad8025db82dae606b0bd2bf03fa6cd952c00"></script>
 <script src="js/ui/handitem.js?v=3bbb6d458732035d4ea791b5a8494ecd5d3974925a30d3b8778cce723d3c4343"></script>
 <script src="js/ui/featured.js?v=d7f0e47d1576fc46ad75e1122bd629eed19558ce57a91ce929b15a288f81cb1b"></script>
 <script src="js/ui/touch.js?v=2aa0796fe55f76eb93014e83b8fbe903167abb3dc40d19447d74f1eefed7f701"></script>
 <script src="js/ui/hud.js?v=20260824r"></script>
-<script src="js/main.js?v=dab786604f04856d6e85d19d0308998c71469edc864beb29974d76c5f9c56539"></script>
+<script src="js/main.js?v=2c05eb36f3d868093f0d13e4d73dbf1df81c54e53163cbe960bcab325eb09181"></script>
 </body>
 </html>

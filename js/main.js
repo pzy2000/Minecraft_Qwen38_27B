@@ -3487,16 +3487,55 @@ Voxel.Game = (function () {
     }
   }
 
+  function difficultyLevel() {
+    if (!Voxel.Settings) return 2;
+    var d = Voxel.Settings.get('difficulty');
+    return (typeof d === 'number' && isFinite(d)) ? Math.round(d) : 2;
+  }
+
+  function showDeathOverlay(nightmare) {
+    var title = document.getElementById('dead-title');
+    var respawnBtn = document.getElementById('btn-respawn');
+    var menuBtn = document.getElementById('btn-dead-menu');
+    if (title) title.textContent = nightmare ? '游戏结束' : '你死了！';
+    if (respawnBtn) respawnBtn.classList.toggle('hidden', nightmare);
+    if (menuBtn) menuBtn.classList.toggle('hidden', !nightmare);
+    openModalLayer({
+      id: 'overlay-dead', state: 'dead', returnState: 'playing',
+      initialFocus: nightmare ? '#btn-dead-menu' : '#btn-respawn'
+    });
+  }
+
   function onPlayerDead() {
     if (Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard() &&
       Voxel.SpaceTravel.disembarkShip) Voxel.SpaceTravel.disembarkShip({ silent: true });
     if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(true);
-    if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(Voxel.Player.lastDamageCause());
+    var cause = Voxel.Player.lastDamageCause();
+    if (Voxel.HUD.setDeathCause) Voxel.HUD.setDeathCause(cause);
+    // 噩梦难度：死亡无法复活——不写死亡档，直接删除存档并只提供回到主菜单。
+    if (difficultyLevel() >= 3) {
+      try { Voxel.Save.clear(); } catch (e) { }
+      saveData = null;
+      galaxyState = null;
+      var causeEl = document.getElementById('death-cause');
+      if (causeEl) causeEl.textContent = '噩梦难度 · 死亡无法复活，该世界的存档已被删除';
+      showDeathOverlay(true);
+      return;
+    }
     doSave(true, 'death');
-    openModalLayer({
-      id: 'overlay-dead', state: 'dead', returnState: 'playing',
-      initialFocus: '#btn-respawn'
-    });
+    showDeathOverlay(false);
+  }
+
+  function exitToMenuFromDeath() {
+    stopDig();
+    manualCraftStop();
+    clearModalLayers();
+    document.body.classList.remove('panel-open');
+    if (Voxel.Sound && Voxel.Sound.stopEnvironment) Voxel.Sound.stopEnvironment();
+    syncMainMenu();
+    showOverlay('overlay-start');
+    setState('menu');
+    return true;
   }
 
   function onLockChange(locked) {
@@ -4779,6 +4818,8 @@ Voxel.Game = (function () {
       requestGameFullscreen(true);
       resume();
     });
+    var deadMenuBtn = document.getElementById('btn-dead-menu');
+    if (deadMenuBtn) deadMenuBtn.addEventListener('click', exitToMenuFromDeath);
     document.getElementById('btn-menu').addEventListener('click', gotoMenu);
     var starmapBtn = document.getElementById('btn-starmap-hud');
     if (starmapBtn) starmapBtn.addEventListener('click', function (e) {
@@ -4938,6 +4979,26 @@ Voxel.Game = (function () {
     }
     syncFpsButtons();
 
+    // 游戏难度按钮组（和平/简单/困难/噩梦）
+    var diffBtns = document.querySelectorAll('#difficulty-row button');
+    function syncDifficultyButtons() {
+      var cur = difficultyLevel();
+      for (var i = 0; i < diffBtns.length; i++) {
+        var active = +diffBtns[i].dataset.diff === cur;
+        diffBtns[i].classList.toggle('active', active);
+        diffBtns[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+    }
+    for (var dbi = 0; dbi < diffBtns.length; dbi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          Voxel.Settings.set('difficulty', +btn.dataset.diff);
+          syncDifficultyButtons();
+        });
+      })(diffBtns[dbi]);
+    }
+    syncDifficultyButtons();
+
     // 性能预设一键应用
     var presetBtns = document.querySelectorAll('#perf-preset-row button');
     function syncPresetButtons() {
@@ -4978,6 +5039,7 @@ Voxel.Game = (function () {
     document.getElementById('btn-settings-menu').addEventListener('click', function () { openSettings('menu'); });
 
     // 设置应用：灵敏度/音量即时生效；FOV 与雾距在主循环中读取
+    var booted = false;
     if (Voxel.Settings) {
       Voxel.Settings.onChange(function (k, v) {
         if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
@@ -4989,6 +5051,18 @@ Voxel.Game = (function () {
           Voxel.Weather.setRainDensity(v);
         else if (k === 'mobDensity' && Voxel.Mobs && Voxel.Mobs.setDensity)
           Voxel.Mobs.setDensity(v);
+        else if (k === 'difficulty') {
+          // 和平：立即清怪并回满饱食度；噩梦提示不可复活
+          if (Voxel.Mobs && Voxel.Mobs.setDifficulty) Voxel.Mobs.setDifficulty(v);
+          if (v === 0 && Voxel.Player && Voxel.Player.setFood)
+            Voxel.Player.setFood(CFG.PLAYER.FOOD_MAX);
+          syncDifficultyButtons();
+          if (booted && Voxel.HUD && Voxel.HUD.toast) {
+            var labels = (Voxel.Settings.difficultyLabels || ['和平', '简单', '困难', '噩梦']);
+            Voxel.HUD.toast('游戏难度已切换：' + (labels[v] || v) +
+              (v === 3 ? '（死亡无法复活！）' : v === 0 ? '（不刷怪 · 饱食度不下降）' : ''));
+          }
+        }
         else if (/^snd[A-Z]/.test(k)) {
           if (k === 'sndMusic' && Voxel.Sound.setMusic)
             Voxel.Sound.setMusic(Voxel.DayNight && Voxel.DayNight.isNight() ? 'night' : 'day', true);
@@ -4999,6 +5073,7 @@ Voxel.Game = (function () {
         }
       });
       Voxel.Settings.applyAll();
+      booted = true;
     }
 
     syncSaveHealthUI();

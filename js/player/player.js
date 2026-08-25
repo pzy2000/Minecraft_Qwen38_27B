@@ -19,6 +19,35 @@ Voxel.Player = (function () {
   var exhaust = 0, starveT = 0;      // 疲惫累积 / 饥饿扣血计时
   var ent = { w: C.W, h: C.H, onGround: false, pos: null, vel: null };
 
+  // 游戏难度：0=和平 1=简单 2=困难 3=噩梦（未加载设置时按困难处理）
+  function diffLevel() {
+    if (!Voxel.Settings) return 2;
+    var d = Voxel.Settings.get('difficulty');
+    return (typeof d === 'number' && isFinite(d)) ? Math.round(d) : 2;
+  }
+
+  // 饥饿代谢（update / updateBoarded 共用）：和平不掉饱食度；简单饿到 10 血为止
+  function metabolism(dt, rate) {
+    var diff = diffLevel();
+    if (diff > 0) {
+      addExhaust(rate * dt);
+      while (exhaust >= C.EXHAUST_PER_FOOD && food > 0) {
+        exhaust -= C.EXHAUST_PER_FOOD;
+        food--;
+      }
+    } else {
+      exhaust = 0;
+      starveT = 0;
+      return;
+    }
+    var floorHp = diff <= 1 ? 10 : 1;   // 简单：饥饿不致死（降到 10 血）；困难/噩梦：降到 1
+    if (food <= 0 && hp > floorHp) {
+      starveT += dt;
+      if (starveT >= C.STARVE_INTERVAL) { starveT = 0; damage(C.STARVE_DMG, 'starve'); }
+    } else starveT = 0;
+    if (Voxel.HUD && Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
+  }
+
   function update(dt) {
     var K = Voxel.Controls.keys;
     var f = (K['KeyW'] || K['ArrowUp'] ? 1 : 0) - (K['KeyS'] || K['ArrowDown'] ? 1 : 0);
@@ -133,21 +162,12 @@ Voxel.Player = (function () {
       }
     } else bubbleTimer = 0;
 
-    // 饥饿：按活动强度累积疲惫 → 消耗饥饿值；饥饿 0 时缓慢扣血（降到 1 为止）
+    // 饥饿：按活动强度累积疲惫 → 消耗饥饿值；饥饿 0 时缓慢扣血（难度决定下限）
     var movingNow = (vel.x * vel.x + vel.z * vel.z) > 0.5 && !flying;
     var rate = C.RATE_STILL;
     if (movingNow) rate = sprint ? C.RATE_SPRINT : C.RATE_MOVE;
     if (inWater) rate = Math.max(rate, C.RATE_SWIM);
-    addExhaust(rate * dt);
-    while (exhaust >= C.EXHAUST_PER_FOOD && food > 0) {
-      exhaust -= C.EXHAUST_PER_FOOD;
-      food--;
-    }
-    if (food <= 0 && hp > 1) {
-      starveT += dt;
-      if (starveT >= C.STARVE_INTERVAL) { starveT = 0; damage(C.STARVE_DMG, 'starve'); }
-    } else starveT = 0;
-    if (Voxel.HUD && Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
+    metabolism(dt, rate);
 
     // 脚步声（按脚下材质）
     var moving = (vel.x * vel.x + vel.z * vel.z) > 4;
@@ -189,17 +209,8 @@ Voxel.Player = (function () {
     drownT = 0;
     bubbleTimer = 0;
     Voxel.Sound.setUnderwater(false);
-    addExhaust(C.RATE_STILL * dt);
-    while (exhaust >= C.EXHAUST_PER_FOOD && food > 0) {
-      exhaust -= C.EXHAUST_PER_FOOD;
-      food--;
-    }
-    if (food <= 0 && hp > 1) {
-      starveT += dt;
-      if (starveT >= C.STARVE_INTERVAL) { starveT = 0; damage(C.STARVE_DMG, 'starve'); }
-    } else starveT = 0;
+    metabolism(dt, C.RATE_STILL);
     if (Voxel.HUD && Voxel.HUD.drawAir) Voxel.HUD.drawAir(1);
-    if (Voxel.HUD && Voxel.HUD.drawFood) Voxel.HUD.drawFood(food);
   }
 
   function init(p, yaw, pitch) {

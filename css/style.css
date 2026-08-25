@@ -424,6 +424,11 @@ body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩
 .btn:hover { filter: brightness(1.2); }
 .btn:active { transform: translateY(2px); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35); }
 .btn.primary { background: #14677a; border-color: #49d9ef; }
+.btn.danger {
+  color: #ffe0e0;
+  border-color: rgba(255, 92, 92, 0.72);
+  background: rgba(104, 26, 26, 0.84);
+}
 .btn.restore {
   color: #f0dcff;
   border-color: rgba(198, 108, 255, 0.72);
