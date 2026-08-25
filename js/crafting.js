@@ -20,7 +20,12 @@ Voxel.Crafting = (function () {
     { name: '木剑', grid: [0, 10, 0, 0, 10, 0, 0, 100, 0], result: 104, count: 1 },
     { name: '石剑', grid: [0, 3, 0, 0, 3, 0, 0, 100, 0], result: 105, count: 1 },
     { name: '铁剑', grid: [0, 9, 0, 0, 9, 0, 0, 100, 0], result: 106, count: 1 },
-    { name: '猫毛毡', shapeless: true, inputs: { 121: 2 }, result: 45, count: 1 }
+    { name: '猫毛毡', shapeless: true, inputs: { 121: 2 }, result: 45, count: 1 },
+    // 曲速电池：任意两枚 tier≥2 晶体（冰核/孢子晶/熔核/潮汐晶）+ 铁锭
+    { name: '曲速电池', shapeless: true, alts: [
+      { 117: 2, 108: 1 }, { 118: 2, 108: 1 },
+      { 119: 2, 108: 1 }, { 120: 2, 108: 1 }
+    ], result: 122, count: 1 }
   ];
 
   // 有方向配方：把配方最小包围盒平移到 size×size 内，其余格子必须为空

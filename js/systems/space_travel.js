@@ -20,6 +20,7 @@ Voxel.SpaceTravel = (function () {
   var reducedMotion = false, visualTimeOverride = null;
   var rampTarget = 0, rampFrom = 0, rampChangedAt = 0, rampProgress = 0;
   var selectedDestinationId = null, flightMode = 'ship', flightSkipping = false;
+  // 银河星图的标签页/视窗/选择状态由 ui/galaxy_map.js 管理。
   var aboardShip = false, boardedWorldId = null, cockpitSignature = '', shieldImpactUntil = 0;
   var cockpitLastSyncAt = -Infinity;
   var flightState = null, flightEvents = [], lastSafeExit = null, lastLandingPose = null;
@@ -1482,9 +1483,16 @@ Voxel.SpaceTravel = (function () {
     var wt = worldText(world);
     var st = shipText(galaxy);
     setText(worldEl, wt.icon + ' ' + wt.name + ' · ' + wt.typeName);
-    setText(coordEl, '坐标 ' + signed(world.x, 0) + ' / ' + signed(world.y, 0));
+    var sysLabel = '';
+    if (Voxel.Universe) {
+      var desc = Voxel.Galaxy.sysDesc ? Voxel.Galaxy.sysDesc(galaxy) : null;
+      if (desc) sysLabel = desc.galaxyName + ' · ' + desc.name + ' · ';
+    }
+    setText(coordEl, sysLabel + '坐标 ' + signed(world.x, 0) + ' / ' + signed(world.y, 0));
     if (fuelEl) {
-      setText(fuelEl, '跃迁 ' + st.percent + '%');
+      var cells = galaxy.ship && typeof galaxy.ship.warpCells === 'number'
+        ? galaxy.ship.warpCells : 0;
+      setText(fuelEl, '跃迁 ' + st.percent + '%' + ' · 电池 ' + cells);
       var fuelCss = st.percent + '%';
       if (fuelEl.style.getPropertyValue('--fuel') !== fuelCss)
         fuelEl.style.setProperty('--fuel', fuelCss);
@@ -1745,7 +1753,8 @@ Voxel.SpaceTravel = (function () {
       active.removeAttribute('data-from-id'); active.removeAttribute('data-to-id');
       active.setAttribute('data-active', 'false');
     }
-    root.setAttribute('data-ready', Object.keys(coords).length === list.length && list.length === 7 ? 'true' : 'false');
+    // 目录长度随恒星系行星数（2..6+空间站）变化；只要求全部节点就位。
+    root.setAttribute('data-ready', Object.keys(coords).length === list.length && list.length >= 3 ? 'true' : 'false');
     return true;
   }
 
@@ -1794,6 +1803,7 @@ Voxel.SpaceTravel = (function () {
 
   function showMap() {
     if (!mapGrid || !galaxy || !world) return;
+    mapGrid.setAttribute('data-mode', 'system');
     mapGrid.innerHTML = '';
     var list = Array.isArray(galaxy.catalog) ? galaxy.catalog.filter(function (d) {
       return d && typeof d === 'object';
@@ -1888,6 +1898,30 @@ Voxel.SpaceTravel = (function () {
     setSelectedDestination(null);
     syncCockpit(true);
   }
+
+  // ---- 银河星图（跨恒星系）：渲染委托 ui/galaxy_map.js 纯 DOM 模块 ----
+
+  function galaxyMapCtx() {
+    return {
+      galaxy: galaxy,
+      grid: mapGrid,
+      doc: typeof document !== 'undefined' ? document : null
+    };
+  }
+
+  function setMapMode(mode) {
+    return Voxel.GalaxyMap.setMode(mode, Object.assign(galaxyMapCtx(), {
+      onShowSystem: showMap
+    }));
+  }
+
+  function panGalaxyView(dg, ds) { return Voxel.GalaxyMap.pan(dg, ds, galaxyMapCtx()); }
+  function homeGalaxyView() { return Voxel.GalaxyMap.home(galaxyMapCtx()); }
+  function selectJumpTarget(addrStr) {
+    // 状态守卫由 main.js 的 Game.selectJumpTarget 承担；这里只负责渲染选择。
+    return Voxel.GalaxyMap.select(addrStr, galaxyMapCtx());
+  }
+  function selectedJumpInfo() { return Voxel.GalaxyMap.getSelection(galaxy); }
 
   var FLIGHT_PHASES = {
     ignition: ['IGNITION // 01', '跃迁核心点火'],
@@ -2021,6 +2055,7 @@ Voxel.SpaceTravel = (function () {
   }
 
   function hideWarp() {
+    if (Voxel.GalaxyMap && Voxel.GalaxyMap.clearSelection) Voxel.GalaxyMap.clearSelection();
     var el = document.getElementById('overlay-warp');
     var visible = !!(el && !el.classList.contains('hidden'));
     if (el) {
@@ -2269,6 +2304,16 @@ Voxel.SpaceTravel = (function () {
     syncPortalOccupancy: syncPortalOccupancy,
     scanLandmark: scanLandmark,
     showMap: showMap,
+    refreshMap: function () {
+      return Voxel.GalaxyMap.getMode() === 'galaxy'
+        ? Voxel.GalaxyMap.render(galaxyMapCtx()) : showMap();
+    },
+    setMapMode: setMapMode,
+    mapMode: function () { return Voxel.GalaxyMap.getMode(); },
+    panGalaxyView: panGalaxyView,
+    homeGalaxyView: homeGalaxyView,
+    selectJumpTarget: selectJumpTarget,
+    selectedJump: selectedJumpInfo,
     setSelectedDestination: setSelectedDestination,
     showWarp: showWarp,
     hideWarp: hideWarp,

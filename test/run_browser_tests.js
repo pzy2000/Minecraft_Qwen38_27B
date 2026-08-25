@@ -96,7 +96,11 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/route_ui_test.html', re: '^ROUTE-UI-PASS', forceTouch: true, viewport: { width: 160, height: 284, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { file: 'test/route_ui_test.html', re: '^ROUTE-UI-PASS', forceTouch: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { file: 'test/route_ui_test.html', re: '^ROUTE-UI-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
-    { file: 'test/route_ui_test.html', re: '^ROUTE-UI-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } }
+    { file: 'test/route_ui_test.html', re: '^ROUTE-UI-PASS', forceTouch: true, reducedMotion: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/galaxy_ui_test.html', re: '^GALAXY-UI-PASS', forceTouch: true, viewport: { width: 916, height: 390, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/galaxy_ui_test.html', re: '^GALAXY-UI-PASS', forceTouch: true, viewport: { width: 390, height: 740, deviceScaleFactor: 3, isMobile: true, hasTouch: true } },
+    { file: 'test/galaxy_ui_test.html', re: '^GALAXY-UI-PASS', forceTouch: true, viewport: { width: 568, height: 320, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { file: 'test/galaxy_ui_test.html', re: '^GALAXY-UI-PASS', forceTouch: true, viewport: { width: 284, height: 160, deviceScaleFactor: 2, isMobile: true, hasTouch: true } }
   ];
 
   for (const t of targets) {

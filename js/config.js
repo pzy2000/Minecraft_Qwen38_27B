@@ -108,8 +108,16 @@ Voxel.Config = {
     LANDING_ASSIST_HOLD_MS: 600        // 长按 E 触发阈值
   },
 
-  SAVE_KEY: 'starbound_voxel_save_v5', // v5：星系、多世界独立进度、飞船与发现状态
+  SAVE_KEY: 'starbound_voxel_save_v6', // v6：无限宇宙（银河→恒星系）、跨系曲速电池
   AUTOSAVE_INTERVAL: 30,
+
+  // 无限宇宙（Universe 层）：恒星系档案缓存与跨系跃迁成本
+  UNIVERSE: {
+    ARCHIVE_MAX_SYSTEMS: 24,   // 当前系之外最多保留的恒星系档案数（LRU）
+    JUMP_CELLS_PER_DIST: 0.5,  // 跨系跃迁电池消耗 = ceil(距离 × 此系数)
+    JUMP_CELLS_MIN: 1,
+    JUMP_CELLS_MAX: 24
+  },
 
   // 触控（移动端虚拟摇杆 + MCPE 式手势）
   TOUCH: {

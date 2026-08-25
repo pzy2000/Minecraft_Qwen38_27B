@@ -9,8 +9,9 @@ Voxel.Save = (function () {
   var SWAP_KEY = BACKUP_KEY + '_swap';
   // 语法损坏/不可启动的主档不能覆盖唯一有效 backup，单独按原字节隔离。
   var QUARANTINE_KEY = KEY + '_quarantine';
-  // 历史存档键（载入时自动迁移到当前 KEY）
-  var LEGACY_KEYS = ['voxelcraft_save_v4', 'voxelcraft_save_v3'];
+  // 历史存档键（载入时自动迁移到当前 KEY）。v5→v6：galaxy 内新增
+  // curG/curS/archive/warpCells 字段，缺失时由 Galaxy.hydrate 回落起源系。
+  var LEGACY_KEYS = ['starbound_voxel_save_v5', 'voxelcraft_save_v4', 'voxelcraft_save_v3'];
   var hasOwn = Object.prototype.hasOwnProperty;
 
   function validRaw(raw) {
@@ -215,7 +216,7 @@ Voxel.Save = (function () {
         return false;
       }
       var obj = {
-        v: 5,
+        v: 6,
         seed: world.getSeed(),
         time: extra.time,
         weather: extra.weather,
@@ -236,6 +237,10 @@ Voxel.Save = (function () {
         edits: hasOwn.call(extra, 'edits') ? extra.edits : world.getEdits(),
         galaxy: extra.galaxy || null
       };
+      // 无限宇宙瘦身：存档前丢弃可再生的世界快照并 LRU 裁剪其他恒星系档案。
+      if (obj.galaxy && Voxel.Galaxy && Voxel.Galaxy.pruneForSave) {
+        try { obj.galaxy = Voxel.Galaxy.pruneForSave(obj.galaxy); } catch (pruneError) { }
+      }
       var raw = JSON.stringify(obj);
       if (!replaceVerified(KEY, raw, true)) {
         console.warn('存档写入后校验失败');

@@ -26,6 +26,7 @@ function load(rel) {
 
 load('js/config.js');
 load('js/world/seed.js');
+load('js/world/universe.js');
 load('js/world/galaxy.js');
 load('js/world/noise.js');
 load('js/world/biomes.js');

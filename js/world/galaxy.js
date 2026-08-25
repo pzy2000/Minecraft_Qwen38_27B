@@ -1,5 +1,6 @@
-// 星系生成：由一个 64 位根种子稳定派生行星、空间站、门户与跃迁距离。
-// 纯逻辑模块，无 DOM/THREE 依赖，可直接在 Node 测试中加载。
+// 恒星系生成：由宇宙种子 + 银河/恒星系坐标确定性派生行星、空间站、门户与跃迁距离。
+// 起源恒星系 (g=0,s=0) 的目录派生公式与旧版单星系逐位一致（存档兼容边界）。
+// 纯逻辑模块，无 DOM/THREE 依赖；依赖 seed.js 与 universe.js，可直接在 Node 测试中加载。
 window.Voxel = window.Voxel || {};
 
 Voxel.Galaxy = (function () {
@@ -39,6 +40,12 @@ Voxel.Galaxy = (function () {
 
   function own(value, key) { return Object.prototype.hasOwnProperty.call(value, key); }
 
+  function plainInt(value) {
+    // 无限宇宙坐标（curG/curS）允许任意方向。
+    return typeof value === 'number' && isFinite(value) && Math.floor(value) === value
+      ? Math.floor(value) : null;
+  }
+
   // 版本是存档兼容边界，不接受字符串/小数/未来值。只要“已有存档”没有一个
   // 明确合法的 1/2，就必须按 v1 解释，避免升级后给旧 edits 更换底图。
   function normalizeTerrainVersion(value, fallback) {
@@ -53,12 +60,14 @@ Voxel.Galaxy = (function () {
     return galaxy;
   }
 
-  function create(seed) {
-    var root = rootString(seed);
+  // 按恒星系描述符构建目录。字段派生公式与旧版逐字一致；起源系描述符
+  // （6 行星、类型顺序固定）使输出与历史版本完全相同。
+  function buildCatalog(root, desc) {
     var worlds = [];
-    for (var i = 0; i < 6; i++) {
-      // 首颗适合开局，且每个星系完整覆盖六种生态；种子决定名称、地形与轨道。
-      var typeIndex = i;
+    var count = Math.max(1, Math.min(6, desc.planetCount | 0));
+    for (var i = 0; i < count; i++) {
+      var typeIndex = desc.typeKeys[i] >= 0 && desc.typeKeys[i] < TYPES.length
+        ? desc.typeKeys[i] : (i % TYPES.length);
       var t = TYPES[typeIndex];
       var angle = (Voxel.SeedUtil.derive32(root, 0x4400 + i) / 4294967296) * Math.PI * 2;
       var radius = 18 + i * 14 + (Voxel.SeedUtil.derive32(root, 0x5500 + i) % 9);
@@ -81,22 +90,40 @@ Voxel.Galaxy = (function () {
       });
     }
     worlds.push({
-      id: 'station-0', kind: 'station', index: 6,
+      id: 'station-0', kind: 'station', index: count,
       name: '阿特拉斯中继站', seed: signedDerived(root, 0x7700),
       typeKey: 'station', typeName: '轨道空间站', icon: '▣',
       desc: '跃迁补给 · 星系航行终端', accent: '#e992ff',
       skyTop: 0x030511, horizon: 0x090d22, terrainVersion: CURRENT_TERRAIN_VERSION, x: 0, y: 0
     });
+    return worlds;
+  }
+
+  function stampCatalog(galaxy) {
+    for (var i = 0; i < galaxy.catalog.length; i++)
+      galaxy.catalog[i].terrainVersion = CURRENT_TERRAIN_VERSION;
+    return galaxy;
+  }
+
+  function create(seed) {
+    var root = rootString(seed);
+    var desc = Voxel.Universe.describe(root, 0, 0);
     return {
       version: 1,
       terrainVersion: CURRENT_TERRAIN_VERSION,
       rootSeed: root,
+      // 无限宇宙坐标：当前所在恒星系（起源系 = 旧版单星系，逐位兼容）
+      curG: 0,
+      curS: 0,
       currentId: 'planet-0',
       discovered: { 'planet-0': true },
-      ship: { fuel: 100, maxFuel: 100, engine: '脉冲跃迁引擎 MK-I' },
+      ship: { fuel: 100, maxFuel: 100, engine: '脉冲跃迁引擎 MK-I', warpCells: 2 },
       discovery: null,
       worlds: {},
-      catalog: worlds
+      // 其他恒星系的玩家档案桶 { addr: {discovered, worlds, discovery, lastVisit} }
+      archive: {},
+      visitedSys: { 'g0/s0': true },
+      catalog: buildCatalog(root, desc)
     };
   }
 
@@ -121,7 +148,22 @@ Voxel.Galaxy = (function () {
       fresh.legacyStartSeed = legacyStart;
       freshStart.seed = legacyStart;
     }
-    fresh.currentId = find(fresh, saved.currentId) ? saved.currentId : 'planet-0';
+    // 无限宇宙坐标：损坏/缺失一律回落起源系（其目录与旧版逐位一致）。
+    var curG = plainInt(saved.curG), curS = plainInt(saved.curS);
+    if (curG === null || curS === null || !Voxel.Universe.addr(curG, curS)) {
+      curG = 0; curS = 0;
+    }
+    if (curG !== 0 || curS !== 0) {
+      var desc = Voxel.Universe.describe(fresh.rootSeed, curG, curS);
+      fresh.curG = curG; fresh.curS = curS;
+      fresh.catalog = buildCatalog(desc.root, desc);
+      stampTerrainVersion(fresh, normalizeTerrainVersion(saved.terrainVersion, 1));
+      // 非起源系的行星名来自各自 root；visited 标记按地址重置。
+      fresh.currentId = 'station-0';
+      fresh.discovered = { 'station-0': true };
+      fresh.visitedSys[Voxel.Universe.addr(curG, curS)] = true;
+    }
+    fresh.currentId = find(fresh, saved.currentId) ? saved.currentId : fresh.currentId;
     fresh.discovered = plainObject(saved.discovered) ? saved.discovered : fresh.discovered;
     // 存档字段是不可信输入：只从普通对象逐字段合并，缺失/损坏字段沿用当前版本默认值。
     // 不能直接 fresh.ship = saved.ship；旧档缺 engine 时会把 "undefined" 泄漏到航行终端，
@@ -136,10 +178,16 @@ Voxel.Galaxy = (function () {
 
       if (typeof savedShip.fuel === 'number' && isFinite(savedShip.fuel))
         fresh.ship.fuel = Math.floor(savedShip.fuel);
+
+      if (typeof savedShip.warpCells === 'number' && isFinite(savedShip.warpCells))
+        fresh.ship.warpCells = Math.max(0, Math.floor(savedShip.warpCells));
     }
     fresh.ship.maxFuel = Math.max(1, fresh.ship.maxFuel);
     fresh.ship.fuel = Math.max(0, Math.min(fresh.ship.maxFuel, fresh.ship.fuel));
     fresh.worlds = plainObject(saved.worlds) ? saved.worlds : {};
+    // 其他恒星系档案桶：只接受普通对象，桶内字段由 switchSystem 使用时再收紧。
+    fresh.archive = plainObject(saved.archive) ? saved.archive : {};
+    fresh.visitedSys = plainObject(saved.visitedSys) ? saved.visitedSys : fresh.visitedSys;
     // 发现档案由 Discovery.hydrate 按当前 catalog 严格净化；Galaxy 这里只保留
     // 普通对象原料，不能把未知键直接当作有效扫描记录。
     fresh.discovery = plainObject(saved.discovery) ? saved.discovery : null;
@@ -205,25 +253,30 @@ Voxel.Galaxy = (function () {
 
   function requiredNetworkWorlds(galaxy) {
     if (!plainObject(galaxy) || !own(galaxy, 'rootSeed') || !own(galaxy, 'catalog') ||
-      !Array.isArray(galaxy.catalog) || galaxy.catalog.length !== 7)
+      !Array.isArray(galaxy.catalog) || galaxy.catalog.length < 3 || galaxy.catalog.length > 7)
       return null;
     var worlds = {}, planets = [];
-    for (var i = 0; i < 6; i++) {
-      var id = 'planet-' + i;
-      var planet = find(galaxy, id);
-      if (!plainObject(planet) || !own(planet, 'id') || !own(planet, 'kind') ||
-        !own(planet, 'x') || !own(planet, 'y') || planet.id !== id || planet.kind !== 'planet' ||
-        typeof planet.x !== 'number' || !isFinite(planet.x) || Math.abs(planet.x) > 10000000 ||
-        typeof planet.y !== 'number' || !isFinite(planet.y) || Math.abs(planet.y) > 10000000) return null;
-      worlds[id] = planet;
-      planets.push(planet);
+    for (var i = 0; i < galaxy.catalog.length; i++) {
+      var body = galaxy.catalog[i];
+      if (!plainObject(body) || !own(body, 'id') || !own(body, 'kind') ||
+        !own(body, 'x') || !own(body, 'y')) return null;
+      if (body.kind === 'planet') {
+        // 行星必须按目录顺序连续编号：planet-0..N
+        if (body.id !== 'planet-' + planets.length) return null;
+        if (typeof body.x !== 'number' || !isFinite(body.x) || Math.abs(body.x) > 10000000 ||
+          typeof body.y !== 'number' || !isFinite(body.y) || Math.abs(body.y) > 10000000) return null;
+        worlds[body.id] = body;
+        planets.push(body);
+      } else if (body.kind === 'station') {
+        if (body.id !== 'station-0') return null;
+        if (typeof body.x !== 'number' || !isFinite(body.x) || Math.abs(body.x) > 10000000 ||
+          typeof body.y !== 'number' || !isFinite(body.y) || Math.abs(body.y) > 10000000) return null;
+        worlds[body.id] = body;
+      }
     }
-    var station = find(galaxy, 'station-0');
-    if (!plainObject(station) || !own(station, 'id') || !own(station, 'kind') ||
-      !own(station, 'x') || !own(station, 'y') || station.id !== 'station-0' || station.kind !== 'station' ||
-      typeof station.x !== 'number' || !isFinite(station.x) || Math.abs(station.x) > 10000000 ||
-      typeof station.y !== 'number' || !isFinite(station.y) || Math.abs(station.y) > 10000000) return null;
-    worlds['station-0'] = station;
+    // 必须恰好一颗空间站且至少两颗行星（环与星形拓扑才有意义）。
+    var station = worlds['station-0'];
+    if (!plainObject(station) || station.kind !== 'station' || planets.length < 2) return null;
     return { planets: planets, station: station, worlds: worlds };
   }
 
@@ -302,6 +355,7 @@ Voxel.Galaxy = (function () {
 
   // 整个星系一次派生一张双向网络，而不是让每个世界各自有放回抽样：
   // station 星形边保证任意两世界最多两跳；seeded 行星环与对径匹配提供地表捷径。
+  // 泛化：行星数 2..6 均可成网；对径边仅当两端配对存在时加入（奇数颗时中位行星缺席）。
   function portalNetwork(galaxy) {
     var root = canonicalNetworkRoot(galaxy && galaxy.rootSeed);
     var required = requiredNetworkWorlds(galaxy);
@@ -309,26 +363,43 @@ Voxel.Galaxy = (function () {
     if (!root || !required) return empty;
 
     var cycle = seededPlanetCycle(root, required.planets);
+    var half = Math.floor(cycle.length / 2);
     var edges = [], edgeMap = {};
     var i;
     for (i = 0; i < required.planets.length; i++)
       addEdge(edges, edgeMap, 'station-0', required.planets[i].id, 'station');
     for (i = 0; i < cycle.length; i++)
       addEdge(edges, edgeMap, cycle[i], cycle[(i + 1) % cycle.length], 'cycle');
-    for (i = 0; i < cycle.length / 2; i++)
-      addEdge(edges, edgeMap, cycle[i], cycle[i + cycle.length / 2], 'opposite');
+    for (i = 0; i < half; i++)
+      addEdge(edges, edgeMap, cycle[i], cycle[i + half], 'opposite');
 
     var byWorld = {}, cycleIndex = {};
     for (i = 0; i < cycle.length; i++) cycleIndex[cycle[i]] = i;
     for (i = 0; i < required.planets.length; i++) {
       var planetId = required.planets[i].id;
       var ci = cycleIndex[planetId];
+      var oppositeId = null;
+      // 奇数行星数时 (ci + floor(N/2)) 不是对称映射；必须从已经建立的
+      // 无向 edge 查找另一端，才能保证每条 opposite 门在两端都有返程门。
+      for (var oi = 0; oi < edges.length; oi++) {
+        var oppositeEdge = edges[oi];
+        if (oppositeEdge.kind !== 'opposite') continue;
+        if (oppositeEdge.a === planetId) oppositeId = oppositeEdge.b;
+        else if (oppositeEdge.b === planetId) oppositeId = oppositeEdge.a;
+        if (oppositeId) break;
+      }
       var destinations = [
         { id: 'station-0', kind: 'station' },
         { id: cycle[(ci + cycle.length - 1) % cycle.length], kind: 'cycle' },
-        { id: cycle[(ci + 1) % cycle.length], kind: 'cycle' },
-        { id: cycle[(ci + cycle.length / 2) % cycle.length], kind: 'opposite' }
+        { id: cycle[(ci + 1) % cycle.length], kind: 'cycle' }
       ];
+      var seenIds = {};
+      for (var e = 0; e < destinations.length; e++) seenIds[destinations[e].id] = true;
+      // 对径目的地：仅在边存在且未与前三个目的地重复（N=2/3 时会与环邻居重合）时加入。
+      if (oppositeId && !seenIds[oppositeId] && edgeMap[pairKey(planetId, oppositeId)]) {
+        seenIds[oppositeId] = true;
+        destinations.push({ id: oppositeId, kind: 'opposite' });
+      }
       byWorld[planetId] = [];
       for (var d = 0; d < destinations.length; d++)
         byWorld[planetId].push(gateFor(
@@ -342,11 +413,11 @@ Voxel.Galaxy = (function () {
     var out = networkShell(root);
     out.cycle = cycle.slice();
     for (i = 0; i < edges.length; i++) out.edges.push(cloneEdge(edges[i]));
-    var ids = ['planet-0', 'planet-1', 'planet-2', 'planet-3', 'planet-4', 'planet-5', 'station-0'];
-    for (i = 0; i < ids.length; i++) {
-      out.byWorld[ids[i]] = [];
-      for (var g = 0; g < byWorld[ids[i]].length; g++)
-        out.byWorld[ids[i]].push(cloneGate(byWorld[ids[i]][g]));
+    for (var key in required.worlds) {
+      if (!own(required.worlds, key)) continue;
+      out.byWorld[key] = [];
+      for (var g = 0; g < byWorld[key].length; g++)
+        out.byWorld[key].push(cloneGate(byWorld[key][g]));
     }
     return out;
   }
@@ -433,6 +504,172 @@ Voxel.Galaxy = (function () {
     };
   }
 
+  // ---- 无限宇宙：恒星系切换 / 档案裁剪 / 跨系跃迁 ----
+
+  function sysAddr(galaxy) {
+    var a = Voxel.Universe.addr(galaxy && galaxy.curG, galaxy && galaxy.curS);
+    return a || 'g0/s0';
+  }
+
+  // 当前系统的描述符（名称/恒星/行星数/类型布局）。
+  function sysDesc(galaxy) {
+    return Voxel.Universe.describe(galaxy && galaxy.rootSeed,
+      galaxy ? galaxy.curG : 0, galaxy ? galaxy.curS : 0);
+  }
+
+  // 预览任意恒星系的完整目录（不切换当前系统）。用于跨系跃迁前获取
+  // 目的地空间站的种子与名称。坐标非法返回 null。
+  function catalogFor(galaxy, g, s) {
+    var gi = plainInt(g), si = plainInt(s);
+    if (!galaxy || gi === null || si === null) return null;
+    var desc = Voxel.Universe.describe(galaxy.rootSeed, gi, si);
+    var list = buildCatalog(desc.root, desc);
+    for (var i = 0; i < list.length; i++) list[i].terrainVersion = CURRENT_TERRAIN_VERSION;
+    return list;
+  }
+
+  function archiveMax() {
+    return Voxel.Config && Voxel.Config.UNIVERSE &&
+      typeof Voxel.Config.UNIVERSE.ARCHIVE_MAX_SYSTEMS === 'number'
+      ? Math.max(1, Voxel.Config.UNIVERSE.ARCHIVE_MAX_SYSTEMS) : 24;
+  }
+
+  // LRU 裁剪其他恒星系档案；永不触碰当前系统（它不在 archive 里）。
+  function pruneArchive(galaxy, nowTs) {
+    if (!plainObject(galaxy) || !plainObject(galaxy.archive)) return galaxy;
+    var max = archiveMax();
+    var addrs = [];
+    for (var key in galaxy.archive)
+      if (own(galaxy.archive, key)) addrs.push(key);
+    if (addrs.length <= max) return galaxy;
+    addrs.sort(function (a, b) {
+      var ta = plainObject(galaxy.archive[a]) ? (galaxy.archive[a].lastVisit || 0) : 0;
+      var tb = plainObject(galaxy.archive[b]) ? (galaxy.archive[b].lastVisit || 0) : 0;
+      return ta - tb;
+    });
+    while (addrs.length > max) delete galaxy.archive[addrs.shift()];
+    return galaxy;
+  }
+
+  // 切换当前恒星系：把当前桶（discovered/worlds/discovery）存入 archive，
+  // 取回目标系档案或全新初始化，并重建目录。arriveWorldId 必须存在于新目录。
+  function switchSystem(galaxy, g, s, arriveWorldId, nowTs) {
+    if (!galaxy || plainInt(g) === null || plainInt(s) === null) return null;
+    var targetAddr = Voxel.Universe.addr(g, s);
+    if (!targetAddr) return null;
+    if (g === galaxy.curG && s === galaxy.curS) return galaxy;
+
+    var ts = typeof nowTs === 'number' && isFinite(nowTs) ? nowTs : Date.now();
+    if (!plainObject(galaxy.archive)) galaxy.archive = {};
+    if (!plainObject(galaxy.visitedSys)) galaxy.visitedSys = {};
+
+    // 归档当前系统
+    galaxy.archive[sysAddr(galaxy)] = {
+      discovered: plainObject(galaxy.discovered) ? galaxy.discovered : {},
+      worlds: plainObject(galaxy.worlds) ? galaxy.worlds : {},
+      discovery: galaxy.discovery || null,
+      lastVisit: ts
+    };
+
+    // 恢复目标系统
+    var bucket = plainObject(galaxy.archive[targetAddr]) ? galaxy.archive[targetAddr] : null;
+    delete galaxy.archive[targetAddr];
+    galaxy.curG = g;
+    galaxy.curS = s;
+    var desc = Voxel.Universe.describe(galaxy.rootSeed, g, s);
+    galaxy.catalog = buildCatalog(desc.root, desc);
+    stampCatalog(galaxy);
+    galaxy.discovered = bucket && plainObject(bucket.discovered) ? bucket.discovered : {};
+    galaxy.worlds = bucket && plainObject(bucket.worlds) ? bucket.worlds : {};
+    galaxy.discovery = bucket ? (bucket.discovery || null) : null;
+    galaxy.visitedSys[targetAddr] = true;
+
+    var arriveId = find(galaxy, arriveWorldId) ? arriveWorldId :
+      (find(galaxy, 'station-0') ? 'station-0' : galaxy.catalog[0].id);
+    galaxy.currentId = arriveId;
+    galaxy.discovered[arriveId] = true;
+    pruneArchive(galaxy, ts);
+    return galaxy;
+  }
+
+  // 存档前瘦身：删除「可从种子再生」的世界快照。保留有玩家痕迹的
+  // （edits/meta/drops/床/飞船状态），以及当前世界本身。
+  function stripRegenerable(worlds, keepId) {
+    if (!plainObject(worlds)) return worlds;
+    for (var id in worlds) {
+      if (!own(worlds, id) || id === keepId) continue;
+      var snap = worlds[id];
+      if (!plainObject(snap)) { delete worlds[id]; continue; }
+      var hasEdits = plainObject(snap.edits) && Object.keys(snap.edits).length > 0;
+      var hasMeta = plainObject(snap.meta) && Object.keys(snap.meta).length > 0;
+      var hasDrops = Array.isArray(snap.drops) && snap.drops.length > 0;
+      var hasBed = Array.isArray(snap.bed);
+      var hasShip = !!snap.shipFlight ||
+        (plainObject(snap.player) && snap.player.aboard === true);
+      if (!hasEdits && !hasMeta && !hasDrops && !hasBed && !hasShip) {
+        // 昼夜时间与天气不是种子可再生数据；保留为最小快照，删除其余
+        // 普通玩家/空容器字段，既维持按天体时间语义又完成存档瘦身。
+        var lean = {};
+        if (typeof snap.time === 'number' && isFinite(snap.time)) lean.time = snap.time;
+        if (typeof snap.weather === 'string' && snap.weather) lean.weather = snap.weather;
+        if (Object.keys(lean).length) worlds[id] = lean;
+        else delete worlds[id];
+      }
+    }
+    return worlds;
+  }
+
+  function copyOwnObject(value) {
+    if (!plainObject(value)) return value;
+    var out = Object.create(null);
+    for (var key in value) if (own(value, key)) out[key] = value[key];
+    return out;
+  }
+
+  function pruneForSave(galaxy) {
+    if (!plainObject(galaxy)) return galaxy;
+    // 只复制裁剪会触碰的容器；catalog/ship/发现数据保持只读引用，避免为一次
+    // autosave 对整个大存档做 JSON 深拷贝，同时保证运行态绝不被裁剪修改。
+    var out = copyOwnObject(galaxy);
+    out.worlds = copyOwnObject(galaxy.worlds);
+    stripRegenerable(out.worlds, galaxy.currentId);
+    if (plainObject(galaxy.archive)) {
+      out.archive = Object.create(null);
+      for (var addr in galaxy.archive) {
+        if (!own(galaxy.archive, addr)) continue;
+        var bucket = galaxy.archive[addr];
+        if (!plainObject(bucket)) { out.archive[addr] = bucket; continue; }
+        var bucketCopy = copyOwnObject(bucket);
+        bucketCopy.worlds = copyOwnObject(bucket.worlds);
+        stripRegenerable(bucketCopy.worlds, null);
+        out.archive[addr] = bucketCopy;
+      }
+      pruneArchive(out);
+    }
+    return out;
+  }
+
+  // 跨恒星系跃迁计划：曲速电池记账（与 routePlan 的普通燃料互不干扰）。
+  function jumpPlan(galaxy, g, s) {
+    if (!galaxy || plainInt(g) === null || plainInt(s) === null) {
+      return { valid: false };
+    }
+    var fromAddr = sysAddr(galaxy), toAddr = Voxel.Universe.addr(g, s);
+    if (!toAddr || toAddr === fromAddr) return { valid: false };
+    var cells = boundedUnits(galaxy.ship && galaxy.ship.warpCells, 0, 0, 1000000);
+    var cost = Voxel.Universe.jumpCells(
+      { g: galaxy.curG, s: galaxy.curS }, { g: g, s: s });
+    return {
+      valid: true,
+      fromAddr: fromAddr,
+      toAddr: toAddr,
+      cost: cost,
+      cells: cells,
+      shortfall: Math.max(0, cost - cells),
+      reachable: cells >= cost
+    };
+  }
+
   return {
     CURRENT_TERRAIN_VERSION: CURRENT_TERRAIN_VERSION,
     PORTAL_NETWORK_VERSION: PORTAL_NETWORK_VERSION,
@@ -446,6 +683,13 @@ Voxel.Galaxy = (function () {
     portalNetwork: portalNetwork,
     portalsFor: portalsFor,
     portalRoute: portalRoute,
-    routePlan: routePlan
+    routePlan: routePlan,
+    sysAddr: sysAddr,
+    sysDesc: sysDesc,
+    catalogFor: catalogFor,
+    switchSystem: switchSystem,
+    pruneArchive: pruneArchive,
+    pruneForSave: pruneForSave,
+    jumpPlan: jumpPlan
   };
 })();

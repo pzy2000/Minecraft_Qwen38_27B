@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=33cfcd937a61f470b6c9bfaf7be297b3cf1419bf221fa4fe1255148b73da64fd">
+<link rel="stylesheet" href="css/style.css?v=9ddf603207bb2efed061f728e16b22c8d1a3b5ce4753629823a79d0ebc55ff8f">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -348,6 +348,12 @@
         <h2 id="starmap-title">星系航行图</h2>
         <div id="starmap-status" class="terminal-line">导航引擎待机 · 等待星域数据</div>
       </div>
+      <div class="starmap-tabs" role="tablist" aria-label="星图层级">
+        <button id="btn-map-system" class="starmap-tab" type="button" data-mode="system"
+                aria-pressed="true">恒星系</button>
+        <button id="btn-map-galaxy" class="starmap-tab" type="button" data-mode="galaxy"
+                aria-pressed="false">银河</button>
+      </div>
       <button id="btn-starmap-close" class="panel-close" type="button"
               aria-label="关闭星图" title="关闭星图">×</button>
     </div>
@@ -388,8 +394,16 @@
         </g>
       </svg>
     </div>
+    <div id="galaxy-toolbar" aria-label="银河视窗控制">
+      <span class="galaxy-coords" id="galaxy-origin-label">视窗 g0/s0</span>
+      <button id="galaxy-pan-up" type="button" aria-label="视窗上移">▲</button>
+      <button id="galaxy-pan-left" type="button" aria-label="视窗左移">◀</button>
+      <button id="galaxy-home" type="button" aria-label="回到当前恒星系">◎</button>
+      <button id="galaxy-pan-right" type="button" aria-label="视窗右移">▶</button>
+      <button id="galaxy-pan-down" type="button" aria-label="视窗下移">▼</button>
+    </div>
     <div id="starmap-grid" role="group" aria-label="目的地航线，按距离由近到远"></div>
-    <div id="starmap-help" class="starmap-footer hint"><span>ROUTE PROTOCOL</span>星图点火使用飞船能量 · 地表传送门目的地固定且免费 · 空间站自动补满能量</div>
+    <div id="starmap-help" class="starmap-footer hint"><span>ROUTE PROTOCOL</span>星图点火使用飞船能量 · 银河跳跃消耗曲速电池（2 枚高阶晶体+铁锭合成） · 地表传送门免费 · 空间站自动补满能量</div>
   </div>
 </div>
 
@@ -535,15 +549,16 @@
 <script src="js/config.js?v=fae0565c3b7496f0860b828b6377dd2ca9cd5fe5f4c32c9038f3041ca8afcca4"></script>
 <script src="js/assets.js?v=05fd721830c9a917c03158eb7c7a98e6dff352abfd95e42373ad9c31abe7572e"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
-<script src="js/world/galaxy.js?v=20260824q"></script>
+<script src="js/world/universe.js?v=20260825b"></script>
+<script src="js/world/galaxy.js?v=20260825c"></script>
 <script src="js/systems/atmosphere_profiles.js?v=20260824m"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
 <script src="js/world/biomes.js?v=20260824o"></script>
 <script src="js/world/planet_rules.js?v=20260824o"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
-<script src="js/blocks.js?v=20260824o"></script>
+<script src="js/blocks.js?v=20260825a"></script>
 <script src="js/systems/discovery.js?v=20260824o"></script>
-<script src="js/crafting.js?v=20260823f"></script>
+<script src="js/crafting.js?v=20260825a"></script>
 <script src="js/world/world.js?v=20260824q"></script>
 <script src="js/world/infinite.js?v=20260824q"></script>
 <script src="js/world/mesh.js?v=20260823f"></script>
@@ -562,14 +577,15 @@
 <script src="js/systems/sound.js?v=c3113950bb10df84be6e9c3e2a323712977a7f1e275768666c5a02f0527774a0"></script>
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
-<script src="js/systems/space_travel.js?v=84b48c5b3f5d8a9c53530ef938394395cf895ac1fa4aa6e1303c4ebda7665139"></script>
+<script src="js/ui/galaxy_map.js?v=20260825a"></script>
+<script src="js/systems/space_travel.js?v=20260825a"></script>
 <script src="js/entities/mobs.js?v=20260824e"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
-<script src="js/systems/save.js?v=adc8eee3475048b9e286dc40ee2dbe5907bc5a41b073c015127a627c85c33538"></script>
+<script src="js/systems/save.js?v=5c3699619f41fe0dd5efb67341d8ad8025db82dae606b0bd2bf03fa6cd952c00"></script>
 <script src="js/ui/handitem.js?v=3bbb6d458732035d4ea791b5a8494ecd5d3974925a30d3b8778cce723d3c4343"></script>
 <script src="js/ui/featured.js?v=d7f0e47d1576fc46ad75e1122bd629eed19558ce57a91ce929b15a288f81cb1b"></script>
 <script src="js/ui/touch.js?v=2aa0796fe55f76eb93014e83b8fbe903167abb3dc40d19447d74f1eefed7f701"></script>
 <script src="js/ui/hud.js?v=20260824r"></script>
-<script src="js/main.js?v=ef5e7c6dfce3cc3611aa18bbac39e7663e43944e5c3fc6eac397192da11d204a"></script>
+<script src="js/main.js?v=75bd2f5abc7e685b99e51539a8f295f438efe8d875400506c3c5c7137d9ab350"></script>
 </body>
 </html>

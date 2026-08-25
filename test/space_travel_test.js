@@ -1323,7 +1323,7 @@ let browser;
     document.getElementById('btn-save').click();
   });
   const saved = await page.evaluate(() => Voxel.Save.load());
-  check('v5 存档保留当前天体', saved.v === 5 && saved.galaxy.currentId === 'station-0');
+  check('v6 存档保留当前天体', saved.v === 6 && saved.galaxy.currentId === 'station-0');
   check('v5 存档隔离多个世界快照', saved.galaxy.worlds['planet-0'] && saved.galaxy.worlds['station-0']);
   check('存档按世界隔离行星/空间站掉落',
     saved.galaxy.worlds['planet-0'].drops.some(d => d.id === 102 && d.dur === 37) &&

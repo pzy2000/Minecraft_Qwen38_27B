@@ -49,6 +49,7 @@ function check(name, cond) {
 
 load('js/config.js');
 load('js/world/seed.js');
+load('js/world/universe.js');
 load('js/world/galaxy.js');
 load('js/systems/atmosphere_profiles.js');
 load('js/world/noise.js');
@@ -960,6 +961,12 @@ console.log('存档序列化往返');
   for (var i = 0; i < 36; i++) { inv.push(0); cnt.push(0); }
   inv[0] = 10; cnt[0] = 64;   // 一组 64 木板
   inv[5] = 19; cnt[5] = 3;    // 3 个火把
+  var saveGalaxy = GA.create('star-ocean-42');
+  saveGalaxy.worlds['planet-1'] = {
+    time: 0.77,
+    weather: 'thunder',
+    player: { pos: [12, 34, 56], hp: 20, food: 20 }
+  };
   var extra = {
     time: 0.42,
     weather: 'rain',
@@ -980,10 +987,16 @@ console.log('存档序列化往返');
       { id: 102, n: 1, dur: 37, pos: [11.5, 40.25, -7.5], vel: [1.25, 2.5, -0.75], age: 12.5 },
       { id: 10, n: 4, dur: null, pos: [-3.5, 22, 8.5], vel: [0, 0, 0], age: 3 }
     ],
-    galaxy: galA
+    galaxy: saveGalaxy
   };
   check('Save.save 成功', V.Save.save(V.World, extra));
   var loaded = V.Save.load();
+  check('Save.save 裁剪序列化副本但不改运行时 galaxy',
+    !!saveGalaxy.worlds['planet-1'].player && saveGalaxy.worlds['planet-1'].player.pos[0] === 12);
+  check('非当前世界瘦身后仍保留时间天气', !!loaded && !!loaded.galaxy.worlds['planet-1'] &&
+    loaded.galaxy.worlds['planet-1'].time === 0.77 &&
+    loaded.galaxy.worlds['planet-1'].weather === 'thunder' &&
+    loaded.galaxy.worlds['planet-1'].player === undefined);
   check('Save.load 返回数据', !!loaded);
   check('seed 往返', !!loaded && loaded.seed === V.World.getSeed());
   check('time 往返', !!loaded && loaded.time === 0.42);
@@ -1013,7 +1026,7 @@ console.log('存档序列化往返');
     loaded.player.environment.v === 1 && loaded.player.environment.worlds['planet-0'].exposure === 42.5 &&
     loaded.player.environment.worlds['planet-0'].adapted === true);
   check('edits 随存档写入', !!loaded && !!loaded.edits && loaded.edits[bx + ',' + by + ',' + bz] === 10);
-  check('v5 星系状态随存档写入', !!loaded && loaded.v === 5 && loaded.galaxy.rootSeed === galA.rootSeed &&
+  check("v6 星系状态随存档写入", !!loaded && loaded.v === 6 && loaded.galaxy.rootSeed === galA.rootSeed &&
     loaded.galaxy.catalog.length === 7 && loaded.galaxy.terrainVersion === 2);
 
   // 旧 v5 存档没有临时格/手持耐久字段，读取层不得因此拒绝整个存档。
@@ -1662,7 +1675,7 @@ check('石头不是燃料', !FS.isFuel(3));
 console.log('合成配方测试');
 var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
-check('配方数量=14', Craft.recipes.length === 14);
+check('配方数量=15', Craft.recipes.length === 15);
 
 // 猫毛毡：无序配方 2×猫毛(121) → 猫毛毡方块(45)
 g = g9(); g[0] = 121; g[4] = 121;

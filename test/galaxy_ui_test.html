@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>GALAXY-UI-RUNNING</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-game-state="starmap">
+<canvas id="game" aria-hidden="true"></canvas>
+<div class="touch-capture" aria-hidden="true"></div>
+
+<div id="overlay-starmap" class="overlay" data-mode="remote" data-map-mode="system">
+  <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title"
+       aria-describedby="starmap-status starmap-help">
+    <div class="panel-titlebar">
+      <div class="starmap-ident">
+        <div class="starmap-kicker">ARK NAVIGATION // ROUTE SELECT</div>
+        <h2 id="starmap-title">星系航行图</h2>
+        <div id="starmap-status" class="terminal-line">导航引擎待机</div>
+      </div>
+      <div class="starmap-tabs" role="tablist" aria-label="星图层级">
+        <button id="btn-map-system" class="starmap-tab" type="button" data-mode="system"
+                aria-pressed="true">恒星系</button>
+        <button id="btn-map-galaxy" class="starmap-tab" type="button" data-mode="galaxy"
+                aria-pressed="false">银河</button>
+      </div>
+      <button id="btn-starmap-close" class="panel-close" type="button" aria-label="关闭星图">×</button>
+    </div>
+
+    <section id="starmap-cockpit" data-state="idle" aria-labelledby="cockpit-title"
+             aria-describedby="cockpit-selection">
+      <div class="cockpit-frame" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="cockpit-route-copy">
+        <span id="cockpit-title">FLIGHT DECK // ROUTE LOCK</span>
+        <strong id="cockpit-selection" role="status" aria-live="polite" aria-atomic="true">请选择目标恒星系以锁定曲速航线</strong>
+      </div>
+      <button id="btn-travel-ignite" type="button" disabled aria-disabled="true"
+              aria-label="点火并前往所选目的地">点火跃迁</button>
+    </section>
+
+    <div id="galaxy-toolbar" aria-label="银河视窗控制">
+      <span class="galaxy-coords" id="galaxy-origin-label">视窗 g0/s0</span>
+      <button id="galaxy-pan-up" type="button" aria-label="视窗上移">▲</button>
+      <button id="galaxy-pan-left" type="button" aria-label="视窗左移">◀</button>
+      <button id="galaxy-home" type="button" aria-label="回到当前恒星系">◎</button>
+      <button id="galaxy-pan-right" type="button" aria-label="视窗右移">▶</button>
+      <button id="galaxy-pan-down" type="button" aria-label="视窗下移">▼</button>
+    </div>
+
+    <div id="starmap-grid" role="group" aria-label="目的地航线，按距离由近到远"></div>
+    <div id="starmap-help" class="starmap-footer hint"><span>ROUTE PROTOCOL</span>银河跳跃消耗曲速电池</div>
+  </div>
+</div>
+
+<pre id="results" class="sr-only"></pre>
+<script src="../js/config.js"></script>
+<script src="../js/world/seed.js"></script>
+<script src="../js/world/universe.js"></script>
+<script src="../js/world/galaxy.js"></script>
+<script src="../js/ui/galaxy_map.js"></script>
+<script>
+(function () {
+  'use strict';
+  var failed = 0, lines = [], results = document.getElementById('results');
+  function check(name, ok, detail) {
+    lines.push((ok ? 'ok  ' : 'FAIL ') + name + (detail ? ' :: ' + detail : ''));
+    if (!ok) failed++;
+  }
+  function visible(el) {
+    var r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+  }
+  function selfHit(el) {
+    var r = el.getBoundingClientRect();
+    var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && (hit === el || el.contains(hit));
+  }
+  async function frame() {
+    return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
+  }
+
+  var SEED = '12345';
+  var galaxy = Voxel.Galaxy.create(SEED);
+  galaxy.ship.warpCells = 6;
+
+  function ctx() {
+    return {
+      galaxy: galaxy,
+      grid: document.getElementById('starmap-grid'),
+      doc: document
+    };
+  }
+
+  function cards() {
+    return document.querySelectorAll('#starmap-grid .galaxy-card');
+  }
+
+  async function run() {
+    var panel = document.getElementById('overlay-starmap');
+
+    // ---- 切到银河模式 ----
+    var mode = Voxel.GalaxyMap.setMode('galaxy', Object.assign(ctx(), {
+      onShowSystem: function () { }
+    }));
+    check('setMode 返回 galaxy', mode === 'galaxy');
+    check('面板 data-map-mode 更新', panel.getAttribute('data-map-mode') === 'galaxy');
+    await frame();
+
+    var tabG = document.getElementById('btn-map-galaxy');
+    var tabS = document.getElementById('btn-map-system');
+    check('标签按下态同步', tabG.getAttribute('aria-pressed') === 'true' &&
+      tabS.getAttribute('aria-pressed') === 'false');
+    check('工具栏可见且在面板内', visible(document.getElementById('galaxy-toolbar')));
+    check('当前系卡片禁用', (function () {
+      var cur = document.querySelector('#starmap-grid .galaxy-card.current');
+      return !!cur && cur.disabled && cur.getAttribute('aria-current') === 'location' &&
+        cur.textContent.indexOf('当前位置') >= 0;
+    })());
+    check('渲染 5×5 视窗卡片', cards().length === 25, cards().length);
+
+    // 起源系 visitedSys 标记：当前卡 discovered；其余 unknown
+    var unknown = document.querySelectorAll('#starmap-grid .galaxy-card.unknown');
+    check('未探索系显示未知态', unknown.length === 24, unknown.length);
+    var named = document.querySelectorAll('#starmap-grid .galaxy-card b');
+    check('未知系隐藏真名', Array.prototype.some.call(named, function (b) {
+      return b.textContent === '未探索恒星';
+    }));
+
+    // 状态栏显示星系名与电池数
+    var statusText = document.getElementById('starmap-status').textContent;
+    check('状态栏含银河名与电池', statusText.indexOf(Voxel.Universe.describe(SEED, 0, 0).galaxyName) >= 0 &&
+      statusText.indexOf('曲速电池 6') >= 0, statusText);
+
+    // ---- 选择可达目标（相邻系成本 ≤ 6）----
+    var neighbor = null;
+    for (var s = 1; s <= 4 && !neighbor; s++) {
+      var addrStr = Voxel.Universe.addr(0, s);
+      if (!addrStr) continue;
+      var cost = Voxel.Universe.jumpCells({ g: 0, s: 0 }, { g: 0, s: s });
+      if (cost <= 6) neighbor = { g: 0, s: s, cost: cost };
+    }
+    check('存在可达邻居', !!neighbor);
+    var card = document.querySelector('#starmap-grid .galaxy-card[data-addr="g0/s' + neighbor.s + '"]');
+    check('邻居卡存在于视窗', !!card);
+    card.click();
+    await frame();
+    check('点击选中并高亮', card.classList.contains('selected') &&
+      card.getAttribute('aria-pressed') === 'true');
+    var selText = document.getElementById('cockpit-selection').textContent;
+    check('选择文案锁定曲速航线', selText.indexOf('曲速航线已锁定') >= 0 &&
+      selText.indexOf('消耗 ' + neighbor.cost + ' 曲速电池') >= 0, selText);
+    var ignite = document.getElementById('btn-travel-ignite');
+    check('点火按钮可用', !ignite.disabled && ignite.getAttribute('aria-disabled') === 'false');
+    check('座舱状态 locked', document.getElementById('starmap-cockpit')
+      .getAttribute('data-state') === 'locked');
+
+    // getSelection 数据契约（供 main.js 的 requestSystemJump 使用）
+    var plan = Voxel.GalaxyMap.getSelection(galaxy);
+    check('getSelection 契约', !!plan && plan.g === 0 && plan.s === neighbor.s &&
+      plan.reachable === true && plan.cost === neighbor.cost);
+
+    // ---- 电池不足场景 ----
+    galaxy.ship.warpCells = 0;
+    Voxel.GalaxyMap.render(ctx());
+    await frame();
+    card = document.querySelector('#starmap-grid .galaxy-card[data-addr="g0/s' + neighbor.s + '"]');
+    card.click();
+    await frame();
+    selText = document.getElementById('cockpit-selection').textContent;
+    check('不足文案包含缺口', selText.indexOf('曲速航线不可用') >= 0 &&
+      selText.indexOf('缺少') >= 0 && selText.indexOf('需要 ' + neighbor.cost + ' 电池') >= 0, selText);
+    check('不足态点火禁用', ignite.disabled && ignite.getAttribute('aria-disabled') === 'true');
+    check('座舱状态 insufficient', document.getElementById('starmap-cockpit')
+      .getAttribute('data-state') === 'insufficient');
+    var insCard = document.querySelector('#starmap-grid .galaxy-card.insufficient');
+    check('不足卡片视觉类', !!insCard);
+
+    // ---- 视窗平移与回中 ----
+    galaxy.ship.warpCells = 6;
+    Voxel.GalaxyMap.pan(2, 3, ctx());
+    await frame();
+    check('平移更新原点标签', document.getElementById('galaxy-origin-label').textContent === '视窗 g2/s3',
+      document.getElementById('galaxy-origin-label').textContent);
+    check('平移后仍渲染25卡', cards().length === 25);
+    check('平移后当前系不在视窗中心', !document.querySelector('#starmap-grid .galaxy-card[data-addr="g2/s3"].current'));
+    Voxel.GalaxyMap.home(ctx());
+    await frame();
+    check('回中恢复原点', document.getElementById('galaxy-origin-label').textContent === '视窗 g0/s0');
+
+    // ---- 切回恒星系模式 ----
+    Voxel.GalaxyMap.setMode('system', Object.assign(ctx(), {
+      onShowSystem: function () {
+        var grid = document.getElementById('starmap-grid');
+        grid.innerHTML = '';
+        grid.setAttribute('data-mode', 'system');
+      }
+    }));
+    await frame();
+    check('切回后 data-mode=system', panel.getAttribute('data-map-mode') === 'system' &&
+      tabS.getAttribute('aria-pressed') === 'true');
+    check('切回后工具栏隐藏', !visible(document.getElementById('galaxy-toolbar')));
+
+    // ---- 极窄视口布局（284px）----
+    var vp = document.getElementById('viewport-probe');
+    if (vp) vp.style.width = '284px';
+    window.resizeTo(284, 568);
+    await frame();
+    var narrowCards = cards();
+    void narrowCards;
+    var anyCard = document.querySelector('#starmap-grid .galaxy-card:not(.current)');
+    if (anyCard) {
+      var r = anyCard.getBoundingClientRect();
+      check('窄屏卡片不横向溢出', r.left >= -0.5 && r.right <= innerWidth + 0.5,
+        Math.round(r.left) + '..' + Math.round(r.right));
+      check('窄屏卡片可命中', selfHit(anyCard));
+    }
+
+    results.textContent = lines.join('\n');
+    results.dataset.failed = String(failed);
+    var title = document.title;
+    document.title = failed === 0 ? 'GALAXY-UI-PASS' : 'GALAXY-UI-FAIL';
+    console.log((failed === 0 ? 'GALAXY-UI-PASS' : 'GALAXY-UI-FAIL') +
+      '\n' + lines.join('\n') + '\n(' + title + ')');
+  }
+
+  run().catch(function (e) {
+    results.textContent = String(e && e.stack || e);
+    document.title = 'GALAXY-UI-FAIL';
+    console.error(e);
+  });
+})();
+</script>
+</body>
+</html>

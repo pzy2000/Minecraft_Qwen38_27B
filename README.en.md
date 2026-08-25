@@ -3,7 +3,7 @@
 **Language:** [中文](README.md) · [English](README.en.md)
 
 A No Man's Sky-inspired 3D voxel exploration game built with plain HTML5, JavaScript, and Three.js.
-One galaxy seed deterministically creates six distinct planets and an orbital station, with seeded portals, a starship interface, a warp engine, interstellar travel, per-world persistence, and responsive desktop/mobile controls. Zero runtime dependencies and zero build step — **double-click `index.html` and play in the browser**.
+One universe seed recursively derives **infinite galaxies × infinite star systems**: each system deterministically spawns 2–6 distinct planets plus an orbital station, with seeded portals, a starship interface, a warp engine for in-system travel, warp-cell jumps to neighboring systems in any direction, per-world persistence, and responsive desktop/mobile controls. Zero runtime dependencies and zero build step — **double-click `index.html` and play in the browser**.
 
 ## Interstellar exploration
 

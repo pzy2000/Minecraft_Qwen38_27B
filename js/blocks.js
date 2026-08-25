@@ -27,7 +27,7 @@ Voxel.Blocks = (function () {
     CHEST_TOP: 68, CHEST_SIDE: 69, CHEST_FRONT: 70,
     ACTIVE_CRYSTAL: 71, SILICA_CRYSTAL: 72, ICE_CORE: 73,
     SPORE_CRYSTAL: 74, MAGMA_CORE: 75, TIDAL_CRYSTAL: 76,
-    CAT_FUR: 77, FELT: 78
+    CAT_FUR: 77, FELT: 78, WARP_CELL: 79
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -141,6 +141,11 @@ Voxel.Blocks = (function () {
     // 猫相关材料（稳定物品 ID 121）。
     defs[121] = { name: '猫毛', item: true, solid: false, opaque: false,
       tiles: [T.CAT_FUR, T.CAT_FUR, T.CAT_FUR], sound: 'wool', color: 0xe0aa6e, icon: T.CAT_FUR };
+
+    // 跨恒星系跃迁燃料（稳定物品 ID 122）：任意两枚 tier≥2 晶体 + 铁锭合成。
+    defs[122] = { name: '曲速电池', item: true, solid: false, opaque: false,
+      tiles: [T.WARP_CELL, T.WARP_CELL, T.WARP_CELL], sound: 'glass', color: 0xb08cf0,
+      icon: T.WARP_CELL };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -618,6 +623,38 @@ Voxel.Blocks = (function () {
       var v = n(r, 0, 14);
       if (((x + y * 2) % 6) === 0 && r() < 0.55) return [172 + v, 156 + v, 141 + v];
       return [196 + v, 180 + v, 166 + v];
+    });
+
+    // ---- 曲速电池（跨恒星系跃迁燃料） ----
+
+    drawTile(T.WARP_CELL, function (x, y, r) {
+      // 竖置能量电池：金属外壳 + 中央紫青色曲速窗口 + 顶部正极端子
+      var dx = x - 8;
+      if (y >= 1 && y <= 3 && Math.abs(dx) <= 2) {                 // 正极端子
+        var tv = n(r, 0, 12);
+        return [212 + tv, 216 + tv, 228 + tv];
+      }
+      var inShell = y >= 4 && y <= 14 && Math.abs(dx) <= 5;        // 外壳轮廓
+      if (!inShell) {
+        if ((y === 13 || y === 14) && Math.abs(dx) === 6) return [70, 74, 92]; // 底部圆角
+        return;
+      }
+      if (Math.abs(dx) === 5 || y === 4 || y === 14) {             // 描边
+        var sv = n(r, 0, 10);
+        return [96 + sv, 102 + sv, 126 + sv];
+      }
+      var inWindow = y >= 6 && y <= 12 && Math.abs(dx) <= 3;       // 曲速窗口
+      if (inWindow) {
+        // 纵向流动能量纹：越靠中心越亮，随行扫描出流光
+        var flow = (y * 2 + ((x + 8) % 4)) % 7 === 0;
+        if (flow || (Math.abs(dx) <= 1 && y >= 8 && y <= 10))
+          return [214, 178, 255];                                  // 高亮芯
+        var wv = n(r, 0, 18);
+        var edge = Math.abs(dx) === 3 ? -26 : 0;
+        return [150 + wv + edge, 108 + wv + edge, 236 + wv];       // 紫青底
+      }
+      var mv = n(r, 0, 12);
+      return [168 + mv, 176 + mv, 200 + mv];                       // 金属壳面
     });
 
     // ---- 功能方块（熔炉/箱子） ----

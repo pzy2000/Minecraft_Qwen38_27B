@@ -646,6 +646,39 @@ body[data-touch-mode="true"][data-save-health="unsaved"] .touch-btn-top.pause::a
   background: rgba(10,20,39,.86); border: 1px solid color-mix(in srgb, var(--accent) 55%, #26354c);
   font-family: inherit; cursor: pointer; touch-action: manipulation;
 }
+/* 银河视图：标签页切换 + 视窗工具栏 + 网格化恒星卡片 */
+.starmap-tabs { display: flex; gap: 6px; margin-top: 2px; }
+.starmap-tab {
+  font-family: inherit; font-size: 11px; letter-spacing: 2px; color: #8fa3bd;
+  background: rgba(10,20,39,.86); border: 1px solid #26354c;
+  padding: 5px 10px; cursor: pointer; touch-action: manipulation;
+}
+.starmap-tab[aria-pressed="true"] {
+  color: var(--space-cyan); border-color: var(--space-cyan);
+  box-shadow: inset 0 -2px 0 var(--space-cyan);
+}
+#galaxy-toolbar { display: none; margin-top: 10px; gap: 6px; align-items: center; }
+#overlay-starmap[data-map-mode="galaxy"] #galaxy-toolbar { display: flex; }
+#galaxy-toolbar button {
+  width: 34px; height: 30px; font-family: inherit; color: #dfeafa; font-size: 13px;
+  background: rgba(10,20,39,.86); border: 1px solid #31435e; cursor: pointer;
+}
+#galaxy-toolbar button:hover { border-color: var(--space-cyan); color: var(--space-cyan); }
+#galaxy-origin-label { margin-left: auto; margin-right: 8px; color: #8395ae; font-size: 10px; letter-spacing: 1px; }
+#overlay-starmap[data-map-mode="galaxy"] #starmap-route-map { display: none; }
+#overlay-starmap[data-map-mode="galaxy"] #starmap-grid { grid-template-columns: repeat(5, 1fr); gap: 7px; }
+/* 后置的 .star-card 基础块（82px + overflow:hidden）会裁掉卡片元信息；
+   用 ID 级特异性放开高度限制，保证地址/成本两行完整可见。 */
+#overlay-starmap[data-map-mode="galaxy"] #starmap-grid .galaxy-card {
+  min-height: 112px;
+  height: auto;
+  overflow: visible;
+}
+.galaxy-card { min-height: 104px; grid-template-columns: 1fr; gap: 4px; padding: 8px 6px; text-align: center; justify-items: center; }
+.galaxy-card .star-icon { font-size: 22px; }
+.galaxy-card .star-main b { font-size: 11px; margin-bottom: 2px; }
+.galaxy-card .star-main small { max-width: none; font-size: 9px; }
+.galaxy-card .star-meta { white-space: normal; text-align: center; font-size: 9px; line-height: 1.4; }
 .star-card:hover { background: rgba(24,44,70,.94); box-shadow: inset 3px 0 0 var(--accent); }
 .star-card.current { opacity: .58; cursor: default; }
 .star-icon { color: var(--accent); font-size: 28px; text-align: center; text-shadow: 0 0 9px var(--accent); }

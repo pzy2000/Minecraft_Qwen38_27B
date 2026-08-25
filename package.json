@@ -10,8 +10,8 @@
     "start": "python3 -m http.server 8080",
     "build": "node test/build_check.js",
     "test": "npm run test:node && npm run test:browser",
-    "test:node": "node test/smoke.js && node test/planet_rules_test.js && node test/resource_registry_test.js && node test/portal_network_test.js && node test/ship_flight_test.js && node test/landing_assist_test.js && node test/flight_sequence_test.js && node test/audio_asset_budget_test.js && node test/ci_workflow_test.js && node test/pages_workflow_test.js",
-    "test:browser": "node test/run_browser_tests.js && node test/space_travel_test.js && node test/cockpit_resume_test.js",
+    "test:node": "node test/smoke.js && node test/universe_test.js && node test/planet_rules_test.js && node test/resource_registry_test.js && node test/portal_network_test.js && node test/ship_flight_test.js && node test/landing_assist_test.js && node test/flight_sequence_test.js && node test/audio_asset_budget_test.js && node test/ci_workflow_test.js && node test/pages_workflow_test.js",
+    "test:browser": "node test/run_browser_tests.js && node test/space_travel_test.js && node test/cockpit_resume_test.js && node test/jump_flow_test.js",
     "test:space": "node test/space_travel_test.js"
   },
   "keywords": [],

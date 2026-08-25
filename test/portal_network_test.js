@@ -4,6 +4,7 @@ global.Voxel = {};
 
 require('../js/config.js');
 require('../js/world/seed.js');
+require('../js/world/universe.js');
 require('../js/world/galaxy.js');
 
 const G = Voxel.Galaxy;

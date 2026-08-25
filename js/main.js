@@ -8,6 +8,8 @@ Voxel.Game = (function () {
   var state = 'loading';
   var renderer, scene, camera, canvas, highlight;
   var MAX_STACK = Voxel.Blocks.MAX_STACK || 64;
+  var WARP_CELL_ITEM_ID = 122;
+  var MAX_WARP_CELLS = 1000000;
   var inv = [], cnt = [];
   for (var i0 = 0; i0 < 36; i0++) { inv.push(0); cnt.push(0); }
   var dur = [];   // 与 inv 平行：工具耐久（非工具格为 null）
@@ -263,6 +265,14 @@ Voxel.Game = (function () {
       return;
     }
     var inside = top.root.contains(e.target);
+    // 抵达等待离舰时，E 的优先级高于任何残留 modal 的关闭语义：
+    // 一旦被 closeKey 吞掉，玩家将永久困在抵达画面（无其他可见出路）。
+    if (state === 'arriving' && e.code === 'KeyE' && !e.repeat) {
+      disembark();
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.key === 'Tab') {
       var list = modalFocusables(top.root);
       if (!list.length) { e.preventDefault(); e.stopPropagation(); return; }
@@ -855,9 +865,14 @@ Voxel.Game = (function () {
       acceptFlightEvent(commitTx, 'commit_succeeded');
       var arrivalShown = false;
       if (Voxel.SpaceTravel && Voxel.SpaceTravel.showArrival)
-        arrivalShown = Voxel.SpaceTravel.showArrival(commitTx.from, currentWorld, commitTx.mode, {
-          firstVisit: !(commitTx.sourceSave.galaxy.discovered &&
-            commitTx.sourceSave.galaxy.discovered[currentWorld.id]),
+        arrivalShown = Voxel.SpaceTravel.showArrival(commitTx.from, currentWorld,
+          // 跨系跳跃沿用 ship 抵达表现：hideWarp 之后必须重新拉起带「下船」
+          // 按钮的抵达层，否则玩家面对纯星空没有任何可见出路。
+          commitTx.mode === 'jump' ? 'ship' : commitTx.mode, {
+          firstVisit: commitTx.mode === 'jump'
+            ? !!commitTx.jumpFirstVisit
+            : !(commitTx.sourceSave.galaxy.discovered &&
+              commitTx.sourceSave.galaxy.discovered[currentWorld.id]),
           refueled: currentWorld.kind === 'station'
         });
       if (!arrivalShown && Voxel.SpaceTravel && Voxel.SpaceTravel.announceTravel)
@@ -1270,6 +1285,34 @@ Voxel.Game = (function () {
     }
     if (added > 0) refreshInv();
     return added;
+  }
+
+  // 曲速电池是飞船资源而不是普通随身耗材：任一合成入口产出后立即装填，
+  // 使配方结果与 Galaxy.jumpPlan 读取的 ship.warpCells 保持同一权威状态。
+  function canAcceptCraftResult(id, n) {
+    if (id !== WARP_CELL_ITEM_ID) return canAddInv(id, n);
+    if (!galaxyState || !galaxyState.ship) return false;
+    var current = Number(galaxyState.ship.warpCells);
+    if (!isFinite(current)) current = 0;
+    return Math.max(0, Math.floor(current)) + Math.max(1, Math.floor(n || 1)) <= MAX_WARP_CELLS;
+  }
+
+  function acceptCraftResult(id, n) {
+    n = Math.max(1, Math.floor(n || 1));
+    if (id !== WARP_CELL_ITEM_ID) return addInv(id, n);
+    if (!canAcceptCraftResult(id, n)) return 0;
+    var current = Number(galaxyState.ship.warpCells);
+    galaxyState.ship.warpCells = Math.max(0, Math.floor(isFinite(current) ? current : 0)) + n;
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.syncCockpit) Voxel.SpaceTravel.syncCockpit(true);
+    return n;
+  }
+
+  function announceCraftResult(id, n) {
+    if (id === WARP_CELL_ITEM_ID) {
+      Voxel.HUD.toast('合成曲速电池' + (n > 1 ? ' ×' + n : '') + ' · 已自动装填飞船');
+      return;
+    }
+    Voxel.HUD.toast('合成 ' + Voxel.Blocks.name(id) + (n > 1 ? ' ×' + n : ''));
   }
 
   function decSel() {
@@ -1885,11 +1928,14 @@ Voxel.Game = (function () {
     if (state !== 'crafting') return;
     var r = Voxel.Crafting.match(craftGrid);
     if (!r) return;
-    if (!canAddInv(r.result, r.count)) { Voxel.HUD.toast('背包空间不足！'); return; }
+    if (!canAcceptCraftResult(r.result, r.count)) {
+      Voxel.HUD.toast(r.result === WARP_CELL_ITEM_ID ? '曲速电池仓已满！' : '背包空间不足！');
+      return;
+    }
     Voxel.Crafting.consume(craftGrid, r);
-    addInv(r.result, r.count);
+    acceptCraftResult(r.result, r.count);
     Voxel.Sound.pop();
-    Voxel.HUD.toast('合成 ' + Voxel.Blocks.name(r.result) + (r.count > 1 ? ' ×' + r.count : ''));
+    announceCraftResult(r.result, r.count);
     refreshInv();
     refreshCraft();
   }
@@ -1911,11 +1957,14 @@ Voxel.Game = (function () {
     if (state !== 'inventory') return;
     var r = Voxel.Crafting.matchIn(invCraftGrid, 2);
     if (!r) return;
-    if (!canAddInv(r.result, r.count)) { Voxel.HUD.toast('背包空间不足！'); return; }
+    if (!canAcceptCraftResult(r.result, r.count)) {
+      Voxel.HUD.toast(r.result === WARP_CELL_ITEM_ID ? '曲速电池仓已满！' : '背包空间不足！');
+      return;
+    }
     Voxel.Crafting.consume(invCraftGrid, r);
-    addInv(r.result, r.count);
+    acceptCraftResult(r.result, r.count);
     Voxel.Sound.pop();
-    Voxel.HUD.toast('合成 ' + Voxel.Blocks.name(r.result) + (r.count > 1 ? ' ×' + r.count : ''));
+    announceCraftResult(r.result, r.count);
     refreshInv();
     refreshInvCraft();
   }
@@ -2208,11 +2257,15 @@ Voxel.Game = (function () {
         if (take === cnt[s]) drained++;
       }
     }
-    if (free + drained * MAX_STACK < r.count) { Voxel.HUD.toast('背包空间不足！'); return false; }
+    if (!canAcceptCraftResult(r.result, r.count) ||
+      (r.result !== WARP_CELL_ITEM_ID && free + drained * MAX_STACK < r.count)) {
+      Voxel.HUD.toast(r.result === WARP_CELL_ITEM_ID ? '曲速电池仓已满！' : '背包空间不足！');
+      return false;
+    }
     Voxel.Crafting.consumeFromInv(inv, r, 1, cnt);
-    addInv(r.result, r.count);
+    acceptCraftResult(r.result, r.count);
     Voxel.Sound.pop();
-    Voxel.HUD.toast('合成 ' + Voxel.Blocks.name(r.result) + (r.count > 1 ? ' ×' + r.count : ''));
+    announceCraftResult(r.result, r.count);
     refreshInv();
     Voxel.HUD.refreshManual();
     return true;
@@ -2521,7 +2574,7 @@ Voxel.Game = (function () {
       return false;
     }
     selectedTravelId = null;
-    Voxel.SpaceTravel.showMap();
+    Voxel.SpaceTravel.refreshMap();
     if (Voxel.SpaceTravel.setSelectedDestination) Voxel.SpaceTravel.setSelectedDestination(null);
     var opened = openModalLayer({
       id: 'overlay-starmap', state: 'starmap', returnState: returnState,
@@ -2672,6 +2725,40 @@ Voxel.Game = (function () {
       Voxel.SpaceTravel.setSelectedDestination(dest.id);
     return true;
   }
+
+  // 星图面板的「恒星系/银河」标签页与银河视窗平移按钮（DOM 在 index.html）。
+  function bindStarmapTabs() {
+    var tabs = document.querySelectorAll('.starmap-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      (function (tab) {
+        tab.addEventListener('click', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          var mode = tab.getAttribute('data-mode');
+          if (state === 'starmap' && Voxel.SpaceTravel && Voxel.SpaceTravel.setMapMode)
+            Voxel.SpaceTravel.setMapMode(mode);
+        });
+      })(tabs[i]);
+    }
+    function bindPan(id, dg, ds) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        if (state === 'starmap' && Voxel.SpaceTravel && Voxel.SpaceTravel.panGalaxyView)
+          Voxel.SpaceTravel.panGalaxyView(dg, ds);
+      });
+    }
+    bindPan('galaxy-pan-up', -GALAXY_PAN, 0);
+    bindPan('galaxy-pan-down', GALAXY_PAN, 0);
+    bindPan('galaxy-pan-left', 0, -GALAXY_PAN);
+    bindPan('galaxy-pan-right', 0, GALAXY_PAN);
+    var home = document.getElementById('galaxy-home');
+    if (home) home.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (state === 'starmap' && Voxel.SpaceTravel && Voxel.SpaceTravel.homeGalaxyView)
+        Voxel.SpaceTravel.homeGalaxyView();
+    });
+  }
+  var GALAXY_PAN = 4;
 
   function igniteSelectedTravel() {
     if (state !== 'starmap' || !selectedTravelId) return false;
@@ -2976,9 +3063,16 @@ Voxel.Game = (function () {
     if (Voxel.SpaceTravel && Voxel.SpaceTravel.announceTravel)
       Voxel.SpaceTravel.announceTravel('已进入目标星域，正在构建 ' + tx.to.name + '。');
     try {
-      galaxyState.ship.fuel = Math.max(0, tx.fuelBefore - tx.cost);
+      if (tx.mode === 'jump') {
+        // 跨恒星系：先切换系统（目录/档案桶轮换），再消耗曲速电池。
+        Voxel.Galaxy.switchSystem(galaxyState, tx.toG, tx.toS, tx.toId);
+        galaxyState.ship.warpCells = Math.max(0,
+          (galaxyState.ship.warpCells | 0) - (tx.cost | 0));
+      } else {
+        galaxyState.ship.fuel = Math.max(0, tx.fuelBefore - tx.cost);
+        galaxyState.discovered[tx.toId] = true;
+      }
       galaxyState.currentId = tx.toId;
-      galaxyState.discovered[tx.toId] = true;
       startWorld(tx.to.seed, tx.transit, null, tx.toId);
       return true;
     } catch (e) {
@@ -2999,12 +3093,16 @@ Voxel.Game = (function () {
         tx.phase = 'cockpit_arrived';
         if (Voxel.Sound && Voxel.Sound.warpArrive) Voxel.Sound.warpArrive(tx.mode);
         if (Voxel.SpaceTravel && Voxel.SpaceTravel.setDisembarkReady)
-          Voxel.SpaceTravel.setDisembarkReady(tx.mode === 'ship');
-        if (tx.mode === 'ship') setTimeout(function () {
-          if (pendingTravel !== tx || tx.sequence.phase !== 'cockpit_arrived') return;
-          var disembarkBtn = document.getElementById('btn-disembark');
-          if (disembarkBtn && !disembarkBtn.disabled && disembarkBtn.focus) disembarkBtn.focus();
-        }, 0);
+          Voxel.SpaceTravel.setDisembarkReady(tx.mode === 'ship' || tx.mode === 'jump');
+        if (tx.mode === 'ship' || tx.mode === 'jump') {
+          Voxel.HUD.toast('抵达 ' + tx.to.name + ' · 按 E 或点「下船」离舰');
+          setTimeout(function () {
+            if (pendingTravel !== tx || tx.sequence.phase !== 'cockpit_arrived') return;
+            var disembarkBtn = document.getElementById('btn-disembark');
+            if (disembarkBtn && !disembarkBtn.disabled && disembarkBtn.focus)
+              disembarkBtn.focus({ preventScroll: true });
+          }, 0);
+        }
       } else if (events[i] === 'auto_complete') {
         var autoResult = acceptFlightEvent(tx, 'auto_complete');
         if (autoResult && autoResult.events.indexOf('complete') >= 0) finishTravel(tx);
@@ -3016,6 +3114,13 @@ Voxel.Game = (function () {
   function tickFlight(dt) {
     var tx = pendingTravel;
     if (!tx || !tx.sequence || !tx.sequence.update) return;
+    // 跃迁/抵达期间主动隐藏地表交互提示：残留的「按 E 登舰避难」会误导
+    // 玩家在离舰时刻按错预期（updateHighlight 只在 playing 帧运行）。
+    var hintEl = document.getElementById('use-hint');
+    if (hintEl && hintEl.style.display !== 'none') {
+      hintEl.style.display = 'none';
+      hintEl.removeAttribute('data-kind');
+    }
     if (tx.sequence.phase === 'target_loading') {
       syncFlightVisual(tx, Voxel.World && Voxel.World.progress ? Voxel.World.progress() : 0);
       return;
@@ -3056,9 +3161,13 @@ Voxel.Game = (function () {
     // 防止复用 ship/portal 样式时重新打开全屏跃迁层，silent 防止重复播报。
     try {
       if (Voxel.SpaceTravel && Voxel.SpaceTravel.showArrivalCard) {
-        Voxel.SpaceTravel.showArrivalCard(tx.from, currentWorld, tx.mode, {
-          firstVisit: !(tx.sourceSave.galaxy.discovered &&
-            tx.sourceSave.galaxy.discovered[currentWorld.id]),
+        var firstVisit = tx.mode === 'jump'
+          ? !!tx.jumpFirstVisit
+          : !(tx.sourceSave.galaxy.discovered &&
+            tx.sourceSave.galaxy.discovered[currentWorld.id]);
+        Voxel.SpaceTravel.showArrivalCard(tx.from, currentWorld,
+          tx.mode === 'jump' ? 'ship' : tx.mode, {
+          firstVisit: firstVisit,
           refueled: currentWorld.kind === 'station',
           presentationOnly: true,
           silent: true
@@ -3084,7 +3193,7 @@ Voxel.Game = (function () {
   function disembark() {
     var tx = pendingTravel;
     if (!tx || state !== 'arriving' || !tx.sequence || tx.sequence.phase !== 'cockpit_arrived' ||
-      tx.mode !== 'ship') return false;
+      (tx.mode !== 'ship' && tx.mode !== 'jump')) return false;
     var result = acceptFlightEvent(tx, 'disembark');
     if (result && result.events.indexOf('complete') >= 0) return finishTravel(tx);
     return false;
@@ -3199,6 +3308,125 @@ Voxel.Game = (function () {
       Voxel.SpaceTravel.announceTravel('跃迁已启动，目的地：' + dest.name + '。');
     syncFlightVisual(tx);
     return true;
+  }
+
+  // 跨恒星系跃迁（银河星图）：消耗曲速电池而非普通燃料；抵达目标系空间站。
+  // 复用 requestTravel 的验证-存档-演出事务骨架；beginTargetLoad 内做系统切换。
+  function requestSystemJump(g, s) {
+    if ((state !== 'playing' && state !== 'cockpit' && state !== 'starmap') || pendingTravel) return false;
+    var travelOriginState = state;
+    var plan = Voxel.Galaxy.jumpPlan(galaxyState, g, s);
+    if (!plan || !plan.valid) {
+      Voxel.HUD.toast('星域坐标无效，已取消跳跃');
+      return false;
+    }
+    if (currentWorld && currentWorld.kind === 'planet' &&
+      !(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard())) {
+      Voxel.HUD.toast('跨恒星系跃迁需要先登舰（或从空间站终端操作）');
+      return false;
+    }
+    if (!plan.reachable) {
+      Voxel.HUD.toast('曲速电池不足：需要 ' + plan.cost + ' · 当前 ' + plan.cells +
+        ' · 还缺 ' + plan.shortfall + '（2 枚高阶晶体 + 铁锭可合成）');
+      return false;
+    }
+
+    if (!doSave(true, 'travel-departure')) {
+      Voxel.HUD.toast('保存源世界失败，已取消跳跃；请检查浏览器存储空间');
+      return false;
+    }
+    var sourceSave = Voxel.Save.load();
+    if (!sourceSave || !sourceSave.galaxy || sourceSave.galaxy.currentId !== currentWorld.id ||
+      sourceSave.galaxy.curG !== galaxyState.curG || sourceSave.galaxy.curS !== galaxyState.curS) {
+      Voxel.HUD.toast('出发存档回读不一致，已取消跳跃');
+      return false;
+    }
+
+    travelStats = { hp: Voxel.Player.hp(), food: Voxel.Player.food() };
+    var desc = Voxel.Universe.describe(galaxyState.rootSeed, g, s);
+    var destCatalog = Voxel.Galaxy.catalogFor(galaxyState, g, s);
+    var to = null;
+    for (var ci = 0; ci < destCatalog.length; ci++)
+      if (destCatalog[ci].id === 'station-0') { to = destCatalog[ci]; break; }
+    if (!to) { travelStats = null; Voxel.HUD.toast('目标恒星系数据异常，已取消'); return false; }
+
+    // 目标系档案桶中的空间站快照（床/掉落物），其余字段从安全泊位重建。
+    var bucket = plainGet(galaxyState.archive, plan.toAddr);
+    var snap = bucket && bucket.worlds ? bucket.worlds['station-0'] || {} : {};
+    var transit = {
+      seed: to.seed,
+      time: typeof snap.time === 'number' ? snap.time : 0.3,
+      weather: snap.weather || 'clear',
+      player: null,
+      shipFlight: null,
+      inv: inv.slice(), cnt: cnt.slice(), dur: dur.slice(),
+      held: heldItem, heldCnt: heldCnt, heldDur: heldDur,
+      craftGrid: craftGrid.slice(), invCraftGrid: invCraftGrid.slice(),
+      bed: snap.bed || null,
+      meta: snap.meta || {}, edits: snap.edits || {}, drops: snap.drops || [],
+      galaxy: galaxyState
+    };
+    var from = currentWorld;
+    var sequence = Voxel.FlightSequence && Voxel.FlightSequence.create
+      ? Voxel.FlightSequence.create({ serial: travelSerial + 1, mode: 'ship', reducedMotion: flightReducedMotion() }) : null;
+    if (!sequence || sequence.phase === 'aborted') {
+      travelStats = null;
+      Voxel.HUD.toast('飞行序列不可用，已取消跳跃');
+      return false;
+    }
+    var tx = {
+      serial: ++travelSerial,
+      phase: 'ignition',
+      mode: 'jump',
+      fromId: from.id,
+      toId: to.id,
+      from: from,
+      to: to,
+      toG: g,
+      toS: s,
+      cost: plan.cost,
+      route: null,
+      fuelBefore: galaxyState.ship.fuel,
+      cellsBefore: galaxyState.ship.warpCells,
+      jumpFirstVisit: !galaxyState.visitedSys || !galaxyState.visitedSys[plan.toAddr],
+      sourceSave: sourceSave,
+      sourceState: travelOriginState,
+      transit: transit,
+      sequence: sequence
+    };
+    pendingTravel = tx;
+    try {
+      if (Voxel.SpaceTravel) Voxel.SpaceTravel.showWarp(from, to, 'ship', tx);
+      if (Voxel.Sound && Voxel.Sound.warpStart) Voxel.Sound.warpStart('ship');
+    } catch (e) {
+      pendingTravel = null;
+      travelStats = null;
+      if (Voxel.SpaceTravel && Voxel.SpaceTravel.hideWarp) Voxel.SpaceTravel.hideWarp();
+      if (Voxel.Sound && Voxel.Sound.warpEnd) Voxel.Sound.warpEnd(false);
+      console.error('跨系跳跃演出启动失败', e);
+      Voxel.HUD.toast('曲速引擎启动失败，仍停留在当前恒星系');
+      return false;
+    }
+    // 与 requestTravel 同规：从星图点火时必须把星图 modal 移出栈，
+    // 否则 modal 分支会吞掉 Warp/Arrive 阶段的 E/Esc（离舰/跳过全部失效）。
+    if (travelOriginState === 'starmap') transferModalToState('overlay-starmap', 'warping');
+    else { setState('warping'); exitLockForUI(); }
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.announceTravel)
+      Voxel.SpaceTravel.announceTravel('跨恒星系曲速已启动，目的地：' + desc.name + '。');
+    syncFlightVisual(tx);
+    return true;
+  }
+
+  function plainGet(obj, key) {
+    return obj && Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : null;
+  }
+
+  // 点火入口：银河标签页下由星图选中态驱动（见 bindStarmapTabs/ignite 按钮绑定）。
+  function igniteSystemJump() {
+    var sel = Voxel.SpaceTravel && Voxel.SpaceTravel.selectedJump
+      ? Voxel.SpaceTravel.selectedJump() : null;
+    if (!sel) return false;
+    return requestSystemJump(sel.g, sel.s);
   }
 
   // 精选世界：已有存档时先确认并备份；无存档时直接创建。
@@ -4033,8 +4261,26 @@ Voxel.Game = (function () {
     onDrop: onDrop,
     pickupDrop: pickupDrop,
     requestTravel: requestTravel,
+    requestSystemJump: requestSystemJump,
     selectTravelDestination: selectTravelDestination,
     igniteSelectedTravel: igniteSelectedTravel,
+    igniteSystemJump: igniteSystemJump,
+    selectJumpTarget: function (addrStr) {
+      if (state !== 'starmap' || pendingTravel) return false;
+      return Voxel.SpaceTravel.selectJumpTarget(addrStr);
+    },
+    setMapMode: function (mode) {
+      if (state !== 'starmap') return false;
+      return Voxel.SpaceTravel.setMapMode(mode);
+    },
+    panGalaxyView: function (dg, ds) {
+      if (state !== 'starmap') return false;
+      return Voxel.SpaceTravel.panGalaxyView(dg, ds);
+    },
+    homeGalaxyView: function () {
+      if (state !== 'starmap') return false;
+      return Voxel.SpaceTravel.homeGalaxyView();
+    },
     skipFlightPresentation: skipFlightPresentation,
     disembark: disembark,
     boardShip: boardShip,
@@ -4109,6 +4355,7 @@ Voxel.Game = (function () {
       travelPending: function () {
         return pendingTravel ? {
           serial: pendingTravel.serial,
+          mode: pendingTravel.mode,
           fromId: pendingTravel.fromId,
           toId: pendingTravel.toId,
           phase: pendingTravel.phase,
@@ -4538,6 +4785,7 @@ Voxel.Game = (function () {
     });
     var starmapClose = document.getElementById('btn-starmap-close');
     if (starmapClose) starmapClose.addEventListener('click', closeStarMap);
+    bindStarmapTabs();
     var cockpitExit = document.getElementById('btn-cockpit-exit');
     if (cockpitExit) cockpitExit.addEventListener('click', exitCockpit);
     var cockpitMap = document.getElementById('btn-cockpit-map');
@@ -4565,7 +4813,12 @@ Voxel.Game = (function () {
     bindCockpitHold('btn-cockpit-up', 'Space');
     bindCockpitHold('btn-cockpit-down', 'ShiftLeft');
     var igniteBtn = document.getElementById('btn-travel-ignite');
-    if (igniteBtn) igniteBtn.addEventListener('click', igniteSelectedTravel);
+    if (igniteBtn) igniteBtn.addEventListener('click', function () {
+      // 银河标签页下点火 = 跨恒星系曲速跳跃；恒星系标签页 = 系内跃迁。
+      if (Voxel.SpaceTravel && Voxel.SpaceTravel.mapMode &&
+        Voxel.SpaceTravel.mapMode() === 'galaxy') igniteSystemJump();
+      else igniteSelectedTravel();
+    });
     var warpSkipBtn = document.getElementById('btn-warp-skip');
     if (warpSkipBtn) warpSkipBtn.addEventListener('click', skipFlightPresentation);
     var disembarkBtn = document.getElementById('btn-disembark');

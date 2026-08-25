@@ -204,6 +204,7 @@
 </script>
 <script src="../js/assets.js"></script>
 <script src="../js/world/seed.js"></script>
+<script src="../js/world/universe.js"></script>
 <script src="../js/world/galaxy.js"></script>
 <script src="../js/systems/atmosphere_profiles.js"></script>
 <script src="../js/world/noise.js"></script>
@@ -230,6 +231,7 @@
 <script src="../js/systems/sound.js"></script>
 <script src="../js/systems/furnace.js"></script>
 <script src="../js/systems/particles.js"></script>
+<script src="../js/ui/galaxy_map.js"></script>
 <script src="../js/systems/space_travel.js"></script>
 <script src="../js/entities/mobs.js"></script>
 <script src="../js/entities/drops.js"></script>
@@ -497,7 +499,7 @@
       !forbidden.test(doc.getElementById('space-hud').textContent) &&
       doc.getElementById('world-name').textContent.indexOf('待同步') < 0 &&
       doc.getElementById('world-coord').textContent.indexOf('待同步') < 0 &&
-      /^跃迁\s+(?:100|[1-9]?\d)%$/.test(doc.getElementById('warp-fuel').textContent.trim()));
+      /^跃迁\s+(?:100|[1-9]?\d)%\s*·\s*电池\s*\d+$/.test(doc.getElementById('warp-fuel').textContent.trim()));
 
     var oldCast = Voxel.Raycaster.cast;
     Voxel.Raycaster.cast = function () {
@@ -1818,7 +1820,7 @@
     Voxel.World.set(bxL, byL, bzL, 0);
 
     // 合成手册（14 条配方 + 烧炼章节）
-    check('手册列出 14 条配方', document.querySelectorAll('#manual .recipe-row').length === 19);
+    check('手册列出 15 条配方', document.querySelectorAll('#manual .recipe-row').length === 20);
     check('手册含材料获取与烧炼说明', document.querySelectorAll('#manual .manual-obtain').length >= 2);
 
     var T = Voxel.Game._test;
