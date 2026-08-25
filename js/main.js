@@ -3508,7 +3508,7 @@ Voxel.Game = (function () {
       clearIntentionalUnlock();
       return;
     }
-    if (!locked && state === 'playing') pause();
+    if (!locked && (state === 'playing' || state === 'cockpit')) pause();
   }
 
   function onLockError() {
@@ -3564,7 +3564,7 @@ Voxel.Game = (function () {
     } else if (state === 'cockpit') {
       // KeyE 不在这里处理：长按触发着陆辅助、轻按离舰，由 tickCockpitKeyE 按固定步计时。
       if (code === 'KeyH') openStarMap();
-      else if (code === 'KeyP') pause();
+      else if (code === 'KeyP' || code === 'Escape') pause();
       else if (code === 'F3') debug = !debug;
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape') resume();
