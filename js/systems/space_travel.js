@@ -1622,6 +1622,37 @@ Voxel.SpaceTravel = (function () {
     return best;
   }
 
+  var BEARING_LABELS = ['前方', '右前方', '右侧', '右后方', '后方', '左后方', '左侧', '左前方'];
+
+  function shipBearing() {
+    if (!ship || !world || world.kind !== 'planet' || !Voxel.Player || !Voxel.Player.pos) return null;
+    if (isAboard()) return null;
+    var p = Voxel.Player.pos();
+    var dx = ship.position.x - p.x;
+    var dy = ship.position.y - p.y;
+    var dz = ship.position.z - p.z;
+    var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (!(distance > 0)) return null;
+    var yaw = Voxel.Controls.yaw ? Voxel.Controls.yaw() : 0;
+    var fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    var rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    var hx = dx, hz = dz;
+    var hLen = Math.sqrt(hx * hx + hz * hz);
+    if (hLen < 1e-4) { hx = fx; hz = fz; hLen = 1; }
+    var fwdDot = (hx * fx + hz * fz) / hLen;
+    var rightDot = (hx * rx + hz * rz) / hLen;
+    var sector = Math.round(Math.atan2(rightDot, fwdDot) / (Math.PI / 4));
+    sector = ((sector % 8) + 8) % 8;
+    var distanceText = distance < 10
+      ? (Math.round(distance * 10) / 10) + 'm'
+      : Math.round(distance) + 'm';
+    return {
+      direction: BEARING_LABELS[sector],
+      distance: Math.round(distance * 10) / 10,
+      text: BEARING_LABELS[sector] + ' ' + distanceText
+    };
+  }
+
   function galaxyDistance(dest) {
     try { return Math.round(finite(Voxel.Galaxy.distance(world, dest), 0, 0, 999999)); }
     catch (e) { return 0; }
@@ -2303,6 +2334,7 @@ Voxel.SpaceTravel = (function () {
     authorizePortalTravel: authorizePortalTravel,
     syncPortalOccupancy: syncPortalOccupancy,
     scanLandmark: scanLandmark,
+    shipBearing: shipBearing,
     showMap: showMap,
     refreshMap: function () {
       return Voxel.GalaxyMap.getMode() === 'galaxy'

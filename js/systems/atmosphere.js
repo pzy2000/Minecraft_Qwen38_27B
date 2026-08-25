@@ -518,7 +518,7 @@ Voxel.Atmosphere = (function () {
       transparent: true,
       opacity: profile.station ? 0.96 : 0,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       fog: false
     }));
     stars = setRole(new THREE.Points(geo, mat), profile.station ? 'station-stars' : 'stars');
@@ -542,7 +542,7 @@ Voxel.Atmosphere = (function () {
       alphaTest: 0.025,
       opacity: 1,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       fog: false,
       side: THREE.DoubleSide
     }));

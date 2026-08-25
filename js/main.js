@@ -2905,6 +2905,10 @@ Voxel.Game = (function () {
     if (landmark) events.push({ worldId: currentWorld.id, kind: 'landmark', key: landmark.kind,
       pos: scanPosition(playerPos) });
 
+    var bearing = Voxel.SpaceTravel && Voxel.SpaceTravel.shipBearing
+      ? Voxel.SpaceTravel.shipBearing() : null;
+    var bearingNote = bearing ? ' · 飞船位于' + bearing.text : '';
+
     var oldDiscovery = galaxyState.discovery;
     var oldFuel = galaxyState.ship.fuel;
     var next = oldDiscovery;
@@ -2922,7 +2926,7 @@ Voxel.Game = (function () {
     scanCooldownT = 1.2;
     scanResultT = 10;
     if (!addedEntries.length) {
-      setActiveScanUI('cooldown', '扫描完成 · 无新档案', '当前环境与目标均已编录' + analysisNote, 100);
+      setActiveScanUI('cooldown', '扫描完成 · 无新档案', '当前环境与目标均已编录' + bearingNote + analysisNote, 100);
       return false;
     }
 
@@ -2942,7 +2946,7 @@ Voxel.Game = (function () {
       ' · +' + pointsAwarded + ' 探索点' + (actualFuelAwarded > 0
         ? ' · +' + actualFuelAwarded + '% 跃迁能量'
         : (fuelAwarded > 0 ? ' · 跃迁能量已满' : ''));
-    setActiveScanUI('cooldown', rewards.length ? '探索目标完成' : '扫描档案已写入', rewardText + analysisNote, 100);
+    setActiveScanUI('cooldown', rewards.length ? '探索目标完成' : '扫描档案已写入', rewardText + bearingNote + analysisNote, 100);
     Voxel.HUD.toast(rewardText);
     refreshDiscoveryUI();
     return true;
