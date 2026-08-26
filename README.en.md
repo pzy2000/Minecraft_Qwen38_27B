@@ -116,6 +116,7 @@ Open **Settings** from the main menu or pause menu to adjust input, audio, view 
 - **Day/night cycle**: 30 minutes per cycle; gradient sky dome (daytime blue → dusk purple zenith / deep-orange horizon → deep-blue night), red-orange sunset, stars, moonlight; the surface keeps moonlight brightness at night
 - **Weather**: automatic clear → rain → thunderstorm cycle (G to switch manually); drifting clouds, raindrops, darker rainy lighting + closer fog, branched lightning + double white flash + delayed thunder, lightning damage to the player, a rainbow after rain on a sunny day; rain and thunder are synthesized with WebAudio
 - **Mobs**: passive mobs spawn by biome — sheep (plains/taiga, bleat, drop wool), pigs and chickens (forest/jungle/plains), rabbits (desert/snowy plains, fastest); zombies hunt at night (groan; burn in sunlight except in caves); attacks use line-of-sight and height checks so they cannot hit through walls; swords deal more damage
+- **Alien megaflora & ancient ruins**: v2-terrain planets grow five signature giant plants in the streamed outskirts, all seed-deterministic — giant glow-shrooms on toxic worlds (self-lit caps, block light 13), ice spires on frozen worlds, basalt clusters on volcanic worlds, dead mega-trees on arid worlds and coral towers on oceanic worlds; ancient ruins also appear sparsely outdoors: broken walls, a ruined corner tower and a central vault whose bricks are accented with that planet's exclusive crystal. The vault chest always yields 1 warp cell plus an iron tool / planet crystal / cooked rations on first open (seed-deterministic contents, tools carry random remaining durability), registers an "Ancient Ruin" discovery entry, and untouched ruin chests cost zero save space
 - **Crafting**: inventory 2×2 grid (oak log → ×4 planks, 2×2 planks → crafting table, 2 planks → ×4 sticks), crafting table 3×3 grid (pickaxes/swords/bed), crafting handbook (M to browse all 11 recipes); bed (3 wool + 3 planks) is crafted at a table and is half-height so you can stand on it
 - **Beds**: look at a bed and press E to set your spawn; at night, press E to sleep and skip to dawn (fade-to-black); zombies burn in daylight
 - **Combat**: 10 hearts, red hit flash, slow regen; respawn at the bed spawn (if set) or the world spawn
@@ -197,6 +198,7 @@ node test/run_browser_tests.js     # Auto-detects Chrome/Edge/Chromium; you can 
 ## Known limitations
 
 - No furnace/smelting (iron ore is used directly for iron tools); tools have no durability
+- Ruins are surface-only structures and do not update the chunk heights cache (rain/snow particles follow the original terrain); ruins and megaflora only appear outside the legacy core on v2-terrain planets
 - Lighting is per-block flat light (no smooth interpolation); torches cannot be placed on walls
 - Single-player only; immersive fullscreen depends on browser support, with an adaptive in-browser fallback
 - Planets stream indefinitely in X/Z but remain 64 blocks tall; the resident chunk set and fog distance are bounded, and an extremely fast player may briefly meet a protective loading frontier

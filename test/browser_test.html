@@ -211,6 +211,7 @@
 <script src="../js/world/biomes.js"></script>
 <script src="../js/world/planet_rules.js"></script>
 <script src="../js/world/shaper.js"></script>
+<script src="../js/world/structures.js"></script>
 <script src="../js/blocks.js"></script>
 <script src="../js/systems/discovery.js"></script>
 <script src="../js/crafting.js"></script>
@@ -2280,6 +2281,42 @@
       return false;
     })());
     check('破坏箱子后台账元数据清空', !Voxel.World.getMeta(cx2, cy2, cz2));
+
+    // 7.5) 遗迹宝箱：惰性战利品注入（openChest 集成缝）→ 首开必出曲速电池 + 地标档案 + 破坏回收
+    var origChestLoot = Voxel.Structures.chestLootAt;
+    var fakeLoot = new Array(27).fill(null);
+    fakeLoot[13] = { id: 122, n: 1, dur: null };
+    fakeLoot[5] = { id: 107, n: 6, dur: null };
+    Voxel.Structures.chestLootAt = function () { return fakeLoot; };
+    var rux = Math.floor(spF.x) + 6, ruz = Math.floor(spF.z) + 6;
+    var ruy = Voxel.World.surfaceAt(rux, ruz) + 1;
+    Voxel.World.set(rux, ruy, ruz, 38);
+    T.openChestAt(rux, ruy, ruz);
+    var rch = T.curChest();
+    check('遗迹宝箱首开自动填充战利品(含曲速电池)', !!rch &&
+      rch.items[13] && rch.items[13].id === 122 && rch.items[13].n === 1 &&
+      rch.items[5] && rch.items[5].id === 107 && rch.items[5].n === 6);
+    check('首开遗迹宝箱登记远古遗迹地标档案', (function () {
+      var sum = Voxel.Discovery.worldSummary(T.discovery(), T.currentWorld().id);
+      for (var li = 0; li < sum.landmarks.length; li++)
+        if (sum.landmarks[li].key === 'ruin') return true;
+      return false;
+    })());
+    check('遗迹地标写入可安全落盘', T.saveNow() === true && (function () {
+      var savedRuin = Voxel.Save.load();
+      var metaKey = rux + ',' + ruy + ',' + ruz;
+      return !!savedRuin.meta && !!savedRuin.meta[metaKey] &&
+        savedRuin.meta[metaKey].items[13].id === 122;
+    })());
+    Voxel.Game.onKey('KeyE');
+    check('遗迹宝箱面板关闭', Voxel.Game.state === 'playing');
+    T.clearInv();
+    T.dumpChest(rux, ruy, ruz);
+    Voxel.World.set(rux, ruy, ruz, 0);
+    Voxel.Structures.chestLootAt = origChestLoot;
+    check('遗迹宝箱破坏回收电池与煤炭', T.countInv(122) === 1 && T.countInv(107) === 6);
+    check('回收后台账元数据清空且钩子已还原', !Voxel.World.getMeta(rux, ruy, ruz) &&
+      typeof origChestLoot === 'function');
 
     wait(500, stepJ);
   }

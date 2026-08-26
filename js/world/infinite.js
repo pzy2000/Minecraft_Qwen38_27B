@@ -334,9 +334,49 @@ window.Voxel = window.Voxel || {};
     }
   }
 
+  // 遗迹写入器：覆写石土等自然方块，但不吃基岩/水/功能方块（工作台/床/熔炉/箱子）。
+  var STRUCT_KEEP = { 12: true, 7: true, 15: true, 17: true, 37: true, 38: true };
+  function structSet(ch, x, y, z, id, mode) {
+    if (y <= 0 || y >= H || !inTarget(ch, x, z)) return;
+    if (inCore(x, z)) return;
+    var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
+    var old = ch.blocks[i];
+    if (STRUCT_KEEP[old]) return;
+    if (mode === 'air' && old !== 0) return;
+    ch.blocks[i] = id;
+  }
+
+  // 遗迹：以 cell 为单位稀疏放置。每个相交区块独立重算同一座遗迹并按 inTarget 裁剪，
+  // 结果与区块加载顺序无关；cell 哈希未命中的区块只有常数开销。
+  function decorateStructures(ch) {
+    var S = Voxel.Structures;
+    if (!S || !S.enabled()) return;
+    var x0 = ch.cx * CS, z0 = ch.cz * CS;
+    var E = S.EXTENT, CELL = S.CELL;
+    var c0x = floorDiv(x0 - E, CELL), c1x = floorDiv(x0 + CS + E, CELL);
+    var c0z = floorDiv(z0 - E, CELL), c1z = floorDiv(z0 + CS + E, CELL);
+    for (var cx = c0x; cx <= c1x; cx++) {
+      for (var cz = c0z; cz <= c1z; cz++) {
+        var ruin = S.cellRuin(cx, cz);
+        if (!ruin) continue;
+        if (ruin.ax + E <= x0 || ruin.ax - E >= x0 + CS ||
+          ruin.az + E <= z0 || ruin.az - E >= z0 + CS) continue;
+        S.buildRuin(ruin, function (x, y, z, id, mode) {
+          structSet(ch, x, y, z, id, mode);
+        });
+      }
+    }
+  }
+
   function decorate(ch) {
     var defs = Voxel.Biomes.defs;
     var x0 = ch.cx * CS, z0 = ch.cz * CS;
+    decorateStructures(ch);
+    // 外星巨树的写入语义与普通树一致（force 主干 / airOnly 树冠）。
+    var megaPen = Voxel.Structures ? {
+      force: function (px, py, pz, pid) { decorSet(ch, px, py, pz, pid, false); },
+      air: function (px, py, pz, pid) { decorSet(ch, px, py, pz, pid, true); }
+    } : null;
     // 每个目标区块独立枚举所有可能与它相交的根，并按全局 x/z 固定顺序写入。
     // 因此跨区块树冠连续，结果也不依赖区块加载顺序。
     for (var x = x0 - FEATURE_RADIUS; x < x0 + CS + FEATURE_RADIUS; x++) {
@@ -347,10 +387,30 @@ window.Voxel = window.Voxel || {};
           z >= -FEATURE_RADIUS && z <= D - 1 + FEATURE_RADIUS) continue;
         var h = baseSurfaceAt(x, z);
         if (h <= WATER + 1 || h > SNOW_LEVEL - 2) continue;
-        var bd = defs[baseBiomeAt(x, z)];
-        if (!bd || !bd.treeType) continue;
+        var biomeId = baseBiomeAt(x, z);
+        var bd = defs[biomeId];
+        if (!bd) continue;
         var surface = baseBlockAt(x, h, z);
-        if (!bd.plantOn || bd.plantOn.indexOf(surface) < 0) continue;
+        if (!bd.plantOn || bd.plantOn.indexOf(surface) < 0) {
+          // 外星巨树（仅 terrainVersion=2）：不依赖群系 treeType 字段，
+          // 命中时取代该锚点的普通植被——恶地/石峰也能长出玄武柱丛。
+          if (megaPen && terrainVersion === 2 && Voxel.Blocks.isSolid(surface)) {
+            var mg0 = Voxel.Structures.megaKind(planetTypeKey, terrainVersion, biomeId);
+            if (mg0) {
+              var rm0 = noise.hash2(x * 11 + 71, z * 13 + 33);
+              if (rm0 < mg0.chance && Voxel.Structures.buildMega(mg0, megaPen, x, h, z, rm0)) continue;
+            }
+          }
+          continue;
+        }
+        // 外星巨树（可种植地表）：独立哈希判定，命中时取代普通树。
+        if (megaPen && terrainVersion === 2) {
+          var mg = Voxel.Structures.megaKind(planetTypeKey, terrainVersion, biomeId);
+          if (mg) {
+            var rm = noise.hash2(x * 11 + 71, z * 13 + 33);
+            if (rm < mg.chance && Voxel.Structures.buildMega(mg, megaPen, x, h, z, rm)) continue;
+          }
+        }
         if (bd.boulders && noise.hash2(x * 7 + 61, z * 7 + 83) < 0.0025) {
           boulder(ch, x, h, z); continue;
         }
@@ -411,6 +471,7 @@ window.Voxel = window.Voxel || {};
   function relight(ch) {
     ch.sky.fill(0); ch.blk.fill(0);
     var blkQ = [];
+    var LIGHT = Voxel.Blocks.LIGHT;
     for (var lx = 0; lx < CS; lx++) for (var lz = 0; lz < CS; lz++) {
       var light = 15;
       for (var y = H - 1; y >= 0; y--) {
@@ -418,11 +479,11 @@ window.Voxel = window.Voxel || {};
         if (Voxel.Blocks.isOpaque(id)) light = 0;
         else if (id === 7 && light > 0) light = Math.max(0, light - 2);
         ch.sky[i] = light;
-        if (id === 19 && Voxel.Blocks.defs[19] && Voxel.Blocks.defs[19].light) {
-          var bl = Voxel.Blocks.defs[19].light;
-          ch.blk[i] = bl;
-          if (!blkQ[bl]) blkQ[bl] = [];
-          blkQ[bl].push(i);
+        var emit = LIGHT[id];
+        if (emit) {
+          ch.blk[i] = emit;
+          if (!blkQ[emit]) blkQ[emit] = [];
+          blkQ[emit].push(i);
         }
       }
     }
@@ -609,12 +670,13 @@ window.Voxel = window.Voxel || {};
     var buckets = [];
     for (var c = 0; c < chunks.length; c++) chunks[c].blk.fill(0);
 
-    // 区域内所有火把都是本轮的权威光源。
+    // 区域内所有发光方块都是本轮的权威光源（火把/荧光菌伞等）。
+    var LIGHT2 = Voxel.Blocks.LIGHT;
     for (var c2 = 0; c2 < chunks.length; c2++) {
       var src = chunks[c2];
       for (var i = 0; i < src.blocks.length; i++) {
-        if (src.blocks[i] !== 19 || !Voxel.Blocks.defs[19] || !Voxel.Blocks.defs[19].light) continue;
-        var level = Voxel.Blocks.defs[19].light;
+        var level = LIGHT2[src.blocks[i]];
+        if (!level) continue;
         src.blk[i] = level;
         if (!buckets[level]) buckets[level] = [];
         buckets[level].push({ ch: src, i: i });
@@ -897,6 +959,16 @@ window.Voxel = window.Voxel || {};
     noise = Voxel.Noise.create(seed);
     climateAt = Voxel.Biomes.makeClimate(noise);
     shaper = Voxel.Shaper.create(noise);
+    // 外星巨树/遗迹只绑定在行星模式 + terrainVersion=2 的世界上；空间站与旧档不受影响。
+    if (Voxel.Structures) {
+      Voxel.Structures.bind(planetMode && terrainVersion === 2 ? {
+        hash2: noise.hash2,
+        surfaceAt: baseSurfaceAt,
+        biomeAt: baseBiomeAt,
+        typeKey: planetTypeKey,
+        version: terrainVersion
+      } : null);
+    }
     if (extraGroup && extraGroup.parent) extraGroup.parent.remove(extraGroup);
     for (var k in extra) disposeChunkMesh(extra[k]);
     extra = Object.create(null);

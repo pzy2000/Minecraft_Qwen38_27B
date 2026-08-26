@@ -27,7 +27,10 @@ Voxel.Blocks = (function () {
     CHEST_TOP: 68, CHEST_SIDE: 69, CHEST_FRONT: 70,
     ACTIVE_CRYSTAL: 71, SILICA_CRYSTAL: 72, ICE_CORE: 73,
     SPORE_CRYSTAL: 74, MAGMA_CORE: 75, TIDAL_CRYSTAL: 76,
-    CAT_FUR: 77, FELT: 78, WARP_CELL: 79
+    CAT_FUR: 77, FELT: 78, WARP_CELL: 79,
+    ALIEN_LOG_SIDE: 54, ALIEN_LOG_TOP: 55, GLOW_CAP: 56,
+    RUIN_BRICK: 57, BASALT: 80, CORAL: 81,
+    RUIN_BRICK_MOSSY: 82, DEAD_LOG_SIDE: 83, DEAD_LOG_TOP: 84
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -98,6 +101,31 @@ Voxel.Blocks = (function () {
     color: 0x55c9df, hard: 5.8, pick: true, tier: 2, drop: 120, resourceKey: 'tidal_crystal' };
   defs[45] = { name: '猫毛毡', solid: true, opaque: true,
     tiles: [T.FELT, T.FELT, T.FELT], sound: 'wool', color: 0xc4b8a6, hard: 0.7 };
+
+  // ---- 外星巨型植物 / 遗迹方块（稳定方块 ID 46..52）----
+  // 只在旧注册表尾部追加，不得复用/移动旧 ID。自然生成由 Structures 按版本决定
+  // （仅 terrainVersion=2 的行星外围），旧存档地形逐位不变。
+  defs[46] = { name: '外星茎干', solid: true, opaque: true,
+    tiles: [T.ALIEN_LOG_TOP, T.ALIEN_LOG_SIDE, T.ALIEN_LOG_TOP], sound: 'wood',
+    color: 0x8a7a9e, hard: 1.6 };
+  defs[47] = { name: '荧光菌伞', solid: true, opaque: true,
+    tiles: [T.GLOW_CAP, T.GLOW_CAP, T.GLOW_CAP], sound: 'wool', light: 13,
+    color: 0x59d6c4, hard: 0.5 };
+  defs[48] = { name: '玄武岩柱', solid: true, opaque: true,
+    tiles: [T.BASALT, T.BASALT, T.BASALT], sound: 'stone', color: 0x4c4a52,
+    hard: 4.2, pick: true };
+  defs[49] = { name: '珊瑚块', solid: true, opaque: true,
+    tiles: [T.CORAL, T.CORAL, T.CORAL], sound: 'stone', color: 0xd97a6c,
+    hard: 3, pick: true };
+  defs[50] = { name: '遗迹石砖', solid: true, opaque: true,
+    tiles: [T.RUIN_BRICK, T.RUIN_BRICK, T.RUIN_BRICK], sound: 'stone', color: 0x8f9094,
+    hard: 4.5, pick: true };
+  defs[51] = { name: '苔痕遗迹石砖', solid: true, opaque: true,
+    tiles: [T.RUIN_BRICK_MOSSY, T.RUIN_BRICK_MOSSY, T.RUIN_BRICK_MOSSY], sound: 'stone',
+    color: 0x77855f, hard: 4.5, pick: true };
+  defs[52] = { name: '枯巨木', solid: true, opaque: true,
+    tiles: [T.DEAD_LOG_TOP, T.DEAD_LOG_SIDE, T.DEAD_LOG_TOP], sound: 'wood',
+    color: 0x54473a, hard: 1.6 };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -720,6 +748,67 @@ Voxel.Blocks = (function () {
     crystalResource(T.MAGMA_CORE, [119, 30, 24], [236, 68, 35], [255, 185, 62], 5);
     crystalResource(T.TIDAL_CRYSTAL, [26, 91, 133], [57, 183, 211], [166, 246, 255], 6);
 
+    // ---- 外星巨型植物 / 遗迹方块纹理 ----
+
+    // 外星茎干：紫灰木质条纹 + 荧光苔点
+    drawTile(T.ALIEN_LOG_SIDE, function (x, y, r) {
+      var stripe = (x % 5 < 2);
+      var v = n(r, 0, 14);
+      if (!stripe && r() < 0.12) return [126 + v, 214 + v * 0.6, 196 + v * 0.6]; // 荧光苔
+      var c = stripe ? [96, 84, 118] : [128, 114, 148];
+      return [c[0] + v, c[1] + v, c[2] + v];
+    });
+    drawTile(T.ALIEN_LOG_TOP, logTopTile([158, 142, 178], [110, 96, 132]));
+
+    // 荧光菌伞：青绿发光底 + 亮斑，整体高亮度
+    drawTile(T.GLOW_CAP, function (x, y, r) {
+      var dx = x - 7.5, dy = y - 7.5;
+      var v = n(r, 0, 16);
+      var spot = ((x * 3 + y * 5) % 13 === 0 && r() < 0.8) || (dx * dx + dy * dy < 3);
+      if (spot) return [206 + v, 255, 244];
+      if (r() < 0.10) return [46 + v, 128 + v, 116 + v];                         // 深色气孔
+      return [89 + v, 214 + v * 0.8, 196 + v * 0.8];
+    });
+
+    // 遗迹石砖：规整砖缝 + 风化裂纹
+    function ruinBrickTile(mossChance) {
+      return function (x, y, r) {
+        var row = (y / 4) | 0;
+        var seamY = (y % 4 === 0);
+        var offset = (row % 2) * 4;
+        var seamX = ((x + offset) % 8 === 0);
+        var v = n(r, 0, 14);
+        if (seamY || seamX) return [104 + v * 0.6, 102 + v * 0.6, 100 + v * 0.6]; // 砖缝
+        if (r() < 0.05) return [78 + v, 76 + v, 74 + v];                          // 裂纹杂点
+        if (r() < mossChance) return [96 + v, 124 + v, 78 + v];                   // 苔藓
+        var base = 146 + v;
+        return [base, base + 2, base + 4];
+      };
+    }
+    drawTile(T.RUIN_BRICK, ruinBrickTile(0.04));
+    drawTile(T.RUIN_BRICK_MOSSY, ruinBrickTile(0.34));
+
+    // 玄武岩柱：深灰底 + 纵向柱状节理
+    drawTile(T.BASALT, function (x, y, r) {
+      var col = (x % 4 < 2);
+      var v = n(r, 0, 10);
+      var c = col ? [64, 62, 72] : [82, 80, 90];
+      if (r() < 0.06) return [120 + v, 116 + v, 126 + v];                         // 晶面反光
+      return [c[0] + v, c[1] + v, c[2] + v];
+    });
+
+    // 珊瑚块：暖橙红多孔构造
+    drawTile(T.CORAL, function (x, y, r) {
+      var v = n(r, 0, 18);
+      if (r() < 0.14) return [168 + v, 74 + v * 0.6, 66 + v * 0.6];               // 孔洞
+      if (r() < 0.08) return [255, 208 + r() * 30, 170];                          // 高光息肉
+      return [217 + v, 122 + v * 0.7, 108 + v * 0.7];
+    });
+
+    // 枯巨木：焦褐深纹，无叶
+    drawTile(T.DEAD_LOG_SIDE, logSideTile([58, 48, 40], [88, 74, 60]));
+    drawTile(T.DEAD_LOG_TOP, logTopTile([112, 94, 74], [74, 60, 48]));
+
     ctx.putImageData(img, 0, 0);
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
@@ -737,11 +826,22 @@ Voxel.Blocks = (function () {
   for (var sri = 0; sri < SCANNABLE_RESOURCES.length; sri++)
     scannableResourceSet[SCANNABLE_RESOURCES[sri]] = true;
 
+  // 发光方块查找表（火把 14、荧光菌伞 13…）：光照热路径用数组下标替代逐个 defs 查询。
+  var LIGHT = new Uint8Array(256);
+  for (var li = 0; li < defs.length; li++) {
+    var ld = defs[li];
+    if (ld && typeof ld.light === 'number' && ld.light > 0 && ld.light <= 15) LIGHT[li] = ld.light;
+  }
+
   return {
     defs: defs,
     T: T,
     MAX_STACK: 64,
     ITEM_BASE: 100,
+    LIGHT: LIGHT,
+    lightOf: function (id) {
+      return (id >= 0 && id < 256) ? LIGHT[id] : 0;
+    },
     SCANNABLE_RESOURCES: SCANNABLE_RESOURCES.slice(),
     isScannableResource: function (id) {
       return typeof id === 'number' && isFinite(id) && Math.floor(id) === id &&

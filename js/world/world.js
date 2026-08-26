@@ -105,13 +105,15 @@ Voxel.World = (function () {
     // （直接照亮由列扫描写入；此处只挑出邻居更暗的可传播格，避免塞入全部亮格）
     seedSky(skyQ, rx0, rx1, rz0, rz1);
 
-    // 块光种子：区域内火把 + 边界导入
+    // 块光种子：区域内发光方块（火把/荧光菌伞等） + 边界导入
+    var LIGHT_EMIT = Voxel.Blocks.LIGHT;
     for (var x3 = rx0; x3 <= rx1; x3++)
       for (var z3 = rz0; z3 <= rz1; z3++)
         for (var y3 = 0; y3 < H; y3++) {
           var i3 = idx(x3, y3, z3);
-          if (data[i3] === 19 && Voxel.Blocks.defs[19].light) {
-            blkL[i3] = Voxel.Blocks.defs[19].light;
+          var emitL = LIGHT_EMIT ? LIGHT_EMIT[data[i3]] : 0;
+          if (emitL) {
+            blkL[i3] = emitL;
             blkQ.push(i3);
           }
         }

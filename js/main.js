@@ -2378,14 +2378,34 @@ Voxel.Game = (function () {
   // ---------- 箱子 ----------
   var curChest = null;
 
+  // 首次开启遗迹宝箱：登记"远古遗迹"地标档案（带事务回滚，与扫描流程一致）。
+  function recordRuinDiscovery(x, y, z) {
+    if (!Voxel.Discovery || !galaxyState || !currentWorld) return;
+    var ev = { worldId: currentWorld.id, kind: 'landmark', key: 'ruin', pos: [x, y, z] };
+    var oldDiscovery = galaxyState.discovery;
+    var recorded = Voxel.Discovery.record(oldDiscovery, ev, galaxyState.catalog);
+    if (!recorded || !recorded.added) return;
+    var oldFuel = galaxyState.ship.fuel;
+    galaxyState.discovery = recorded.state;
+    galaxyState.ship.fuel = Math.min(galaxyState.ship.maxFuel, oldFuel + recorded.fuelAwarded);
+    if (!doSave(true, 'ruin-discovery')) {
+      galaxyState.discovery = oldDiscovery;
+      galaxyState.ship.fuel = oldFuel;
+    }
+  }
+
   function openChest(hit) {
     if (state !== 'playing') return;
     if (Voxel.World.get(hit.x, hit.y, hit.z) !== 38) return;
     var k = hit.x + ',' + hit.y + ',' + hit.z;
     var c = Voxel.World.getMeta(hit.x, hit.y, hit.z);
     if (!c || c.type !== 'chest') {
-      c = { type: 'chest', items: new Array(27).fill(null) };
+      // 惰性战利品：遗迹箱子生成时不写元数据，首开时按种子确定性填充。
+      var loot = Voxel.Structures && Voxel.Structures.chestLootAt
+        ? Voxel.Structures.chestLootAt(hit.x, hit.y, hit.z) : null;
+      c = { type: 'chest', items: loot || new Array(27).fill(null) };
       Voxel.World.setMeta(hit.x, hit.y, hit.z, c);
+      if (loot) recordRuinDiscovery(hit.x, hit.y, hit.z);
     }
     curChest = c;
     document.body.classList.add('panel-open');
