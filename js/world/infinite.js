@@ -27,15 +27,20 @@ window.Voxel = window.Voxel || {};
   var profile = null;
   var terrainVersion = 1, planetTypeKey = 'lush';
   var seed = '0';
-  var noise = null, climateAt = null, shaper = null;
+  var gen = null;                          // Voxel.GenCore 实例（同步/Worker 共用同一实现）
   var extra = Object.create(null);       // "cx,cz" -> sparse Chunk（核心 8×8 不在此表）
   var extraEdits = Object.create(null);  // 旧格式兼容："x,y,z" -> id
   var editsByChunk = Object.create(null);
   var coreBlkOverlay = null;             // 外围火把跨入 legacy core 的附加块光
   var genQueue = [], genQueued = Object.create(null);
   var meshQueue = [], meshQueued = Object.create(null);
+  var pendingRelight = [];               // 卸载触发的跨区块重光，延迟到 stream() 预算内消化
   var extraGroup = null, extraScene = null;
   var focus = { x: W / 2, z: D / 2, cx: null, cz: null };
+
+  function perfNow() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  }
 
   function key(cx, cz) { return cx + ',' + cz; }
   function posKey(x, y, z) { return x + ',' + y + ',' + z; }
@@ -67,117 +72,6 @@ window.Voxel = window.Voxel || {};
     ch.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] = id;
   }
 
-  function profileBiome(base, climate, x, z) {
-    if (Voxel.PlanetRules && Voxel.PlanetRules.biomeFor)
-      return Voxel.PlanetRules.biomeFor(
-        terrainVersion, planetTypeKey, base, climate, x, z, noise);
-    if (!profile || !profile.typeKey || profile.typeKey === 'lush') return base;
-    var B = Voxel.Biomes.B;
-    var sets = {
-      arid: [B.DESERT, B.BADLANDS, B.SAVANNA, B.STONY_PEAKS],
-      frozen: [B.SNOWY, B.FROZEN_PEAKS, B.TAIGA, B.JAGGED_PEAKS],
-      toxic: [B.JUNGLE, B.MEGA_TAIGA, B.FOREST, B.SPARSE_JUNGLE],
-      volcanic: [B.BADLANDS, B.STONY_PEAKS, B.JAGGED_PEAKS, B.WINDSWEPT_HILLS],
-      oceanic: [B.OCEAN, B.BEACH, B.OCEAN, B.SPARSE_JUNGLE]
-    };
-    var set = sets[profile.typeKey];
-    if (!set) return base;
-    var r = (noise.hash2(x * 5 + 173, z * 7 + 251) * set.length) | 0;
-    return set[Math.min(set.length - 1, r)];
-  }
-
-  function setIfStone(ch, lx, y, lz, id) {
-    if (y < 0 || y >= H) return;
-    var i = chunkIndex(lx, y, lz);
-    var old = ch.blocks[i];
-    if (old === 3 || old === 8 || old === 9 || (old >= 39 && old <= 44)) ch.blocks[i] = id;
-  }
-
-  function applySurface(ch, lx, lz, x, z, top, biome, bd) {
-    var BL = Voxel.Biomes.BLK;
-    var BI = Voxel.Biomes.B;
-    if (top < 3) return;
-    var patch = noise.hash2((x >> 3) * 31 + 7, (z >> 3) * 17 + 5);
-    var surf = bd.surface, fill = bd.filler;
-    if (top <= WATER) {
-      surf = patch < 0.45 ? BL.SAND : (patch < 0.75 ? BL.GRAVEL : BL.DIRT);
-      ch.blocks[chunkIndex(lx, top, lz)] = surf;
-      for (var d0 = 1; d0 <= 3 && top - d0 > 1; d0++)
-        setIfStone(ch, lx, top - d0, lz, surf === BL.DIRT ? BL.DIRT : BL.SAND);
-      return;
-    }
-    if (top <= WATER + 2 && biome !== BI.STONY_SHORE &&
-      biome !== BI.JAGGED_PEAKS && biome !== BI.FROZEN_PEAKS && biome !== BI.STONY_PEAKS &&
-      !bd.badlandsBands) {
-      surf = BL.SAND; fill = BL.SAND;
-    }
-    if (bd.gravelPatches && patch < 0.22) { surf = BL.GRAVEL; fill = BL.STONE; }
-    ch.blocks[chunkIndex(lx, top, lz)] = surf;
-    for (var d = 1; d <= 3 && top - d > 1; d++) setIfStone(ch, lx, top - d, lz, fill);
-    if (biome === BI.DESERT)
-      for (var yd = Math.max(2, top - 8); yd <= top - 4; yd++) setIfStone(ch, lx, yd, lz, 27);
-    if (bd.badlandsBands) {
-      var dith = (noise.hash2(x * 13 + 1, z * 7 + 9) * 3) | 0;
-      var bands = [BL.TERRACOTTA, BL.TERRACOTTA, 30, BL.TERRACOTTA, 31, 30];
-      for (var yb = Math.max(2, top - 16); yb <= top - 4; yb++) {
-        var band = (((yb + dith) / 3) | 0) % bands.length;
-        if (band < 0) band += bands.length;
-        setIfStone(ch, lx, yb, lz, bands[band]);
-      }
-    }
-    var snowLine = (biome === BI.JAGGED_PEAKS || biome === BI.FROZEN_PEAKS) ? 40 : SNOW_LEVEL;
-    if (biome !== BI.DESERT && biome !== BI.BADLANDS && top >= snowLine)
-      ch.blocks[chunkIndex(lx, top, lz)] = 18;
-  }
-
-  function generateBase(ch) {
-    var lat = shaper.computeChunkLattice(ch.cx, ch.cz, climateAt);
-    var x0 = ch.cx * CS, z0 = ch.cz * CS;
-    for (var lx = 0; lx < CS; lx++) {
-      for (var lz = 0; lz < CS; lz++) {
-        var x = x0 + lx, z = z0 + lz;
-        var cl = shaper.sampleClim(lat, lx, lz);
-        var biome = terrainVersion === 2 && Voxel.PlanetRules && Voxel.PlanetRules.pickAllowed
-          ? Voxel.PlanetRules.pickAllowed(planetTypeKey, cl, Voxel.Biomes.B.PLAINS)
-          : profileBiome(Voxel.Biomes.pick(cl), cl, x, z);
-        var ci = columnIndex(lx, lz);
-        ch.biomes[ci] = biome;
-        var bd = Voxel.Biomes.def(biome);
-        var th = shaper.sampleTh(lat, lx, lz);
-        var top = -1;
-        for (var y = 0; y < H; y++) {
-          var i = chunkIndex(lx, y, lz);
-          if (y === 0 || (y === 1 && noise.hash3(x, y, z) < 0.55) ||
-            (y === 2 && noise.hash3(x + 31, y, z) < 0.25)) {
-            ch.blocks[i] = 12; top = y; continue;
-          }
-          var density = shaper.sampleLat(lat.dens, lat, lx, y, lz);
-          var solid = density > 0;
-          if (solid && th > WATER + 1 && y > 2 && shaper.isCave(
-            shaper.sampleLat(lat.cavA, lat, lx, y, lz),
-            shaper.sampleLat(lat.cavB, lat, lx, y, lz),
-            shaper.sampleLat(lat.chee, lat, lx, y, lz), y, th)) solid = false;
-          if (solid) {
-            ch.blocks[i] = 3;
-            if (Voxel.PlanetRules && Voxel.PlanetRules.oreBlockForPosition) {
-              var oreId = Voxel.PlanetRules.oreBlockForPosition(
-                terrainVersion, planetTypeKey, x, y, z, noise);
-              if (oreId) ch.blocks[i] = oreId;
-            } else {
-              var r = noise.hash3(x, y, z);
-              if (y < 50 && r < 0.007) ch.blocks[i] = 8;
-              else if (y < 34 && r > 0.994) ch.blocks[i] = 9;
-            }
-            top = y;
-          } else ch.blocks[i] = y <= WATER ? 7 : 0;
-        }
-        ch.heights[ci] = top < 0 ? WATER : top;
-        applySurface(ch, lx, lz, x, z, top, biome, bd);
-      }
-    }
-    ch.baseReady = true;
-  }
-
   function newChunk(cx, cz) {
     return {
       cx: cx, cz: cz,
@@ -187,246 +81,29 @@ window.Voxel = window.Voxel || {};
       sky: new Uint8Array(CS * H * CS),
       blk: new Uint8Array(CS * H * CS),
       baseReady: false, ready: false, lit: false, dirty: true, meshed: false,
+      emit: null,
+      shell: null, decorated: false,
       mesh: null, wmesh: null, fmesh: null
     };
   }
 
   // 只生成基础地形；装饰阶段可安全查询相邻基础列，且不会递归装饰。
+  // shell 与区块共享同一份 TypedArray 引用，GenCore 的跨区块 halo 写入对主线程直接可见。
   function ensureBaseChunk(cx, cz) {
     if (coreChunk(cx, cz)) return null;
     var k = key(cx, cz), ch = extra[k];
     if (!ch) { ch = newChunk(cx, cz); extra[k] = ch; }
-    if (!ch.baseReady) generateBase(ch);
+    if (!ch.baseReady) {
+      var shell = gen.ensureShell(cx, cz);
+      ch.blocks = shell.blocks; ch.heights = shell.heights; ch.biomes = shell.biomes;
+      ch.shell = shell;
+      ch.baseReady = true;
+      ch.decorated = shell.decorated;
+    } else if (!ch.shell) {
+      var s2 = gen.shellOf(cx, cz);
+      ch.shell = (s2 && s2.baseReady) ? s2 : gen.absorbShell(cx, cz, ch.blocks, ch.heights, ch.biomes);
+    }
     return ch;
-  }
-
-  function baseSurfaceAt(x, z) {
-    if (inCore(x, z)) return FiniteWorld.surfaceAt(x, z);
-    var ch = ensureBaseChunk(floorDiv(x, CS), floorDiv(z, CS));
-    return ch.heights[columnIndex(localCoord(x, CS), localCoord(z, CS))];
-  }
-
-  function baseBiomeAt(x, z) {
-    if (inCore(x, z)) return FiniteWorld.biomeAt(x, z);
-    var ch = ensureBaseChunk(floorDiv(x, CS), floorDiv(z, CS));
-    return ch.biomes[columnIndex(localCoord(x, CS), localCoord(z, CS))];
-  }
-
-  function baseBlockAt(x, y, z) {
-    if (y < 0) return 12;
-    if (y >= H) return 0;
-    if (inCore(x, z)) return FiniteWorld.get(x, y, z);
-    var ch = ensureBaseChunk(floorDiv(x, CS), floorDiv(z, CS));
-    return getFromChunk(ch, x, y, z);
-  }
-
-  function inTarget(ch, x, z) {
-    return floorDiv(x, CS) === ch.cx && floorDiv(z, CS) === ch.cz;
-  }
-
-  function decorSet(ch, x, y, z, id, airOnly) {
-    if (y <= 0 || y >= H || !inTarget(ch, x, z)) return;
-    var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
-    if (!airOnly || ch.blocks[i] === 0) ch.blocks[i] = id;
-  }
-
-  function ring(ch, x, y, z, radius, id) {
-    for (var dx = -radius; dx <= radius; dx++)
-      for (var dz = -radius; dz <= radius; dz++) {
-        if (radius > 1 && Math.abs(dx) === radius && Math.abs(dz) === radius) continue;
-        decorSet(ch, x + dx, y, z + dz, id, true);
-      }
-  }
-
-  function oak(ch, x, h, z, r, log, leaves) {
-    var th = 4 + ((r * 100000) | 0) % 3;
-    for (var y = 1; y <= th; y++) decorSet(ch, x, h + y, z, log, false);
-    for (var ly = th - 2; ly <= th + 1; ly++) {
-      var rad = ly === th + 1 ? 1 : 2;
-      for (var dx = -rad; dx <= rad; dx++) for (var dz = -rad; dz <= rad; dz++) {
-        if (dx === 0 && dz === 0 && ly <= th) continue;
-        if (rad === 2 && ly >= th && Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
-        decorSet(ch, x + dx, h + ly, z + dz, leaves, true);
-      }
-    }
-    decorSet(ch, x, h + th + 2, z, leaves, true);
-  }
-
-  function spruce(ch, x, h, z, r) {
-    var th = 6 + ((r * 100000) | 0) % 4;
-    for (var y = 1; y <= th; y++) decorSet(ch, x, h + y, z, 20, false);
-    for (var ly = 2; ly <= th + 1; ly++) {
-      var rad = ly > th ? 0 : (ly === th ? 1 : (((th - ly) % 2 === 0) ? 1 : 2));
-      if (!rad) decorSet(ch, x, h + ly, z, 21, true);
-      else {
-        ring(ch, x, h + ly, z, rad, 21);
-        if (rad === 2) decorSet(ch, x, h + ly, z, 20, true);
-      }
-    }
-  }
-
-  function megaSpruce(ch, x, h, z, r) {
-    if (baseSurfaceAt(x + 1, z) !== h || baseSurfaceAt(x, z + 1) !== h || baseSurfaceAt(x + 1, z + 1) !== h)
-      return false;
-    var th = 12 + ((r * 100000) | 0) % 6;
-    if (h + th + 3 >= H) th = H - 4 - h;
-    if (th < 10) return false;
-    for (var y = 1; y <= th; y++) for (var dx = 0; dx <= 1; dx++) for (var dz = 0; dz <= 1; dz++)
-      decorSet(ch, x + dx, h + y, z + dz, 20, false);
-    for (var ly = 5; ly <= th + 2; ly++) {
-      var rem = th + 2 - ly;
-      var rad = rem <= 0 ? 1 : (rem % 2 === 0 ? 2 : 3);
-      ring(ch, x, h + ly, z, rad, 21);
-      if (rad >= 2) for (var bx = 0; bx <= 1; bx++) for (var bz = 0; bz <= 1; bz++)
-        decorSet(ch, x + bx, h + ly, z + bz, 20, false);
-    }
-    decorSet(ch, x, h + th + 3, z, 21, true);
-    return true;
-  }
-
-  function jungle(ch, x, h, z, r) {
-    var th = 6 + ((r * 100000) | 0) % 6;
-    for (var y = 1; y <= th; y++) decorSet(ch, x, h + y, z, 22, false);
-    ring(ch, x, h + th - 1, z, 2, 23); decorSet(ch, x, h + th - 1, z, 22, false);
-    ring(ch, x, h + th, z, 2, 23); decorSet(ch, x, h + th, z, 22, false);
-    ring(ch, x, h + th + 1, z, 1, 23);
-    decorSet(ch, x, h + th + 2, z, 23, true);
-  }
-
-  function giantJungle(ch, x, h, z, r) {
-    if (baseSurfaceAt(x + 1, z) !== h || baseSurfaceAt(x, z + 1) !== h || baseSurfaceAt(x + 1, z + 1) !== h)
-      return false;
-    var th = 24 + ((r * 100000) | 0) % 8;
-    if (h + th + 4 >= H) th = H - 5 - h;
-    if (th < 14) return false;
-    for (var y = 1; y <= th; y++) for (var dx = 0; dx <= 1; dx++) for (var dz = 0; dz <= 1; dz++)
-      decorSet(ch, x + dx, h + y, z + dz, 22, false);
-    ring(ch, x, h + th - 1, z, 3, 23);
-    ring(ch, x, h + th, z, 3, 23);
-    ring(ch, x, h + th + 1, z, 2, 23);
-    ring(ch, x, h + th + 2, z, 1, 23);
-    decorSet(ch, x, h + th + 3, z, 23, true);
-    for (var ty = th - 1; ty <= th; ty++) for (var tx = 0; tx <= 1; tx++) for (var tz = 0; tz <= 1; tz++)
-      decorSet(ch, x + tx, h + ty, z + tz, 22, false);
-    return true;
-  }
-
-  function cactus(ch, x, h, z, r) {
-    var n = 1 + ((r * 100000) | 0) % 3;
-    for (var y = 1; y <= n; y++) decorSet(ch, x, h + y, z, 26, true);
-  }
-
-  function acacia(ch, x, h, z, r) {
-    var th = 4 + ((r * 100000) | 0) % 2;
-    for (var y = 1; y <= th; y++) decorSet(ch, x, h + y, z, 35, false);
-    ring(ch, x, h + th, z, 2, 36); decorSet(ch, x, h + th, z, 35, false);
-    ring(ch, x, h + th + 1, z, 1, 36);
-    decorSet(ch, x, h + th + 2, z, 36, true);
-  }
-
-  function boulder(ch, x, h, z) {
-    for (var dy = -1; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) for (var dz = -2; dz <= 2; dz++) {
-      if (dx * dx + dz * dz + dy * dy * 1.6 > 3.4) continue;
-      var xx = x + dx, yy = h + dy, zz = z + dz;
-      if (!inTarget(ch, xx, zz) || yy <= 0 || yy >= H) continue;
-      var old = getFromChunk(ch, xx, yy, zz);
-      if (old !== 12 && old !== 7) setInChunk(ch, xx, yy, zz, 25);
-    }
-  }
-
-  // 遗迹写入器：覆写石土等自然方块，但不吃基岩/水/功能方块（工作台/床/熔炉/箱子）。
-  var STRUCT_KEEP = { 12: true, 7: true, 15: true, 17: true, 37: true, 38: true };
-  function structSet(ch, x, y, z, id, mode) {
-    if (y <= 0 || y >= H || !inTarget(ch, x, z)) return;
-    if (inCore(x, z)) return;
-    var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
-    var old = ch.blocks[i];
-    if (STRUCT_KEEP[old]) return;
-    if (mode === 'air' && old !== 0) return;
-    ch.blocks[i] = id;
-  }
-
-  // 遗迹：以 cell 为单位稀疏放置。每个相交区块独立重算同一座遗迹并按 inTarget 裁剪，
-  // 结果与区块加载顺序无关；cell 哈希未命中的区块只有常数开销。
-  function decorateStructures(ch) {
-    var S = Voxel.Structures;
-    if (!S || !S.enabled()) return;
-    var x0 = ch.cx * CS, z0 = ch.cz * CS;
-    var E = S.EXTENT, CELL = S.CELL;
-    var c0x = floorDiv(x0 - E, CELL), c1x = floorDiv(x0 + CS + E, CELL);
-    var c0z = floorDiv(z0 - E, CELL), c1z = floorDiv(z0 + CS + E, CELL);
-    for (var cx = c0x; cx <= c1x; cx++) {
-      for (var cz = c0z; cz <= c1z; cz++) {
-        var ruin = S.cellRuin(cx, cz);
-        if (!ruin) continue;
-        if (ruin.ax + E <= x0 || ruin.ax - E >= x0 + CS ||
-          ruin.az + E <= z0 || ruin.az - E >= z0 + CS) continue;
-        S.buildRuin(ruin, function (x, y, z, id, mode) {
-          structSet(ch, x, y, z, id, mode);
-        });
-      }
-    }
-  }
-
-  function decorate(ch) {
-    var defs = Voxel.Biomes.defs;
-    var x0 = ch.cx * CS, z0 = ch.cz * CS;
-    decorateStructures(ch);
-    // 外星巨树的写入语义与普通树一致（force 主干 / airOnly 树冠）。
-    var megaPen = Voxel.Structures ? {
-      force: function (px, py, pz, pid) { decorSet(ch, px, py, pz, pid, false); },
-      air: function (px, py, pz, pid) { decorSet(ch, px, py, pz, pid, true); }
-    } : null;
-    // 每个目标区块独立枚举所有可能与它相交的根，并按全局 x/z 固定顺序写入。
-    // 因此跨区块树冠连续，结果也不依赖区块加载顺序。
-    for (var x = x0 - FEATURE_RADIUS; x < x0 + CS + FEATURE_RADIUS; x++) {
-      for (var z = z0 - FEATURE_RADIUS; z < z0 + CS + FEATURE_RADIUS; z++) {
-        // legacy core 的装饰完全交给旧生成器，且禁止外围 anchor 的树冠跨进核心。
-        // 这样既不会改写旧档自然地形，也不会在 0/255 接缝留下被裁掉的半棵树。
-        if (x >= -FEATURE_RADIUS && x <= W - 1 + FEATURE_RADIUS &&
-          z >= -FEATURE_RADIUS && z <= D - 1 + FEATURE_RADIUS) continue;
-        var h = baseSurfaceAt(x, z);
-        if (h <= WATER + 1 || h > SNOW_LEVEL - 2) continue;
-        var biomeId = baseBiomeAt(x, z);
-        var bd = defs[biomeId];
-        if (!bd) continue;
-        var surface = baseBlockAt(x, h, z);
-        if (!bd.plantOn || bd.plantOn.indexOf(surface) < 0) {
-          // 外星巨树（仅 terrainVersion=2）：不依赖群系 treeType 字段，
-          // 命中时取代该锚点的普通植被——恶地/石峰也能长出玄武柱丛。
-          if (megaPen && terrainVersion === 2 && Voxel.Blocks.isSolid(surface)) {
-            var mg0 = Voxel.Structures.megaKind(planetTypeKey, terrainVersion, biomeId);
-            if (mg0) {
-              var rm0 = noise.hash2(x * 11 + 71, z * 13 + 33);
-              if (rm0 < mg0.chance && Voxel.Structures.buildMega(mg0, megaPen, x, h, z, rm0)) continue;
-            }
-          }
-          continue;
-        }
-        // 外星巨树（可种植地表）：独立哈希判定，命中时取代普通树。
-        if (megaPen && terrainVersion === 2) {
-          var mg = Voxel.Structures.megaKind(planetTypeKey, terrainVersion, biomeId);
-          if (mg) {
-            var rm = noise.hash2(x * 11 + 71, z * 13 + 33);
-            if (rm < mg.chance && Voxel.Structures.buildMega(mg, megaPen, x, h, z, rm)) continue;
-          }
-        }
-        if (bd.boulders && noise.hash2(x * 7 + 61, z * 7 + 83) < 0.0025) {
-          boulder(ch, x, h, z); continue;
-        }
-        var r = noise.hash2(x * 3 + 11, z * 5 + 29);
-        if (r >= bd.treeChance) continue;
-        if (bd.treeType === 'oak') oak(ch, x, h, z, r, 4, 5);
-        else if (bd.treeType === 'spruce') spruce(ch, x, h, z, r);
-        else if (bd.treeType === 'cactus') cactus(ch, x, h, z, r);
-        else if (bd.treeType === 'birch') oak(ch, x, h, z, r, 33, 34);
-        else if (bd.treeType === 'acacia') acacia(ch, x, h, z, r);
-        else if (bd.treeType === 'jungle') {
-          var rg = noise.hash2(x * 5 + 3, z * 7 + 97);
-          if (!(rg < bd.giantChance && giantJungle(ch, x, h, z, rg))) jungle(ch, x, h, z, r);
-        } else if (bd.treeType === 'mega_spruce' && !megaSpruce(ch, x, h, z, r)) spruce(ch, x, h, z, r);
-      }
-    }
   }
 
   function lightCost(id) {
@@ -471,6 +148,7 @@ window.Voxel = window.Voxel || {};
   function relight(ch) {
     ch.sky.fill(0); ch.blk.fill(0);
     var blkQ = [];
+    var emitList = [];
     var LIGHT = Voxel.Blocks.LIGHT;
     for (var lx = 0; lx < CS; lx++) for (var lz = 0; lz < CS; lz++) {
       var light = 15;
@@ -482,11 +160,15 @@ window.Voxel = window.Voxel || {};
         var emit = LIGHT[id];
         if (emit) {
           ch.blk[i] = emit;
+          emitList.push(i);
           if (!blkQ[emit]) blkQ[emit] = [];
           blkQ[emit].push(i);
         }
       }
     }
+    // 发光方块索引随 relight 全量重建（relight 本就扫描全区块，零额外成本）；
+    // 之后跨区块批量重光直接取列表做种子，省去对每个区块 65k 体素的全扫描。
+    ch.emit = emitList;
     // 流式区块采用列天光：露天/水下保持正确，洞穴仍为黑暗。避免把每个露天空气格
     // 都塞进 BFS（外围生成发生在游玩帧内）；火把仍走完整的 15 格泛光。
     flood(ch, ch.blk, blkQ);
@@ -671,9 +353,24 @@ window.Voxel = window.Voxel || {};
     for (var c = 0; c < chunks.length; c++) chunks[c].blk.fill(0);
 
     // 区域内所有发光方块都是本轮的权威光源（火把/荧光菌伞等）。
+    // 优先取 relight 维护的 emit 索引；绝大多数区块没有光源，
+    // 直接跳过旧实现里对每个区块 32×64×32 的全量扫描。
     var LIGHT2 = Voxel.Blocks.LIGHT;
     for (var c2 = 0; c2 < chunks.length; c2++) {
       var src = chunks[c2];
+      var em = src.emit;
+      if (em) {
+        for (var q = 0; q < em.length; q++) {
+          var ii2 = em[q];
+          var level2 = LIGHT2[src.blocks[ii2]];
+          if (!level2) continue;
+          src.blk[ii2] = level2;
+          if (!buckets[level2]) buckets[level2] = [];
+          buckets[level2].push({ ch: src, i: ii2 });
+        }
+        continue;
+      }
+      // 兼容回退：无索引的区块（理论上不应出现）按旧逻辑全扫
       for (var i = 0; i < src.blocks.length; i++) {
         var level = LIGHT2[src.blocks[i]];
         if (!level) continue;
@@ -721,6 +418,111 @@ window.Voxel = window.Voxel || {};
     recomputeBlockLightBatch(targets, adjacentToCore(cx0, cz0));
   }
 
+  // 卸载区块触发的重光不急于一帧内全部完成（玩家看不见远处接缝），
+  // 在 stream() 的预算内逐个消化，避免移动时集中爆发 BFS 卡顿。
+  function drainPendingRelight(maxMs) {
+    if (!pendingRelight.length) return;
+    var t0 = perfNow();
+    while (pendingRelight.length) {
+      var it = pendingRelight.shift();
+      // 目标区块可能已被再次卸载/重载覆盖，重光以当前 3×3 就绪集为准，幂等安全。
+      recomputeBlockLightAround(it[0], it[1]);
+      if (perfNow() - t0 >= maxMs) break;
+    }
+  }
+
+  // ---- 地形生成 Worker 客户端（P2）----
+  // base 地形 + 装饰在 Worker 内执行（GenCore 与主线程共用同一实现），
+  // 主线程只负责安装数组、应用编辑、光照与网格。Worker 失败自动回退同步路径。
+  var wc = null, wcFailed = false, wcEpoch = 0, wcInflight = 0, wcNextId = 1;
+  var wcPending = Object.create(null);   // jobId -> job
+  var wcQueue = [];                      // 待派发任务（受在途上限约束）
+  var WC_MAX_INFLIGHT = 4;
+
+  function wcActive() { return !wcFailed && !!wc && planetMode; }
+
+  function ensureWorker() {
+    if (wc || wcFailed || !planetMode || typeof Worker === 'undefined') return;
+    try {
+      wc = new Worker('js/world/gen_worker.js');
+      wc.onmessage = function (e) {
+        var m = e.data;
+        if (!m) return;
+        if (m.type !== 'chunk') return;
+        var job = wcPending[m.jobId];
+        if (m.epoch !== wcEpoch || !job) {
+          if (job) { delete wcPending[m.jobId]; wcInflight--; }
+          return;
+        }
+        delete wcPending[m.jobId];
+        wcInflight--;
+        installWorkerChunk(job.cx, job.cz, m.blocks, m.heights, m.biomes);
+      };
+      wc.onerror = function () {
+        // Worker 不可用（file:// / CSP / 加载失败）：整体回退同步生成。
+        wcFailed = true;
+        var retry = [];
+        for (var id in wcPending) if (own(wcPending, id)) retry.push(wcPending[id]);
+        retry = retry.concat(wcQueue);
+        wcQueue = [];
+        wcPending = Object.create(null);
+        wc = null; wcInflight = 0;
+        for (var i = 0; i < retry.length; i++) {
+          var j = retry[i];
+          var k2 = key(j.cx, j.cz);
+          var c2 = extra[k2];
+          if (c2 && c2.baseReady && c2.decorated) continue;
+          genQueued[k2] = true;
+          genQueue.push({ key: k2, cx: j.cx, cz: j.cz, d: j.d || 0 });
+        }
+      };
+      wc.postMessage({ type: 'init', epoch: wcEpoch, seed: seed, profile: profile });
+    } catch (e) {
+      wcFailed = true;
+      wc = null;
+    }
+  }
+
+  function pumpWorkerResults() {
+    if (!wcActive()) return;
+    while (wcInflight < WC_MAX_INFLIGHT && wcQueue.length) {
+      var job = wcQueue.shift();
+      var k = key(job.cx, job.cz);
+      var ch = extra[k];
+      if (ch && ch.baseReady && ch.decorated) { delete genQueued[k]; continue; }   // 已被同步路径完成
+      var id = wcNextId++;
+      wcPending[id] = job;
+      wcInflight++;
+      wc.postMessage({ type: 'job', epoch: wcEpoch, jobId: id, cx: job.cx, cz: job.cz });
+    }
+  }
+
+  // Worker 产出安装：blocks/heights/biomes 已含装饰结果；光照与编辑仍由主线程处理。
+  function installWorkerChunk(cx, cz, blocksBuf, heightsBuf, biomesBuf) {
+    var k = key(cx, cz);
+    var ch = extra[k];
+    if (!ch) { ch = newChunk(cx, cz); extra[k] = ch; }
+    ch.blocks = new Uint8Array(blocksBuf);
+    ch.heights = new Int16Array(heightsBuf);
+    ch.biomes = new Uint8Array(biomesBuf);
+    ch.baseReady = true;
+    ch.decorated = true;
+    if (gen) gen.absorbShell(cx, cz, ch.blocks, ch.heights, ch.biomes);
+    // 只对焦点附近区块继续就绪阶段；远处产物仅保留数据供 halo/光照采样。
+    var dx = cx - floorDiv(focus.x, CS), dz = cz - floorDiv(focus.z, CS);
+    if (!ch.ready && Math.abs(dx) <= DATA_RADIUS && Math.abs(dz) <= DATA_RADIUS) {
+      genQueued[k] = true;
+      genQueue.push({ key: k, cx: cx, cz: cz, d: dx * dx + dz * dz });
+    } else {
+      delete genQueued[k];
+    }
+  }
+
+  function dispatchWorkerJob(job) {
+    wcQueue.push(job);
+  }
+
+
   function applyChunkEdits(ch) {
     var list = editsByChunk[key(ch.cx, ch.cz)];
     if (!list) return;
@@ -757,7 +559,11 @@ window.Voxel = window.Voxel || {};
     if (!isFinite(cx) || !isFinite(cz) || coreChunk(cx, cz) || !planetMode) return null;
     var ch = ensureBaseChunk(cx, cz);
     if (!ch.ready) {
-      decorate(ch);
+      // Worker 产出的区块已完成装饰；同步路径在此处装饰。
+      if (!ch.decorated) {
+        gen.decorate(ch.shell);
+        ch.decorated = true;
+      }
       applyChunkEdits(ch);
       relight(ch);
       ch.ready = true;
@@ -797,6 +603,19 @@ window.Voxel = window.Voxel || {};
     }
     filtered.sort(function (a, b) { return a.d - b.d; });
     genQueue = filtered;
+    // Worker 队列同样按新焦点过滤：不再需要的任务释放 genQueued 占位
+    var wq = [];
+    for (var wi = 0; wi < wcQueue.length; wi++) {
+      var wj = wcQueue[wi];
+      var wch = extra[wj.key];
+      if (!wanted[wj.key] || (wch && wch.baseReady && wch.decorated)) {
+        delete genQueued[wj.key];
+        continue;
+      }
+      genQueued[wj.key] = true;
+      wq.push(wj);
+    }
+    wcQueue = wq;
     for (var k in extra) {
       var ch = extra[k];
       if (Math.abs(ch.cx - cx0) <= RENDER_RADIUS && Math.abs(ch.cz - cz0) <= RENDER_RADIUS)
@@ -812,8 +631,24 @@ window.Voxel = window.Voxel || {};
       var job = genQueue.shift();
       delete genQueued[job.key];
       var ch = extra[job.key];
-      // 游玩帧内把“基础密度生成”和“确定性装饰/光照”拆成小步；否则首次装饰一个
-      // 区块会同步生成整个 halo，单帧可能出现明显长停顿。
+      // Worker 路径：base+装饰整体在 Worker 内完成，主线程只派发/安装，
+      // 单帧只消耗一次循环配额，不产生同步生成停顿。
+      // 注意：Worker 产物已含装饰，就绪阶段无需等待邻居——跨区块接缝
+      // 由 ensureChunk 的 markNeighborhood/重光批量处理（邻居抵达时会
+      // 触发本区块重建）。这里绝不能按“最近优先 + 等待更远邻居”门控，
+      // 否则队头区块会以最小 d 反复重排，把它等待的邻居永久压在身后形成活锁。
+      if (wcActive()) {
+        if (!ch || !ch.baseReady || !ch.decorated) {
+          dispatchWorkerJob(job);
+          built++;
+          continue;
+        }
+        if (!ch.ready) ensureChunk(job.cx, job.cz);
+        built++;
+        continue;
+      }
+      // 同步回退路径：游玩帧内把“基础密度生成”和“确定性装饰/光照”拆成小步；
+      // 否则首次装饰一个区块会同步生成整个 halo，单帧可能出现明显长停顿。
       if (!ch || !ch.baseReady) {
         ensureBaseChunk(job.cx, job.cz);
         genQueued[job.key] = true;
@@ -877,7 +712,11 @@ window.Voxel = window.Voxel || {};
     disposeChunkMesh(ch);
     delete extra[k];
     delete meshQueued[k];
-    if (sharedLight) recomputeBlockLightAround(ch.cx, ch.cz);
+    // 必须同步清掉生成占位：否则该区块的 Worker 任务若已被消费/丢弃，
+    // 残留的 genQueued 会永久阻止重新入队，造成等待其 halo 的邻块死锁。
+    delete genQueued[k];
+    if (memoCh === ch || (ch.cx === memoCx && ch.cz === memoCz)) invalidateChunkMemo();
+    if (sharedLight) pendingRelight.push([ch.cx, ch.cz]);
     markNeighborhood(ch.cx, ch.cz);
   }
 
@@ -956,22 +795,34 @@ window.Voxel = window.Voxel || {};
       : ((profile && profile.terrainVersion === 2) ? 2 : 1);
     planetTypeKey = profile && typeof profile.typeKey === 'string' ? profile.typeKey : 'lush';
     planetMode = !profile || profile.kind !== 'station';
-    noise = Voxel.Noise.create(seed);
-    climateAt = Voxel.Biomes.makeClimate(noise);
-    shaper = Voxel.Shaper.create(noise);
+    // 生成核心（base+装饰）：主线程同步回退与 Worker 共用同一实现。
+    gen = Voxel.GenCore.create({ seed: seed, profile: worldProfile });
     // 外星巨树/遗迹只绑定在行星模式 + terrainVersion=2 的世界上；空间站与旧档不受影响。
     if (Voxel.Structures) {
-      Voxel.Structures.bind(planetMode && terrainVersion === 2 ? {
-        hash2: noise.hash2,
-        surfaceAt: baseSurfaceAt,
-        biomeAt: baseBiomeAt,
-        typeKey: planetTypeKey,
-        version: terrainVersion
+      Voxel.Structures.bind(planetMode && gen.terrainVersion === 2 ? {
+        hash2: gen.noise.hash2,
+        surfaceAt: gen.surfaceAt,
+        biomeAt: gen.biomeAt,
+        typeKey: gen.planetTypeKey,
+        version: gen.terrainVersion
       } : null);
     }
     if (extraGroup && extraGroup.parent) extraGroup.parent.remove(extraGroup);
     for (var k in extra) disposeChunkMesh(extra[k]);
     extra = Object.create(null);
+    invalidateChunkMemo();
+    pendingRelight.length = 0;
+    // Worker 会话重置：新世界 → 新纪元，旧纪元的在途产物一律丢弃
+    wcEpoch++;
+    wcQueue.length = 0;
+    wcPending = Object.create(null);
+    wcInflight = 0;
+    if (wc) {
+      try { wc.postMessage({ type: 'init', epoch: wcEpoch, seed: seed, profile: worldProfile }); }
+      catch (e) { wcFailed = true; wc = null; }
+    } else {
+      ensureWorker();
+    }
     extraEdits = Object.create(null);
     editsByChunk = Object.create(null);
     coreBlkOverlay = null;
@@ -1004,15 +855,28 @@ window.Voxel = window.Voxel || {};
     }
   }
 
+  // 热路径（网格填充回退/物理/射线/生物）每帧调用数十万次：
+  // 1. ready 区块的数据已含全部编辑（applyChunkEdits/set 均直写 blocks），
+  //    因此无需再查字符串键的 extraEdits 覆盖层；
+  // 2. 最近访问的区块做记忆化，把"两次字符串拼接+哈希"降为一次整数比较。
+  var memoCx = 0x7fffffff, memoCz = 0x7fffffff, memoCh = null;
+  function invalidateChunkMemo() { memoCx = 0x7fffffff; memoCz = 0x7fffffff; memoCh = null; }
+  function chunkFor(x, z) {
+    var cx = floorDiv(x, CS), cz = floorDiv(z, CS);
+    if (cx === memoCx && cz === memoCz) return memoCh;
+    memoCx = cx; memoCz = cz;
+    memoCh = extra[key(cx, cz)] || null;
+    return memoCh;
+  }
+
   function get(x, y, z) {
     x = Math.floor(x); y = Math.floor(y); z = Math.floor(z);
     if (y < 0) return 12;
     if (y >= H) return 0;
     if (!planetMode || inCore(x, z)) return FiniteWorld.get(x, y, z);
-    var pk = posKey(x, y, z);
-    if (own(extraEdits, pk)) return extraEdits[pk];
-    var ch = chunkAtBlock(x, z);
-    return ch && ch.ready ? getFromChunk(ch, x, y, z) : 12;
+    var ch = chunkFor(x, z);
+    if (ch && ch.ready) return ch.blocks[chunkIndex(x - ch.cx * CS, y, z - ch.cz * CS)];
+    return 12;
   }
 
   // 收集一个核心格在 15 格块光程内可能影响的所有外围区块；四边与四角统一处理。
@@ -1194,6 +1058,66 @@ window.Voxel = window.Voxel || {};
     return buildExtraMeshes(Math.max(0, n | 0), scene);
   }
 
+  // ---- MeshBuilder 填充式采样支持（P0）----
+  // 返回就绪区块的 TypedArray 引用（不复制）；null 表示该区块无直接数组，
+  // 由调用方回退到全局门面语义（未加载=石/15/0）。
+  function buildChunkArrays(cx, cz) {
+    if (!planetMode || coreChunk(cx, cz)) return null;
+    var ch = extra[key(cx, cz)];
+    return ch && ch.ready ? { blocks: ch.blocks, sky: ch.sky, blk: ch.blk } : null;
+  }
+
+  function buildCoreArrays() {
+    if (!FiniteWorld.coreArrays) return null;
+    var ca = FiniteWorld.coreArrays();
+    if (ca) ca.overlay = coreBlkOverlay;   // 外围火把跨入核心的附加块光
+    return ca;
+  }
+
+  // ---- 时间预算流式调度器（P1）----
+  // 以毫秒预算取代旧的固定每帧步数：在预算内交替做"核心重网格 / 外围网格 /
+  // 外围生成"各一步，全部队列排空即提前返回。单步成本超支时最坏帧
+  // = 预算 + 单个最大步骤，不再出现固定 2~6 步叠加的长尾卡顿。
+  function stream(budgetMs, scene) {
+    budgetMs = Math.max(1, +budgetMs || 4);
+    drainPendingRelight(Math.min(2, budgetMs * 0.25));
+    pumpWorkerResults();
+    if (!FiniteWorld.isReady()) {
+      var t00 = perfNow();
+      do { FiniteWorld.generateNext(2); }
+      while (!FiniteWorld.isReady() && perfNow() - t00 < budgetMs);
+      if (FiniteWorld.isReady()) {
+        focus.cx = floorDiv(focus.x, CS); focus.cz = floorDiv(focus.z, CS);
+        refreshStreaming();
+      }
+      return 0;
+    }
+    var t0 = perfNow(), built = 0;
+    var canMesh = !!Voxel.MeshBuilder &&
+      (!Voxel.MeshBuilder._test || Voxel.MeshBuilder._test.ready === undefined || Voxel.MeshBuilder._test.ready());
+    // 轮转调度：生成 / 核心网格 / 外围网格交替执行。若固定先做某类步骤，
+    // 当其开销吃满预算时其余管线会被无限饿死（如核心重网格积压时永不生成）。
+    var phase = 0, m1 = 0, m2 = 0, g1 = 0, emptyRounds = 0;
+    for (;;) {
+      var elapsed = perfNow() - t0;
+      if (elapsed >= budgetMs) break;
+      var step = 0;
+      switch (phase % 3) {
+        case 0: g1 = pumpGeneration(1) || 0; step = g1; break;
+        case 1: m1 = canMesh ? (FiniteWorld.buildMeshes(1, scene) || 0) : 0; step = m1; break;
+        default: m2 = canMesh ? (buildExtraMeshes(1, scene) || 0) : 0; step = m2; break;
+      }
+      phase++;
+      if (!step) {   // 该类队列为空：立即轮转到下一类；三类全空则结束
+        if (++emptyRounds >= 3) break;
+        continue;
+      }
+      emptyRounds = 0;
+      built += step;
+    }
+    return built;
+  }
+
   function clearMeshes(scene) {
     FiniteWorld.clearMeshes(scene);
     for (var k in extra) disposeChunkMesh(extra[k]);
@@ -1252,6 +1176,9 @@ window.Voxel = window.Voxel || {};
     focusMeshed: focusMeshed,
     meshCount: function () { return FiniteWorld.meshCount() + (extraGroup ? extraGroup.children.length : 0); },
     buildMeshes: buildMeshes,
+    stream: stream,
+    buildChunkArrays: buildChunkArrays,
+    buildCoreArrays: buildCoreArrays,
     clearMeshes: clearMeshes,
     markChunkDirty: markChunkDirty,
     get: get,
@@ -1287,7 +1214,15 @@ window.Voxel = window.Voxel || {};
       localCoord: function (n) { return localCoord(n, CS); },
       unloadOutside: unloadOutside,
       finiteWorld: FiniteWorld,
-      chunk: function (cx, cz) { return extra[key(cx, cz)] || null; }
+      chunk: function (cx, cz) { return extra[key(cx, cz)] || null; },
+      gen: function () { return gen; },
+      workerStats: function () {
+        return {
+          active: wcActive(), failed: wcFailed,
+          inflight: wcInflight, queued: wcQueue.length,
+          epoch: wcEpoch
+        };
+      }
     }
   };
 

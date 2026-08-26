@@ -56,6 +56,7 @@ load('js/world/noise.js');
 load('js/world/biomes.js');
 load('js/world/planet_rules.js');
 load('js/world/shaper.js');
+load('js/world/gen_core.js');
 load('js/blocks.js');
 load('js/systems/discovery.js');
 load('js/crafting.js');

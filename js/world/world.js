@@ -836,6 +836,7 @@ Voxel.World = (function () {
       chunks[key] = ch;
       built++;
     }
+    return built;
   }
 
   function clearMeshes(scene) {
@@ -867,6 +868,12 @@ Voxel.World = (function () {
     // 无限世界 facade 在核心区块外生成/卸载邻居时，需要让核心边缘重新剔面。
     // 仅暴露区块级失效入口；有限世界的数据布局仍保持私有。
     markChunkDirty: markChunkDirty,
+    // 供 MeshBuilder 填充式采样直读核心数据（避免逐体素走函数门面）。
+    // 光照未初始化时返回 null，调用方回退到全局门面语义。
+    coreArrays: function () {
+      if (!data || !lightReady) return null;
+      return { data: data, sky: skyL, blk: blkL, W: W, H: H, D: D };
+    },
     get: get,
     set: set,
     applyInfrastructure: applyInfrastructure,

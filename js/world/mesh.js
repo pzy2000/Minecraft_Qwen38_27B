@@ -8,6 +8,7 @@ Voxel.MeshBuilder = (function () {
   var G = null, GSky = null, GBlk = null;
   var texture, opaqueMat, waterMat, foliageMat;
   var mats = [];          // 全部地形材质（uniform 批量更新用）
+  var inited = false;
   var UVK = [[0, 0], [1, 0], [1, 1], [0, 1]];
   // n: 法线, u/v: 切线, c: 4 顶点局部坐标, b: 基础亮度
   var FACES = [
@@ -197,6 +198,7 @@ Voxel.MeshBuilder = (function () {
     opaqueMat = mkMat(1, '0.5', {});
     waterMat = mkMat(1, '0.02', { transparent: true });
     foliageMat = mkMat(1, '0.5', { sway: true });
+    inited = true;
   }
 
   function tileUV(tile, ux, uy) {
@@ -226,6 +228,111 @@ Voxel.MeshBuilder = (function () {
     return vLight;
   }
   var vLight = { ls: 0, lb: 0, ao: 0 };
+
+  // ---- 填充式快速采样（P0，空间换时间）----
+  // 构建前把目标区块及 3×3 邻居的 blocks/sky/blk 拷入模块级复用的草稿缓冲
+  // (34×66×34 ≈ 229KB×3)，构建期间所有体素/光照/AO 查询都是纯 TypedArray
+  // 读取——消除旧路径上每体素"两次字符串拼接 + 哈希查找"的门面开销。
+  // 未加载列的默认值（石/天光15/无块光）与全局门面语义逐位一致。
+  var PW = 0, PH = 0;
+  var bPad = null, sPad = null, pPad = null;
+  var padX0 = 0, padZ0 = 0;
+
+  function ensurePad(CS, H) {
+    var w = CS + 2, h = H + 2;
+    if (bPad && bPad.length === w * h * w) return;
+    PW = w; PH = h;
+    bPad = new Uint8Array(PW * PH * PW);
+    sPad = new Uint8Array(PW * PH * PW);
+    pPad = new Uint8Array(PW * PH * PW);
+  }
+
+  function padG(wx, wy, wz) {
+    return bPad[(wx - padX0 + 1) + PW * (wy + 1 + PH * (wz - padZ0 + 1))];
+  }
+  function padSky(wx, wy, wz) {
+    return sPad[(wx - padX0 + 1) + PW * (wy + 1 + PH * (wz - padZ0 + 1))];
+  }
+  function padBlk(wx, wy, wz) {
+    return pPad[(wx - padX0 + 1) + PW * (wy + 1 + PH * (wz - padZ0 + 1))];
+  }
+
+  function fillPad(cx, cz) {
+    var CFG = Voxel.Config;
+    var H = CFG.WORLD_H, CS = CFG.CHUNK;
+    ensurePad(CS, H);
+    padX0 = cx * CS; padZ0 = cz * CS;
+    // 默认=未加载语义；就绪区块的列随后整列覆盖（含 y=0..H-1 全行）
+    bPad.fill(12); sPad.fill(15); pPad.fill(0);
+    var n33 = [];
+    if (Voxel.World.buildChunkArrays) {
+      for (var dz = -1; dz <= 1; dz++) for (var dx = -1; dx <= 1; dx++)
+        n33.push(Voxel.World.buildChunkArrays(cx + dx, cz + dz));
+    }
+    var core = Voxel.World.buildCoreArrays ? Voxel.World.buildCoreArrays() : null;
+    var CW = core ? core.W : 0, CD = core ? core.D : 0;
+    var CSH = CS * H, CHW = CW * H;
+    // 门面回退（fillPad 发生在采样器切换前，G/GSky/GBlk 仍是全局门面）：
+    // 覆盖"无直接数组且不在核心范围内"的列——如未加载边缘、光照未初始化的核心。
+    // 未加载时门面返回 12/15/0，与默认填充一致，语义永远不劣于旧路径。
+    var fg = G || Voxel.World.get, fsky = GSky || Voxel.World.getSky, fblk = GBlk || Voxel.World.getBlk;
+    for (var lz = -1; lz <= CS; lz++) {
+      var wz = padZ0 + lz;
+      for (var lx = -1; lx <= CS; lx++) {
+        var wx = padX0 + lx;
+        var ccx = Math.floor(wx / CS), ccz = Math.floor(wz / CS);
+        var src = null;
+        if (ccx >= cx - 1 && ccx <= cx + 1 && ccz >= cz - 1 && ccz <= cz + 1)
+          src = n33[(ccz - cz + 1) * 3 + (ccx - cx + 1)];
+        var dstCol = (lx + 1) + PW * PH * (lz + 1);
+        if (src) {
+          // 外围区块：chunkIndex(lx,y,lz)=lx+CS*(y+H*lz) → 列基址 lx+CS*H*lz，y 步长 CS
+          var slx = wx - ccx * CS, slz = wz - ccz * CS;
+          var sBase = slx + CSH * slz;
+          for (var y = 1; y <= H; y++) {
+            var di = dstCol + PW * y, si = sBase + CS * (y - 1);
+            bPad[di] = src.blocks[si]; sPad[di] = src.sky[si]; pPad[di] = src.blk[si];
+          }
+        } else if (core && wx >= 0 && wx < CW && wz >= 0 && wz < CD) {
+          // legacy 核心：idx(x,y,z)=x+W*(y+H*z) → 列基址 x+W*H*z，y 步长 W；
+          // 块光需叠加外围火把进入核心的 overlay
+          var cBase = wx + CHW * wz;
+          var ov = core.overlay;
+          for (var y2 = 1; y2 <= H; y2++) {
+            var di2 = dstCol + PW * y2, ci = cBase + CW * (y2 - 1);
+            bPad[di2] = core.data[ci]; sPad[di2] = core.sky[ci];
+            var bl = core.blk[ci];
+            pPad[di2] = ov && ov[ci] > bl ? ov[ci] : bl;
+          }
+        } else {
+          for (var y3 = 1; y3 <= H; y3++) {
+            var di3 = dstCol + PW * y3;
+            bPad[di3] = fg(wx, y3 - 1, wz);
+            sPad[di3] = fsky(wx, y3 - 1, wz);
+            pPad[di3] = fblk(wx, y3 - 1, wz);
+          }
+        }
+      }
+    }
+    // y=-1 行：实体石 + 无光（底面 AO 采样）；y=H 行：空气 + 满天光
+    for (var iz = 0; iz < PW; iz++) {
+      var rBot = PW * PH * iz, rTop = rBot + PW * (H + 1);
+      for (var ix = 0; ix < PW; ix++) {
+        bPad[rBot + ix] = 12; sPad[rBot + ix] = 0; pPad[rBot + ix] = 0;
+        bPad[rTop + ix] = 0; sPad[rTop + ix] = 15; pPad[rTop + ix] = 0;
+      }
+    }
+    // 最高非空气行（只扫中心区块本体）：网格主循环据此截断，上方必为空气
+    for (var yy = H; yy >= 1; yy--) {
+      var rowOfs = PW * yy;
+      for (var iz2 = 1; iz2 < PW - 1; iz2++) {
+        var rb = rowOfs + PW * PH * iz2 + 1;
+        for (var ix2 = 0; ix2 < PW - 2; ix2++)
+          if (bPad[rb + ix2] !== 0) return yy - 1;
+      }
+    }
+    return 0;
+  }
 
   // 发射一个面：yBot/yTop 为底/顶边绝对高度，uvLo/uvHi 为纹理 V 范围
   // （整块=y..y+1/0..1；床=y..y+0.5/0..1；邻居为床时只发上半面 y+0.5..y+1/0.5..1）
@@ -317,11 +424,18 @@ Voxel.MeshBuilder = (function () {
     var fl = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
     var x0 = cx * CS, z0 = cz * CS;
 
-    for (var lx = 0; lx < CS; lx++) {
-      var x = x0 + lx;
-      for (var lz = 0; lz < CS; lz++) {
-        var z = z0 + lz;
-        for (var y = 0; y < H; y++) {
+    // 填充草稿缓冲并切换到本地数组采样器；退出时恢复全局门面，
+    // 保证 emitCross/vertexLight 等共享辅助函数在两种模式下都正确。
+    var gPrev = G, gsPrev = GSky, gbPrev = GBlk;
+    var yTop = fillPad(cx, cz);
+    G = padG; GSky = padSky; GBlk = padBlk;
+    try {
+      for (var lx = 0; lx < CS; lx++) {
+        var x = x0 + lx;
+        for (var lz = 0; lz < CS; lz++) {
+          var z = z0 + lz;
+          // yTop 以上必为空气（fillPad 已扫描确认），跳过可省去大量空体素访问
+          for (var y = 0; y <= yTop; y++) {
           var id = G(x, y, z);
           if (id === 0) continue;
           var def = B.defs[id];
@@ -374,6 +488,9 @@ Voxel.MeshBuilder = (function () {
           }
         }
       }
+    }
+    } finally {
+      G = gPrev; GSky = gsPrev; GBlk = gbPrev;
     }
     return { opaque: makeGeo(o), water: makeGeo(w), foliage: makeGeo(fl) };
   }
@@ -430,6 +547,14 @@ Voxel.MeshBuilder = (function () {
     setCloudShadow: function (dx, dz, str) {
       eachUniform('uCloudDrift', function (u) { u.value.set(dx, dz); });
       eachUniform('uCloudStr', function (u) { u.value = str; });
+    },
+    // 测试钩子：填充式采样与全局门面语义的等价性校验（Node 冒烟）
+    _test: {
+      fillPad: fillPad,
+      ready: function () { return inited; },
+      sample: function (wx, wy, wz) {
+        return { b: padG(wx, wy, wz), s: padSky(wx, wy, wz), p: padBlk(wx, wy, wz) };
+      }
     }
   };
 })();

@@ -1,0 +1,439 @@
+// 地形生成核心（P2）：base 密度生成 + 确定性装饰的纯逻辑模块。
+//
+// 设计约束：
+// 1. 无 DOM / THREE / Worker API 依赖，主线程同步回退路径与 Web Worker 共用
+//    同一份实现——从根源上杜绝"两套生成器漂移"导致的接缝与存档不一致；
+// 2. 输出只由 (seed, profile, 全局坐标) 决定，区块加载顺序不影响结果；
+// 3. 光照、编辑、网格构建不在此模块：它们需要跨区块就绪状态，仍由主线程
+//    的无限世界 facade 统一处理。
+//
+// 从 infinite.js 原样移植（ch -> shell），保证与历史版本逐位一致的指纹。
+window.Voxel = window.Voxel || {};
+
+Voxel.GenCore = (function () {
+  function create(opts) {
+    var CFG = Voxel.Config;
+    var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D, CS = CFG.CHUNK;
+    var WATER = CFG.WATER_LEVEL, SNOW_LEVEL = CFG.SNOW_LEVEL;
+    var FEATURE_RADIUS = 4;
+
+    var seed = String(opts.seed);
+    var profile = opts.profile || null;
+    var terrainVersion = Voxel.PlanetRules && Voxel.PlanetRules.normalizeVersion
+      ? Voxel.PlanetRules.normalizeVersion(profile && profile.terrainVersion, 1)
+      : ((profile && profile.terrainVersion === 2) ? 2 : 1);
+    var planetTypeKey = profile && typeof profile.typeKey === 'string' ? profile.typeKey : 'lush';
+
+    var noise = Voxel.Noise.create(seed);
+    var climateAt = Voxel.Biomes.makeClimate(noise);
+    var shaper = Voxel.Shaper.create(noise);
+
+    // 稀疏 shell 存储："cx,cz" -> {blocks,heights,biomes,baseReady,decorated}
+    // 装饰锚点会按需预生成相邻 shell 的基础地形（halo），结果与加载顺序无关。
+    var store = Object.create(null);
+
+    function key(cx, cz) { return cx + ',' + cz; }
+    function floorDiv(n, d) { return Math.floor(n / d); }
+    function localCoord(n, d) {
+      var q = floorDiv(n, d);
+      return n - q * d;
+    }
+    function chunkIndex(lx, y, lz) { return lx + CS * (y + H * lz); }
+    function columnIndex(lx, lz) { return lx + CS * lz; }
+
+    function newShell(cx, cz) {
+      return {
+        cx: cx, cz: cz,
+        blocks: new Uint8Array(CS * H * CS),
+        heights: new Int16Array(CS * CS),
+        biomes: new Uint8Array(CS * CS),
+        baseReady: false, decorated: false
+      };
+    }
+
+    function shellOf(cx, cz) {
+      return store[key(cx, cz)] || null;
+    }
+
+    // 外部（Worker 回传）安装已装饰数组：主线程侧保留同一份数据供 halo 查询。
+    function absorbShell(cx, cz, blocks, heights, biomes) {
+      var s = store[key(cx, cz)];
+      if (s && s.baseReady) return s;
+      s = {
+        cx: cx, cz: cz,
+        blocks: blocks, heights: heights, biomes: biomes,
+        baseReady: true, decorated: true
+      };
+      store[key(cx, cz)] = s;
+      return s;
+    }
+
+    function profileBiome(base, climate, x, z) {
+      if (Voxel.PlanetRules && Voxel.PlanetRules.biomeFor)
+        return Voxel.PlanetRules.biomeFor(
+          terrainVersion, planetTypeKey, base, climate, x, z, noise);
+      if (!profile || !profile.typeKey || profile.typeKey === 'lush') return base;
+      var B = Voxel.Biomes.B;
+      var sets = {
+        arid: [B.DESERT, B.BADLANDS, B.SAVANNA, B.STONY_PEAKS],
+        frozen: [B.SNOWY, B.FROZEN_PEAKS, B.TAIGA, B.JAGGED_PEAKS],
+        toxic: [B.JUNGLE, B.MEGA_TAIGA, B.FOREST, B.SPARSE_JUNGLE],
+        volcanic: [B.BADLANDS, B.STONY_PEAKS, B.JAGGED_PEAKS, B.WINDSWEPT_HILLS],
+        oceanic: [B.OCEAN, B.BEACH, B.OCEAN, B.SPARSE_JUNGLE]
+      };
+      var set = sets[profile.typeKey];
+      if (!set) return base;
+      var r = (noise.hash2(x * 5 + 173, z * 7 + 251) * set.length) | 0;
+      return set[Math.min(set.length - 1, r)];
+    }
+
+    function setIfStone(s, lx, y, lz, id) {
+      if (y < 0 || y >= H) return;
+      var i = chunkIndex(lx, y, lz);
+      var old = s.blocks[i];
+      if (old === 3 || old === 8 || old === 9 || (old >= 39 && old <= 44)) s.blocks[i] = id;
+    }
+
+    function applySurface(s, lx, lz, x, z, top, biome, bd) {
+      var BL = Voxel.Biomes.BLK;
+      var BI = Voxel.Biomes.B;
+      if (top < 3) return;
+      var patch = noise.hash2((x >> 3) * 31 + 7, (z >> 3) * 17 + 5);
+      var surf = bd.surface, fill = bd.filler;
+      if (top <= WATER) {
+        surf = patch < 0.45 ? BL.SAND : (patch < 0.75 ? BL.GRAVEL : BL.DIRT);
+        s.blocks[chunkIndex(lx, top, lz)] = surf;
+        for (var d0 = 1; d0 <= 3 && top - d0 > 1; d0++)
+          setIfStone(s, lx, top - d0, lz, surf === BL.DIRT ? BL.DIRT : BL.SAND);
+        return;
+      }
+      if (top <= WATER + 2 && biome !== BI.STONY_SHORE &&
+        biome !== BI.JAGGED_PEAKS && biome !== BI.FROZEN_PEAKS && biome !== BI.STONY_PEAKS &&
+        !bd.badlandsBands) {
+        surf = BL.SAND; fill = BL.SAND;
+      }
+      if (bd.gravelPatches && patch < 0.22) { surf = BL.GRAVEL; fill = BL.STONE; }
+      s.blocks[chunkIndex(lx, top, lz)] = surf;
+      for (var d = 1; d <= 3 && top - d > 1; d++) setIfStone(s, lx, top - d, lz, fill);
+      if (biome === BI.DESERT)
+        for (var yd = Math.max(2, top - 8); yd <= top - 4; yd++) setIfStone(s, lx, yd, lz, 27);
+      if (bd.badlandsBands) {
+        var dith = (noise.hash2(x * 13 + 1, z * 7 + 9) * 3) | 0;
+        var bands = [BL.TERRACOTTA, BL.TERRACOTTA, 30, BL.TERRACOTTA, 31, 30];
+        for (var yb = Math.max(2, top - 16); yb <= top - 4; yb++) {
+          var band = (((yb + dith) / 3) | 0) % bands.length;
+          if (band < 0) band += bands.length;
+          setIfStone(s, lx, yb, lz, bands[band]);
+        }
+      }
+      var snowLine = (biome === BI.JAGGED_PEAKS || biome === BI.FROZEN_PEAKS) ? 40 : SNOW_LEVEL;
+      if (biome !== BI.DESERT && biome !== BI.BADLANDS && top >= snowLine)
+        s.blocks[chunkIndex(lx, top, lz)] = 18;
+    }
+
+    function generateBase(s) {
+      var lat = shaper.computeChunkLattice(s.cx, s.cz, climateAt);
+      var x0 = s.cx * CS, z0 = s.cz * CS;
+      for (var lx = 0; lx < CS; lx++) {
+        for (var lz = 0; lz < CS; lz++) {
+          var x = x0 + lx, z = z0 + lz;
+          var cl = shaper.sampleClim(lat, lx, lz);
+          var biome = terrainVersion === 2 && Voxel.PlanetRules && Voxel.PlanetRules.pickAllowed
+            ? Voxel.PlanetRules.pickAllowed(planetTypeKey, cl, Voxel.Biomes.B.PLAINS)
+            : profileBiome(Voxel.Biomes.pick(cl), cl, x, z);
+          var ci = columnIndex(lx, lz);
+          s.biomes[ci] = biome;
+          var bd = Voxel.Biomes.def(biome);
+          var th = shaper.sampleTh(lat, lx, lz);
+          var top = -1;
+          for (var y = 0; y < H; y++) {
+            var i = chunkIndex(lx, y, lz);
+            if (y === 0 || (y === 1 && noise.hash3(x, y, z) < 0.55) ||
+              (y === 2 && noise.hash3(x + 31, y, z) < 0.25)) {
+              s.blocks[i] = 12; top = y; continue;
+            }
+            var density = shaper.sampleLat(lat.dens, lat, lx, y, lz);
+            var solid = density > 0;
+            if (solid && th > WATER + 1 && y > 2 && shaper.isCave(
+              shaper.sampleLat(lat.cavA, lat, lx, y, lz),
+              shaper.sampleLat(lat.cavB, lat, lx, y, lz),
+              shaper.sampleLat(lat.chee, lat, lx, y, lz), y, th)) solid = false;
+            if (solid) {
+              s.blocks[i] = 3;
+              if (Voxel.PlanetRules && Voxel.PlanetRules.oreBlockForPosition) {
+                var oreId = Voxel.PlanetRules.oreBlockForPosition(
+                  terrainVersion, planetTypeKey, x, y, z, noise);
+                if (oreId) s.blocks[i] = oreId;
+              } else {
+                var r = noise.hash3(x, y, z);
+                if (y < 50 && r < 0.007) s.blocks[i] = 8;
+                else if (y < 34 && r > 0.994) s.blocks[i] = 9;
+              }
+              top = y;
+            } else s.blocks[i] = y <= WATER ? 7 : 0;
+          }
+          s.heights[ci] = top < 0 ? WATER : top;
+          applySurface(s, lx, lz, x, z, top, biome, bd);
+        }
+      }
+      s.baseReady = true;
+    }
+
+    function ensureShell(cx, cz) {
+      var k = key(cx, cz), s = store[k];
+      if (!s) { s = newShell(cx, cz); store[k] = s; }
+      if (!s.baseReady) generateBase(s);
+      return s;
+    }
+
+    // ---- 装饰期跨 shell 采样（只读，必要时补建 base）----
+    // 注意：装饰锚点被限制在 legacy core 扩展盒之外（见 decorate），
+    // 因此这里无需也不应回退到有限核心数据——Worker 环境没有该后端。
+    function baseSurfaceAt(x, z) {
+      var s = ensureShell(floorDiv(x, CS), floorDiv(z, CS));
+      return s.heights[columnIndex(localCoord(x, CS), localCoord(z, CS))];
+    }
+
+    function baseBiomeAt(x, z) {
+      var s = ensureShell(floorDiv(x, CS), floorDiv(z, CS));
+      return s.biomes[columnIndex(localCoord(x, CS), localCoord(z, CS))];
+    }
+
+    function baseBlockAt(x, y, z) {
+      if (y < 0) return 12;
+      if (y >= H) return 0;
+      var s = ensureShell(floorDiv(x, CS), floorDiv(z, CS));
+      return s.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))];
+    }
+
+    function inTarget(s, x, z) {
+      return floorDiv(x, CS) === s.cx && floorDiv(z, CS) === s.cz;
+    }
+
+    function decorSet(s, x, y, z, id, airOnly) {
+      if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
+      var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
+      if (!airOnly || s.blocks[i] === 0) s.blocks[i] = id;
+    }
+
+    function ring(s, x, y, z, radius, id) {
+      for (var dx = -radius; dx <= radius; dx++)
+        for (var dz = -radius; dz <= radius; dz++) {
+          if (radius > 1 && Math.abs(dx) === radius && Math.abs(dz) === radius) continue;
+          decorSet(s, x + dx, y, z + dz, id, true);
+        }
+    }
+
+    function oak(s, x, h, z, r, log, leaves) {
+      var th = 4 + ((r * 100000) | 0) % 3;
+      for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, log, false);
+      for (var ly = th - 2; ly <= th + 1; ly++) {
+        var rad = ly === th + 1 ? 1 : 2;
+        for (var dx = -rad; dx <= rad; dx++) for (var dz = -rad; dz <= rad; dz++) {
+          if (dx === 0 && dz === 0 && ly <= th) continue;
+          if (rad === 2 && ly >= th && Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+          decorSet(s, x + dx, h + ly, z + dz, leaves, true);
+        }
+      }
+      decorSet(s, x, h + th + 2, z, leaves, true);
+    }
+
+    function spruce(s, x, h, z, r) {
+      var th = 6 + ((r * 100000) | 0) % 4;
+      for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 20, false);
+      for (var ly = 2; ly <= th + 1; ly++) {
+        var rad = ly > th ? 0 : (ly === th ? 1 : (((th - ly) % 2 === 0) ? 1 : 2));
+        if (!rad) decorSet(s, x, h + ly, z, 21, true);
+        else {
+          ring(s, x, h + ly, z, rad, 21);
+          if (rad === 2) decorSet(s, x, h + ly, z, 20, true);
+        }
+      }
+    }
+
+    function megaSpruce(s, x, h, z, r) {
+      if (baseSurfaceAt(x + 1, z) !== h || baseSurfaceAt(x, z + 1) !== h || baseSurfaceAt(x + 1, z + 1) !== h)
+        return false;
+      var th = 12 + ((r * 100000) | 0) % 6;
+      if (h + th + 3 >= H) th = H - 4 - h;
+      if (th < 10) return false;
+      for (var y = 1; y <= th; y++) for (var dx = 0; dx <= 1; dx++) for (var dz = 0; dz <= 1; dz++)
+        decorSet(s, x + dx, h + y, z + dz, 20, false);
+      for (var ly = 5; ly <= th + 2; ly++) {
+        var rem = th + 2 - ly;
+        var rad = rem <= 0 ? 1 : (rem % 2 === 0 ? 2 : 3);
+        ring(s, x, h + ly, z, rad, 21);
+        if (rad >= 2) for (var bx = 0; bx <= 1; bx++) for (var bz = 0; bz <= 1; bz++)
+          decorSet(s, x + bx, h + ly, z + bz, 20, false);
+      }
+      decorSet(s, x, h + th + 3, z, 21, true);
+      return true;
+    }
+
+    function jungle(s, x, h, z, r) {
+      var th = 6 + ((r * 100000) | 0) % 6;
+      for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 22, false);
+      ring(s, x, h + th - 1, z, 2, 23); decorSet(s, x, h + th - 1, z, 22, false);
+      ring(s, x, h + th, z, 2, 23); decorSet(s, x, h + th, z, 22, false);
+      ring(s, x, h + th + 1, z, 1, 23);
+      decorSet(s, x, h + th + 2, z, 23, true);
+    }
+
+    function giantJungle(s, x, h, z, r) {
+      if (baseSurfaceAt(x + 1, z) !== h || baseSurfaceAt(x, z + 1) !== h || baseSurfaceAt(x + 1, z + 1) !== h)
+        return false;
+      var th = 24 + ((r * 100000) | 0) % 8;
+      if (h + th + 4 >= H) th = H - 5 - h;
+      if (th < 14) return false;
+      for (var y = 1; y <= th; y++) for (var dx = 0; dx <= 1; dx++) for (var dz = 0; dz <= 1; dz++)
+        decorSet(s, x + dx, h + y, z + dz, 22, false);
+      ring(s, x, h + th - 1, z, 3, 23);
+      ring(s, x, h + th, z, 3, 23);
+      ring(s, x, h + th + 1, z, 2, 23);
+      ring(s, x, h + th + 2, z, 1, 23);
+      decorSet(s, x, h + th + 3, z, 23, true);
+      for (var ty = th - 1; ty <= th; ty++) for (var tx = 0; tx <= 1; tx++) for (var tz = 0; tz <= 1; tz++)
+        decorSet(s, x + tx, h + ty, z + tz, 22, false);
+      return true;
+    }
+
+    function cactus(s, x, h, z, r) {
+      var n = 1 + ((r * 100000) | 0) % 3;
+      for (var y = 1; y <= n; y++) decorSet(s, x, h + y, z, 26, true);
+    }
+
+    function acacia(s, x, h, z, r) {
+      var th = 4 + ((r * 100000) | 0) % 2;
+      for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 35, false);
+      ring(s, x, h + th, z, 2, 36); decorSet(s, x, h + th, z, 35, false);
+      ring(s, x, h + th + 1, z, 1, 36);
+      decorSet(s, x, h + th + 2, z, 36, true);
+    }
+
+    function boulder(s, x, h, z) {
+      for (var dy = -1; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) for (var dz = -2; dz <= 2; dz++) {
+        if (dx * dx + dz * dz + dy * dy * 1.6 > 3.4) continue;
+        var xx = x + dx, yy = h + dy, zz = z + dz;
+        if (!inTarget(s, xx, zz) || yy <= 0 || yy >= H) continue;
+        var old = s.blocks[chunkIndex(localCoord(xx, CS), yy, localCoord(zz, CS))];
+        if (old !== 12 && old !== 7) s.blocks[chunkIndex(localCoord(xx, CS), yy, localCoord(zz, CS))] = 25;
+      }
+    }
+
+    // 遗迹写入器：覆写石土等自然方块，但不吃基岩/水/功能方块（工作台/床/熔炉/箱子）。
+    var STRUCT_KEEP = { 12: true, 7: true, 15: true, 17: true, 37: true, 38: true };
+    function structSet(s, x, y, z, id, mode) {
+      if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
+      var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
+      var old = s.blocks[i];
+      if (STRUCT_KEEP[old]) return;
+      if (mode === 'air' && old !== 0) return;
+      s.blocks[i] = id;
+    }
+
+    // 遗迹：以 cell 为单位稀疏放置。每个相交区块独立重算同一座遗迹并按 inTarget 裁剪，
+    // 结果与区块加载顺序无关；cell 哈希未命中的区块只有常数开销。
+    function decorateStructures(s) {
+      var S = Voxel.Structures;
+      if (!S || !S.enabled()) return;
+      var x0 = s.cx * CS, z0 = s.cz * CS;
+      var E = S.EXTENT, CELL = S.CELL;
+      var c0x = floorDiv(x0 - E, CELL), c1x = floorDiv(x0 + CS + E, CELL);
+      var c0z = floorDiv(z0 - E, CELL), c1z = floorDiv(z0 + CS + E, CELL);
+      for (var cx = c0x; cx <= c1x; cx++) {
+        for (var cz = c0z; cz <= c1z; cz++) {
+          var ruin = S.cellRuin(cx, cz);
+          if (!ruin) continue;
+          if (ruin.ax + E <= x0 || ruin.ax - E >= x0 + CS ||
+            ruin.az + E <= z0 || ruin.az - E >= z0 + CS) continue;
+          S.buildRuin(ruin, function (x, y, z, id, mode) {
+            structSet(s, x, y, z, id, mode);
+          });
+        }
+      }
+    }
+
+    function decorate(s) {
+      if (s.decorated) return;
+      var defs = Voxel.Biomes.defs;
+      var x0 = s.cx * CS, z0 = s.cz * CS;
+      decorateStructures(s);
+      // 外星巨树的写入语义与普通树一致（force 主干 / airOnly 树冠）。
+      var megaPen = Voxel.Structures ? {
+        force: function (px, py, pz, pid) { decorSet(s, px, py, pz, pid, false); },
+        air: function (px, py, pz, pid) { decorSet(s, px, py, pz, pid, true); }
+      } : null;
+      // 每个目标区块独立枚举所有可能与它相交的根，并按全局 x/z 固定顺序写入。
+      // 因此跨区块树冠连续，结果也不依赖区块加载顺序。
+      for (var x = x0 - FEATURE_RADIUS; x < x0 + CS + FEATURE_RADIUS; x++) {
+        for (var z = z0 - FEATURE_RADIUS; z < z0 + CS + FEATURE_RADIUS; z++) {
+          // legacy core 的装饰完全交给旧生成器，且禁止外围 anchor 的树冠跨进核心。
+          // 这样既不会改写旧档自然地形，也不会在 0/255 接缝留下被裁掉的半棵树。
+          if (x >= -FEATURE_RADIUS && x <= W - 1 + FEATURE_RADIUS &&
+            z >= -FEATURE_RADIUS && z <= D - 1 + FEATURE_RADIUS) continue;
+          var h = baseSurfaceAt(x, z);
+          if (h <= WATER + 1 || h > SNOW_LEVEL - 2) continue;
+          var biomeId = baseBiomeAt(x, z);
+          var bd = defs[biomeId];
+          if (!bd) continue;
+          var surface = baseBlockAt(x, h, z);
+          if (!bd.plantOn || bd.plantOn.indexOf(surface) < 0) {
+            // 外星巨树（仅 terrainVersion=2）：不依赖群系 treeType 字段，
+            // 命中时取代该锚点的普通植被——恶地/石峰也能长出玄武柱丛。
+            if (megaPen && terrainVersion === 2 && Voxel.Blocks.isSolid(surface)) {
+              var mg0 = Voxel.Structures.megaKind(planetTypeKey, terrainVersion, biomeId);
+              if (mg0) {
+                var rm0 = noise.hash2(x * 11 + 71, z * 13 + 33);
+                if (rm0 < mg0.chance && Voxel.Structures.buildMega(mg0, megaPen, x, h, z, rm0)) continue;
+              }
+            }
+            continue;
+          }
+          // 外星巨树（可种植地表）：独立哈希判定，命中时取代普通树。
+          if (megaPen && terrainVersion === 2) {
+            var mg = Voxel.Structures.megaKind(planetTypeKey, terrainVersion, biomeId);
+            if (mg) {
+              var rm = noise.hash2(x * 11 + 71, z * 13 + 33);
+              if (rm < mg.chance && Voxel.Structures.buildMega(mg, megaPen, x, h, z, rm)) continue;
+            }
+          }
+          if (bd.boulders && noise.hash2(x * 7 + 61, z * 7 + 83) < 0.0025) {
+            boulder(s, x, h, z); continue;
+          }
+          var r = noise.hash2(x * 3 + 11, z * 5 + 29);
+          if (r >= bd.treeChance) continue;
+          if (bd.treeType === 'oak') oak(s, x, h, z, r, 4, 5);
+          else if (bd.treeType === 'spruce') spruce(s, x, h, z, r);
+          else if (bd.treeType === 'cactus') cactus(s, x, h, z, r);
+          else if (bd.treeType === 'birch') oak(s, x, h, z, r, 33, 34);
+          else if (bd.treeType === 'acacia') acacia(s, x, h, z, r);
+          else if (bd.treeType === 'jungle') {
+            var rg = noise.hash2(x * 5 + 3, z * 7 + 97);
+            if (!(rg < bd.giantChance && giantJungle(s, x, h, z, rg))) jungle(s, x, h, z, r);
+          } else if (bd.treeType === 'mega_spruce' && !megaSpruce(s, x, h, z, r)) spruce(s, x, h, z, r);
+        }
+      }
+      s.decorated = true;
+    }
+
+    return {
+      seed: seed,
+      profile: profile,
+      noise: noise,
+      climateAt: climateAt,
+      shaper: shaper,
+      terrainVersion: terrainVersion,
+      planetTypeKey: planetTypeKey,
+      ensureShell: ensureShell,
+      shellOf: shellOf,
+      absorbShell: absorbShell,
+      decorate: decorate,
+      surfaceAt: baseSurfaceAt,
+      biomeAt: baseBiomeAt,
+      blockAt: baseBlockAt,
+      _test: { store: store }
+    };
+  }
+
+  return { create: create };
+})();

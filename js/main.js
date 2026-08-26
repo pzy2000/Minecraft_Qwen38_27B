@@ -4081,7 +4081,9 @@ Voxel.Game = (function () {
 
     if (state === 'loading') {
       var wasReady = Voxel.World.isReady();
-      Voxel.World.generateNext(10);
+      // 时间预算流式加载（P1）：以毫秒预算取代固定步数，保证加载页帧间响应
+      var loadBudget = 14;
+      Voxel.World.stream(loadBudget, scene);
       if (!wasReady && Voxel.World.isReady()) {
         // 生成完毕：以玩家落点（存档位置或出生点）为焦点优先建网格
         var fx, fz;
@@ -4120,7 +4122,7 @@ Voxel.Game = (function () {
             saveData && Object.prototype.hasOwnProperty.call(saveData, 'shipFlight') ? saveData.shipFlight : undefined);
         Voxel.World.initLight();
       }
-      if (Voxel.World.isReady()) Voxel.World.buildMeshes(6, scene);
+      if (Voxel.World.isReady()) Voxel.World.stream(loadBudget, scene);
       var p = Voxel.World.progress();
       var loadingBar = document.getElementById('loading-bar');
       var loadingPct = Math.max(0, Math.min(100, Math.round(p * 100)));
@@ -4287,9 +4289,10 @@ Voxel.Game = (function () {
       var focusPos = state === 'cockpit' && Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
         ? Voxel.SpaceTravel.flightSnapshot().position : [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z];
       Voxel.World.setFocus(focusPos[0], focusPos[2]);
-      // 初始 256×256 核心就绪后，generateNext 继续以小预算流式生成玩家周围区块。
-      Voxel.World.generateNext(Math.max(1, CFG.STREAM_GENERATE_PER_FRAME || 1));
-      Voxel.World.buildMeshes(2, scene);
+      // 时间预算流式管线（P1/P2）：生成在 Worker、网格构建走填充缓冲，
+      // 每帧只投入用户设定的毫秒预算，队列排空前 FPS 保持平稳。
+      var streamBudget = Voxel.Settings ? Voxel.Settings.get('stream') : 6;
+      Voxel.World.stream(streamBudget, scene);
       // 阴影深度 pass 跟随玩家/飞船焦点（须在 renderer.render 前执行）
       if (Voxel.Shadow) Voxel.Shadow.update(renderer, focusPos[0], focusPos[1], focusPos[2]);
     }
@@ -4976,6 +4979,7 @@ Voxel.Game = (function () {
     bindSlider('tsens'); bindSlider('res');
     bindSlider('particleDensity'); bindSlider('rainDensity'); bindSlider('mobDensity');
     bindSlider('sway');
+    bindSlider('stream');
 
     // 实时树叶阴影按钮组（关/中/高）
     var shadowBtns = document.querySelectorAll('#shadows-row button');
