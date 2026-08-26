@@ -625,8 +625,10 @@ Voxel.SpaceTravel = (function () {
       var ldx = current[0] - lastLandingPose[0], ldz = current[2] - lastLandingPose[2];
       if (ldx * ldx + ldz * ldz <= 4) landing = { stable: true, y: lastLandingPose[1] };
     }
+    // 姿态门槛 0.17rad(约9.7°)：满舵诱导滚转即达 0.35*ROLL_MAX≈0.11rad，
+    // 原值 0.12 几乎无余量，贴地瞬间任何微小扰动都会拒判落地。
     var canLand = landing.stable && velocity[1] <= 0.05 && speed <= cfg.LAND_SPEED &&
-      Math.abs(attitude.pitch || 0) <= 0.12 && Math.abs(attitude.roll || 0) <= 0.12 &&
+      Math.abs(attitude.pitch || 0) <= 0.17 && Math.abs(attitude.roll || 0) <= 0.17 &&
       current[1] <= landing.y + 0.28;
     if (canLand) {
       current[1] = landing.y;

@@ -142,7 +142,7 @@ function resolveMove(from, proposed, velocity, attitude) {
   if (pos[1] < minY) { pos[1] = minY; vel[1] = Math.max(0, vel[1]); }
   const speed = Math.hypot(vel[0], vel[1], vel[2]);
   const canLand = landing.stable && vel[1] <= 0.05 && speed <= 3 &&
-    Math.abs(attitude.pitch || 0) <= 0.12 && Math.abs(attitude.roll || 0) <= 0.12 &&
+    Math.abs(attitude.pitch || 0) <= 0.17 && Math.abs(attitude.roll || 0) <= 0.17 &&
     pos[1] <= landing.y + 0.28;
   if (canLand) { pos[1] = landing.y; vel[0] = vel[1] = vel[2] = 0; }
   return { position: pos, velocity: vel, landed: canLand, collided: false };
@@ -190,5 +190,55 @@ check('notifyLanded仅在活动时消费', (() => {
   const c6 = LA.create({});
   return c6.notifyLanded() === false;
 })());
+
+console.log('正上方垂直降落与贴地重试');
+// 回归A：目标点正上方低速悬停时必须转入 descend，且下降段零转向、
+// 零水平推力、只踩垂直下降——这是"落地前一瞬间打转复飞"的根治断言。
+{
+  const c7 = LA.create({});
+  const b7 = c7.begin({ position: [4, FLAT_Y + 6, 3], velocity: [0, 0, 0],
+    yaw: 2.5, throttle: 0.4, landed: false }, api);
+  const t7 = c7.getTarget();
+  // 先一拍刹停进入进场段，再贴近正上方验证相位切换与输出约束。
+  c7.tick({ position: [t7.x + 0.8, t7.y + 5, t7.z], velocity: [0.05, 0, 0],
+    yaw: 2.5, pitch: 0, roll: 0, throttle: 0.1 }, dt, api);
+  const above = { position: [t7.x + 0.1, t7.y + 5, t7.z - 0.1],
+    velocity: [0.05, 0, 0], yaw: 2.5, pitch: 0, roll: 0, throttle: 0.1 };
+  c7.tick(above, dt, api);
+  const r8 = c7.tick(above, dt, api);
+  check('正上方低速状态转入纯垂直下降', b7.ok && r8.phase === 'descend',
+    'b7=' + b7.ok + ',phase=' + r8.phase);
+  check('下降段无任何转向与水平推进', r8.input.steerYaw === 0 && r8.input.thrust === false &&
+    r8.input.lift === -1, JSON.stringify(r8.input));
+}
+// 回归：下降段贴地受阻(玻璃地板模拟)触发卡住改道时，飞船必须保持低空滑行，
+// 不允许复飞爬回巡航高度；最终以完成或受控取消结束。
+{
+  const c8 = LA.create({});
+  const startY = FLAT_Y + 1.02 + 0.8;
+  let st8 = F.create({ position: [-14, startY, -26], velocity: [0, 0, 0], yaw: 0, landed: false });
+  const b8 = c8.begin(st8, api);
+  let peak = startY;
+  // 窗口需覆盖最多5轮"贴地卡住→转向新目标→滑行"周期(每轮可达数秒)。
+  for (let i = 0; i < 60 * 45 && c8.isActive(); i++) {
+    const a8 = c8.tick(st8, dt, api);
+    const rr = F.step(st8, dt, a8.input, { config: CFG, resolve(from, proposed, vel, att) {
+      const out = resolveMove(from, proposed, vel, att);
+      // 玻璃地板：垂直方向钉死在起始高度（模拟凹槽/树冠下净空受限），
+      // 水平运动不受影响——与真实碰撞解析的分轴语义一致。
+      if (!out.landed) {
+        out.position = [out.position[0], startY, out.position[2]];
+        out.velocity = [out.velocity[0], 0, out.velocity[2]];
+      }
+      return out;
+    } });
+    st8 = rr.state;
+    if (rr.events.indexOf('landed') >= 0) { c8.notifyLanded(); }
+    peak = Math.max(peak, st8.position[1]);
+  }
+  check('贴地受阻重试期间不复飞爬升且受控结束',
+    b8.ok && !c8.isActive() && peak <= startY + 1.3,
+    'peak+=' + (peak - startY).toFixed(2) + ',result=' + c8.status().lastResult);
+}
 
 process.exit(failed ? 1 : 0);

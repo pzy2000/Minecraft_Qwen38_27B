@@ -15,9 +15,11 @@ Voxel.LandingAssist = (function () {
     holdMs: 600,
     landSpeed: 3,
     brakeDecel: 18,
-    approachAltitude: 10,
+    approachAltitude: 13,
     approachSpeed: 8,
     finalApproachDist: 1.5,
+    hoverDist: 0.5,
+    turnCapture: 1.5,
     descendHomeAltitude: 2.5,
     alignAngle: 0.9,
     yawGain: 2.6,
@@ -26,14 +28,19 @@ Voxel.LandingAssist = (function () {
     driftDist: 3.5,
     stuckTime: 0.8,
     stuckVy: 0.05,
-    maxRetargets: 4,
+    maxRetargets: 8,
     maxDuration: 90,
     gearOffsets: [[-1.55, -2.15], [1.55, -2.15], [-1.55, 2.15], [1.55, 2.15]],
     waterId: 7,
     maxSlope: 1,
     baseClearance: 1.02,
     maxCandidates: 600,
-    exclusionRadius: 2.5
+    exclusionRadius: 6,
+    // 全机身投影净空验证半径：机身半长6.2×半宽5.8，对角半距
+    // sqrt(6.2^2+5.8^2)≈8.49——必须完整覆盖四角，任何折扣都会让机身边缘
+    // 伸进未验证区被邻树卡住。
+    hullRadius: 8.5,
+    hullStep: 1
   };
 
   var PHASE_IDLE = 'idle', PHASE_BRAKE = 'brake', PHASE_TRANSIT = 'transit', PHASE_DESCEND = 'descend';
@@ -80,6 +87,7 @@ Voxel.LandingAssist = (function () {
 
   function evaluateSpot(worldApi, o, cx, cz, yaw, excluded) {
     var c = Math.cos(yaw), s = Math.sin(yaw);
+    // 第一层：4 个起落架落点必须干燥、固体、相对基准高差 ≤1（与机身停驻判据一致）。
     var ys = [], dry = true;
     for (var i = 0; i < o.gearOffsets.length; i++) {
       var g = o.gearOffsets[i];
@@ -93,19 +101,26 @@ Voxel.LandingAssist = (function () {
       ys.push(gy);
     }
     if (!dry) return null;
-    var minY = Math.min.apply(Math, ys), maxY = Math.max.apply(Math, ys);
-    // 与原版 landingSurface 判据一致：只要求起落架落点干燥、固体、高差≤1；
-    // 不再扫描整个机身投影，否则森林地形几乎无可着陆点。
-    if (maxY - minY > o.maxSlope) return null;
-    var centerY = worldApi.surfaceAt(Math.floor(cx), Math.floor(cz));
-    if (!finite(centerY) || centerY > maxY) return null;
+    // 改道排除圈：曾经失败的目标点附近直接跳过。
     if (excluded && excluded.length) {
       for (var e = 0; e < excluded.length; e++) {
         var exd = (cx - excluded[e].x) * (cx - excluded[e].x) + (cz - excluded[e].z) * (cz - excluded[e].z);
         if (exd < o.exclusionRadius * o.exclusionRadius) return null;
       }
     }
-    return { x: cx, z: cz, y: maxY + o.baseClearance };
+    // 第二层：全机身投影净空验证。投影覆盖范围内每列 surfaceAt 必须落在
+    // 基准(最低起落架面)+maxSlope 之内——surfaceAt 返回最高固体，任何
+    // 树冠/岩柱都会抬高该值被拒；通过则整条垂直通道物理上无遮挡，
+    // "正上方悬停→纯垂直下降"保证可通，不再出现贴地点邻树撞机身。
+    var baseY = Math.min.apply(Math, ys), R = o.hullRadius, step = Math.max(o.hullStep, 1);
+    for (var dx = -R; dx <= R; dx += step) {
+      for (var dz = -R; dz <= R; dz += step) {
+        if (dx * dx + dz * dz > R * R) continue;
+        var colY = worldApi.surfaceAt(Math.floor(cx + dx), Math.floor(cz + dz));
+        if (!finite(colY) || colY < 0 || colY - baseY > o.maxSlope) return null;
+      }
+    }
+    return { x: cx, z: cz, y: baseY + o.baseClearance };
   }
 
   function findLandingSpot(worldApi, x, z, yaw, options) {
@@ -144,7 +159,8 @@ Voxel.LandingAssist = (function () {
   function create(raw) {
     var o = config(raw);
     var active = false, phase = PHASE_IDLE, target = null;
-    var elapsed = 0, stuckT = 0, retargets = 0, lastResult = null;
+    var elapsed = 0, stuckT = 0, retargets = 0, lastResult = null, lastDist = null;
+    var lowMode = false, climbBoost = 0, entryAlt = null, dropBlocks = 0, lastDropY = null;
 
     function resetResult() { lastResult = null; }
 
@@ -153,6 +169,7 @@ Voxel.LandingAssist = (function () {
       active = false;
       phase = PHASE_IDLE;
       target = null;
+      lastDist = null;
       lastResult = String(reason || 'cancelled');
       return true;
     }
@@ -178,7 +195,11 @@ Voxel.LandingAssist = (function () {
       active = true;
       phase = PHASE_BRAKE;
       target = spot;
-      elapsed = 0; stuckT = 0; retargets = 0;
+      elapsed = 0; stuckT = 0; retargets = 0; lastDist = null;
+      lowMode = false; climbBoost = 0;
+      // 入场高度下限：高空激活时保持当前相对高度先飞到目标上空，
+      // 沿已验证净空的垂直通道最后下降；进场阶段绝不提前斜穿障碍层。
+      entryAlt = clamp(state.position[1] - spot.y, 0, o.maxAltitude + o.baseClearance);
       return { ok: true, spot: { x: spot.x, y: spot.y, z: spot.z } };
     }
 
@@ -209,54 +230,127 @@ Voxel.LandingAssist = (function () {
 
       var input = result.input;
       var err = wrapAngle(Math.atan2(-dx, -dz) - state.yaw);
-      input.steerYaw = clamp(err * o.yawGain, -1, 1);
       input.steerPitch = clamp(-(finite(state.pitch) ? state.pitch : 0) * o.pitchGain, -1, 1);
+      // 架构：进场段飞到目标点正上方并刹停，然后进入纯垂直下降——
+      // 下降段零转向、零水平推力，从根源杜绝"落地前一瞬间打转"。
+      // 进场段的转向在低速(≤1u/s)定点修正时保留一半舵效；移动中随水平
+      // 距离淡出，防止贴近目标后 atan2 对浮点噪声过敏引发持续满舵翻转。
+      if (phase !== PHASE_DESCEND) {
+        var yawFactor = speed <= 1 ? 0.55 : clamp((dist - o.hoverDist) / 2, 0, 1);
+        input.steerYaw = clamp(err * o.yawGain, -1, 1) * yawFactor;
+      }
+
+      // 目标点换址（贴地受阻时就近另找）；新目标仍在脚边时保持下降段，
+      // 不切回进场段把贴地状态重新拉回巡航高度复飞。
+      function retreatTo(spot) {
+        retargets++;
+        if (!spot || retargets > o.maxRetargets) {
+          cancel('blocked');
+          result.active = false;
+          result.blocked = true;
+          return false;
+        }
+        target = spot;
+        phase = Math.sqrt((spot.x - px) * (spot.x - px) + (spot.z - pz) * (spot.z - pz)) <=
+          o.finalApproachDist + 0.5 ? PHASE_DESCEND : PHASE_TRANSIT;
+        stuckT = 0;
+        lastDist = null;
+        lowMode = true;
+        // 每次改道永久抬升本周期巡航余量：航线跨丘/树冠导致的停滞累积反映
+        // 为更高的越障高度，后续航段不再重复同高度卡死。
+        climbBoost = Math.min(climbBoost + 3, 12);
+        result.retargeted = true;
+        return true;
+      }
 
       if (phase === PHASE_DESCEND) {
+        // 已达目标点正上方：只踩垂直下降，残速由刹车收敛，不再输出任何
+        // 水平推进/航向指令；机头保持搜索验证着陆点时的朝向不变。
         input.lift = -1;
-        if (state.throttle > 0.02 || speed > o.landSpeed) input.brake = true;
-        // 尚有高度时继续水平归位，避免偏离验证过的着陆点。
-        if (dist > 0.75 && py > target.y + o.descendHomeAltitude &&
-          Math.abs(err) <= o.alignAngle && speed < o.approachSpeed)
-          input.thrust = true;
-        if (dist > o.driftDist) {
+        if ((finite(state.throttle) ? state.throttle : 0) > 0.02 || speed > 0.3)
+          input.brake = true;
+        // 偏离正上方过远必须回到进场段重新对准：机身净空只验证了目标
+        // 半径内，机身边缘随偏移伸入未验证区会被邻树卡住。
+        if (dist > 1.0) {
           phase = PHASE_TRANSIT;
           stuckT = 0;
+          lastDist = null;
+          lowMode = true;
         } else if (py > target.y + 0.4 && vy > -o.stuckVy) {
+          // 下降被顶住：优先爬回障碍上方重试同一目标（垂直通道在中心区已
+          // 验证，偏移卡住多因机身边缘擦树冠）；连续两次受阻才换点。
           stuckT += dt;
           if (stuckT >= o.stuckTime) {
             stuckT = 0;
-            retargets++;
-            var spot = searchSpot(state, worldApi);
-            if (!spot || retargets > o.maxRetargets) {
-              cancel('blocked');
-              result.active = false;
-              result.blocked = true;
-              return result;
-            }
-            target = spot;
+            var blockedDrop = lastDropY !== null && Math.abs(py - lastDropY) < 1.5;
+            dropBlocks = blockedDrop ? dropBlocks + 1 : 1;
+            lastDropY = py;
             phase = PHASE_TRANSIT;
-            result.retargeted = true;
+            lowMode = false;
+            climbBoost = Math.min(climbBoost + 5, 16);
+            if (dropBlocks >= 2 || dist > o.hoverDist + 0.2) {
+              lastDist = null;
+              if (!retreatTo(searchSpot(state, worldApi))) return result;
+            }
           }
         } else stuckT = 0;
       } else {
         var aligned = Math.abs(err) <= o.alignAngle;
-        var stopDist = Math.max(dist - o.finalApproachDist, 0);
-        var allowedV = Math.min(o.approachSpeed, Math.sqrt(2 * o.brakeDecel * stopDist));
+        // 减速剖面以正上方悬停点(hoverDist)为零速目标；若用 finalApproachDist
+        // 会在 [hoverDist, finalApproachDist] 区间形成既不推进也不转降的死区。
+        var stopDist = Math.max(dist - o.hoverDist, 0);
+        // 接近速度三重约束：巡航上限、刹车距离曲线、转弯捕获半径。
+        // 缺最后一条时，近距离高速下最小转弯半径 v/ω 可达 5m+，
+        // 飞船会反复冲过目标点绕圈（转不过弯），永远无法定点悬停。
+        var allowedV = Math.min(o.approachSpeed,
+          Math.sqrt(2 * o.brakeDecel * stopDist),
+          dist * o.turnCapture);
         if (phase === PHASE_BRAKE) {
-          if (state.throttle > 0.02 || speed > o.landSpeed) input.brake = true;
-          if (speed <= o.landSpeed) phase = dist <= o.finalApproachDist + 1 ? PHASE_DESCEND : PHASE_TRANSIT;
-        } else if (phase === PHASE_TRANSIT) {
-          if (!aligned) {
+          // 先收油刹到安全速度，再按剩余距离转入进场或直接进入垂直下降。
+          if ((finite(state.throttle) ? state.throttle : 0) > 0.02 || speed > o.landSpeed)
+            input.brake = true;
+          if (speed <= o.landSpeed) phase = dist <= o.hoverDist ? PHASE_DESCEND : PHASE_TRANSIT;
+        } else {
+          // 贴近目标点后放弃朝向门槛：近旁只需沿距离-速度曲线收敛到点上空。
+          if (!aligned && dist > o.finalApproachDist) {
             input.thrust = false;
-            if (speed > 0.5 || state.throttle > 0.05) input.brake = true;
-          } else if (speed < allowedV - 0.3) input.thrust = true;
-          else if (speed > allowedV + 0.3 && (state.throttle > 0.02 || speed > o.landSpeed)) input.brake = true;
-          if (dist <= o.finalApproachDist && speed <= o.landSpeed) phase = PHASE_DESCEND;
+            if (speed > 0.5 || (finite(state.throttle) ? state.throttle : 0) > 0.05) input.brake = true;
+          } else {
+            if (speed < allowedV - 0.3) input.thrust = true;
+            else if (speed > allowedV + 0.3 &&
+              ((finite(state.throttle) ? state.throttle : 0) > 0.02 || speed > o.landSpeed))
+              input.brake = true;
+          }
+          if (dist <= o.hoverDist && speed <= o.landSpeed) phase = PHASE_DESCEND;
         }
-        var altErr = (target.y + o.approachAltitude) - py;
+        // 高度控制：低空模式（激活时就很低、贴地改道或下降段退回）保持当前
+        // 相对高度滑行，禁止复飞；正常进场保持 max(巡航高度, 入场相对高度)
+        // +爬升余量飞行，先到目标上空再垂直下降。中途停滞时先退出低空模式，
+        // 借爬升越过树冠/矮丘再继续收敛。
+        var hoverAlt = lowMode ? Math.max(py - target.y, 0)
+          : Math.max(o.approachAltitude, entryAlt || 0) + climbBoost;
+        var altErr = (target.y + hoverAlt) - py;
         if (altErr > 1) input.lift = 1;
         else if (altErr < -1 && py > target.y + o.minHover) input.lift = -1;
+      }
+      // 进场段停滞守卫：仅当本帧明确给了推进指令（机头可行动——已对准
+      // 或已很近）且距离未见有效闭合时才计卡；慢速爬行是正常收敛不算卡。
+      // 两段式脱困：先退出低空模式尝试爬升越过障碍（贴近地面的水平移动
+      // 常被树冠/矮丘阻挡，而上升通道是开阔的），仍无效才就近改道。
+      if (phase === PHASE_TRANSIT && dist > o.hoverDist + 0.3 &&
+        (Math.abs(err) <= o.alignAngle || dist <= o.finalApproachDist)) {
+        var powered = input.thrust === true;
+        var stalled = powered && lastDist !== null &&
+          lastDist - dist < Math.max(speed * dt * 0.35, 0.002);
+        if (stalled) {
+          stuckT += dt;
+          if (stuckT >= o.stuckTime) {
+            stuckT = 0;
+            if (lowMode) { lowMode = false; climbBoost = Math.min(climbBoost + 4, 12); }
+            else if (!retreatTo(searchSpot(state, worldApi))) return result;
+          }
+        } else if (!powered) stuckT = 0;
+        lastDist = powered ? dist : null;
       }
       result.phase = phase;
       return result;
