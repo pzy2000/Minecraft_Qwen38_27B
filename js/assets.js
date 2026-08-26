@@ -20,9 +20,9 @@
     "sfx": {
       "id": "sfx",
       "file": "assets-sfx.js",
-      "hash": "491cb498760c4fd8cef548a774356ded1096164218f2296f24ec86efdec8b82d",
-      "payloadHash": "27f20fa2ddb403473aeff57fb2b9c5dc12134857fe075b2e494bbe2da6ecc860",
-      "version": "sha256-491cb498760c4fd8cef548a774356ded1096164218f2296f24ec86efdec8b82d",
+      "hash": "f2b6828b15e622082980781a23d28c4ca1f438c898116d02472c34f64d7fd35d",
+      "payloadHash": "980821b59fe35fbe1f8470138485cecd0ad5a6664b66fb5a6025b0bfdc90ab88",
+      "version": "sha256-f2b6828b15e622082980781a23d28c4ca1f438c898116d02472c34f64d7fd35d",
       "names": [
         "cat_0",
         "cat_1",
@@ -73,7 +73,7 @@
         "zombie_0"
       ],
       "count": 47,
-      "bytes": 426183
+      "bytes": 345308
     },
     "music-day": {
       "id": "music-day",
