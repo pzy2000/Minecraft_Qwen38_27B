@@ -61,6 +61,7 @@ Voxel.Game = (function () {
   var uwFade = 0;   // 水下滤镜渐变系数 0~1
   var _uwColor = new THREE.Color(0x14507e);
   var _tint = new THREE.Color(), _sky = new THREE.Color(), _skyTop = new THREE.Color();
+  var _sunDir = new THREE.Vector3();
   var _cockpitProxy = new THREE.Vector3(), _cockpitVelocity = new THREE.Vector3();
 
   function setState(s) {
@@ -4237,6 +4238,31 @@ Voxel.Game = (function () {
       Voxel.MeshBuilder.setEnv(_sky, fogNear, fogFar);
     }
 
+    // 实时光影：树叶风摇 + 太阳方向侧光 + 程序化云影 + 树叶实时投影
+    var nowSec = performance.now() / 1000;
+    var wRain = Voxel.Weather.rainFactor();
+    var swaySet = Voxel.Settings ? Voxel.Settings.get('sway') : 1;
+    if (swaySet > 0 && flightReducedMotion()) swaySet = 0;
+    if (Voxel.MeshBuilder.setWind) {
+      var wind = Voxel.Weather.getWind();
+      // 雷暴风力增强摆动，平时微风
+      var amp = CFG.SHADOW.SWAY_AMP * swaySet * (0.55 + 0.45 * Math.min(1, 1 + wRain));
+      Voxel.MeshBuilder.setWind(nowSec, wind.x, wind.z, amp);
+      if (Voxel.Shadow) Voxel.Shadow.syncWind(nowSec, wind.x, wind.z, amp);
+    }
+    if (Voxel.MeshBuilder.setSunDirection) {
+      var dayLight = Voxel.DayNight.sunlight();
+      if (Voxel.Atmosphere.sunDirection && Voxel.Atmosphere.sunDirection(_sunDir, Voxel.DayNight.time())) {
+        Voxel.MeshBuilder.setSunDirection(_sunDir.x, _sunDir.y, _sunDir.z, Math.pow(dayLight, 0.75));
+      } else {
+        // 无恒星世界/空间站：固定柔和方向且压平方向光对比
+        Voxel.MeshBuilder.setSunDirection(0.45, 0.78, 0.44, 0.12);
+      }
+      var drift = Voxel.Weather.getCloudDrift();
+      // 晴天云影斑驳；雨天整体阴沉 → 减弱噪声对比
+      Voxel.MeshBuilder.setCloudShadow(drift.x, drift.z, CFG.SHADOW.CLOUD_SHADOW * (1 - 0.5 * wRain));
+    }
+
     if (state === 'playing' || state === 'cockpit') {
       var focusPos = state === 'cockpit' && Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
         ? Voxel.SpaceTravel.flightSnapshot().position : [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z];
@@ -4244,6 +4270,8 @@ Voxel.Game = (function () {
       // 初始 256×256 核心就绪后，generateNext 继续以小预算流式生成玩家周围区块。
       Voxel.World.generateNext(Math.max(1, CFG.STREAM_GENERATE_PER_FRAME || 1));
       Voxel.World.buildMeshes(2, scene);
+      // 阴影深度 pass 跟随玩家/飞船焦点（须在 renderer.render 前执行）
+      if (Voxel.Shadow) Voxel.Shadow.update(renderer, focusPos[0], focusPos[1], focusPos[2]);
     }
 
     if (debug && (state === 'playing' || state === 'cockpit' || state === 'paused' || state === 'inventory')) {
@@ -4927,6 +4955,27 @@ Voxel.Game = (function () {
     bindSlider('sens'); bindSlider('volume'); bindSlider('fov'); bindSlider('fog');
     bindSlider('tsens'); bindSlider('res');
     bindSlider('particleDensity'); bindSlider('rainDensity'); bindSlider('mobDensity');
+    bindSlider('sway');
+
+    // 实时树叶阴影按钮组（关/中/高）
+    var shadowBtns = document.querySelectorAll('#shadows-row button');
+    function syncShadowButtons() {
+      var cur = (Voxel.Settings ? Voxel.Settings.get('shadows') : 0) || 0;
+      for (var i = 0; i < shadowBtns.length; i++) {
+        shadowBtns[i].classList.toggle('active', +shadowBtns[i].dataset.shadow === cur);
+        shadowBtns[i].setAttribute('aria-pressed', +shadowBtns[i].dataset.shadow === cur ? 'true' : 'false');
+      }
+    }
+    for (var shbi = 0; shbi < shadowBtns.length; shbi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          Voxel.Settings.set('shadows', +btn.dataset.shadow);
+          syncShadowButtons();
+          syncPresetButtons();
+        });
+      })(shadowBtns[shbi]);
+    }
+    syncShadowButtons();
 
     // 分音效开关（羊叫/猪叫/僵尸等逐项开关）
     var sndToggles = document.querySelectorAll('#snd-toggles input[data-snd]');
@@ -5051,6 +5100,8 @@ Voxel.Game = (function () {
           Voxel.Weather.setRainDensity(v);
         else if (k === 'mobDensity' && Voxel.Mobs && Voxel.Mobs.setDensity)
           Voxel.Mobs.setDensity(v);
+        else if (k === 'shadows' && Voxel.Shadow && Voxel.Shadow.setLevel)
+          Voxel.Shadow.setLevel(v);
         else if (k === 'difficulty') {
           // 和平：立即清怪并回满饱食度；噩梦提示不可复活
           if (Voxel.Mobs && Voxel.Mobs.setDifficulty) Voxel.Mobs.setDifficulty(v);

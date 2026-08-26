@@ -1,10 +1,13 @@
 // 区块网格构建：隐藏面剔除 + 顶点环境光遮蔽(AO) + 双通道光照（天光×昼夜 / 块光）
+// 实时光影：树叶独立几何组（顶点风摇）+ 树叶实时投影（正交深度图 PCF）
+//           + 程序化云影（与可见云层同向漂移）+ 太阳方向 wrap-diffuse 侧光
 window.Voxel = window.Voxel || {};
 
 Voxel.MeshBuilder = (function () {
   var B = null;
   var G = null, GSky = null, GBlk = null;
-  var texture, opaqueMat, waterMat;
+  var texture, opaqueMat, waterMat, foliageMat;
+  var mats = [];          // 全部地形材质（uniform 批量更新用）
   var UVK = [[0, 0], [1, 0], [1, 1], [0, 1]];
   // n: 法线, u/v: 切线, c: 4 顶点局部坐标, b: 基础亮度
   var FACES = [
@@ -17,17 +20,68 @@ Voxel.MeshBuilder = (function () {
   ];
   var AO = [0.5, 0.72, 0.86, 1.0];
   var tmpUV = [0, 0];
+  // 默认绑定的 1×1 白色纹理：阴影关闭时保证采样器完整（部分驱动对未绑定采样器告警）
+  var whiteTex = null;
+  function makeWhiteTex() {
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = 1;
+    var cx2 = cv.getContext('2d');
+    cx2.fillStyle = '#fff';
+    cx2.fillRect(0, 0, 1, 1);
+    var t = new THREE.CanvasTexture(cv);
+    t.magFilter = THREE.NearestFilter;
+    t.minFilter = THREE.NearestFilter;
+    return t;
+  }
 
-  var VERT =
-    'attribute vec3 acolor;\n' +
-    'attribute vec2 alight;\n' +
-    'varying vec2 vUv;\nvarying vec3 vCol;\nvarying vec2 vL;\nvarying float vDepth;\n' +
-    'void main(){\n' +
-    '  vUv = uv; vCol = acolor; vL = alight;\n' +
-    '  vec4 mv = modelViewMatrix * vec4(position, 1.0);\n' +
-    '  vDepth = -mv.z;\n' +
-    '  gl_Position = projectionMatrix * mv;\n' +
-    '}';
+  // 树叶风摇位移场：以世界坐标为自变量的连续函数——相邻面共享的顶点位移一致，天然无裂缝。
+  // 主视图与阴影深度 pass 必须引用同一份代码，影子才会跟着叶子一起晃。
+  var SWAY_GLSL = [
+    'vec3 voxelSway(vec3 wp, float t, vec2 wind, float amp){',
+    '  float ph1 = dot(wp.xz, vec2(0.11, 0.13));',
+    '  float ph2 = dot(wp.xz, vec2(-0.07, 0.17));',
+    '  float s1 = sin(t * 1.6 + ph1);',
+    '  float s2 = sin(t * 2.7 + ph2);',
+    '  return vec3(',
+    '    wind.x * (s1 * 0.6 + s2 * 0.4),',
+    '    (s2 - s1) * 0.22,',
+    '    wind.y * (-s1 * 0.45 + s2 * 0.55)',
+    '  ) * amp;',
+    '}'
+  ].join('\n');
+
+  var VERT = [
+    'attribute vec3 acolor;',
+    'attribute vec2 alight;',
+    'attribute vec3 anrm;',
+    'uniform mat4 uShadowMat;',
+    '#ifdef SWAY',
+    'uniform float uTime;',
+    'uniform vec2 uWind;',
+    'uniform float uSwayAmp;',
+    SWAY_GLSL,
+    '#endif',
+    'varying vec2 vUv;',
+    'varying vec3 vCol;',
+    'varying vec2 vL;',
+    'varying float vDepth;',
+    'varying vec3 vNrm;',
+    'varying vec3 vWPos;',
+    'varying vec4 vShadowCoord;',
+    'void main(){',
+    '  vUv = uv; vCol = acolor; vL = alight; vNrm = anrm;',
+    '  vec3 p = position;',
+    '  #ifdef SWAY',
+    '  p += voxelSway(p, uTime, uWind, uSwayAmp);',
+    '  #endif',
+    '  vWPos = p;',
+    '  vShadowCoord = uShadowMat * vec4(p, 1.0);',
+    '  vec4 mv = modelViewMatrix * vec4(p, 1.0);',
+    '  vDepth = -mv.z;',
+    '  gl_Position = projectionMatrix * mv;',
+    '}'
+  ].join('\n');
+
   function frag(cut) {
     return [
       'uniform sampler2D map;',
@@ -37,16 +91,62 @@ Voxel.MeshBuilder = (function () {
       'uniform float uFogNear;',
       'uniform float uFogFar;',
       'uniform float uAlpha;',
+      'uniform sampler2D uShadowTex;',
+      'uniform vec3 uSunDir;',
+      'uniform float uShadowStr;',
+      'uniform float uShadowSize;',
+      'uniform vec2 uCloudDrift;',
+      'uniform float uCloudStr;',
+      'uniform float uDirStr;',
       'varying vec2 vUv;',
       'varying vec3 vCol;',
       'varying vec2 vL;',
       'varying float vDepth;',
+      'varying vec3 vNrm;',
+      'varying vec3 vWPos;',
+      'varying vec4 vShadowCoord;',
+      // 深度图 RGBA 三通道打包（WebGL1 兼容，不依赖 depth texture 扩展）
+      'float unpackD(vec4 c){ return dot(c, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0)); }',
+      // 树叶实时投影：正交深度图 PCF 2×2 软采样
+      'float leafShadow(){',
+      '  if (uShadowStr <= 0.001) return 1.0;',
+      '  vec3 sc = vShadowCoord.xyz;',
+      '  if (sc.x < 0.002 || sc.x > 0.998 || sc.y < 0.002 || sc.y > 0.998 || sc.z >= 0.999) return 1.0;',
+      '  float bias = 0.0016 + 0.0035 * (1.0 - max(dot(vNrm, uSunDir), 0.0));',
+      '  vec2 ts = vec2(1.0 / uShadowSize);',
+      '  float sum = 0.0;',
+      '  for (int i = 0; i < 2; i++) {',
+      '    for (int j = 0; j < 2; j++) {',
+      '      float d = unpackD(texture2D(uShadowTex, sc.xy + vec2(float(i) - 0.5, float(j) - 0.5) * ts));',
+      '      sum += step(sc.z - bias, d);',
+      '    }',
+      '  }',
+      '  return mix(1.0, mix(0.42, 1.0, sum * 0.25), uShadowStr);',
+      '}',
+      // 程序化云影：大尺度多层噪声，与可见云层同向漂移（零额外 draw call）
+      'float cloudShadow(){',
+      '  if (uCloudStr <= 0.001) return 1.0;',
+      '  vec2 q = vWPos.xz * 0.010 + uCloudDrift * 0.010;',
+      '  float n = sin(q.x) * sin(q.y);',
+      '  n += 0.55 * sin(q.x * 2.17 + 1.7) * sin(q.y * 1.93 - 0.4);',
+      '  n += 0.34 * sin(q.x * 3.9 - 2.3) * sin(q.y * 4.6 + 2.1);',
+      '  float c = smoothstep(-0.15, 0.75, n);',
+      '  return mix(1.0, mix(0.80, 1.0, c), uCloudStr);',
+      '}',
       'void main(){',
       '  vec4 tex = texture2D(map, vUv);',
       '  if (tex.a < ' + cut + ') discard;',
       '  float br = max(vL.x * sun, vL.y);',
+      // 太阳方向 wrap-diffuse：晨昏侧光明暗（夜晚由 uDirStr 压平为均匀月光感）
+      '  float nl = clamp(dot(vNrm, uSunDir) * 0.62 + 0.38, 0.0, 1.0);',
+      '  br *= mix(1.0, mix(0.87, 1.09, nl), uDirStr);',
       '  br = 0.05 + 0.95 * pow(br, 1.35);',
-      '  vec3 c = tex.rgb * vCol * tint * br;',
+      // 实时树影只作用于天光主导的露天表面：
+      // 树冠正下方/洞穴已由烘焙天光变暗，再叠加会双重压黑
+      '  float shade = cloudShadow();',
+      '  float sm = smoothstep(0.30, 0.80, vL.x);',
+      '  shade *= 1.0 - (1.0 - leafShadow()) * sm;',
+      '  vec3 c = tex.rgb * vCol * tint * br * shade;',
       '  float f = smoothstep(uFogNear, uFogFar, vDepth);',
       '  gl_FragColor = vec4(mix(c, uFogColor, f), tex.a * uAlpha);',
       '}'
@@ -54,7 +154,8 @@ Voxel.MeshBuilder = (function () {
   }
 
   function mkMat(alpha, cut, opts) {
-    return new THREE.ShaderMaterial({
+    opts = opts || {};
+    var m = new THREE.ShaderMaterial({
       uniforms: {
         map: { value: texture },
         tint: { value: new THREE.Color(1, 1, 1) },
@@ -62,14 +163,28 @@ Voxel.MeshBuilder = (function () {
         uFogColor: { value: new THREE.Color(0x87ceeb) },
         uFogNear: { value: 60 },
         uFogFar: { value: 240 },
-        uAlpha: { value: alpha }
+        uAlpha: { value: alpha },
+        uShadowTex: { value: whiteTex },
+        uShadowMat: { value: new THREE.Matrix4() },
+        uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
+        uShadowStr: { value: 0 },
+        uShadowSize: { value: 1024 },
+        uCloudDrift: { value: new THREE.Vector2(0, 0) },
+        uCloudStr: { value: 0 },
+        uDirStr: { value: 0 },
+        uTime: { value: 0 },
+        uWind: { value: new THREE.Vector2(1, 0) },
+        uSwayAmp: { value: 0.03 }
       },
       vertexShader: VERT,
       fragmentShader: frag(cut),
       transparent: !!opts.transparent,
       depthWrite: !opts.transparent,
-      side: THREE.FrontSide
+      side: THREE.FrontSide,
+      defines: opts.sway ? { SWAY: '' } : {}
     });
+    mats.push(m);
+    return m;
   }
 
   function init() {
@@ -78,8 +193,10 @@ Voxel.MeshBuilder = (function () {
     GSky = Voxel.World.getSky;
     GBlk = Voxel.World.getBlk;
     texture = B.getTexture();
+    whiteTex = makeWhiteTex();
     opaqueMat = mkMat(1, '0.5', {});
     waterMat = mkMat(1, '0.02', { transparent: true });
+    foliageMat = mkMat(1, '0.5', { sway: true });
   }
 
   function tileUV(tile, ux, uy) {
@@ -119,6 +236,7 @@ Voxel.MeshBuilder = (function () {
     for (var k = 0; k < 4; k++) {
       var corner = F.c[k];
       t.pos.push(x + corner[0], y + (corner[1] ? yTop - y : yBot - y), z + corner[2]);
+      t.nrm.push(F.n[0], F.n[1], F.n[2]);
 
       var uvx = UVK[k][0], uvy = UVK[k][1];
       tileUV(tile, uvx, uvy ? uvHi : uvLo);
@@ -166,6 +284,7 @@ Voxel.MeshBuilder = (function () {
         for (var k = 0; k < 4; k++) {
           var v = vs[k];
           t.pos.push(v[0], v[1], v[2]);
+          t.nrm.push(0, 1, 0);
           tileUV(tile, v[3], v[4]);
           t.uv.push(tmpUV[0], tmpUV[1]);
           t.col.push(1, 1, 1);
@@ -184,6 +303,7 @@ Voxel.MeshBuilder = (function () {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(a.uv, 2));
     g.setAttribute('acolor', new THREE.Float32BufferAttribute(a.col, 3));
     g.setAttribute('alight', new THREE.Float32BufferAttribute(a.lgt, 2));
+    g.setAttribute('anrm', new THREE.Float32BufferAttribute(a.nrm, 3));
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(a.idx), 1));
     g.computeBoundingSphere();
     return g;
@@ -192,8 +312,9 @@ Voxel.MeshBuilder = (function () {
   function build(cx, cz) {
     var CFG = Voxel.Config;
     var H = CFG.WORLD_H, CS = CFG.CHUNK;
-    var o = { pos: [], uv: [], col: [], idx: [], lgt: [] };
-    var w = { pos: [], uv: [], col: [], idx: [], lgt: [] };
+    var o = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
+    var w = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
+    var fl = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
     var x0 = cx * CS, z0 = cz * CS;
 
     for (var lx = 0; lx < CS; lx++) {
@@ -207,7 +328,8 @@ Voxel.MeshBuilder = (function () {
           if (!def) continue;
           var isWater = id === 7;
           var isBed = !!def.half;
-          var target = (isWater || id === 13) ? w : o;
+          // 树叶独立组：参与实时阴影投射与顶点风摇
+          var target = (isWater || id === 13) ? w : (def.leaves ? fl : o);
 
           // 火把等十字面片：不参与面剔除
           if (def.cross) {
@@ -253,11 +375,18 @@ Voxel.MeshBuilder = (function () {
         }
       }
     }
-    return { opaque: makeGeo(o), water: makeGeo(w) };
+    return { opaque: makeGeo(o), water: makeGeo(w), foliage: makeGeo(fl) };
   }
 
   function aboveWaterOf(x, y, z) {
     return G(x, y + 1, z) !== 7;
+  }
+
+  function eachUniform(name, apply) {
+    for (var i = 0; i < mats.length; i++) {
+      var u = mats[i].uniforms[name];
+      if (u) apply(u);
+    }
   }
 
   return {
@@ -265,21 +394,42 @@ Voxel.MeshBuilder = (function () {
     build: build,
     opaqueMat: function () { return opaqueMat; },
     waterMat: function () { return waterMat; },
+    foliageMat: function () { return foliageMat; },
+    // 供阴影深度 pass 复用的摇摆位移 GLSL（必须与主视图一致）
+    swayGLSL: SWAY_GLSL,
     applyTint: function (t) {
-      opaqueMat.uniforms.tint.value.copy(t);
-      waterMat.uniforms.tint.value.copy(t);
+      eachUniform('tint', function (u) { u.value.copy(t); });
     },
     setSun: function (s) {
-      opaqueMat.uniforms.sun.value = s;
-      waterMat.uniforms.sun.value = s;
+      eachUniform('sun', function (u) { u.value = s; });
     },
     setEnv: function (fogColor, fogNear, fogFar) {
-      opaqueMat.uniforms.uFogColor.value.copy(fogColor);
-      waterMat.uniforms.uFogColor.value.copy(fogColor);
-      opaqueMat.uniforms.uFogNear.value = fogNear;
-      waterMat.uniforms.uFogNear.value = fogNear;
-      opaqueMat.uniforms.uFogFar.value = fogFar;
-      waterMat.uniforms.uFogFar.value = fogFar;
+      eachUniform('uFogColor', function (u) { u.value.copy(fogColor); });
+      eachUniform('uFogNear', function (u) { u.value = fogNear; });
+      eachUniform('uFogFar', function (u) { u.value = fogFar; });
+    },
+    // 风摇：时间 + 风矢量 + 振幅（树叶材质生效；其余材质 SWAY 未定义自动忽略）
+    setWind: function (time, wx, wz, amp) {
+      eachUniform('uTime', function (u) { u.value = time; });
+      eachUniform('uWind', function (u) { u.value.set(wx, wz); });
+      eachUniform('uSwayAmp', function (u) { u.value = amp; });
+    },
+    // 实时树影参数（深度图 + 世界→[0,1]³ 投影矩阵 + 强度 + 图尺寸）
+    setLeafShadow: function (tex, mat4, str, size) {
+      eachUniform('uShadowTex', function (u) { u.value = tex; });
+      eachUniform('uShadowMat', function (u) { u.value.copy(mat4); });
+      eachUniform('uShadowStr', function (u) { u.value = str; });
+      eachUniform('uShadowSize', function (u) { u.value = size; });
+    },
+    // 太阳方向（世界系，指向太阳）+ 方向光强度（白天 1 → 夜晚趋近 0）
+    setSunDirection: function (x, y, z, dirStr) {
+      eachUniform('uSunDir', function (u) { u.value.set(x, y, z); });
+      eachUniform('uDirStr', function (u) { u.value = dirStr; });
+    },
+    // 程序化云影：漂移偏移（与可见云层同步）+ 强度
+    setCloudShadow: function (dx, dz, str) {
+      eachUniform('uCloudDrift', function (u) { u.value.set(dx, dz); });
+      eachUniform('uCloudStr', function (u) { u.value = str; });
     }
   };
 })();

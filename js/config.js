@@ -133,8 +133,15 @@ Voxel.Config = {
 
   // 性能预设（设置面板一键应用；键名对应 Voxel.Settings）
   PERF_PRESETS: {
-    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5 },
-    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75 },
-    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1 }
+    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5, shadows: 0, sway: 0 },
+    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75, shadows: 1, sway: 0.75 },
+    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1, shadows: 2, sway: 1 }
+  },
+
+  // 实时光影参数
+  SHADOW: {
+    RANGE: 46,             // 阴影盒半径（格）
+    SWAY_AMP: 0.034,       // 风摇基础振幅（格），×设置档位 ×风力系数
+    CLOUD_SHADOW: 0.85     // 程序化云影最大强度（晴天也有云影掠过地面）
   }
 };

@@ -10,6 +10,8 @@ Voxel.Settings = (function () {
     particleDensity: 1.0,
     rainDensity: 1.0,
     mobDensity: 1.0,
+    shadows: 0,             // 实时树叶阴影 0=关 1=中 2=高（触屏首启默认关）
+    sway: 1,                // 树叶风摇强度档 0=关 0.5=弱 1=标准
     // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
     sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
@@ -35,6 +37,8 @@ Voxel.Settings = (function () {
     particleDensity: [0.25, 1],
     rainDensity: [0.25, 1],
     mobDensity: [0.25, 1],
+    shadows: [0, 2],
+    sway: [0, 1],
     difficulty: [0, 3]
   };
   // 分音效开关均为 0/1

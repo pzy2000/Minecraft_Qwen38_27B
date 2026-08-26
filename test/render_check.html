@@ -35,7 +35,14 @@
 <div id="overlay-discovery" class="overlay discovery-overlay hidden"><div class="panel discovery-panel" role="dialog" aria-modal="true" aria-labelledby="discovery-title" aria-describedby="discovery-reward"><div class="panel-titlebar discovery-titlebar"><div class="discovery-heading"><div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div><h2 id="discovery-title">发现档案</h2></div><button id="btn-discovery-close" class="panel-close" type="button" aria-label="关闭发现档案">×</button></div><section class="discovery-goal" aria-labelledby="discovery-goal-title"><div class="discovery-goal-copy"><span class="discovery-section-label">CURRENT OBJECTIVE</span><h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3><p id="discovery-reward">完成目标可获得探索点及跃迁能量。</p></div><strong id="discovery-goal-progress">0 / 1</strong></section><div class="discovery-stats"><div class="discovery-stat points"><span>探索点</span><strong id="discovery-points">0</strong></div><div class="discovery-stat"><span>已访天体</span><strong id="discovery-worlds">0</strong></div><div class="discovery-stat"><span>生物群系</span><strong id="discovery-biomes">0</strong></div><div class="discovery-stat"><span>资源样本</span><strong id="discovery-resources">0</strong></div><div class="discovery-stat"><span>生命记录</span><strong id="discovery-fauna">0</strong></div></div><div id="discovery-world-list"></div></div></div>
 <div id="overlay-loading" class="overlay hidden"><div class="panel"><div id="loading-text"></div><div class="bar"><div id="loading-bar"></div></div></div></div>
 <pre id="out">RUNNING</pre>
-<script>window.__CAPTURE__ = true;</script>
+<script>
+window.onerror = function (msg, src, line) {
+  var el = document.getElementById('out');
+  if (el) el.textContent = 'ONERROR ' + msg + ' @' + (src || '').split('/').pop() + ':' + line;
+  document.title = 'RENDER-FAIL';
+};
+window.__CAPTURE__ = true;
+</script>
 <script src="../vendor/three.min.js"></script>
 <script src="../js/config.js"></script>
 <script>
@@ -63,6 +70,7 @@
 <script src="../js/world/world.js"></script>
 <script src="../js/world/infinite.js"></script>
 <script src="../js/world/mesh.js"></script>
+<script src="../js/systems/shadow.js"></script>
 <script src="../js/player/physics.js"></script>
 <script src="../js/player/controls.js"></script>
 <script src="../js/player/player.js"></script>
@@ -101,12 +109,16 @@
   if (siEl) siEl.value = '12345';
   document.getElementById('btn-new').click();
   var n = 0, playing = false, playedFrames = 0, sceneOk = false, uiOk = false;
+  var shadowPhase = false, shadowFrames = 0, glErrAtShadow = 0;
   (function drive() {
+    var dbgEl = document.getElementById('out');
     try {
+      if (shadowPhase && shadowFrames < 4) dbgEl.textContent = 'PRE-FRAME ' + shadowFrames;
       Voxel.Game._frame(performance.now());
+      if (shadowPhase && shadowFrames < 4) dbgEl.textContent = 'POST-FRAME ' + shadowFrames;
       if (Voxel.Game.state === 'playing') { playing = true; playedFrames++; }
     } catch (e) { out.push('FRAME_ERR ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
-    if (playedFrames >= 240) {
+    if (playedFrames >= 240 && !shadowPhase) {
       out.push('state=' + Voxel.Game.state + ' playedFrames=' + playedFrames + ' glErrors=' + glErr);
       // 像素采样：验证画面里同时有天空和地形
       var c2 = document.createElement('canvas');
@@ -115,10 +127,10 @@
       ctx2.drawImage(canvas, 0, 0, 320, 200);
       var d = ctx2.getImageData(0, 0, 320, 200).data;
       var counts = { sky: 0, green: 0, brown: 0, blue: 0, dark: 0, other: 0 };
-      var sumR = 0, sumG = 0, sumB = 0, n = 0;
+      var sumR = 0, sumG = 0, sumB = 0, pn = 0;
       for (var i = 0; i < d.length; i += 16) {
         var r = d[i], g = d[i+1], b = d[i+2];
-        sumR += r; sumG += g; sumB += b; n++;
+        sumR += r; sumG += g; sumB += b; pn++;
         if (b > 150 && b > r + 20 && g > 100) counts.sky++;
         else if (g > r + 15 && g > b + 15) counts.green++;
         else if (r > b + 15 && r >= g) counts.brown++;
@@ -126,7 +138,7 @@
         else if (b > r + 30 && b >= g) counts.blue++;
         else counts.other++;
       }
-      out.push('avg=rgb(' + (sumR/n|0) + ',' + (sumG/n|0) + ',' + (sumB/n|0) + ')');
+      out.push('avg=rgb(' + (sumR/pn|0) + ',' + (sumG/pn|0) + ',' + (sumB/pn|0) + ')');
       out.push('pixels: sky=' + counts.sky + ' green=' + counts.green + ' brown=' + counts.brown + ' water=' + counts.blue + ' dark=' + counts.dark + ' other=' + counts.other);
       sceneOk = counts.sky > 20 && (counts.green + counts.brown) > 20;
       out.push(sceneOk ? 'SCENE-LOOKS-CORRECT (天空+地形均可见)' : 'SCENE-SUSPICIOUS');
@@ -212,11 +224,53 @@
       out.push(discoveryLayoutOk ? 'DISCOVERY-DIALOG-LAYOUT-CORRECT' : 'DISCOVERY-DIALOG-LAYOUT-FAIL');
       out.push(motionOk ? (reduced ? 'SCAN-REDUCED-MOTION-STATIC' : 'SCAN-MOTION-0.8S') : 'SCAN-MOTION-FAIL');
       out.push(environmentMotionOk ? (reduced ? 'ENVIRONMENT-REDUCED-MOTION-STATIC' : 'ENVIRONMENT-MOTION-1.15S') : 'ENVIRONMENT-MOTION-FAIL');
+      // ---- 实时阴影相位：冻结正午时间，开启高档阴影再跑 100 帧 ----
+      try {
+        shadowPhase = true; shadowFrames = 0; glErrAtShadow = glErr;
+        Voxel.DayNight.setTime(0.25); // 正午：太阳高角度
+        Voxel.Settings.set('shadows', 2);
+        Voxel.Settings.set('sway', 1);
+      } catch (se) {
+        out.push('SHADOW-START-ERR ' + se.message + ' ' + (se.stack || '').split('\n')[1]);
+        document.title = 'RENDER-FAIL';
+        document.getElementById('out').textContent = out.join('\n');
+        return;
+      }
       document.getElementById('out').textContent = out.join('\n');
-      document.title = (glErr === 0 && sceneOk && uiOk) ? 'RENDER-PASS' : 'RENDER-FAIL';
+      setTimeout(drive, 16); // 两阶段驱动：必须续约定时器，否则链条中断
       return;
     }
+    if (shadowPhase && shadowFrames >= 100) {
+      try {
+      out.push('state=' + Voxel.Game.state + ' shadowFrames=' + shadowFrames + ' glErrors=' + glErr +
+        ' casters=' + (Voxel.Shadow ? Voxel.Shadow.casterCount() : -1));
+      var castersOk = Voxel.Shadow && Voxel.Shadow.casterCount() > 0;
+      var shadowGlOk = glErr === glErrAtShadow;
+      // 地面亮度对比（仅记录供人工核对；判定以结构断言为准）
+      var c3 = document.createElement('canvas');
+      c3.width = 320; c3.height = 200;
+      c3.getContext('2d').drawImage(canvas, 0, 0, 320, 200);
+      var dd = c3.getContext('2d').getImageData(0, 0, 320, 200).data;
+      var lum = 0, ln = 0;
+      for (var di = 0; di < dd.length; di += 16) { lum += dd[di] * 0.299 + dd[di+1] * 0.587 + dd[di+2] * 0.114; ln++; }
+      out.push('shadow-phase avg-lum=' + (lum / ln).toFixed(1));
+      out.push(castersOk ? 'SHADOW-CASTERS-REGISTERED' : 'SHADOW-CASTERS-FAIL');
+      out.push(shadowGlOk ? 'SHADOW-GPIPE-CLEAN' : 'SHADOW-GPIPE-ERRORS');
+      } catch (se2) {
+        out.push('SHADOW-END-ERR ' + se2.message);
+        document.title = 'RENDER-FAIL';
+      }
+      document.getElementById('out').textContent = out.join('\n');
+      document.title = document.title === 'RENDER-FAIL' ? 'RENDER-FAIL' :
+        (glErr === 0 && sceneOk && uiOk && castersOk && shadowGlOk) ? 'RENDER-PASS' : 'RENDER-FAIL';
+      return;
+    }
+    if (shadowPhase) {
+      shadowFrames++;
+      if (shadowFrames % 25 === 0) document.title = 'MARK-HB-' + shadowFrames + '-err' + glErr;
+    }
     if (n++ > 6000) { out.push('TIMEOUT state=' + Voxel.Game.state); document.getElementById('out').textContent = out.join('\n'); document.title = 'RENDER-FAIL'; return; }
+    window.__DBG = { get: function () { return JSON.stringify({ shadowPhase: shadowPhase, shadowFrames: shadowFrames, n: n, playedFrames: playedFrames, glErr: glErr }); } };
     setTimeout(drive, 16);
   })();
 })();

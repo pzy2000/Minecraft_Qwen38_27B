@@ -187,7 +187,7 @@ window.Voxel = window.Voxel || {};
       sky: new Uint8Array(CS * H * CS),
       blk: new Uint8Array(CS * H * CS),
       baseReady: false, ready: false, lit: false, dirty: true, meshed: false,
-      mesh: null, wmesh: null
+      mesh: null, wmesh: null, fmesh: null
     };
   }
 
@@ -791,6 +791,12 @@ window.Voxel = window.Voxel || {};
       if (ch.wmesh.geometry) ch.wmesh.geometry.dispose();
       ch.wmesh = null;
     }
+    if (ch.fmesh) {
+      if (extraGroup) extraGroup.remove(ch.fmesh);
+      if (ch.fmesh.geometry) ch.fmesh.geometry.dispose();
+      if (Voxel.Shadow) Voxel.Shadow.removeCaster(ch.fmesh);
+      ch.fmesh = null;
+    }
     ch.meshed = false;
   }
 
@@ -860,6 +866,11 @@ window.Voxel = window.Voxel || {};
         ch.wmesh = new THREE.Mesh(res.water, Voxel.MeshBuilder.waterMat());
         ch.wmesh.renderOrder = 2;
         extraGroup.add(ch.wmesh);
+      }
+      if (res.foliage) {
+        ch.fmesh = new THREE.Mesh(res.foliage, Voxel.MeshBuilder.foliageMat());
+        extraGroup.add(ch.fmesh);
+        if (Voxel.Shadow) Voxel.Shadow.addCaster(ch.fmesh);
       }
       ch.meshed = true; ch.dirty = false; built++;
     }

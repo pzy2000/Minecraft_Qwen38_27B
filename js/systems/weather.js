@@ -16,6 +16,7 @@ Voxel.Weather = (function () {
   var boltT = 0;          // 闪电枝可见倒计时
   var lightningT = 0;     // 雷暴时下次闪电倒计时
   var windA = 0;
+  var driftX = 0, driftZ = 0; // 云层累计漂移（程序化云影同步用）
   var rainFadeT = 0;      // 雨后彩虹窗口（秒）
   var rainbowT = -1;      // 彩虹计时（<0 未激活）
 
@@ -104,6 +105,7 @@ Voxel.Weather = (function () {
   function resetLayout(seed) {
     seedRng(seed);
     windA = random() * Math.PI * 2;
+    driftX = random() * 1000; driftZ = random() * 1000;
     var W = Voxel.Config.WEATHER;
     if (dropY && dropXZ && dropSpd) {
       for (var i = 0; i < dropY.length; i++) {
@@ -278,6 +280,8 @@ Voxel.Weather = (function () {
     // 风向缓变
     windA += dt * 0.05;
     var wx = Math.cos(windA) * W.WIND, wz = Math.sin(windA) * W.WIND;
+    driftX += wx * dt * 0.45;
+    driftZ += wz * dt * 0.45;
 
     // 状态机：到点自动切换
     timer -= dt;
@@ -513,6 +517,13 @@ Voxel.Weather = (function () {
     label: label,
     intensity: function () { return intensity; },
     rainFactor: function () { return intensity; },
+    // 当前风矢量（树叶摇摆 / 云影漂移共用同一风向）
+    getWind: function () {
+      var W = Voxel.Config.WEATHER;
+      return { x: Math.cos(windA) * W.WIND, z: Math.sin(windA) * W.WIND, angle: windA };
+    },
+    // 云层累计漂移量（程序化云影与可见云层保持同步）
+    getCloudDrift: function () { return { x: driftX, z: driftZ }; },
     flash: function () { return flash; },
     rainVisible: function () { return rain ? rain.visible : false; },
     cloudOpacity: function () { return clouds.length ? clouds[0].m.material.opacity : 0; },

@@ -524,6 +524,12 @@
     <div class="set-row"><label for="set-particleDensity">粒子密度</label><input id="set-particleDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-particleDensity-v"><span><output id="set-particleDensity-v" for="set-particleDensity"></output></span></div>
     <div class="set-row"><label for="set-rainDensity">雨滴密度</label><input id="set-rainDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-rainDensity-v"><span><output id="set-rainDensity-v" for="set-rainDensity"></output></span></div>
     <div class="set-row"><label for="set-mobDensity">生物数量</label><input id="set-mobDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-mobDensity-v"><span><output id="set-mobDensity-v" for="set-mobDensity"></output></span></div>
+    <div class="set-row"><span id="shadows-label" class="set-label">实时阴影</span><span class="btn-row" id="shadows-row" role="group" aria-labelledby="shadows-label">
+      <button class="btn small" data-shadow="0" aria-pressed="false">关</button>
+      <button class="btn small" data-shadow="1" aria-pressed="false">中</button>
+      <button class="btn small" data-shadow="2" aria-pressed="false">高</button>
+    </span></div>
+    <div class="set-row"><label for="set-sway">树叶风摇</label><input id="set-sway" type="range" min="0" max="1" step="0.05" aria-describedby="set-sway-v"><span><output id="set-sway-v" for="set-sway"></output></span></div>
     <div class="set-row"><span id="perf-preset-label" class="set-label">性能预设</span><span class="btn-row" id="perf-preset-row" role="group" aria-labelledby="perf-preset-label">
       <button class="btn small" data-preset="smooth" aria-pressed="false">流畅</button>
       <button class="btn small" data-preset="balanced" aria-pressed="false">均衡</button>
@@ -568,7 +574,8 @@
 <script src="js/crafting.js?v=20260825a"></script>
 <script src="js/world/world.js?v=20260824q"></script>
 <script src="js/world/infinite.js?v=20260824q"></script>
-<script src="js/world/mesh.js?v=20260823f"></script>
+<script src="js/world/mesh.js?v=20260826a"></script>
+<script src="js/systems/shadow.js?v=20260826a"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=7650a80bae65366d5d4e345bdc37004584d64dab1bf5281d9d163c683f8f0091"></script>
 <script src="js/player/player.js?v=f7d28a25bd17f961e271c22ec10ca9f9ecedb571cdf146bfebefce1f408dcaf8"></script>

@@ -37,7 +37,7 @@ Voxel.Blocks = (function () {
     { name: '泥土', solid: true, opaque: true, tiles: [T.DIRT, T.DIRT, T.DIRT], sound: 'dirt', color: 0x8a6043, hard: 0.65 },
     { name: '石头', solid: true, opaque: true, tiles: [T.STONE, T.STONE, T.STONE], sound: 'stone', color: 0x7f7f7f, hard: 4, pick: true },
     { name: '橡木', solid: true, opaque: true, tiles: [T.LOG_TOP, T.LOG_SIDE, T.LOG_TOP], sound: 'wood', color: 0x7a5c38, hard: 1.6 },
-    { name: '树叶', solid: true, opaque: true, tiles: [T.LEAVES, T.LEAVES, T.LEAVES], sound: 'leaves', color: 0x3f8f2f, hard: 0.35 },
+    { name: '树叶', solid: true, opaque: true, leaves: true, tiles: [T.LEAVES, T.LEAVES, T.LEAVES], sound: 'leaves', color: 0x3f8f2f, hard: 0.35 },
     { name: '沙子', solid: true, opaque: true, tiles: [T.SAND, T.SAND, T.SAND], sound: 'sand', color: 0xdacfa3, hard: 0.6 },
     { name: '水', solid: false, opaque: false, tiles: [T.WATER, T.WATER, T.WATER], sound: 'water', color: 0x3d7dd8 },
     { name: '煤矿石', solid: true, opaque: true, tiles: [T.COAL, T.COAL, T.COAL], sound: 'stone', color: 0x3a3a3a, hard: 5, pick: true, tier: 1, drop: 107 },
@@ -54,9 +54,9 @@ Voxel.Blocks = (function () {
     { name: '火把', solid: false, opaque: false, cross: true, light: 14,
       tiles: [T.TORCH, T.TORCH, T.TORCH], sound: 'wood', color: 0xffcc66, hard: 0.05, icon: T.TORCH },
     { name: '云杉木', solid: true, opaque: true, tiles: [T.SPRUCE_LOG_TOP, T.SPRUCE_LOG_SIDE, T.SPRUCE_LOG_TOP], sound: 'wood', color: 0x5a4428, hard: 1.6 },
-    { name: '云杉树叶', solid: true, opaque: true, tiles: [T.SPRUCE_LEAVES, T.SPRUCE_LEAVES, T.SPRUCE_LEAVES], sound: 'leaves', color: 0x2e6154, hard: 0.35 },
+    { name: '云杉树叶', solid: true, opaque: true, leaves: true, tiles: [T.SPRUCE_LEAVES, T.SPRUCE_LEAVES, T.SPRUCE_LEAVES], sound: 'leaves', color: 0x2e6154, hard: 0.35 },
     { name: '丛林木', solid: true, opaque: true, tiles: [T.JUNGLE_LOG_TOP, T.JUNGLE_LOG_SIDE, T.JUNGLE_LOG_TOP], sound: 'wood', color: 0x8a6b3c, hard: 1.6 },
-    { name: '丛林树叶', solid: true, opaque: true, tiles: [T.JUNGLE_LEAVES, T.JUNGLE_LEAVES, T.JUNGLE_LEAVES], sound: 'leaves', color: 0x3da02f, hard: 0.35 },
+    { name: '丛林树叶', solid: true, opaque: true, leaves: true, tiles: [T.JUNGLE_LEAVES, T.JUNGLE_LEAVES, T.JUNGLE_LEAVES], sound: 'leaves', color: 0x3da02f, hard: 0.35 },
     { name: '灰化土', solid: true, opaque: true, tiles: [T.PODZOL_TOP, T.PODZOL_SIDE, T.DIRT], sound: 'dirt', color: 0x7a5a34, hard: 0.65 },
     { name: '苔石', solid: true, opaque: true, tiles: [T.MOSSY_COBBLE, T.MOSSY_COBBLE, T.MOSSY_COBBLE], sound: 'stone', color: 0x6d7d5f, hard: 4.5, pick: true },
     { name: '仙人掌', solid: true, opaque: true, tiles: [T.CACTUS_TOP, T.CACTUS_SIDE, T.CACTUS_TOP], sound: 'wool', color: 0x4a7f28, hard: 0.5 },
@@ -69,9 +69,9 @@ Voxel.Blocks = (function () {
     { name: '棕陶瓦', solid: true, opaque: true, tiles: [T.TERRACOTTA_BROWN, T.TERRACOTTA_BROWN, T.TERRACOTTA_BROWN], sound: 'stone', color: 0x714d2e, hard: 3, pick: true },
     { name: '浮冰', solid: true, opaque: true, tiles: [T.ICE, T.ICE, T.ICE], sound: 'glass', color: 0x9fc4ee, hard: 1.5, pick: true },
     { name: '白桦木', solid: true, opaque: true, tiles: [T.BIRCH_LOG_TOP, T.BIRCH_LOG_SIDE, T.BIRCH_LOG_TOP], sound: 'wood', color: 0xd7cdb4, hard: 1.6 },
-    { name: '白桦树叶', solid: true, opaque: true, tiles: [T.BIRCH_LEAVES, T.BIRCH_LEAVES, T.BIRCH_LEAVES], sound: 'leaves', color: 0x74a644, hard: 0.35 },
+    { name: '白桦树叶', solid: true, opaque: true, leaves: true, tiles: [T.BIRCH_LEAVES, T.BIRCH_LEAVES, T.BIRCH_LEAVES], sound: 'leaves', color: 0x74a644, hard: 0.35 },
     { name: '金合欢木', solid: true, opaque: true, tiles: [T.ACACIA_LOG_TOP, T.ACACIA_LOG_SIDE, T.ACACIA_LOG_TOP], sound: 'wood', color: 0x9a5b38, hard: 1.6 },
-    { name: '金合欢树叶', solid: true, opaque: true, tiles: [T.ACACIA_LEAVES, T.ACACIA_LEAVES, T.ACACIA_LEAVES], sound: 'leaves', color: 0x5f9426, hard: 0.35 },
+    { name: '金合欢树叶', solid: true, opaque: true, leaves: true, tiles: [T.ACACIA_LEAVES, T.ACACIA_LEAVES, T.ACACIA_LEAVES], sound: 'leaves', color: 0x5f9426, hard: 0.35 },
     { name: '熔炉', solid: true, opaque: true, tiles: [T.FURNACE_TOP, T.FURNACE_FRONT, T.FURNACE_TOP], sound: 'stone', color: 0x6e6e70, hard: 4.5, pick: true },
     { name: '箱子', solid: true, opaque: true, tiles: [T.CHEST_TOP, T.CHEST_FRONT, T.CHEST_TOP], sound: 'wood', color: 0xa8763f, hard: 2 }
   ];
@@ -749,6 +749,8 @@ Voxel.Blocks = (function () {
     },
     isSolid: function (id) { return id > 0 && !!defs[id] && !!defs[id].solid; },
     isOpaque: function (id) { return id > 0 && !!defs[id] && !!defs[id].opaque; },
+    // 树叶（风摇 + 实时阴影投射体）
+    isLeaves: function (id) { return id > 0 && !!defs[id] && !!defs[id].leaves; },
     name: function (id) { return defs[id] ? defs[id].name : '?'; },
     tileForFace: function (id, face) {
       var d = defs[id];

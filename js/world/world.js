@@ -810,6 +810,10 @@ Voxel.World = (function () {
       if (old) {
         if (old.mesh) { meshGroup.remove(old.mesh); old.mesh.geometry.dispose(); }
         if (old.wmesh) { meshGroup.remove(old.wmesh); old.wmesh.geometry.dispose(); }
+        if (old.fmesh) {
+          meshGroup.remove(old.fmesh); old.fmesh.geometry.dispose();
+          if (Voxel.Shadow) Voxel.Shadow.removeCaster(old.fmesh);
+        }
       }
       var res = Voxel.MeshBuilder.build(cx, cz);
       var ch = {};
@@ -821,6 +825,11 @@ Voxel.World = (function () {
         ch.wmesh = new THREE.Mesh(res.water, Voxel.MeshBuilder.waterMat());
         ch.wmesh.renderOrder = 2;
         meshGroup.add(ch.wmesh);
+      }
+      if (res.foliage) {
+        ch.fmesh = new THREE.Mesh(res.foliage, Voxel.MeshBuilder.foliageMat());
+        meshGroup.add(ch.fmesh);
+        if (Voxel.Shadow) Voxel.Shadow.addCaster(ch.fmesh);
       }
       chunks[key] = ch;
       built++;
@@ -838,6 +847,8 @@ Voxel.World = (function () {
     }
     meshGroup = null;
     chunks = {};
+    // 树叶 caster 幽灵网格持有已释放的 geometry，必须一并清空
+    if (Voxel.Shadow) Voxel.Shadow.clearCasters();
   }
 
   return {

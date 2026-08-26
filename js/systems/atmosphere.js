@@ -744,6 +744,22 @@ Voxel.Atmosphere = (function () {
     }
   }
 
+  // 主恒星当前方向（世界系单位向量，指向太阳）。与 updateCelestials 的轨道公式一致
+  // （半径约去后即为方向）。空间站/无恒星返回 false。供实时阴影系统投影使用。
+  var sunDirOut = null;
+  function sunDirection(out, time) {
+    for (var i = 0; i < celestial.length; i++) {
+      var data = celestial[i].userData;
+      if (data.kind !== 'sun' || typeof data.phase !== 'number') continue;
+      var angle = (data.phase + (time || 0) * data.cyclesPerDay) * TAU;
+      var ca = Math.cos(angle), sa = Math.sin(angle);
+      var ci = Math.cos(data.inclination), si = Math.sin(data.inclination);
+      if (!out) out = sunDirOut || (sunDirOut = new THREE.Vector3());
+      return out.set(ca, sa * ci, sa * si).normalize(), true;
+    }
+    return false;
+  }
+
   function updateVisualState() {
     if (!root || !profile) return;
     var night = clamp01(1 - lastSunlight);
@@ -993,6 +1009,7 @@ Voxel.Atmosphere = (function () {
     clear: clear,
     snapshot: snapshot,
     resourceStats: resourceStats,
-    currentProfile: currentProfile
+    currentProfile: currentProfile,
+    sunDirection: sunDirection
   };
 })();
