@@ -117,7 +117,10 @@ check('v1 coal/iron阈值与高度边界逐点精确',
 
 console.log('v1 世界黄金指纹（legacy core / 正负外围 / 255-256接缝）');
 const GOLDEN = {
-  lush: '62da6a42',
+  // lush 覆盖整个群系注册表：第 22 轮群系扩展（+蘑菇林/沼泽/樱花树林/黑森林）
+  // 移动了 MultiNoise 最近邻边界， lush 自然地形随之变化（用户已确认接受）；
+  // 其余五类 v1 行星走 LEGACY_SETS 逐格哈希，指纹保持不变。
+  lush: 'faacc19f',
   arid: '26ec781b',
   frozen: '3866921e',
   toxic: '7c221edc',

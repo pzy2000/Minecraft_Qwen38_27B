@@ -30,7 +30,10 @@ Voxel.Blocks = (function () {
     CAT_FUR: 77, FELT: 78, WARP_CELL: 79,
     ALIEN_LOG_SIDE: 54, ALIEN_LOG_TOP: 55, GLOW_CAP: 56,
     RUIN_BRICK: 57, BASALT: 80, CORAL: 81,
-    RUIN_BRICK_MOSSY: 82, DEAD_LOG_SIDE: 83, DEAD_LOG_TOP: 84
+    RUIN_BRICK_MOSSY: 82, DEAD_LOG_SIDE: 83, DEAD_LOG_TOP: 84,
+    MYCELIUM_TOP: 85, MYCELIUM_SIDE: 86, MUSHROOM_STEM: 87,
+    MUSHROOM_CAP_RED: 88, MUSHROOM_CAP_BROWN: 89,
+    CHERRY_LOG_SIDE: 90, CHERRY_LOG_TOP: 91, CHERRY_LEAVES: 92, DARK_LEAVES: 93
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -126,6 +129,30 @@ Voxel.Blocks = (function () {
   defs[52] = { name: '枯巨木', solid: true, opaque: true,
     tiles: [T.DEAD_LOG_TOP, T.DEAD_LOG_SIDE, T.DEAD_LOG_TOP], sound: 'wood',
     color: 0x54473a, hard: 1.6 };
+
+  // ---- 群系扩展新方块（稳定方块 ID 53..59）----
+  // 只在旧注册表尾部追加，不得复用/移动旧 ID；旧存档地形逐位不变。
+  defs[53] = { name: '菌丝体', solid: true, opaque: true,
+    tiles: [T.MYCELIUM_TOP, T.MYCELIUM_SIDE, T.DIRT], sound: 'dirt',
+    color: 0x7d6a84, hard: 0.65 };
+  defs[54] = { name: '蘑菇柄', solid: true, opaque: true,
+    tiles: [T.MUSHROOM_STEM, T.MUSHROOM_STEM, T.MUSHROOM_STEM], sound: 'wood',
+    color: 0xc4b8a2, hard: 1.2 };
+  defs[55] = { name: '红色菌盖', solid: true, opaque: true,
+    tiles: [T.MUSHROOM_CAP_RED, T.MUSHROOM_CAP_RED, T.MUSHROOM_CAP_RED], sound: 'wool',
+    color: 0xb2302a, hard: 0.4 };
+  defs[56] = { name: '棕色菌盖', solid: true, opaque: true,
+    tiles: [T.MUSHROOM_CAP_BROWN, T.MUSHROOM_CAP_BROWN, T.MUSHROOM_CAP_BROWN], sound: 'wool',
+    color: 0x996b3f, hard: 0.4 };
+  defs[57] = { name: '樱花木', solid: true, opaque: true,
+    tiles: [T.CHERRY_LOG_TOP, T.CHERRY_LOG_SIDE, T.CHERRY_LOG_TOP], sound: 'wood',
+    color: 0x9c6070, hard: 1.6 };
+  defs[58] = { name: '樱花树叶', solid: true, opaque: true, leaves: true,
+    tiles: [T.CHERRY_LEAVES, T.CHERRY_LEAVES, T.CHERRY_LEAVES], sound: 'leaves',
+    color: 0xe49bb8, hard: 0.35 };
+  defs[59] = { name: '暗色树叶', solid: true, opaque: true, leaves: true,
+    tiles: [T.DARK_LEAVES, T.DARK_LEAVES, T.DARK_LEAVES], sound: 'leaves',
+    color: 0x2a462c, hard: 0.35 };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -808,6 +835,83 @@ Voxel.Blocks = (function () {
     // 枯巨木：焦褐深纹，无叶
     drawTile(T.DEAD_LOG_SIDE, logSideTile([58, 48, 40], [88, 74, 60]));
     drawTile(T.DEAD_LOG_TOP, logTopTile([112, 94, 74], [74, 60, 48]));
+
+    // ---- 群系扩展新方块纹理 ----
+
+    // 菌丝体顶面：紫灰底 + 浅紫菌丝簇
+    drawTile(T.MYCELIUM_TOP, function (x, y, r) {
+      var v = n(r, 0, 16);
+      if (r() < 0.14) return [148 + v, 132 + v, 156 + v];
+      return [118 + v, 100 + v * 0.9, 126 + v];
+    });
+    drawTile(T.MYCELIUM_SIDE, function (x, y, r) {
+      var band = 3 + ((x * 5 + 4) % 3);
+      if (y < band || (y === band && r() < 0.5)) {
+        var vm = n(r, 0, 18);
+        return [124 + vm, 104 + vm * 0.9, 132 + vm];
+      }
+      var v = n(r, 0, 24);
+      return [134 + v, 96 + v, 67 + v * 0.8];                                   // 泥土
+    });
+
+    // 蘑菇柄：米白纵向纤维纹
+    drawTile(T.MUSHROOM_STEM, function (x, y, r) {
+      var stripe = (x % 4 < 2);
+      var v = n(r, 0, 12);
+      if (r() < 0.05) return [150 + v, 138 + v, 116 + v];                       // 纤维暗线
+      var c = stripe ? [206, 194, 172] : [182, 170, 148];
+      return [c[0] + v, c[1] + v, c[2] + v * 0.9];
+    });
+
+    // 红色菌盖：正红底 + 固定坐标白色斑点
+    drawTile(T.MUSHROOM_CAP_RED, function (x, y, r) {
+      var spots = [[3, 3], [11, 4], [6, 10], [13, 12]];
+      for (var i = 0; i < spots.length; i++) {
+        var ddx = x - spots[i][0], ddy = y - spots[i][1];
+        if (ddx * ddx + ddy * ddy < 3.2) {
+          var sv = n(r, 0, 10);
+          return [236 + sv, 230 + sv, 220 + sv];
+        }
+      }
+      var edge = (x === 0 || y === 0 || x === 15 || y === 15);
+      var v = n(r, 0, 18);
+      if (edge) return [142 + v * 0.5, 30 + v * 0.4, 26 + v * 0.4];             // 边缘深红
+      return [188 + v, 46 + v * 0.5, 38 + v * 0.5];
+    });
+
+    // 棕色菌盖：深浅棕棋盘纹 + 气孔
+    drawTile(T.MUSHROOM_CAP_BROWN, function (x, y, r) {
+      var row = ((y / 3) | 0) % 2;
+      var col = ((x / 4) | 0) % 2;
+      var v = n(r, 0, 14);
+      if (r() < 0.06) return [98 + v * 0.5, 68 + v * 0.5, 40 + v * 0.5];        // 气孔
+      var base = (row ^ col) ? [154, 112, 72] : [128, 92, 56];
+      return [base[0] + v, base[1] + v, base[2] + v];
+    });
+
+    // 樱花木：灰粉树皮纵纹 + 浅色皮孔
+    drawTile(T.CHERRY_LOG_SIDE, function (x, y, r) {
+      var stripe = (x % 5 < 2);
+      var v = n(r, 0, 12);
+      if (!stripe && r() < 0.1) return [176 + v, 130 + v, 138 + v];
+      var c = stripe ? [88, 60, 70] : [126, 88, 98];
+      return [c[0] + v, c[1] + v, c[2] + v];
+    });
+    drawTile(T.CHERRY_LOG_TOP, logTopTile([200, 150, 152], [150, 104, 110]));
+
+    // 樱花树叶：亮粉花瓣簇 + 深粉缝隙
+    drawTile(T.CHERRY_LEAVES, function (x, y, r) {
+      if (r() < 0.16) return [178 + r() * 20, 84 + r() * 20, 120 + r() * 16];
+      var v = n(r, 0, 32);
+      return [232 + v, 144 + v * 0.7, 172 + v * 0.8];
+    });
+
+    // 暗色树叶：近黑绿密叶
+    drawTile(T.DARK_LEAVES, function (x, y, r) {
+      if (r() < 0.14) return [16 + r() * 10, 36 + r() * 12, 16 + r() * 8];
+      var v = n(r, 0, 22);
+      return [44 + v * 0.6, 78 + v, 42 + v * 0.6];
+    });
 
     ctx.putImageData(img, 0, 0);
 

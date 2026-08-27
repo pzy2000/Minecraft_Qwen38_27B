@@ -485,6 +485,66 @@ Voxel.World = (function () {
     setIfAir(x, h + th + 2, z, 36);
   }
 
+  // 巨型蘑菇（蘑菇林）：菌柄 + 两层收拢穹顶，20% 棕色。
+  // 与 gen_core 的 giantMushroom 逐位一致（跨核心/外围接缝的确定性契约）。
+  function giantMushroomTree(x, h, z, r) {
+    var rr = (r * 100000) | 0;
+    var cap = (rr % 5 === 0) ? 56 : 55;
+    var th = 3 + rr % 3;
+    if (h + th + 3 >= H) th = H - 5 - h;
+    if (th < 2) return;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 54;
+    for (var dx = -3; dx <= 3; dx++)
+      for (var dz = -3; dz <= 3; dz++) {
+        if (dx * dx + dz * dz > 11) continue;
+        setIfAir(x + dx, h + th, z + dz, cap);
+      }
+    for (var dx2 = -2; dx2 <= 2; dx2++)
+      for (var dz2 = -2; dz2 <= 2; dz2++) {
+        if (dx2 * dx2 + dz2 * dz2 > 6) continue;
+        setIfAir(x + dx2, h + th + 1, z + dz2, cap);
+      }
+    setIfAir(x, h + th + 2, z, cap);
+  }
+
+  // 樱花树：斜出主干的粉团树冠
+  function cherryTree(x, h, z, r) {
+    var rr = (r * 100000) | 0;
+    var th = 4 + rr % 3;
+    var sx = ((rr >> 2) & 1) ? 1 : -1;
+    if (h + th + 3 >= H) return;
+    for (var y = 1; y <= th; y++) data[idx(x + (y > th - 2 ? sx : 0), h + y, z)] = 57;
+    var tx = x + sx;
+    for (var dx = -2; dx <= 2; dx++)
+      for (var dz = -2; dz <= 2; dz++) {
+        if (dx * dx + dz * dz > 6.5) continue;
+        setIfAir(tx + dx, h + th, z + dz, 58);
+      }
+    for (var ax = -1; ax <= 1; ax++)
+      for (var az = -1; az <= 1; az++) {
+        if (Math.abs(ax) === 1 && Math.abs(az) === 1 && ((rr >> (Math.abs(ax) + Math.abs(az))) & 1)) continue;
+        setIfAir(tx + ax, h + th + 1, z + az, 58);
+      }
+    setIfAir(tx, h + th + 2, z, 58);
+  }
+
+  // 黑森林橡树：更高树干 + 密集暗叶方冠
+  function darkOakTree(x, h, z, r) {
+    var th = 5 + ((r * 100000) | 0) % 3;
+    if (h + th + 3 >= H) return;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
+    for (var ly = th - 2; ly <= th + 1; ly++) {
+      var rad = ly >= th ? 1 : 2;
+      for (var dx = -rad; dx <= rad; dx++)
+        for (var dz = -rad; dz <= rad; dz++) {
+          if (dx === 0 && dz === 0 && ly <= th) continue;
+          if (rad > 1 && Math.abs(dx) === rad && Math.abs(dz) === rad) continue;
+          setIfAir(x + dx, h + ly, z + dz, 59);
+        }
+    }
+    setIfAir(x, h + th + 2, z, 59);
+  }
+
   // 原始针叶林：苔石巨砾
   function boulder(x, h, z) {
     for (var dy = -1; dy <= 2; dy++)
@@ -524,6 +584,9 @@ Voxel.World = (function () {
           case 'mega_spruce':
             if (!megaSpruce(x, h, z, r)) spruceTree(x, h, z, r);
             break;
+          case 'giant_mushroom': giantMushroomTree(x, h, z, r); break;
+          case 'cherry': cherryTree(x, h, z, r); break;
+          case 'dark_oak': darkOakTree(x, h, z, r); break;
         }
       }
   }

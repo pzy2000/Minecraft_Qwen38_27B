@@ -310,6 +310,64 @@ Voxel.GenCore = (function () {
       decorSet(s, x, h + th + 2, z, 36, true);
     }
 
+    // 巨型蘑菇（蘑菇林）：菌柄 + 两层收拢穹顶，20% 棕色。
+    // 与 world.js 的 giantMushroomTree 逐位一致（跨核心/外围接缝的确定性契约）。
+    function giantMushroom(s, x, h, z, r) {
+      var rr = (r * 100000) | 0;
+      var cap = (rr % 5 === 0) ? 56 : 55;
+      var th = 3 + rr % 3;
+      if (h + th + 3 >= H) th = H - 5 - h;
+      if (th < 2) return;
+      for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 54, false);
+      for (var dx = -3; dx <= 3; dx++) for (var dz = -3; dz <= 3; dz++) {
+        var d2 = dx * dx + dz * dz;
+        if (d2 > 11) continue;
+        decorSet(s, x + dx, h + th, z + dz, cap, true);
+      }
+      for (var dx2 = -2; dx2 <= 2; dx2++) for (var dz2 = -2; dz2 <= 2; dz2++) {
+        var dd2 = dx2 * dx2 + dz2 * dz2;
+        if (dd2 > 6) continue;
+        decorSet(s, x + dx2, h + th + 1, z + dz2, cap, true);
+      }
+      decorSet(s, x, h + th + 2, z, cap, true);
+    }
+
+    // 樱花树：斜出主干的粉团树冠
+    function cherry(s, x, h, z, r) {
+      var rr = (r * 100000) | 0;
+      var th = 4 + rr % 3;
+      var sx = ((rr >> 2) & 1) ? 1 : -1;
+      if (h + th + 3 >= H) return;
+      for (var y = 1; y <= th; y++)
+        decorSet(s, x + (y > th - 2 ? sx : 0), h + y, z, 57, false);
+      var tx = x + sx;
+      for (var dx = -2; dx <= 2; dx++) for (var dz = -2; dz <= 2; dz++) {
+        if (dx * dx + dz * dz > 6.5) continue;
+        decorSet(s, tx + dx, h + th, z + dz, 58, true);
+      }
+      for (var ax = -1; ax <= 1; ax++) for (var az = -1; az <= 1; az++) {
+        if (Math.abs(ax) === 1 && Math.abs(az) === 1 && ((rr >> (Math.abs(ax) + Math.abs(az))) & 1)) continue;
+        decorSet(s, tx + ax, h + th + 1, z + az, 58, true);
+      }
+      decorSet(s, tx, h + th + 2, z, 58, true);
+    }
+
+    // 黑森林橡树：更高树干 + 密集暗叶方冠
+    function darkOak(s, x, h, z, r) {
+      var th = 5 + ((r * 100000) | 0) % 3;
+      if (h + th + 3 >= H) return;
+      for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 4, false);
+      for (var ly = th - 2; ly <= th + 1; ly++) {
+        var rad = ly >= th ? 1 : 2;
+        for (var dx = -rad; dx <= rad; dx++) for (var dz = -rad; dz <= rad; dz++) {
+          if (dx === 0 && dz === 0 && ly <= th) continue;
+          if (rad > 1 && Math.abs(dx) === rad && Math.abs(dz) === rad) continue;
+          decorSet(s, x + dx, h + ly, z + dz, 59, true);
+        }
+      }
+      decorSet(s, x, h + th + 2, z, 59, true);
+    }
+
     function boulder(s, x, h, z) {
       for (var dy = -1; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) for (var dz = -2; dz <= 2; dz++) {
         if (dx * dx + dz * dz + dy * dy * 1.6 > 3.4) continue;
@@ -411,6 +469,9 @@ Voxel.GenCore = (function () {
             var rg = noise.hash2(x * 5 + 3, z * 7 + 97);
             if (!(rg < bd.giantChance && giantJungle(s, x, h, z, rg))) jungle(s, x, h, z, r);
           } else if (bd.treeType === 'mega_spruce' && !megaSpruce(s, x, h, z, r)) spruce(s, x, h, z, r);
+          else if (bd.treeType === 'giant_mushroom') giantMushroom(s, x, h, z, r);
+          else if (bd.treeType === 'cherry') cherry(s, x, h, z, r);
+          else if (bd.treeType === 'dark_oak') darkOak(s, x, h, z, r);
         }
       }
       s.decorated = true;

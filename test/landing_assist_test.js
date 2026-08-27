@@ -219,8 +219,8 @@ console.log('正上方垂直降落与贴地重试');
   let st8 = F.create({ position: [-14, startY, -26], velocity: [0, 0, 0], yaw: 0, landed: false });
   const b8 = c8.begin(st8, api);
   let peak = startY;
-  // 窗口需覆盖最多5轮"贴地卡住→转向新目标→滑行"周期(每轮可达数秒)。
-  for (let i = 0; i < 60 * 45 && c8.isActive(); i++) {
+  // 窗口覆盖整个辅助预算周期（含多轮改道重试）。
+  for (let i = 0; i < 60 * (LA.DEFAULTS.maxDuration + 5) && c8.isActive(); i++) {
     const a8 = c8.tick(st8, dt, api);
     const rr = F.step(st8, dt, a8.input, { config: CFG, resolve(from, proposed, vel, att) {
       const out = resolveMove(from, proposed, vel, att);

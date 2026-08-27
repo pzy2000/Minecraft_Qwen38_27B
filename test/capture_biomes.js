@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const SEED = 12345;   // 含全部 18 种群系的种子
+const SEED = 12345;   // 含全部 22 种群系的种子
 const VIEW_W = 960;
 const VIEW_H = 540;
 
@@ -94,7 +94,7 @@ async function waitPlaying(page) {
   await sleep(2500);
 
   await page.evaluate(() => {
-    var TREE_BLOCKS = [4, 5, 20, 21, 22, 23, 26];
+    var TREE_BLOCKS = [4, 5, 20, 21, 22, 23, 26, 33, 34, 35, 36, 54, 55, 56, 57, 58, 59];
     function groundAt(x, z) {
       var y = Voxel.World.surfaceAt(x, z);
       if (y < 0) return { y: -1, id: 0 };
@@ -181,7 +181,12 @@ async function waitPlaying(page) {
     { name: 'stony-peaks',     opts: { biome: 'STONY_PEAKS', height: 15 } },
     { name: 'beach',           opts: { biome: 'BEACH', preferSurf: 6, height: 12, pitch: -0.3 } },
     { name: 'stony-shore',     opts: { biome: 'STONY_SHORE', height: 13, pitch: -0.28 } },
-    { name: 'ocean',           opts: { biome: 'OCEAN', height: 26, pitch: -0.4 } }
+    { name: 'ocean',           opts: { biome: 'OCEAN', height: 26, pitch: -0.4 } },
+    // ---- 群系扩展（2026-08）----
+    { name: 'mushroom-fields', opts: { biome: 'MUSHROOM_FIELDS', preferSurf: 53, height: 12 } },
+    { name: 'swamp',           opts: { biome: 'SWAMP', height: 14 } },
+    { name: 'cherry-grove',    opts: { biome: 'CHERRY_GROVE', height: 13 } },
+    { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12 } }
   ];
 
   // 可传名称过滤：node test/capture_biomes.js [chrome路径] [shot名...]

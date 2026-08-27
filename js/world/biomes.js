@@ -25,14 +25,20 @@ Voxel.Biomes = (function () {
     JAGGED_PEAKS: 14,    // 尖峭山峰
     FROZEN_PEAKS: 15,    // 冰封山峰
     STONY_PEAKS: 16,     // 石峰
-    BADLANDS: 17         // 恶地
+    BADLANDS: 17,        // 恶地
+    MUSHROOM_FIELDS: 18, // 蘑菇林
+    SWAMP: 19,           // 沼泽
+    CHERRY_GROVE: 20,    // 樱花树林
+    DARK_FOREST: 21      // 黑森林
   };
 
   // 方块 ID 引用（与 blocks.js 保持一致）
   var BLK = {
     GRASS: 1, DIRT: 2, STONE: 3, GRAVEL: 14, SAND: 6, SNOW: 18,
     SPRUCE_LOG: 20, JUNGLE_LOG: 22, PODZOL: 24, CACTUS: 26,
-    RED_SAND: 28, TERRACOTTA: 29, ICE: 32, BIRCH_LOG: 33, ACACIA_LOG: 35
+    RED_SAND: 28, TERRACOTTA: 29, ICE: 32, BIRCH_LOG: 33, ACACIA_LOG: 35,
+    MYCELIUM: 53, MUSHROOM_STEM: 54, CAP_RED: 55, CAP_BROWN: 56,
+    CHERRY_LOG: 57, CHERRY_LEAVES: 58, DARK_LEAVES: 59
   };
 
   var defs = [];
@@ -128,6 +134,27 @@ Voxel.Biomes = (function () {
     treeType: null, treeChance: 0, plantOn: [],
     mobs: ['rabbit']
   };
+  defs[B.MUSHROOM_FIELDS] = {
+    name: '蘑菇林', surface: BLK.MYCELIUM, filler: BLK.DIRT,
+    treeType: 'giant_mushroom', treeChance: 0.006, plantOn: [BLK.MYCELIUM],
+    mobs: []
+  };
+  defs[B.SWAMP] = {
+    name: '沼泽', surface: BLK.GRASS, filler: BLK.DIRT,
+    treeType: 'oak', treeChance: 0.004, plantOn: [BLK.GRASS],
+    mobs: ['pig', 'chicken', 'sheep']
+  };
+  defs[B.CHERRY_GROVE] = {
+    name: '樱花树林', surface: BLK.GRASS, filler: BLK.DIRT,
+    treeType: 'cherry', treeChance: 0.01, plantOn: [BLK.GRASS],
+    mobs: ['sheep', 'rabbit', 'cat']
+  };
+  defs[B.DARK_FOREST] = {
+    name: '黑森林', surface: BLK.GRASS, filler: BLK.DIRT,
+    treeType: 'dark_oak', treeChance: 0.03, boulders: true,
+    plantOn: [BLK.GRASS],
+    mobs: ['sheep', 'pig']
+  };
 
   // ---- 气候参数点：每个群系在五维气候空间的目标位置 ----
   // 顺序：[温度 T, 湿度 H, 大陆性 C, 侵蚀度 E, 奇异性 W]
@@ -150,6 +177,13 @@ Voxel.Biomes = (function () {
   points[B.FROZEN_PEAKS] = [-0.9, 0, 0.55, -0.9, 0.75];
   points[B.STONY_PEAKS] = [0.8, 0, 0.55, -0.9, 0.65];
   points[B.BADLANDS] = [0.95, -0.95, 0.35, -0.35, 0.5];
+  // 群系扩展（2026-08）：气候点取自种子 12345 气候场的实测空隙，
+  // 保证含全部 22 个群系的同时，每个群系在 20..235 主活动窗内都有连片区域
+  // （精选世界按该窗口选择出生点），18 个旧群系的覆盖面积不受明显挤压。
+  points[B.MUSHROOM_FIELDS] = [0.98, 0.6, -0.3, 0.52, -0.78]; // 温暖湿润的近海孤岛
+  points[B.SWAMP] = [0.77, 0.3, -0.53, 0.23, 0.33];           // 暖湿低地沼带
+  points[B.CHERRY_GROVE] = [0.93, 0.32, -0.11, 0.9, 0.73];    // 温和湿润的开阔坡地
+  points[B.DARK_FOREST] = [0.05, 0.75, -0.05, 0.35, 0.52];    // 凉爽湿润内陆密林
 
   // ---- 气候采样器：低频噪声通道，输出归一化到 [-1,1] ----
   // 世界仅 256×256，频率相对 MC 压缩以保证一张图内出现多样群系。

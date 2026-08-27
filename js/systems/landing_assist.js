@@ -28,22 +28,27 @@ Voxel.LandingAssist = (function () {
     driftDist: 3.5,
     stuckTime: 0.8,
     stuckVy: 0.05,
-    maxRetargets: 8,
-    maxDuration: 90,
+    maxRetargets: 12,
+    maxDuration: 150,
     gearOffsets: [[-1.55, -2.15], [1.55, -2.15], [-1.55, 2.15], [1.55, 2.15]],
     waterId: 7,
     maxSlope: 1,
     baseClearance: 1.02,
     maxCandidates: 600,
-    exclusionRadius: 6,
-    // 全机身投影净空验证半径：机身半长6.2×半宽5.8，对角半距
-    // sqrt(6.2^2+5.8^2)≈8.49——必须完整覆盖四角，任何折扣都会让机身边缘
-    // 伸进未验证区被邻树卡住。
-    hullRadius: 8.5,
-    hullStep: 1
+    exclusionRadius: 6
   };
 
   var PHASE_IDLE = 'idle', PHASE_BRAKE = 'brake', PHASE_TRANSIT = 'transit', PHASE_DESCEND = 'descend';
+  // 机身包络盘的整数采样列（共享）：着陆点验证与下降段净空哨兵必须使用
+  // 完全相同的格子集合——任何采样偏差都会把圈缘地形误报成"新增障碍"。
+  var HULL_RADIUS = 8.5, HULL_STEP = 1;
+  var FOOTPRINT_OFFSETS = [];
+  (function () {
+    for (var dx = -HULL_RADIUS; dx <= HULL_RADIUS; dx += HULL_STEP)
+      for (var dz = -HULL_RADIUS; dz <= HULL_RADIUS; dz += HULL_STEP)
+        if (dx * dx + dz * dz <= HULL_RADIUS * HULL_RADIUS)
+          FOOTPRINT_OFFSETS.push([dx, dz]);
+  })();
 
   function finite(v) { return typeof v === 'number' && isFinite(v); }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -112,13 +117,11 @@ Voxel.LandingAssist = (function () {
     // 基准(最低起落架面)+maxSlope 之内——surfaceAt 返回最高固体，任何
     // 树冠/岩柱都会抬高该值被拒；通过则整条垂直通道物理上无遮挡，
     // "正上方悬停→纯垂直下降"保证可通，不再出现贴地点邻树撞机身。
-    var baseY = Math.min.apply(Math, ys), R = o.hullRadius, step = Math.max(o.hullStep, 1);
-    for (var dx = -R; dx <= R; dx += step) {
-      for (var dz = -R; dz <= R; dz += step) {
-        if (dx * dx + dz * dz > R * R) continue;
-        var colY = worldApi.surfaceAt(Math.floor(cx + dx), Math.floor(cz + dz));
-        if (!finite(colY) || colY < 0 || colY - baseY > o.maxSlope) return null;
-      }
+    var baseY = Math.min.apply(Math, ys);
+    for (var fi = 0; fi < FOOTPRINT_OFFSETS.length; fi++) {
+      var colY = worldApi.surfaceAt(Math.floor(cx + FOOTPRINT_OFFSETS[fi][0]),
+        Math.floor(cz + FOOTPRINT_OFFSETS[fi][1]));
+      if (!finite(colY) || colY < 0 || colY - baseY > o.maxSlope) return null;
     }
     return { x: cx, z: cz, y: baseY + o.baseClearance };
   }
@@ -256,8 +259,8 @@ Voxel.LandingAssist = (function () {
         stuckT = 0;
         lastDist = null;
         lowMode = true;
-        // 每次改道永久抬升本周期巡航余量：航线跨丘/树冠导致的停滞累积反映
-        // 为更高的越障高度，后续航段不再重复同高度卡死。
+        // 改道后保持低空平移（retreatTo 置 lowMode）：贴着当前高度横移到
+        // 下一个已验证净空的着陆点，比反复爬回虚高的巡航层省几十秒。
         climbBoost = Math.min(climbBoost + 3, 12);
         result.retargeted = true;
         return true;
@@ -266,34 +269,51 @@ Voxel.LandingAssist = (function () {
       if (phase === PHASE_DESCEND) {
         // 已达目标点正上方：只踩垂直下降，残速由刹车收敛，不再输出任何
         // 水平推进/航向指令；机头保持搜索验证着陆点时的朝向不变。
-        input.lift = -1;
-        if ((finite(state.throttle) ? state.throttle : 0) > 0.02 || speed > 0.3)
-          input.brake = true;
-        // 偏离正上方过远必须回到进场段重新对准：机身净空只验证了目标
-        // 半径内，机身边缘随偏移伸入未验证区会被邻树卡住。
-        if (dist > 1.0) {
-          phase = PHASE_TRANSIT;
+        // 净空哨兵：v2 世界的巨型植物按区块惰性生成——验证时净空的通道
+        // 可能半途长出树冠。以目标点为中心复扫与验证期完全相同的整数
+        // 格集合与同一阈值（勿用船心/浮点偏移：会探到圈外产生假阳性），
+        // 发现新增障碍立即就地改点（低空平移，不爬高）。
+        var sentinelHit = false;
+        var baseRef = target.y - o.baseClearance;
+        for (var ri = 0; ri < FOOTPRINT_OFFSETS.length && !sentinelHit; ri++) {
+          var colY2 = worldApi.surfaceAt(Math.floor(target.x + FOOTPRINT_OFFSETS[ri][0]),
+            Math.floor(target.z + FOOTPRINT_OFFSETS[ri][1]));
+          if (finite(colY2) && colY2 - baseRef > o.maxSlope) sentinelHit = true;
+        }
+        if (sentinelHit) {
           stuckT = 0;
           lastDist = null;
-          lowMode = true;
-        } else if (py > target.y + 0.4 && vy > -o.stuckVy) {
-          // 下降被顶住：优先爬回障碍上方重试同一目标（垂直通道在中心区已
-          // 验证，偏移卡住多因机身边缘擦树冠）；连续两次受阻才换点。
-          stuckT += dt;
-          if (stuckT >= o.stuckTime) {
-            stuckT = 0;
-            var blockedDrop = lastDropY !== null && Math.abs(py - lastDropY) < 1.5;
-            dropBlocks = blockedDrop ? dropBlocks + 1 : 1;
-            lastDropY = py;
+          if (!retreatTo(searchSpot(state, worldApi))) return result;
+        } else {
+          input.lift = -1;
+          if ((finite(state.throttle) ? state.throttle : 0) > 0.02 || speed > 0.3)
+            input.brake = true;
+          // 偏离正上方过远必须回到进场段重新对准：机身净空只验证了目标
+          // 半径内，机身边缘随偏移伸入未验证区会被邻树卡住。
+          if (dist > 1.0) {
             phase = PHASE_TRANSIT;
-            lowMode = false;
-            climbBoost = Math.min(climbBoost + 5, 16);
-            if (dropBlocks >= 2 || dist > o.hoverDist + 0.2) {
-              lastDist = null;
-              if (!retreatTo(searchSpot(state, worldApi))) return result;
+            stuckT = 0;
+            lastDist = null;
+            lowMode = true;
+          } else if (py > target.y + 0.4 && vy > -o.stuckVy) {
+            // 下降被顶住：优先爬回障碍上方重试同一目标（垂直通道在中心区已
+            // 验证，偏移卡住多因机身边缘擦树冠）；连续两次受阻才换点。
+            stuckT += dt;
+            if (stuckT >= o.stuckTime) {
+              stuckT = 0;
+              var blockedDrop = lastDropY !== null && Math.abs(py - lastDropY) < 1.5;
+              dropBlocks = blockedDrop ? dropBlocks + 1 : 1;
+              lastDropY = py;
+              phase = PHASE_TRANSIT;
+              lowMode = false;
+              climbBoost = Math.min(climbBoost + 5, 16);
+              if (dropBlocks >= 2 || dist > o.hoverDist + 0.2) {
+                lastDist = null;
+                if (!retreatTo(searchSpot(state, worldApi))) return result;
+              }
             }
-          }
-        } else stuckT = 0;
+          } else stuckT = 0;
+        }
       } else {
         var aligned = Math.abs(err) <= o.alignAngle;
         // 减速剖面以正上方悬停点(hoverDist)为零速目标；若用 finalApproachDist

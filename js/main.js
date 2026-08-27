@@ -677,7 +677,7 @@ Voxel.Game = (function () {
     }
   }
 
-  // 精选世界：生成完成后把玩家放到目标群系（种子含全部 8 群系，按邻域同群系占比选点）
+  // 精选世界：生成完成后把玩家放到目标群系（种子含全部 22 群系，按邻域同群系占比选点）
   function applyFeaturedSpawn(w) {
     var spot = null;
     if (w.overview || !w.biome || Voxel.Biomes.B[w.biome] === undefined) {

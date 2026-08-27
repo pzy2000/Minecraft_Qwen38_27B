@@ -223,7 +223,9 @@ Object.keys(expectedNames).forEach(function (idKey) {
   var d = Voxel.Blocks.defs[idKey];
   ok(d && d.name === expectedNames[idKey], 'defs[' + idKey + ']=' + expectedNames[idKey]);
 });
-ok(Voxel.Blocks.defs[53] === undefined, 'ID 53 未占用（尾部追加纪律）');
+ok(Voxel.Blocks.defs[53] && Voxel.Blocks.defs[53].name === '菌丝体', 'defs[53]=菌丝体（群系扩展新尾）');
+ok(Voxel.Blocks.defs[59] && Voxel.Blocks.defs[59].name === '暗色树叶', 'defs[59]=暗色树叶');
+ok(Voxel.Blocks.defs[60] === undefined, 'ID 60 未占用（尾部追加纪律）');
 
 console.log('');
 if (failed) { console.log('失败 ' + failed + ' 项'); process.exit(1); }

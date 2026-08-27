@@ -200,8 +200,8 @@ function checkFeaturedLazyImages() {
     { filename: path.join(JS, 'ui', 'featured.js') });
 
   const initialImages = elements['featured-grid'].querySelectorAll('img[data-src]');
-  assert.strictEqual(elements['featured-grid'].children.length, 19, 'cards must be built during initialization');
-  assert.strictEqual(initialImages.length, 19);
+  assert.strictEqual(elements['featured-grid'].children.length, 23, 'cards must be built during initialization');
+  assert.strictEqual(initialImages.length, 23);
   initialImages.forEach(image => {
     assert.strictEqual(image.getAttribute('src'), null, 'menu must not request a featured image');
     assert(image.getAttribute('data-src').startsWith('screenshots/biomes/'));
@@ -216,9 +216,9 @@ function checkFeaturedLazyImages() {
     assert.strictEqual(image.getAttribute('src'), expectedSources[index]);
     assert.strictEqual(image.getAttribute('data-src'), null);
   });
-  assert.strictEqual(counters.srcAssignments, 19);
+  assert.strictEqual(counters.srcAssignments, 23);
   context.Voxel.Featured.show();
-  assert.strictEqual(counters.srcAssignments, 19, 'later show calls must not hydrate twice');
+  assert.strictEqual(counters.srcAssignments, 23, 'later show calls must not hydrate twice');
 
   const failedImage = initialImages[0];
   const wrap = failedImage.parentNode;

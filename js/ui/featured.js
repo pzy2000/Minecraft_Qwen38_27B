@@ -1,10 +1,10 @@
 // 精选世界：主菜单推荐世界网格
-// 种子与 test/capture_biomes.js 一致（种子 12345 含全部 18 种群系），进入后自动传送到对应群系
+// 种子与 test/capture_biomes.js 一致（种子 12345 含全部 22 种群系），进入后自动传送到对应群系
 // 本模块负责内容与显隐原语；按钮/焦点/状态由 main.js 的统一模态栈单点管理。
 window.Voxel = window.Voxel || {};
 
 Voxel.Featured = (function () {
-  var SEED = 12345;   // 与 test/capture_biomes.js 相同：含全部 18 种群系的种子
+  var SEED = 12345;   // 与 test/capture_biomes.js 相同：含全部 22 种群系的种子
   var thumbsHydrated = false;
 
   var WORLDS = [
@@ -26,7 +26,11 @@ Voxel.Featured = (function () {
     { name: '恶地',       desc: '红沙顶与陶瓦层理条纹',     img: 'screenshots/biomes/badlands.png',        seed: SEED, biome: 'BADLANDS',       color: '#c67f51' },
     { name: '海滩',       desc: '碧海金沙的水岸线',         img: 'screenshots/biomes/beach.png',           seed: SEED, biome: 'BEACH',          color: '#e0d6a8' },
     { name: '石岸',       desc: '乱石嶙峋的海岸',           img: 'screenshots/biomes/stony-shore.png',     seed: SEED, biome: 'STONY_SHORE',    color: '#8a8f93' },
-    { name: '海洋',       desc: '广阔的蔚蓝水域与海床',     img: 'screenshots/biomes/ocean.png',           seed: SEED, biome: 'OCEAN',          color: '#3d6fb8' }
+    { name: '海洋',       desc: '广阔的蔚蓝水域与海床',     img: 'screenshots/biomes/ocean.png',           seed: SEED, biome: 'OCEAN',          color: '#3d6fb8' },
+    { name: '蘑菇林',     desc: '菌丝大地上的巨型红菇',     img: 'screenshots/biomes/mushroom-fields.png', seed: SEED, biome: 'MUSHROOM_FIELDS', color: '#9c86a4' },
+    { name: '沼泽',       desc: '低地湿原与虬曲老橡树',     img: 'screenshots/biomes/swamp.png',           seed: SEED, biome: 'SWAMP',          color: '#5a7247' },
+    { name: '樱花树林',   desc: '粉色花团掩映的山麓坡地',   img: 'screenshots/biomes/cherry-grove.png',    seed: SEED, biome: 'CHERRY_GROVE',   color: '#e49bb8' },
+    { name: '黑森林',     desc: '暗叶密林与苔石巨砾',       img: 'screenshots/biomes/dark-forest.png',     seed: SEED, biome: 'DARK_FOREST',    color: '#3c5a38' }
   ];
 
   function show() {
@@ -66,7 +70,7 @@ Voxel.Featured = (function () {
   }
 
   // 卡片必须在启动时建好，供 main.js 绑定点击与焦点；图片只在精选页
-  // 第一次真正显示后挂 src，避免主菜单下载 19 张未查看的截图。
+  // 第一次真正显示后挂 src，避免主菜单下载 23 张未查看的截图。
   function hydrateThumbs() {
     if (thumbsHydrated) return;
     var grid = document.getElementById('featured-grid');

@@ -609,12 +609,13 @@ Voxel.SpaceTravel = (function () {
       if (Math.abs(stepY) > 1e-9) {
         var ny = [current[0], current[1] + stepY, current[2]];
         var yCollisions = flightCollisionCount(ny, attitude);
-        // 贴地沉降辅助：垂直末段水平近零的缓慢下降，允许碰撞计数+1
-        // （机身角滑过单块凸起完成触地）。否则会在判定面上方 ~1m 处
-        // 自锁悬停——计数只减不增策略永远到不了 legal 触地高度。
+        // 贴地沉降辅助：垂直末段水平近零的缓慢下降，允许"不劣于当前
+        // 计数"的向下移动。否则两类自锁都无法脱困：
+        // 1) 出生时与树冠重叠的基线计数卡住下降，船悬停在树冠底面；
+        // 2) 贴地瞬间机身角擦过单块凸起(+1)被判停，距判定面差一格。
         var horizSpeed = Math.sqrt(velocity[0] * velocity[0] + velocity[2] * velocity[2]);
-        var settleAssist = stepY < 0 && horizSpeed <= 0.6 && yCollisions === 1 &&
-          currentCollisions === 0;
+        var settleAssist = stepY < 0 && horizSpeed <= 0.6 &&
+          yCollisions <= Math.max(currentCollisions, 1);
         if (takeoffAssist || returnLandingAssist || yCollisions === 0 ||
           yCollisions < currentCollisions || (stepY > 0 && yCollisions <= currentCollisions) ||
           settleAssist) {
