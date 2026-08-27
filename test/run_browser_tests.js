@@ -40,6 +40,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
   const browser = await puppeteer.launch({
     executablePath: execPath,
     headless: 'new',
+    protocolTimeout: 480000,
     args: ['--no-sandbox', '--disable-gpu', '--use-gl=swiftshader', '--enable-unsafe-swiftshader',
       '--autoplay-policy=no-user-gesture-required', '--window-size=960,600']
   });
@@ -108,22 +109,32 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
   for (const t of targets) {
     if (filters && !filters.some(f => t.file.includes(f))) continue;
     const page = await browser.newPage();
+    const pageErrors = [];
+    page.on('pageerror', e => { if (pageErrors.length < 20) pageErrors.push(String(e && e.message || e).slice(0, 300)); });
     await page.setViewport(t.viewport || { width: 960, height: 600 });
     if (t.reducedMotion)
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     if (t.forceTouch)
       await page.evaluateOnNewDocument(() => { window.__FORCE_TOUCH__ = true; });
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
+    const t0 = Date.now();
     const reachedTerminal = await page.waitForFunction(
       (re) => new RegExp(re).test(document.title) || /-FAIL\b/.test(document.title),
       { timeout: 300000, polling: 500 }, t.re
-    ).then(() => true).catch(() => false);
+    ).then(() => true).catch(e => {
+      console.log('[wait aborted ' + ((Date.now() - t0) / 1000).toFixed(1) + 's] ' + (e && e.message || e));
+      return false;
+    });
     const pageTitle = await page.title();
+    let dbg = '';
+    try { dbg = await page.evaluate(() => window.__DBG ? window.__DBG.get() : ''); } catch (e) { }
     const ok = reachedTerminal && new RegExp(t.re).test(pageTitle);
     const text = await page.$eval('#results, #out', el => el.textContent).catch(() => '');
     const vpLabel = t.viewport ? ` [${t.viewport.width}x${t.viewport.height}]` : '';
     console.log('\n===== ' + t.file + (t.forceTouch ? ' [touch]' : '') +
       (t.reducedMotion ? ' [reduced-motion]' : '') + vpLabel + ' : ' + (ok ? 'PASS' : 'FAIL') + ' =====');
+    console.log('title=' + JSON.stringify(pageTitle) + (dbg ? ' __DBG=' + dbg : ''));
+    if (!ok && pageErrors.length) console.log('pageerrors:\n' + pageErrors.join('\n'));
     console.log(text);
     allPass = allPass && ok;
     await page.close();
