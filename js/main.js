@@ -4014,19 +4014,25 @@ Voxel.Game = (function () {
   }
 
   function fixedUpdate(step) {
+    // ESC 菜单期间世界照常运转，但玩家操作（挖/放）被冻结
+    var frozen = state === 'paused';
     var nowS = performance.now() / 1000;
-    if (mouseDown[0] && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
-    if (mouseDown[2]) tickDig(step);
+    if (mouseDown[0] && !frozen && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
+    if (!frozen && mouseDown[2]) tickDig(step);
     else if (digT || digProg) stopDig();
     Voxel.Player.update(step);
-    if (state === 'playing') tickEnvironment(step);
+    if (state === 'playing' || state === 'paused') tickEnvironment(step);
     if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
-    Voxel.Drops.update(step);
+    Voxel.Drops.update(step, { allowPickup: !frozen });
     updateFallers(step);
     tickActiveScan(step);
   }
 
   function cockpitInput() {
+    // ESC 菜单期间世界继续运转，但飞船操控冻结为零输入
+    if (state === 'paused') {
+      return { steerYaw: 0, steerPitch: 0, bank: 0, lift: 0, thrust: false, brake: false };
+    }
     var K = Voxel.Controls.keys;
     var yawDeflect = Math.max(-1, Math.min(1, Voxel.Controls.yaw() / 0.35));
     var pitchDeflect = Math.max(-1, Math.min(1, Voxel.Controls.pitch() / 0.28));
@@ -4043,7 +4049,8 @@ Voxel.Game = (function () {
   }
 
   function cockpitFixedUpdate(step) {
-    tickCockpitKeyE(step);
+    // 暂停期间不推进离舰键计时，避免菜单内误触 E 离舰
+    if (state !== 'paused') tickCockpitKeyE(step);
     var result = Voxel.SpaceTravel && Voxel.SpaceTravel.updateFlight
       ? Voxel.SpaceTravel.updateFlight(step, cockpitInput()) : null;
     pollLandingAssist();
@@ -4154,12 +4161,15 @@ Voxel.Game = (function () {
       if (Voxel.World.isReady() && Voxel.World.focusMeshed()) enterWorld();
     }
 
-    // playing、furnace 与已登舰的 starmap 共用同一个 60Hz 累计器；加载完成并在本帧
-    // 中刚切换状态时不消费旧状态 dt。furnace 只推进炉子；飞船座舱只推进密封舱
-    // 环境净化，不推进玩家、Mob、掉落物、昼夜或外界天气。
+    // ESC 菜单不暂停世界：paused 与 playing/furnace 共用同一 60Hz 累计器，
+    // 昼夜、天气、Mob、掉落物与熔炉照常推进；玩家操控输入被冻结。
     var boardedShelterState = startedState === 'cockpit' &&
       Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard();
-    if ((startedState === 'playing' || startedState === 'furnace' || boardedShelterState) &&
+    var pausedState = startedState === 'paused';
+    var pausedAboard = pausedState &&
+      !!(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard());
+    if ((startedState === 'playing' || startedState === 'furnace' ||
+      boardedShelterState || pausedState) &&
       state === startedState) {
       simAccumulator += dt;
       var fixedStepsThisFrame = 0;
@@ -4167,8 +4177,8 @@ Voxel.Game = (function () {
         fixedStepsThisFrame < MAX_FIXED_STEPS) {
         simAccumulator -= FIXED_DT;
         if (simAccumulator < 0 && simAccumulator > -STEP_EPSILON) simAccumulator = 0;
-        if (startedState === 'playing') fixedUpdate(FIXED_DT);
-        else if (boardedShelterState) cockpitFixedUpdate(FIXED_DT);
+        if (startedState === 'playing' || (pausedState && !pausedAboard)) fixedUpdate(FIXED_DT);
+        else if (boardedShelterState || pausedAboard) cockpitFixedUpdate(FIXED_DT);
         fixedStepsThisFrame++;
         fixedStepsTotal++;
       }
@@ -4185,7 +4195,7 @@ Voxel.Game = (function () {
 
       if (startedState === 'furnace') {
         if (simulationDt > 0) tickFurnaces(simulationDt);
-      } else if (boardedShelterState) {
+      } else if (boardedShelterState || pausedAboard) {
         if (simulationDt > 0) {
           processWater(simulationDt);
           tickFurnaces(simulationDt);
@@ -4200,7 +4210,7 @@ Voxel.Game = (function () {
         if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
         tickRegeneration(simulationDt);
         tickAutosave(dt);
-      } else if (state === 'playing') {
+      } else if (startedState === 'playing' || pausedState) {
         if (!mouseDown[2] && (digT || digProg)) stopDig();
 
         // 玩法时钟与物理使用同一实际模拟时长；纯视觉动画仍使用渲染 dt。
@@ -4306,7 +4316,7 @@ Voxel.Game = (function () {
       Voxel.MeshBuilder.setCloudShadow(drift.x, drift.z, CFG.SHADOW.CLOUD_SHADOW * (1 - 0.5 * wRain));
     }
 
-    if (state === 'playing' || state === 'cockpit') {
+    if (state === 'playing' || state === 'cockpit' || state === 'paused') {
       var focusPos = state === 'cockpit' && Voxel.SpaceTravel && Voxel.SpaceTravel.flightSnapshot
         ? Voxel.SpaceTravel.flightSnapshot().position : [Voxel.Player.pos().x, Voxel.Player.pos().y, Voxel.Player.pos().z];
       Voxel.World.setFocus(focusPos[0], focusPos[2]);

@@ -49,13 +49,15 @@ Voxel.Player = (function () {
   }
 
   function update(dt) {
-    var K = Voxel.Controls.keys;
+    // ESC 菜单期间世界继续运转：只冻结玩家的移动/跳跃输入，物理与代谢照常
+    var frozen = !!(Voxel.Game && Voxel.Game.state === 'paused');
+    var K = frozen ? {} : Voxel.Controls.keys;
     var f = (K['KeyW'] || K['ArrowUp'] ? 1 : 0) - (K['KeyS'] || K['ArrowDown'] ? 1 : 0);
     var s = (K['KeyD'] || K['ArrowRight'] ? 1 : 0) - (K['KeyA'] || K['ArrowLeft'] ? 1 : 0);
 
     // 触摸摇杆：屏幕系向量并入前后/左右轴（保留模拟量，小幅推动=慢走）
     var tSprint = false;
-    if (Voxel.Touch && Voxel.Touch.active && Voxel.Touch.active()) {
+    if (!frozen && Voxel.Touch && Voxel.Touch.active && Voxel.Touch.active()) {
       var mv = Voxel.Touch.moveVec();
       f += -mv.y;
       s += mv.x;
