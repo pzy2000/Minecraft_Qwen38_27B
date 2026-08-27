@@ -40,11 +40,14 @@ Voxel.SeedUtil = (function () {
     return BigInt.asUintN(64, int32ToBig(javaHashCode(s)));
   }
 
-  // 宽容转换：number / 数字串 / BigInt / {hi,lo} / null -> 无符号 64 位
+  // 宽容转换：number / 数字串 / 文本串 / BigInt / {hi,lo} / null -> 无符号 64 位。
+  // 文本串必须走 Java String.hashCode（MC 同款），否则同一文本种子每次
+  // 进程都会随机生成不同世界——spawn/群系测试因此间歇性失败。
   function toBigInt(seed) {
     if (typeof seed === 'bigint') return BigInt.asUintN(64, seed);
     if (typeof seed === 'string' && seed.length) {
       try { return BigInt.asUintN(64, BigInt(seed)); } catch (e) { }
+      return BigInt.asUintN(64, int32ToBig(javaHashCode(seed)));
     }
     if (typeof seed === 'number' && isFinite(seed))
       return BigInt.asUintN(64, BigInt(seed >>> 0));

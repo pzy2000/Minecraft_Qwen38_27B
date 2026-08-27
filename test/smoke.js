@@ -492,6 +492,15 @@ check('通道输出 [-1,1]', chA.at2(12.3, 45.6) >= -1 && chA.at2(12.3, 45.6) <=
 check('通道确定性', chA.at2(1, 2) === chA.at2(1, 2));
 check('hash2 范围', noise.hash2(3, 9) >= 0 && noise.hash2(3, 9) < 1);
 check('hash3 确定性', noise.hash3(1, 2, 3) === noise.hash3(1, 2, 3));
+// 文本种子必须确定性映射（Java hashCode），不能每次进程随机
+var textNoiseA = V.Noise.create('ocean-spawn-7');
+var textNoiseB = V.Noise.create('ocean-spawn-7');
+check('文本种子噪声跨实例确定',
+  textNoiseA.hash2(5, 8) === textNoiseB.hash2(5, 8) &&
+  textNoiseA.channel(V.Noise.SALT.TERRAIN, 3).at2(9.9, 22.2) ===
+  textNoiseB.channel(V.Noise.SALT.TERRAIN, 3).at2(9.9, 22.2));
+check('toBigInt 文本种子与 parse 一致',
+  V.SeedUtil.toBigInt('ocean-spawn-7') === V.SeedUtil.parse('ocean-spawn-7'));
 
 console.log('样条塑造测试');
 check('spline 控制点精确', V.Shaper.spline([[-1, -20], [1, 20]], -1) === -20 &&

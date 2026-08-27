@@ -320,9 +320,9 @@ window.__CAPTURE__ = true;
       shadowFrames++;
       if (shadowFrames % 25 === 0) document.title = 'MARK-HB-' + shadowFrames + '-err' + glErr;
     }
-    // 墙钟看钟：保证在外部等待(300s)之前必然给出终态标题并输出诊断
-    if (n++ > 6000 || performance.now() - startedAt > 210000) { out.push('TIMEOUT state=' + Voxel.Game.state + ' shadowPhase=' + shadowPhase + ' shadowFrames=' + shadowFrames); document.getElementById('out').textContent = out.join('\n'); document.title = 'RENDER-FAIL'; return; }
-    window.__DBG = { get: function () { return JSON.stringify({ shadowPhase: shadowPhase, shadowFrames: shadowFrames, n: n, playedFrames: playedFrames, glErr: glErr }); } };
+    // 墙钟兜底：慢机保险丝。预算断言（MAIN/SHADOW-BUDGET-CUT）已在
+    // 阈值处提前收口，此分支只在完全卡死时才应触发。
+    if (n++ > 6000 || performance.now() - startedAt > 240000) { out.push('TIMEOUT state=' + Voxel.Game.state + ' shadowPhase=' + shadowPhase + ' shadowFrames=' + shadowFrames); document.getElementById('out').textContent = out.join('\n'); document.title = 'RENDER-FAIL'; return; }    window.__DBG = { get: function () { return JSON.stringify({ shadowPhase: shadowPhase, shadowFrames: shadowFrames, n: n, playedFrames: playedFrames, glErr: glErr }); } };
     setTimeout(drive, 16);
   })();
 })();
