@@ -625,6 +625,15 @@ Voxel.Game = (function () {
         for (var tv = 0; tv < galaxyState.catalog.length; tv++)
           galaxyState.catalog[tv].terrainVersion = 1;
       }
+      // 精选世界：目录 planet-0 的种子是 rootSeed 派生的（signedDerived），
+      // 与卡片承诺的展示种子气候场完全不同——新群系可能整图缺失。
+      // 把起始行星种子钉为承诺种子（与 v4 迁移同一 legacyStartSeed 通道），
+      // 保证群系构成与缩略图一致，再次载档/跃迁往返后底图也不漂移。
+      if (featured && !sd) {
+        var featuredSeed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(featured.seed));
+        currentWorld.seed = featuredSeed;
+        galaxyState.legacyStartSeed = featuredSeed;
+      }
     }
     featuredPending = featured || null;
     saveData = sd || null;
@@ -677,26 +686,38 @@ Voxel.Game = (function () {
     }
   }
 
-  // 精选世界：生成完成后把玩家放到目标群系（种子含全部 22 群系，按邻域同群系占比选点）
+  // 在限定范围内寻找目标群系的最佳出生列：按邻域同群系占比评分。
+  // windowed=true 只扫 20..235 主活动窗（与截图取景一致）；
+  // 胜出列会再次校验确为目标群系，杜绝评分逻辑改动引入的漂移。
+  function findFeaturedSpot(want, step, windowed) {
+    var x0 = windowed ? 20 : 0, x1 = windowed ? 235 : 255;
+    var best = null, bestScore = -1;
+    for (var x = x0; x <= x1; x += step) {
+      for (var z = x0; z <= x1; z += step) {
+        if (Voxel.World.biomeAt(x, z) !== want) continue;
+        var same = 0, total = 0;
+        for (var dx = -16; dx <= 16; dx += 8)
+          for (var dz = -16; dz <= 16; dz += 8) {
+            total++;
+            if (Voxel.World.biomeAt(x + dx, z + dz) === want) same++;
+          }
+        var score = same / total;
+        if (score > bestScore) { bestScore = score; best = { x: x, z: z }; }
+      }
+    }
+    if (best && Voxel.World.biomeAt(best.x, best.z) === want) return best;
+    return null;
+  }
+
+  // 精选世界：生成完成后把玩家放到目标群系（种子含全部 22 群系）。
+  // 窗口粗扫失败时全图细扫兜底；两轮都无目标群系才回退世界中心。
   function applyFeaturedSpawn(w) {
     var spot = null;
     if (w.overview || !w.biome || Voxel.Biomes.B[w.biome] === undefined) {
       spot = { x: 128, z: 128 };
     } else {
       var want = Voxel.Biomes.B[w.biome];
-      var bestScore = -1;
-      for (var x = 20; x < 236; x += 4) {
-        for (var z = 20; z < 236; z += 4) {
-          if (Voxel.World.biomeAt(x, z) !== want) continue;
-          var same = 0, total = 0;
-          for (var dx = -16; dx <= 16; dx += 8)
-            for (var dz = -16; dz <= 16; dz += 8) {
-              total++;
-              if (Voxel.World.biomeAt(x + dx, z + dz) === want) same++;
-            }
-          if (same / total > bestScore) { bestScore = same / total; spot = { x: x, z: z }; }
-        }
-      }
+      spot = findFeaturedSpot(want, 4, true) || findFeaturedSpot(want, 2, false);
     }
     if (!spot) spot = { x: 128, z: 128 };
     var sy = Voxel.World.surfaceAt(spot.x, spot.z);
