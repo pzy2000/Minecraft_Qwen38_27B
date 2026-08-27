@@ -687,37 +687,58 @@ Voxel.Game = (function () {
   }
 
   // 在限定范围内寻找目标群系的最佳出生列：按邻域同群系占比评分。
-  // windowed=true 只扫 20..235 主活动窗（与截图取景一致）；
-  // 胜出列会再次校验确为目标群系，杜绝评分逻辑改动引入的漂移。
+  // windowed=true 只扫 20..235 主活动窗；'wide' 扫原点周围 ±520 的流式范围
+  // （第 23 轮气候降频后群系单元更大，稀有群系可能整体落在旧核心之外）。
+  // 评分走零成本气候探针（Voxel.World.climateAt），最终对胜出列做真实
+  // biomeAt 复核——v1 行星规则改写群系时探针可能失准，靠终验兜底。
   function findFeaturedSpot(want, step, windowed) {
-    var x0 = windowed ? 20 : 0, x1 = windowed ? 235 : 255;
-    var best = null, bestScore = -1;
+    var wide = windowed === 'wide';
+    var x0 = wide ? -520 : (windowed ? 20 : 0);
+    var x1 = wide ? 519 : (windowed ? 235 : 255);
+    var canProbe = typeof Voxel.World.climateAt === 'function' &&
+      Voxel.Biomes && typeof Voxel.Biomes.pick === 'function';
+    var probe = canProbe ? function (x, z) {
+      var cl = Voxel.World.climateAt(x, z);
+      return cl ? Voxel.Biomes.pick(cl) : Voxel.World.biomeAt(x, z);
+    } : Voxel.World.biomeAt;
+    var top = null;
+    function offer(cand) {
+      var prev = null, cur = top, n = 0;
+      while (cur && cur.score >= cand.score && n < 3) { prev = cur; cur = cur.next; n++; }
+      if (n >= 3) return;
+      cand.next = cur;
+      if (prev) prev.next = cand; else top = cand;
+      var tail = top, cnt = 1;
+      while (tail.next) { if (++cnt >= 3) { tail.next = null; break; } tail = tail.next; }
+    }
     for (var x = x0; x <= x1; x += step) {
       for (var z = x0; z <= x1; z += step) {
-        if (Voxel.World.biomeAt(x, z) !== want) continue;
+        if (probe(x, z) !== want) continue;
         var same = 0, total = 0;
         for (var dx = -16; dx <= 16; dx += 8)
           for (var dz = -16; dz <= 16; dz += 8) {
             total++;
-            if (Voxel.World.biomeAt(x + dx, z + dz) === want) same++;
+            if (probe(x + dx, z + dz) === want) same++;
           }
-        var score = same / total;
-        if (score > bestScore) { bestScore = score; best = { x: x, z: z }; }
+        offer({ score: same / total, x: x, z: z, next: null });
       }
     }
-    if (best && Voxel.World.biomeAt(best.x, best.z) === want) return best;
+    for (var c = top; c; c = c.next)
+      if (Voxel.World.biomeAt(c.x, c.z) === want) return { x: c.x, z: c.z };
     return null;
   }
 
-  // 精选世界：生成完成后把玩家放到目标群系（种子含全部 22 群系）。
-  // 窗口粗扫失败时全图细扫兜底；两轮都无目标群系才回退世界中心。
+  // 精选世界：生成完成后把玩家放到目标群系。宽域兜底可能落在旧核心
+  // 之外——无限外围按全局坐标确定性生成，出生与取景同样有效。
   function applyFeaturedSpawn(w) {
     var spot = null;
     if (w.overview || !w.biome || Voxel.Biomes.B[w.biome] === undefined) {
       spot = { x: 128, z: 128 };
     } else {
       var want = Voxel.Biomes.B[w.biome];
-      spot = findFeaturedSpot(want, 4, true) || findFeaturedSpot(want, 2, false);
+      spot = findFeaturedSpot(want, 4, true) ||
+        (!Voxel.World.climateAt ? findFeaturedSpot(want, 2, false) : null) ||
+        findFeaturedSpot(want, 4, 'wide');
     }
     if (!spot) spot = { x: 128, z: 128 };
     var sy = Voxel.World.surfaceAt(spot.x, spot.z);

@@ -13,7 +13,7 @@ function which(p) {
 }
 const executablePath = candidates.map(which).find(Boolean);
 if (!executablePath) throw new Error('未找到 Chromium 内核浏览器');
-function check(name, ok) { if (!ok) throw new Error('FAIL ' + name); console.log('  ok  ' + name); }
+function check(name, ok, detail) { if (!ok) throw new Error('FAIL ' + name + (detail !== undefined ? ' :: ' + JSON.stringify(detail) : '')); console.log('  ok  ' + name); }
 
 let browser;
 (async () => {
@@ -61,12 +61,20 @@ let browser;
   await page.reload({ waitUntil: 'load' });
   await page.evaluate(() => document.getElementById('btn-start').click());
   await page.waitForFunction(() => Voxel.Game.state !== 'loading' && Voxel.Game.state !== 'menu', { timeout: 180000 });
+  // 损坏姿态拒绝恢复后，泊位飞行状态还要经一次 resolve 才标记 landed；
+  // 显式等到结算完成，消除状态可见但姿态未落地的单帧竞态。
+  await page.waitForFunction(() => window.Voxel && Voxel.Game.state === 'playing' &&
+    Voxel.SpaceTravel && !Voxel.SpaceTravel.isAboard() &&
+    Voxel.SpaceTravel.flightSnapshot() && Voxel.SpaceTravel.flightSnapshot().landed,
+    { timeout: 15000 }).catch(() => { });
   const fallback = await page.evaluate(() => ({ state: Voxel.Game.state, aboard: Voxel.SpaceTravel.isAboard(),
     flight: Voxel.SpaceTravel.flightSnapshot(), player: Voxel.Player.pos().toArray(),
     spawn: Voxel.World.spawnPoint().toArray() }));
   check('损坏飞船姿态拒绝恢复座舱并回退安全地表', fallback.state === 'playing' && !fallback.aboard && fallback.flight.landed &&
     fallback.flight.position.every(Number.isFinite) && fallback.player.every(Number.isFinite) &&
-    Math.hypot(fallback.player[0] - fallback.spawn[0], fallback.player[2] - fallback.spawn[2]) < 1);
+    Math.hypot(fallback.player[0] - fallback.spawn[0], fallback.player[2] - fallback.spawn[2]) < 1,
+    { state: fallback.state, aboard: fallback.aboard, landed: fallback.flight.landed,
+      pos: fallback.flight.position, player: fallback.player, spawn: fallback.spawn });
   check('页面无未捕获异常', errors.length === 0);
   await browser.close();
   console.log('\nCOCKPIT-RESUME-PASS');

@@ -1186,6 +1186,12 @@ window.Voxel = window.Voxel || {};
     applyInfrastructure: applyInfrastructure,
     surfaceAt: surfaceAt,
     biomeAt: biomeAt,
+    // 纯气候最近邻探针（不触发任何区块生成）；空间站/未就绪时回退有限核心。
+    climateAt: function (x, z) {
+      x = Math.floor(x); z = Math.floor(z);
+      if (gen && gen.climateAt) return gen.climateAt(x + 0.5, z + 0.5);
+      return FiniteWorld.climateAt ? FiniteWorld.climateAt(x, z) : null;
+    },
     spawnPoint: function () { return FiniteWorld.spawnPoint(); },
     applyEdits: applyEdits,
     initLight: initLight,

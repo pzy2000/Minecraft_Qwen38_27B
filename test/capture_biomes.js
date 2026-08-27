@@ -106,8 +106,63 @@ async function waitPlaying(page) {
       return { y: y, id: id };
     }
     // 在目标群系中找一片连续区域（邻域同群系占比最高者优先；openSurf 时偏好开阔地表）
-    function findSpot(biomeId, preferSurf, openSurf) {
-      var best = null, bestScore = -1;
+    // 第 23 轮气候降频后稀有群系可能整体落在旧核心之外：核心扫描失败时
+    // 用零成本气候探针在 ±520 宽域兜底，终验仍走真实 biomeAt。
+    function probePick(x, z, biomeId) {
+      if (!Voxel.World.climateAt || !Voxel.Biomes.pick) return null;
+      var cl = Voxel.World.climateAt(x, z);
+      return cl ? (Voxel.Biomes.pick(cl) === biomeId) : null;
+    }
+    function findSpotWide(biomeId, opts) {
+      // 宽域扫描：气候探针初筛 -> 邻域纯度打分收集候选 -> 按分排序逐个
+      // 终验（真实 biomeAt；strict 还要求气候预测地表高于海面且实际地表
+      // 非水/非裸石）。同一片失效区域按间距去重，12 次尝试内取首个通过者。
+      var strict = !!(opts && opts.wideStrict);
+      var minScore = strict ? 0.96 : 0.34;
+      var box = strict ? 18 : 21, stepN = strict ? 6 : 7;
+      var cands = [];
+      for (var x = -520; x < 520; x += 6) {
+        for (var z = -520; z < 520; z += 6) {
+          var hit = probePick(x, z, biomeId);
+          if (hit === null ? Voxel.World.biomeAt(x, z) !== biomeId : !hit) continue;
+          var same = 0, total = 0;
+          for (var dx = -box; dx <= box; dx += stepN)
+            for (var dz = -box; dz <= box; dz += stepN) {
+              total++;
+              var nb = probePick(x + dx, z + dz, biomeId);
+              if (nb === null ? Voxel.World.biomeAt(x + dx, z + dz) === biomeId : nb) same++;
+            }
+          if (same / total >= minScore) cands.push({ x: x, z: z, score: same / total });
+        }
+      }
+      if (!cands.length) return null;
+      cands.sort(function (a, b) { return b.score - a.score; });
+      var gen0 = Voxel.World._test && Voxel.World._test.gen ? Voxel.World._test.gen() : null;
+      var tried = [], attempts = 0;
+      for (var ci = 0; ci < cands.length && attempts < 12; ci++) {
+        var cand = cands[ci];
+        var nearTried = false;
+        for (var ti = 0; ti < tried.length; ti++) {
+          var ddx = cand.x - tried[ti][0], ddz = cand.z - tried[ti][1];
+          if (ddx * ddx + ddz * ddz < 3600) { nearTried = true; break; }
+        }
+        if (nearTried) continue;
+        attempts++;
+        tried.push([cand.x, cand.z]);
+        if (Voxel.World.biomeAt(cand.x, cand.z) !== biomeId) continue;
+        if (strict) {
+          var cl = Voxel.World.climateAt ? Voxel.World.climateAt(cand.x, cand.z) : null;
+          if (gen0 && gen0.shaper && cl && gen0.shaper.targetHeight(cand.x + 0.5, cand.z + 0.5, cl) < 28)
+            continue;
+          var g = groundAt(cand.x, cand.z);
+          if (g.id === 7 || g.id === 12 || g.y < 28) continue;
+        }
+        return { x: cand.x, z: cand.z };
+      }
+      return null;
+    }
+    function findSpot(biomeId, preferSurf, openSurf, purity) {
+      var best = null, bestScore = -1, pureBest = null, pureScore = -1;
       for (var x = 20; x < 236; x += 3) {
         for (var z = 20; z < 236; z += 3) {
           if (Voxel.World.biomeAt(x, z) !== biomeId) continue;
@@ -124,16 +179,24 @@ async function waitPlaying(page) {
           if (openSurf) score += (open / total) * 0.5;
           else if (preferSurf && groundAt(x, z).id === preferSurf) score += 0.15;
           if (score > bestScore) { bestScore = score; best = { x: x, z: z }; }
+          // 纯净度门槛：邻域同群系占比达标才参与优先评选，
+          // 避免气候点相邻的群系（黑森林/樱花）在边界互相入镜。
+          if (purity && same / total >= purity && score > pureScore) {
+            pureScore = score; pureBest = { x: x, z: z };
+          }
         }
       }
-      return best;
+      var picked = pureBest || best;
+      return picked || findSpotWide(biomeId);
     }
     window.__biomeShot = function (opts) {
       var b = opts.biome;
       var spot = opts.fixed ? { x: opts.fixed.x, z: opts.fixed.z }
         : opts.overview
           ? { x: 128, z: 128 }
-          : findSpot(Voxel.Biomes.B[b], opts.preferSurf, opts.openSurf);
+          : opts.wide
+            ? findSpotWide(Voxel.Biomes.B[b], opts)
+            : findSpot(Voxel.Biomes.B[b], opts.preferSurf, opts.openSurf, opts.purity);
       if (!spot) return null;
       var g = groundAt(spot.x, spot.z);
       var baseY = g.y > 0 ? g.y : 30;
@@ -167,8 +230,8 @@ async function waitPlaying(page) {
     { name: 'desert',          opts: { biome: 'DESERT', preferSurf: 6, height: 12 } },
     { name: 'jungle',          opts: { biome: 'JUNGLE', height: 20, pitch: -0.2 } },
     { name: 'savanna',         opts: { biome: 'SAVANNA', height: 13 } },
-    { name: 'mega-taiga',      opts: { biome: 'MEGA_TAIGA', preferSurf: 24, height: 17 } },
-    { name: 'badlands',        opts: { biome: 'BADLANDS', preferSurf: 28, height: 14, pitch: -0.22 } },
+    { name: 'mega-taiga',      opts: { biome: 'MEGA_TAIGA', preferSurf: 24, height: 26, pitch: -0.35 } },
+    { name: 'badlands',        opts: { biome: 'BADLANDS', preferSurf: 28, height: 14, pitch: -0.22, wide: true } },
     { name: 'peaks',           opts: { biome: 'JAGGED_PEAKS', height: 16, pitch: -0.15 } },
     { name: 'overview',        opts: { overview: true, fixed: { x: 192, z: 62 } } },
     // ---- 其余群系（精选世界缩略图用） ----
@@ -178,15 +241,17 @@ async function waitPlaying(page) {
     { name: 'snowy',           opts: { biome: 'SNOWY', height: 11 } },
     { name: 'windswept-hills', opts: { biome: 'WINDSWEPT_HILLS', height: 15 } },
     { name: 'frozen-peaks',    opts: { biome: 'FROZEN_PEAKS', height: 16, pitch: -0.15 } },
-    { name: 'stony-peaks',     opts: { biome: 'STONY_PEAKS', height: 15 } },
-    { name: 'beach',           opts: { biome: 'BEACH', preferSurf: 6, height: 12, pitch: -0.3 } },
+    { name: 'stony-peaks',     opts: { biome: 'STONY_PEAKS', height: 15, wide: true } },
+    { name: 'beach',           opts: { biome: 'BEACH', preferSurf: 6, height: 12, pitch: -0.3, wide: true } },
     { name: 'stony-shore',     opts: { biome: 'STONY_SHORE', height: 13, pitch: -0.28 } },
-    { name: 'ocean',           opts: { biome: 'OCEAN', height: 26, pitch: -0.4 } },
+    { name: 'ocean',           opts: { biome: 'OCEAN', height: 26, pitch: -0.4, wide: true } },
     // ---- 群系扩展（2026-08）----
-    { name: 'mushroom-fields', opts: { biome: 'MUSHROOM_FIELDS', preferSurf: 53, height: 12 } },
-    { name: 'swamp',           opts: { biome: 'SWAMP', height: 14 } },
-    { name: 'cherry-grove',    opts: { biome: 'CHERRY_GROVE', height: 13 } },
-    { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12 } }
+    // 第 23 轮降频后沼泽/黑森林/蘑菇林不再落在 0..255 核心内：走宽域
+    // 纯区搜索（findSpotWide，含真实 biomeAt 终验与地表检查）。
+    { name: 'mushroom-fields', opts: { biome: 'MUSHROOM_FIELDS', preferSurf: 53, height: 12, wide: true, wideStrict: true } },
+    { name: 'swamp',           opts: { biome: 'SWAMP', height: 14, wide: true, wideStrict: true } },
+    { name: 'cherry-grove',    opts: { biome: 'CHERRY_GROVE', height: 13, purity: 0.95 } },
+    { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12, wide: true, wideStrict: true } }
   ];
 
   // 可传名称过滤：node test/capture_biomes.js [chrome路径] [shot名...]
@@ -198,7 +263,17 @@ async function waitPlaying(page) {
   for (const s of filtered) {
     const info = await page.evaluate((o) => window.__biomeShot(o), s.opts);
     if (!info) { console.log('跳过 ' + s.name + '（未找到合适位置）'); continue; }
-    await sleep(1600);
+    // 等待取景点周围 7×7 区块全部生成完毕（宽域点离核心远，流式生成
+    // 每帧只推进少量区块），再留出网格构建缓冲，避免拍到大片未加载石料。
+    await page.waitForFunction((spt) => {
+      const CS = window.Voxel.Config.CHUNK, R = 3;
+      const cx = Math.floor(spt.x / CS), cz = Math.floor(spt.z / CS);
+      for (let dx = -R; dx <= R; dx++)
+        for (let dz = -R; dz <= R; dz++)
+          if (!Voxel.World.isChunkLoaded(cx + dx, cz + dz)) return false;
+      return true;
+    }, { timeout: 300000, polling: 200 }, info);
+    await sleep(3500);
     const dest = path.join(outDir, s.name + '.png');
     await page.screenshot({ path: dest, type: 'png' });
     console.log('已写入 screenshots/biomes/' + s.name + '.png  @ ' + JSON.stringify(info));

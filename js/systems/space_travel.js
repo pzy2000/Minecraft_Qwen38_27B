@@ -543,7 +543,10 @@ Voxel.SpaceTravel = (function () {
     for (var x = x0; x <= x1; x++) for (var z = z0; z <= z1; z++) for (var y = y0; y <= y1; y++) {
       if (++checked > 8192) return 8192;
       var id = Voxel.World.get(x, y, z);
-      if (!Voxel.Blocks.isSolid(id)) continue;
+      // 树叶对飞行不构成硬碰撞：第 23 轮树冠显著加高加宽后，树叶实心
+      // 会让林间垂直起飞/低空穿越必然卡死在冠层内。
+      if (!Voxel.Blocks.isSolid(id) ||
+        (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].leaves)) continue;
       var top = y + (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].half ? 0.5 : 1);
       if (box3.min.y < top - 0.01 && box3.max.y > y + 0.01) collisions++;
     }
@@ -701,21 +704,37 @@ Voxel.SpaceTravel = (function () {
     return true;
   }
 
-  function safeExitPosition() {
-    if (!flightState || !flightState.landed || !ship) return null;
-    _interactionPoint.set(EXIT_LOCAL[0], EXIT_LOCAL[1], EXIT_LOCAL[2]);
+  // 离舰位门口被自然方块（凸石/新树干等）占用时，按确定性偏移序在
+  // 舱门周围小范围回退搜索，避免玩家被自己停船的位置卡死。
+  var EXIT_FALLBACKS = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
+    [2, 0], [-2, 0], [0, 2], [0, -2],
+    [2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [-1, 2], [1, -2], [-1, -2]
+  ];
+
+  function exitCandidate(localX, localZ) {
+    _interactionPoint.set(EXIT_LOCAL[0] + localX, EXIT_LOCAL[1], EXIT_LOCAL[2] + localZ);
     ship.localToWorld(_interactionPoint);
     var x = Math.floor(_interactionPoint.x), z = Math.floor(_interactionPoint.z);
     var y = Voxel.World.surfaceAt(x, z) + 1.001;
-    if (Voxel.World.get(x, Math.floor(y) - 1, z) === 7) return null;
+    if (!(y > 1) || Voxel.World.get(x, Math.floor(y) - 1, z) === 7) return null;
     var candidate = new THREE.Vector3(_interactionPoint.x, y, _interactionPoint.z);
-    if (Voxel.Player && Voxel.Player.canStandAt && !Voxel.Player.canStandAt(candidate, true)) {
-      if (lastSafeExit && lastSafeExit.distanceTo(ship.position) <= 10 && Voxel.Player.canStandAt(lastSafeExit, true))
-        return lastSafeExit.clone();
+    if (Voxel.Player && Voxel.Player.canStandAt && !Voxel.Player.canStandAt(candidate, true))
       return null;
-    }
-    lastSafeExit = candidate.clone();
     return candidate;
+  }
+
+  function safeExitPosition() {
+    if (!flightState || !flightState.landed || !ship) return null;
+    var candidate = exitCandidate(0, 0);
+    for (var i = 0; !candidate && i < EXIT_FALLBACKS.length; i++)
+      candidate = exitCandidate(EXIT_FALLBACKS[i][0] * 1.4, EXIT_FALLBACKS[i][1] * 1.4);
+    if (candidate) { lastSafeExit = candidate.clone(); return candidate; }
+    if (lastSafeExit && lastSafeExit.distanceTo(ship.position) <= 10 &&
+      (!Voxel.Player || !Voxel.Player.canStandAt || Voxel.Player.canStandAt(lastSafeExit, true)))
+      return lastSafeExit.clone();
+    return null;
   }
 
   function canDisembark() { return !!safeExitPosition(); }
@@ -1432,7 +1451,9 @@ Voxel.SpaceTravel = (function () {
       flightState = Voxel.ShipFlight
         ? Voxel.ShipFlight.restore(worldFlight, fallbackFlight) : fallbackFlight;
       applyFlightTransform();
-      if (flightBoxCollides(flightState.position, flightState)) {
+      // 损坏的存档姿态一律回退泊位默认姿态（landed），即使其解析位置
+      // 恰好悬空不撞地——否则飞行模拟暂停时该状态永远不会结算落地。
+      if (!flightRestoreValid || flightBoxCollides(flightState.position, flightState)) {
         flightState = Voxel.ShipFlight
           ? Voxel.ShipFlight.restore(fallbackFlight, fallbackFlight) : fallbackFlight;
         applyFlightTransform();

@@ -368,14 +368,15 @@ Voxel.World = (function () {
   }
 
   function oakTree(x, h, z, r) {
-    var th = 4 + ((r * 100000) | 0) % 3;
+    var th = 6 + ((r * 100000) | 0) % 5;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
     for (var ly = th - 2; ly <= th + 1; ly++) {
-      var rad = ly === th + 1 ? 1 : 2;
+      var rad = ly === th + 1 ? 1 : (ly === th ? 2 : (th > 8 ? 3 : 2));
       for (var dx = -rad; dx <= rad; dx++)
         for (var dz = -rad; dz <= rad; dz++) {
           if (dx === 0 && dz === 0 && ly <= th) continue;
           if (rad === 2 && ly >= th && Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+          if (rad === 3 && Math.abs(dx) === 3 && Math.abs(dz) === 3) continue;
           setIfAir(x + dx, h + ly, z + dz, 5);
         }
     }
@@ -383,7 +384,7 @@ Voxel.World = (function () {
   }
 
   function spruceTree(x, h, z, r) {
-    var th = 6 + ((r * 100000) | 0) % 4;
+    var th = 9 + ((r * 100000) | 0) % 6;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 20;
     for (var ly = 2; ly <= th + 1; ly++) {
       var rad = ly > th ? 0 : (ly === th ? 1 : (((th - ly) % 2 === 0) ? 1 : 2));
@@ -398,7 +399,7 @@ Voxel.World = (function () {
     // 需要四列地基同高且可种植，避免悬空粗树干
     var ci = x + W * z;
     if (heights[ci + 1] !== h || heights[ci + W] !== h || heights[ci + W + 1] !== h) return false;
-    var th = 12 + ((r * 100000) | 0) % 6;
+    var th = 16 + ((r * 100000) | 0) % 9;
     if (h + th + 3 >= H) th = H - 4 - h;
     if (th < 10) return false;
     for (var y = 1; y <= th; y++)
@@ -421,7 +422,7 @@ Voxel.World = (function () {
   }
 
   function jungleTree(x, h, z, r) {
-    var th = 6 + ((r * 100000) | 0) % 6;
+    var th = 9 + ((r * 100000) | 0) % 7;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 22;
     ring(x, h + th - 1, z, 2, 23);
     data[idx(x, h + th - 1, z)] = 22;
@@ -455,13 +456,13 @@ Voxel.World = (function () {
   }
 
   function cactus(x, h, z, r) {
-    var ch = 1 + ((r * 100000) | 0) % 3;
+    var ch = 2 + (((r * 100000) >> 3) | 0) % 3;
     for (var y = 1; y <= ch; y++) setIfAir(x, h + y, z, 26);
   }
 
   // 白桦树：细高树干 + 圆柱树冠
   function birchTree(x, h, z, r) {
-    var th = 5 + ((r * 100000) | 0) % 3;
+    var th = 8 + ((r * 100000) | 0) % 5;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 33;
     for (var ly = th - 2; ly <= th + 1; ly++) {
       var rad = ly === th + 1 ? 1 : 2;
@@ -477,7 +478,7 @@ Voxel.World = (function () {
 
   // 金合欢树：斜干简化为直干 + 扁平伞状树冠
   function acaciaTree(x, h, z, r) {
-    var th = 4 + ((r * 100000) | 0) % 2;
+    var th = 7 + ((r * 100000) | 0) % 3;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 35;
     ring(x, h + th, z, 2, 36);
     data[idx(x, h + th, z)] = 35;
@@ -486,22 +487,23 @@ Voxel.World = (function () {
   }
 
   // 巨型蘑菇（蘑菇林）：菌柄 + 两层收拢穹顶，20% 棕色。
+  // 第 23 轮加高：菌柄 9/12/15 格（旧值 3/4/5 的 3 倍），伞盖加宽到 r5/r3。
   // 与 gen_core 的 giantMushroom 逐位一致（跨核心/外围接缝的确定性契约）。
   function giantMushroomTree(x, h, z, r) {
     var rr = (r * 100000) | 0;
     var cap = (rr % 5 === 0) ? 56 : 55;
-    var th = 3 + rr % 3;
-    if (h + th + 3 >= H) th = H - 5 - h;
-    if (th < 2) return;
+    var th = 9 + rr % 3 * 3;
+    if (h + th + 4 >= H) th = H - 7 - h;
+    if (th < 6) return;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 54;
-    for (var dx = -3; dx <= 3; dx++)
-      for (var dz = -3; dz <= 3; dz++) {
-        if (dx * dx + dz * dz > 11) continue;
+    for (var dx = -5; dx <= 5; dx++)
+      for (var dz = -5; dz <= 5; dz++) {
+        if (dx * dx + dz * dz > 27) continue;
         setIfAir(x + dx, h + th, z + dz, cap);
       }
-    for (var dx2 = -2; dx2 <= 2; dx2++)
-      for (var dz2 = -2; dz2 <= 2; dz2++) {
-        if (dx2 * dx2 + dz2 * dz2 > 6) continue;
+    for (var dx2 = -3; dx2 <= 3; dx2++)
+      for (var dz2 = -3; dz2 <= 3; dz2++) {
+        if (dx2 * dx2 + dz2 * dz2 > 10) continue;
         setIfAir(x + dx2, h + th + 1, z + dz2, cap);
       }
     setIfAir(x, h + th + 2, z, cap);
@@ -510,18 +512,19 @@ Voxel.World = (function () {
   // 樱花树：斜出主干的粉团树冠
   function cherryTree(x, h, z, r) {
     var rr = (r * 100000) | 0;
-    var th = 4 + rr % 3;
+    var th = 8 + ((r * 100000) | 0) % 5;
     var sx = ((rr >> 2) & 1) ? 1 : -1;
     if (h + th + 3 >= H) return;
-    for (var y = 1; y <= th; y++) data[idx(x + (y > th - 2 ? sx : 0), h + y, z)] = 57;
+    for (var y = 1; y <= th; y++) data[idx(x + (y > th - 3 ? sx : 0), h + y, z)] = 57;
     var tx = x + sx;
-    for (var dx = -2; dx <= 2; dx++)
-      for (var dz = -2; dz <= 2; dz++) {
-        if (dx * dx + dz * dz > 6.5) continue;
+    for (var dx = -3; dx <= 3; dx++)
+      for (var dz = -3; dz <= 3; dz++) {
+        if (dx * dx + dz * dz > 11.5) continue;
         setIfAir(tx + dx, h + th, z + dz, 58);
       }
-    for (var ax = -1; ax <= 1; ax++)
-      for (var az = -1; az <= 1; az++) {
+    for (var ax = -2; ax <= 2; ax++)
+      for (var az = -2; az <= 2; az++) {
+        if (ax * ax + az * az > 2.5) continue;
         if (Math.abs(ax) === 1 && Math.abs(az) === 1 && ((rr >> (Math.abs(ax) + Math.abs(az))) & 1)) continue;
         setIfAir(tx + ax, h + th + 1, z + az, 58);
       }
@@ -530,11 +533,12 @@ Voxel.World = (function () {
 
   // 黑森林橡树：更高树干 + 密集暗叶方冠
   function darkOakTree(x, h, z, r) {
-    var th = 5 + ((r * 100000) | 0) % 3;
+    var rr = (r * 100000) | 0;
+    var th = 9 + ((rr >> 1) % 6);
     if (h + th + 3 >= H) return;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
-    for (var ly = th - 2; ly <= th + 1; ly++) {
-      var rad = ly >= th ? 1 : 2;
+    for (var ly = th - 3; ly <= th + 1; ly++) {
+      var rad = ly >= th ? 1 : (ly === th - 1 ? 2 : 3);
       for (var dx = -rad; dx <= rad; dx++)
         for (var dz = -rad; dz <= rad; dz++) {
           if (dx === 0 && dz === 0 && ly <= th) continue;
@@ -543,6 +547,20 @@ Voxel.World = (function () {
         }
     }
     setIfAir(x, h + th + 2, z, 59);
+  }
+
+  // 沼泽橡树：粗壮矮干 + 宽扁双层湿原树冠（复用橡木 ID，冠幅 7 格）
+  function swampOakTree(x, h, z, r) {
+    var rr = (r * 100000) | 0;
+    var th = 5 + (rr >> 3) % 4;
+    if (h + th + 3 >= H) return;
+    for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
+    ring(x, h + th - 1, z, 3, 5);
+    data[idx(x, h + th - 1, z)] = 4;
+    ring(x, h + th, z, 3, 5);
+    data[idx(x, h + th, z)] = 4;
+    ring(x, h + th + 1, z, 2, 5);
+    setIfAir(x, h + th + 2, z, 5);
   }
 
   // 原始针叶林：苔石巨砾
@@ -577,6 +595,7 @@ Voxel.World = (function () {
           case 'cactus': cactus(x, h, z, r); break;
           case 'birch': birchTree(x, h, z, r); break;
           case 'acacia': acaciaTree(x, h, z, r); break;
+          case 'swamp_oak': swampOakTree(x, h, z, r); break;
           case 'jungle':
             var rg = noise.hash2(x * 5 + 3, z * 7 + 97);
             if (!(rg < bd.giantChance && giantJungle(x, h, z, rg))) jungleTree(x, h, z, r);
@@ -944,6 +963,11 @@ Voxel.World = (function () {
     biomeAt: function (x, z) {
       if (x < 0 || x >= W || z < 0 || z >= D) return -1;
       return biomes ? biomes[x + W * z] : 0;
+    },
+    // 无区块生成的纯气候最近邻探针：供精选出生点在大范围搜索时使用。
+    // 与生成的唯一差异来自 v1 行星规则改写，调用方需做真实 biomeAt 终验。
+    climateAt: function (x, z) {
+      return climateAt ? climateAt(x + 0.5, z + 0.5) : null;
     },
     spawnPoint: spawnPoint,
     applyEdits: applyEdits,

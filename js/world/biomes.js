@@ -141,7 +141,7 @@ Voxel.Biomes = (function () {
   };
   defs[B.SWAMP] = {
     name: '沼泽', surface: BLK.GRASS, filler: BLK.DIRT,
-    treeType: 'oak', treeChance: 0.004, plantOn: [BLK.GRASS],
+    treeType: 'swamp_oak', treeChance: 0.004, plantOn: [BLK.GRASS],
     mobs: ['pig', 'chicken', 'sheep']
   };
   defs[B.CHERRY_GROVE] = {
@@ -187,7 +187,9 @@ Voxel.Biomes = (function () {
 
   // ---- 气候采样器：低频噪声通道，输出归一化到 [-1,1] ----
   // 世界仅 256×256，频率相对 MC 压缩以保证一张图内出现多样群系。
-  // 增益(GAIN)：OctavePerlin 均值输出集中在 ±0.4 内，放大后极端气候点才可达
+  // 增益(GAIN)：OctavePerlin 均值输出集中在 ±0.4 内，放大后极端气候点才可达。
+  // 频率除以 3（第 23 轮）：五维 Voronoi 单元线性尺度 ×3，各群系连片面积约 ×9，
+  // 让蘑菇林/樱花/黑森林等稀有群系获得接近 10x 的实际占地。
   function makeClimate(noise) {
     var N = Voxel.Noise.SALT;
     var tCh = noise.channel(N.TEMP, 3);
@@ -199,11 +201,11 @@ Voxel.Biomes = (function () {
     function g1(v) { return v > 1 ? 1 : (v < -1 ? -1 : v); }
     return function (x, z) {
       return {
-        t: g1(tCh.at2(x * 0.005, z * 0.005) * GAIN_T),
-        h: g1(hCh.at2(x * 0.007 + 31.7, z * 0.007 + 11.3) * GAIN_H),
-        c: g1(cCh.at2(x * 0.004 + 57.1, z * 0.004 + 73.9) * GAIN_C),
-        e: g1(eCh.at2(x * 0.006 + 91.7, z * 0.006 + 17.3) * GAIN_E),
-        w: g1(wCh.at2(x * 0.010 + 23.9, z * 0.010 + 47.7) * GAIN_W)
+        t: g1(tCh.at2(x * 0.00167, z * 0.00167) * GAIN_T),
+        h: g1(hCh.at2(x * 0.00233 + 31.7 / 3, z * 0.00233 + 11.3 / 3) * GAIN_H),
+        c: g1(cCh.at2(x * 0.00133 + 57.1 / 3, z * 0.00133 + 73.9 / 3) * GAIN_C),
+        e: g1(eCh.at2(x * 0.002 + 91.7 / 3, z * 0.002 + 17.3 / 3) * GAIN_E),
+        w: g1(wCh.at2(x * 0.00333 + 23.9 / 3, z * 0.00333 + 47.7 / 3) * GAIN_W)
       };
     };
   }

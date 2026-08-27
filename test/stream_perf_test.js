@@ -64,19 +64,19 @@ load('js/world/mesh.js');
 
 var V = sandbox.window.Voxel;
 var failed = 0;
-function check(name, cond) {
+function check(name, cond, detail) {
   if (cond) console.log('  ok  ' + name);
-  else { console.log('  FAIL ' + name); failed++; }
+  else { console.log('  FAIL ' + name + (detail !== undefined ? ' :: ' + detail : '')); failed++; }
 }
 
 // 历史指纹基线（种子 12345）：blocks+biome FNV-1a
-// 第 22 轮群系扩展移动了 MultiNoise 边界，(8,0)/(60,-25) 落入重生成区域，
-// 指纹随接受的自然地形变化更新；(30,30)/(-2,5) 保持不变。
+// 第 22 轮群系扩展与第 23 轮气候降频（群系面积 ~9x）+ 树形加高均会
+// 移动自然地形，指纹随接受的变化整体刷新。
 var FP_BASELINE = {
-  '8,0': 'de1eeffb',     // 核心右邻接缝
-  '30,30': '1c81033',    // 远外围
-  '60,-25': '24d7b15f',  // 远外围负坐标
-  '-2,5': 'fa01247b'     // 核心左侧负坐标
+  '8,0': 'd333ca51',     // 核心右邻接缝
+  '30,30': '42ff9e2f',    // 远外围
+  '60,-25': 'd15af3fd',  // 远外围负坐标
+  '-2,5': 'dd806251'     // 核心左侧负坐标
 };
 
 console.log('流式加载回归');
@@ -100,8 +100,8 @@ function fingerprint(cx, cz) {
 for (var fk in FP_BASELINE) {
   if (!Object.prototype.hasOwnProperty.call(FP_BASELINE, fk)) continue;
   var fp = fk.split(',');
-  check('区块 (' + fk + ') 指纹与基线一致',
-    fingerprint(+fp[0], +fp[1]) === FP_BASELINE[fk]);
+  var actual = fingerprint(+fp[0], +fp[1]);
+  check('区块 (' + fk + ') 指纹与基线一致', actual === FP_BASELINE[fk], actual);
 }
 
 console.log('填充式采样与门面语义等价');

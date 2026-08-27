@@ -118,14 +118,16 @@ check('v1 coal/iron阈值与高度边界逐点精确',
 console.log('v1 世界黄金指纹（legacy core / 正负外围 / 255-256接缝）');
 const GOLDEN = {
   // lush 覆盖整个群系注册表：第 22 轮群系扩展（+蘑菇林/沼泽/樱花树林/黑森林）
-  // 移动了 MultiNoise 最近邻边界， lush 自然地形随之变化（用户已确认接受）；
-  // 其余五类 v1 行星走 LEGACY_SETS 逐格哈希，指纹保持不变。
-  lush: 'faacc19f',
-  arid: '26ec781b',
-  frozen: '3866921e',
-  toxic: '7c221edc',
-  volcanic: '1b57d2e6',
-  oceanic: '877f134e'
+  // 与第 23 轮气候降频（群系面积 ~9x）都移动了 MultiNoise 最近邻边界，
+  // 自然地形随之重排（edits/建筑逐位保留，用户已确认接受）；
+  // 其余五类 v1 行星走 LEGACY_SETS 逐格哈希，但 base pick 的输入气候场
+  // 同样随频率变化，指纹一并刷新。
+  lush: '55c6bb2b',
+  arid: '20a55869',
+  frozen: '4a03dfd3',
+  toxic: '5d8b1ba7',
+  volcanic: 'fe69d5fc',
+  oceanic: 'db44b8ee'
 };
 function fingerprintWorld(profile) {
   V.World.init(profile.seed, profile);
@@ -177,7 +179,9 @@ check('v2完整256²核心直接类型白名单，不重复调用全群系base p
   String(v2BasePickCalls));
 
 console.log('v2 连续群系白名单、确定性与多样性');
-const continuityClimate = V.Biomes.makeClimate(V.Noise.create('PLANET-RULES-CONTINUITY'));
+// 种子必须是数字串：SeedUtil.toBigInt 对文本种子回退 crypto 随机，
+// 文本种子会让本节跨进程不可复现（生产主流程总是先规范化为数字串）。
+const continuityClimate = V.Biomes.makeClimate(V.Noise.create('7251399515439241446'));
 for (const typeKey of P.PLANET_TYPES) {
   const allowed = P.allowedBiomes(typeKey);
   const allowedSet = new Set(allowed);
@@ -185,9 +189,11 @@ for (const typeKey of P.PLANET_TYPES) {
   let previous = null;
   const seen = new Set();
   let deterministic = true, whitelist = true;
-  for (let z = -128; z < 128; z++) {
+  // 采样窗随第 23 轮气候降频同比扩大（×3）：更低的群系频率下
+  // 等面积窗口容纳的群系更少，用更大的窗口维持同等多样性压力。
+  for (let z = -192; z < 192; z++) {
     const row = [];
-    for (let x = -128; x < 128; x++) {
+    for (let x = -192; x < 192; x++) {
       const climate = continuityClimate(x, z);
       const picked = P.pickAllowed(typeKey, climate, B.PLAINS);
       const again = P.biomeFor(2, typeKey, B.PLAINS, climate, x + 999, z - 999,
@@ -195,8 +201,8 @@ for (const typeKey of P.PLANET_TYPES) {
       if (picked !== again) deterministic = false;
       if (!allowedSet.has(picked)) whitelist = false;
       row.push(picked); seen.add(picked);
-      if (x > -128) { edges++; if (picked !== row[row.length - 2]) changes++; }
-      if (previous) { edges++; if (picked !== previous[x + 128]) changes++; }
+      if (x > -192) { edges++; if (picked !== row[row.length - 2]) changes++; }
+      if (previous) { edges++; if (picked !== previous[x + 192]) changes++; }
     }
     previous = row;
   }
