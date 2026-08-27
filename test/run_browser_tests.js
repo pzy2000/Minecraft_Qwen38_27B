@@ -44,6 +44,8 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
       '--autoplay-policy=no-user-gesture-required', '--window-size=960,600']
   });
   const root = path.join(__dirname, '..');
+  // 可选过滤：TEST_FILTER=render_check,atmosphere 时只跑匹配的用例（本地调试用）
+  const filters = process.env.TEST_FILTER ? process.env.TEST_FILTER.split(',').map(s => s.trim()).filter(Boolean) : null;
   let allPass = true;
 
   const targets = [
@@ -104,6 +106,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
   ];
 
   for (const t of targets) {
+    if (filters && !filters.some(f => t.file.includes(f))) continue;
     const page = await browser.newPage();
     await page.setViewport(t.viewport || { width: 960, height: 600 });
     if (t.reducedMotion)
