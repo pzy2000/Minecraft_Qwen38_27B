@@ -265,17 +265,11 @@ Voxel.Biomes = (function () {
   function def(id) { return defs[id] || defs[B.PLAINS]; }
 
   // ---- 精选世界出生列搜索（纯逻辑，Node 可测） ----
-  // 在 [x0..x1]² 网格内按步长扫描目标群系气候单元：候选按“邻域同群系占比”
-  // 取前三，再逐个真实 biomeAt 终验。opts.dry 时额外要求候选列是干燥陆地：
   // 群系由纯气候最近邻决定而不看地形高度，整片气候单元可能沉在水位之下
-  // （标签仍是该群系但只有海床），直接落点会让玩家出生在海里且看不到
-  // 菌丝体/树木等专属地貌（种子 12345 蘑菇林实机回归）。干燥判定走
-  // api.predictedHeightAt 零成本样条预测；可种植群系要求 ≥水位+3——生成器
-  // 会把 ≤水位+2 的低地改写成沙滩，专属地表不会显现；其余群系只要求高于
-  // 水位。dry 链全部落空时回退原始评分链（海洋类卡片应由调用方关闭 dry），
-  // 终验失败继续尝试后续候选。
-  // api 契约：climateAt(x,z)->cl|null、pick(cl)、biomeAt(x,z)、surfaceAt(x,z)、
-  // predictedHeightAt(x,z)->h|null（缺失时自动退化为不校验干地的旧行为）。
+  // （标签对但只有海床，种子 12345 蘑菇林实机回归）。opts.dry 时要求候选
+  // 自体 api.predictedHeightAt > 水位（可种植群系 >水位+3，低地会被生成器
+  // 改写成沙滩），支持分按「标签&干地」邻居占比；胜出列终验真实 biomeAt
+  // + surfaceAt。dry 链落空回退旧标签评分；api 缺探针时退化为旧行为。
   function pickSpawnColumn(api, want, opts) {
     if (!api || typeof api.biomeAt !== 'function') return null;
     var step = opts && typeof opts.step === 'number' && opts.step > 0 ? opts.step : 4;
@@ -283,28 +277,15 @@ Voxel.Biomes = (function () {
     var x1 = opts && typeof opts.x1 === 'number' ? opts.x1 : 255;
     var canProbe = typeof api.climateAt === 'function' &&
       typeof api.pick === 'function';
-    var predictedValid = canProbe && typeof api.predictedHeightAt === 'function' &&
-      !!defs[want];
-    var dry = !!(opts && opts.dry) && predictedValid;
+    var dry = !!(opts && opts.dry) && canProbe && !!defs[want] &&
+      typeof api.predictedHeightAt === 'function';
     var WATER = Voxel.Config.WATER_LEVEL;
     var minSelf = dry && defs[want].plantOn && defs[want].plantOn.length
       ? WATER + 3 : WATER;
-    // 邻域评分会让同一点被反复采样；缓存 climate/height 结果（键编码略快于拼接串）
-    var cache = new Map();
-    function cell(x, z) {
-      var k = (x + 1024) * 4096 + (z + 1024);
-      var c = cache.get(k);
-      if (c !== undefined) return c;
-      if (!canProbe) {
-        c = { pick: api.biomeAt(x, z), h: null };
-      } else {
-        var cl = api.climateAt(x, z);
-        c = cl
-          ? { pick: api.pick(cl), h: predictedValid ? api.predictedHeightAt(x, z) : null }
-          : { pick: api.biomeAt(x, z), h: null };
-      }
-      cache.set(k, c);
-      return c;
+    function pickAt(x, z) {
+      if (!canProbe) return api.biomeAt(x, z);
+      var cl = api.climateAt(x, z);
+      return cl ? api.pick(cl) : api.biomeAt(x, z);
     }
     function offer(top, cand) {
       var prev = null, cur = top, n = 0;
@@ -319,30 +300,26 @@ Voxel.Biomes = (function () {
     var topAll = null, topDry = null;
     for (var x = x0; x <= x1; x += step) {
       for (var z = x0; z <= x1; z += step) {
-        if (cell(x, z).pick !== want) continue;
-        var same = 0, sup = 0, total = 0;
-        for (var dx = -16; dx <= 16; dx += 8)
-          for (var dz = -16; dz <= 16; dz += 8) {
+        if (pickAt(x, z) !== want) continue;
+        var same = 0, sup = 0, total = 0, dx, dz;
+        for (dx = -16; dx <= 16; dx += 8)
+          for (dz = -16; dz <= 16; dz += 8) {
             total++;
-            var nb = cell(x + dx, z + dz);
-            if (nb.pick === want) {
+            if (pickAt(x + dx, z + dz) === want) {
               same++;
-              if (nb.h !== null && nb.h > WATER) sup++;
+              if (dry && api.predictedHeightAt(x + dx, z + dz) > WATER) sup++;
             }
           }
         topAll = offer(topAll, { score: same / total, x: x, z: z, next: null });
-        if (dry && cell(x, z).h !== null && cell(x, z).h > minSelf)
+        if (dry && api.predictedHeightAt(x, z) > minSelf)
           topDry = offer(topDry, { score: sup / total, x: x, z: z, next: null });
       }
     }
     function verify(chain, needLand) {
       for (var c = chain; c; c = c.next) {
         if (api.biomeAt(c.x, c.z) !== want) continue;
-        if (needLand) {
-          var sy = typeof api.surfaceAt === 'function' ? api.surfaceAt(c.x, c.z) : -1;
-          if (!(sy > WATER)) continue;
-        }
-        return { x: c.x, z: c.z };
+        if (!needLand || (api.surfaceAt && api.surfaceAt(c.x, c.z) > WATER))
+          return { x: c.x, z: c.z };
       }
       return null;
     }

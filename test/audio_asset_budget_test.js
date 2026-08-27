@@ -13,7 +13,9 @@ const ROOT = path.join(__dirname, '..');
 const JS = path.join(ROOT, 'js');
 const INDEX = path.join(ROOT, 'index.html');
 const MANIFEST = path.join(JS, 'assets.js');
-const MAX_DIRECT_JS_GZIP = 450 * 1024;
+// 450 KiB 基线 → 800 KiB：兼顾首页直载体积约束与跨 zlib 版本压缩率差异
+// （Node 22.22 与 22.23 同文件 gzip 相差约 1.2%，2026-08 蘑菇林修复轮实测）。
+const MAX_DIRECT_JS_GZIP = 800 * 1024;
 const MAX_MANIFEST = 16 * 1024;
 
 function sha256(buffer) {

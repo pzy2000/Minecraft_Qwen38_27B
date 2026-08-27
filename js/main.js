@@ -687,12 +687,9 @@ Voxel.Game = (function () {
   }
 
   // 在限定范围内寻找目标群系的最佳出生列（核心算法在 Voxel.Biomes.pickSpawnColumn，
-  // 纯逻辑可 Node 测试）。windowed=true 只扫 20..235 主活动窗；'wide' 扫原点周围
-  // ±520 的流式范围（第 23 轮气候降频后群系单元更大，稀有群系可能整体落在旧核心
-  // 之外）。评分走零成本气候探针（Voxel.World.climateAt），最终对胜出列做真实
-  // biomeAt 复核——v1 行星规则改写群系时探针可能失准，靠终验兜底。
-  // dry=true 额外要求胜出列是干燥陆地：纯气候定群系的生成器会把整片群系沉到
-  // 水位之下（标签对但只有海床），不校验会让玩家出生在海里且看不到该群系地貌。
+  // 纯逻辑可 Node 测试）。windowed=true 只扫 20..235 主活动窗；'wide' 扫 ±520
+  // 流式范围（稀有群系可能整体落在旧核心之外）。dry=true 要求胜出列是干燥陆地
+  // （纯气候定群系会把整片群系沉到水位下，不校验会出生在海里）。
   function findFeaturedSpot(want, step, windowed, dry) {
     var wide = windowed === 'wide';
     return Voxel.Biomes.pickSpawnColumn({

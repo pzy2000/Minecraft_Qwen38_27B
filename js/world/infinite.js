@@ -1192,8 +1192,7 @@ window.Voxel = window.Voxel || {};
       if (gen && gen.climateAt) return gen.climateAt(x + 0.5, z + 0.5);
       return FiniteWorld.climateAt ? FiniteWorld.climateAt(x, z) : null;
     },
-    // 零成本地表预测：外围与核心共用同一噪声流，直接委托有限核心即可，
-    // 与 gen.shaper.targetHeight 的结果逐位一致。
+    // 零成本地表预测：外围与核心共用同一噪声流，直接委托有限核心。
     predictedHeightAt: function (x, z) {
       x = Math.floor(x); z = Math.floor(z);
       return FiniteWorld.predictedHeightAt ? FiniteWorld.predictedHeightAt(x, z) : -1;
