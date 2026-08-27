@@ -600,10 +600,13 @@ let browser;
   check('长按E真实触发辅助且HUD切换AUTO LAND',
     await page.evaluate(() => document.getElementById('cockpit-hud').dataset.assist === 'true'));
   await page.waitForFunction(() => {
+    // CI 软件渲染下 rAF 极慢（每帧至多推进5个固定步长），60s 真实时间
+    // 可能凑不够自动着陆所需的模拟时长；主动步进飞行模拟保证收敛。
+    for (let i = 0; i < 20; i++) Voxel.SpaceTravel.updateFlight(1 / 60);
     const info = Voxel.SpaceTravel.landingAssistInfo();
     return !info.active && info.lastResult === 'completed' &&
       Voxel.SpaceTravel.flightSnapshot().landed === true;
-  }, { timeout: 60000, polling: 200 });
+  }, { timeout: 90000, polling: 100 });
   await page.waitForFunction(() => document.getElementById('cockpit-flight-mode').textContent === 'LANDED' &&
     document.getElementById('cockpit-hud').dataset.assist === 'false',
   { timeout: 5000, polling: 100 });
