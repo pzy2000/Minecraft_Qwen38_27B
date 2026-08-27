@@ -686,46 +686,27 @@ Voxel.Game = (function () {
     }
   }
 
-  // 在限定范围内寻找目标群系的最佳出生列：按邻域同群系占比评分。
-  // windowed=true 只扫 20..235 主活动窗；'wide' 扫原点周围 ±520 的流式范围
-  // （第 23 轮气候降频后群系单元更大，稀有群系可能整体落在旧核心之外）。
-  // 评分走零成本气候探针（Voxel.World.climateAt），最终对胜出列做真实
+  // 在限定范围内寻找目标群系的最佳出生列（核心算法在 Voxel.Biomes.pickSpawnColumn，
+  // 纯逻辑可 Node 测试）。windowed=true 只扫 20..235 主活动窗；'wide' 扫原点周围
+  // ±520 的流式范围（第 23 轮气候降频后群系单元更大，稀有群系可能整体落在旧核心
+  // 之外）。评分走零成本气候探针（Voxel.World.climateAt），最终对胜出列做真实
   // biomeAt 复核——v1 行星规则改写群系时探针可能失准，靠终验兜底。
-  function findFeaturedSpot(want, step, windowed) {
+  // dry=true 额外要求胜出列是干燥陆地：纯气候定群系的生成器会把整片群系沉到
+  // 水位之下（标签对但只有海床），不校验会让玩家出生在海里且看不到该群系地貌。
+  function findFeaturedSpot(want, step, windowed, dry) {
     var wide = windowed === 'wide';
-    var x0 = wide ? -520 : (windowed ? 20 : 0);
-    var x1 = wide ? 519 : (windowed ? 235 : 255);
-    var canProbe = typeof Voxel.World.climateAt === 'function' &&
-      Voxel.Biomes && typeof Voxel.Biomes.pick === 'function';
-    var probe = canProbe ? function (x, z) {
-      var cl = Voxel.World.climateAt(x, z);
-      return cl ? Voxel.Biomes.pick(cl) : Voxel.World.biomeAt(x, z);
-    } : Voxel.World.biomeAt;
-    var top = null;
-    function offer(cand) {
-      var prev = null, cur = top, n = 0;
-      while (cur && cur.score >= cand.score && n < 3) { prev = cur; cur = cur.next; n++; }
-      if (n >= 3) return;
-      cand.next = cur;
-      if (prev) prev.next = cand; else top = cand;
-      var tail = top, cnt = 1;
-      while (tail.next) { if (++cnt >= 3) { tail.next = null; break; } tail = tail.next; }
-    }
-    for (var x = x0; x <= x1; x += step) {
-      for (var z = x0; z <= x1; z += step) {
-        if (probe(x, z) !== want) continue;
-        var same = 0, total = 0;
-        for (var dx = -16; dx <= 16; dx += 8)
-          for (var dz = -16; dz <= 16; dz += 8) {
-            total++;
-            if (probe(x + dx, z + dz) === want) same++;
-          }
-        offer({ score: same / total, x: x, z: z, next: null });
-      }
-    }
-    for (var c = top; c; c = c.next)
-      if (Voxel.World.biomeAt(c.x, c.z) === want) return { x: c.x, z: c.z };
-    return null;
+    return Voxel.Biomes.pickSpawnColumn({
+      climateAt: Voxel.World.climateAt,
+      pick: Voxel.Biomes.pick,
+      biomeAt: Voxel.World.biomeAt,
+      surfaceAt: Voxel.World.surfaceAt,
+      predictedHeightAt: Voxel.World.predictedHeightAt
+    }, want, {
+      step: step,
+      x0: wide ? -520 : (windowed ? 20 : 0),
+      x1: wide ? 519 : (windowed ? 235 : 255),
+      dry: dry === true
+    });
   }
 
   // 精选世界：生成完成后把玩家放到目标群系。宽域兜底可能落在旧核心
@@ -736,9 +717,11 @@ Voxel.Game = (function () {
       spot = { x: 128, z: 128 };
     } else {
       var want = Voxel.Biomes.B[w.biome];
-      spot = findFeaturedSpot(want, 4, true) ||
-        (!Voxel.World.climateAt ? findFeaturedSpot(want, 2, false) : null) ||
-        findFeaturedSpot(want, 4, 'wide');
+      // 海洋卡片本来就该落在水面，关闭干地校验；其余群系必须踩得到陆地。
+      var dryGround = w.biome !== 'OCEAN';
+      spot = findFeaturedSpot(want, 4, true, dryGround) ||
+        (!Voxel.World.climateAt ? findFeaturedSpot(want, 2, false, dryGround) : null) ||
+        findFeaturedSpot(want, 4, 'wide', dryGround);
     }
     if (!spot) spot = { x: 128, z: 128 };
     var sy = Voxel.World.surfaceAt(spot.x, spot.z);

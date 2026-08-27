@@ -239,7 +239,7 @@ js/
 │   ├── noise.js      Improved Perlin 梯度噪声 + Octave 叠加（盐化流，含气候通道）
 │   ├── universe.js   无限宇宙：银河→恒星系→行星四级地址派生 + 曲速电池成本（纯逻辑）
 │   ├── galaxy.js     恒星系目录/门户网络/跨系跳跃计划/档案桶 LRU（纯逻辑，可 Node 测试）
-│   ├── biomes.js     生物群系注册表 + MultiNoise 五维气候最近邻选择（纯逻辑，可 Node 测试）
+│   ├── biomes.js     生物群系注册表 + MultiNoise 五维气候最近邻选择 + 精选出生列干地搜索（纯逻辑，可 Node 测试）
 │   ├── shaper.js     样条地形塑造 + 3D 密度场插值单元 + 意面/奶酪洞穴
 │   ├── world.js      legacy core / 空间站有限世界数据与生成
 │   ├── infinite.js   行星无限 X/Z facade、稀疏区块流送/卸载、外围地形与跨区块光照

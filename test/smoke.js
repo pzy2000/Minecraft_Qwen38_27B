@@ -933,6 +933,63 @@ console.log('  出现群系数: ' + kinds + ' -> ' +
 check('至少出现 4 种群系', kinds >= 4);
 check('群系 ID 均在注册表内', Object.keys(biomeSeen).every(function (k) { return +k >= 0 && +k < V.Biomes.count; }));
 
+console.log('精选世界出生点（干地校验，复现蘑菇林沉海回归）');
+(function () {
+  // 精选卡片进入的是 lush v2 行星（与 startFeatured 钉种子后的目录一致）
+  V.World.init(12345, { kind: 'planet', typeKey: 'lush', terrainVersion: 2 });
+  var Bn = V.Biomes.B;
+  function featuredApi() {
+    return {
+      climateAt: V.World.climateAt,
+      pick: V.Biomes.pick,
+      biomeAt: V.World.biomeAt,
+      surfaceAt: V.World.surfaceAt,
+      predictedHeightAt: V.World.predictedHeightAt
+    };
+  }
+  function wideDry(wantId) {
+    return V.Biomes.pickSpawnColumn(featuredApi(), wantId,
+      { step: 4, x0: -520, x1: 519, dry: true });
+  }
+  var WATER = V.Config.WATER_LEVEL;
+  var mushSpot = wideDry(Bn.MUSHROOM_FIELDS);
+  check('蘑菇林在宽域内找到干地出生列', !!mushSpot);
+  if (mushSpot) {
+    console.log('  蘑菇林胜出列 ' + mushSpot.x + ',' + mushSpot.z);
+    check('蘑菇林胜出列真实群系一致',
+      V.World.biomeAt(mushSpot.x, mushSpot.z) === Bn.MUSHROOM_FIELDS);
+    var mSy = V.World.surfaceAt(mushSpot.x, mushSpot.z);
+    check('蘑菇林胜出列高于水位', mSy > WATER + 2);
+    check('蘑菇林胜出列地表是菌丝体', V.World.get(mushSpot.x, mSy, mushSpot.z) === 53);
+  }
+  var darkSpot = wideDry(Bn.DARK_FOREST);
+  if (darkSpot) {
+    var dSy = V.World.surfaceAt(darkSpot.x, darkSpot.z);
+    check('黑森林胜出列高于滩涂沙层线', dSy > WATER + 2 &&
+      V.World.biomeAt(darkSpot.x, darkSpot.z) === Bn.DARK_FOREST);
+  }
+  // 海洋卡片：dry 关闭，本就应落在水面之下
+  var oceanSpot = V.Biomes.pickSpawnColumn(featuredApi(), Bn.OCEAN,
+    { step: 4, x0: -520, x1: 519, dry: false });
+  check('海洋卡片仍落在水面以下', !!oceanSpot &&
+    V.World.biomeAt(oceanSpot.x, oceanSpot.z) === Bn.OCEAN &&
+    V.World.surfaceAt(oceanSpot.x, oceanSpot.z) <= WATER);
+  // 确定性：两次调用逐位一致
+  var again = wideDry(Bn.MUSHROOM_FIELDS);
+  check('精选选点确定性复现', JSON.stringify(again) === JSON.stringify(mushSpot));
+  // 降级契约：api 缺少 predictedHeightAt/surfaceAt 时退化为旧行为，仍能返回
+  // 群系匹配的列（只按标签评分），而不是 null
+  var legacyApi = {
+    climateAt: V.World.climateAt,
+    pick: V.Biomes.pick,
+    biomeAt: V.World.biomeAt
+  };
+  var degraded = V.Biomes.pickSpawnColumn(legacyApi, Bn.MUSHROOM_FIELDS,
+    { step: 4, x0: -520, x1: 519 });
+  check('缺干地探针时退化为旧评分行为', !!degraded &&
+    V.World.biomeAt(degraded.x, degraded.z) === Bn.MUSHROOM_FIELDS);
+})();
+
 console.log('修改与存档还原');
 var sp = V.World.spawnPoint();
 var bx = Math.floor(sp.x), by = Math.floor(sp.y), bz = Math.floor(sp.z);

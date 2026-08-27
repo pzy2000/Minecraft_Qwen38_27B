@@ -969,6 +969,12 @@ Voxel.World = (function () {
     climateAt: function (x, z) {
       return climateAt ? climateAt(x + 0.5, z + 0.5) : null;
     },
+    // 零成本地表预测（样条目标高度，不生成区块）：供出生点/取景搜索区分
+    // 陆地与海床。真实地表含 3D 变形与洞穴差异，只做过滤不做精确落点。
+    predictedHeightAt: function (x, z) {
+      var cl = climateAt ? climateAt(x + 0.5, z + 0.5) : null;
+      return cl ? shaper.targetHeight(x + 0.5, z + 0.5, cl) : -1;
+    },
     spawnPoint: spawnPoint,
     applyEdits: applyEdits,
     // 光照接口
