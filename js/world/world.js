@@ -330,6 +330,15 @@ Voxel.World = (function () {
   }
 
   // 空间站使用同一体素/网格管线生成可行走的轨道平台，外围保持真空。
+  // 阿特拉斯视觉重构：同心环构图 —— 中央泊位广场、十字引导走廊、环形光缝
+  // 步道、警示环带、外圈舷窗护栏墙与四角信标塔，取代旧的散乱火把像素。
+  // 全部由 noise 哈希确定性生成；硬约束保持不变：六个门户 pad 及其偏移搜索
+  // 区上空无遮挡、中心 dock 与北侧终端走廊畅通、甲板行走面仍在 y=23。
+  var STATION_PAD_MARKS = [
+    [-24, 0], [24, 0], [-20, 16], [20, 16], [-12, 24], [12, 24]
+  ];
+  var STATION_TOWER_POS = [[13, 13], [-13, 13], [13, -13], [-13, -13]];
+
   function generateStationColumn(x, z, ci) {
     var cx = W >> 1, cz = D >> 1, dx = x - cx, dz = z - cz;
     var d2 = dx * dx + dz * dz;
@@ -337,16 +346,67 @@ Voxel.World = (function () {
     biomes[ci] = Voxel.Biomes.B.STONY_PEAKS;
     heights[ci] = -1;
     if (d2 > 32 * 32) return;
-    data[idx(x, deck - 1, z)] = 12;
-    data[idx(x, deck, z)] = ((Math.abs(dx) + Math.abs(dz)) % 8 < 2 || d2 > 27 * 27) ? 13 : 3;
+    var adx = Math.abs(dx), adz = Math.abs(dz);
+
+    // 承重底盘：全盘深空装甲底板，外缘两级裙边（飞船绕飞时可见结构厚度）。
+    data[idx(x, deck - 1, z)] = 66;
+    if (d2 > 25 * 25) data[idx(x, deck - 2, z)] = 66;
+
+    // ---- 外圈护栏墙（r≈29.5..32）：舷窗玻璃段与辉光饰条交替，十字开口 ----
+    if (d2 > 29.5 * 29.5) {
+      if (adx > 2 && adz > 2) {
+        data[idx(x, deck + 1, z)] = noise.hash2(x, z) < 0.42 ? 65 : 64;
+        heights[ci] = deck + 1;
+      }
+      data[idx(x, deck, z)] = 66;
+      return;
+    }
+
+    var r = Math.sqrt(d2);
+    var h2 = noise.hash2(x, z);
+    var floorId;
+
+    // ---- 地面分区：广场 / 步道 / 外场坪 ----
+    if (r <= 7) {
+      // 中央泊位广场：舱壁板地面，辉光饰条同心勾边。
+      floorId = r > 6 ? 64 : 60;
+    } else if (adz <= 2 || adx <= 2) {
+      // 十字走廊：中线琥珀虚线引导，边线格栅排布。
+      if ((adz === 0 && (x % 4) < 2) || (adx === 0 && (z % 4) < 2)) floorId = 63;
+      else if ((adz === 2 || adx === 2) && ((adz === 2 ? x : z) % 4) === 0) floorId = 61;
+      else floorId = 60;
+    } else if (r <= 27) {
+      // 环形步道：舱壁板/格栅哈希混铺，r≈21 一圈棋盘式嵌入式光缝。
+      if (d2 >= 441 && d2 < 484) floorId = (((x + z) & 1) === 0) ? 62 : 60;
+      else floorId = h2 < 0.34 ? 61 : 60;
+    } else {
+      // 外场坪：深空装甲，r≈28.5 警示环收边。
+      floorId = (d2 > 812 && d2 <= 852) ? 63 : (h2 < 0.16 ? 61 : 66);
+    }
+    data[idx(x, deck, z)] = floorId;
     heights[ci] = deck;
-    // 发光跑道与四角停机坪（火把作为无碰撞发光像素）。
-    if ((Math.abs(dx) <= 2 || Math.abs(dz) <= 2) && (Math.abs(dx + dz) % 7 === 0))
-      data[idx(x, deck + 1, z)] = 19;
-    // 外圈护栏，留出四个通道。
-    if (d2 > 28 * 28 && d2 <= 31 * 31 && Math.abs(dx) > 4 && Math.abs(dz) > 4) {
-      data[idx(x, deck + 1, z)] = 13;
-      heights[ci] = deck + 1;
+
+    // ---- 四角信标塔：深空装甲双层塔身 + 光缝灯帽 ----
+    for (var t = 0; t < 4; t++) {
+      var tw = STATION_TOWER_POS[t];
+      if (Math.abs(dx - tw[0]) <= 1 && Math.abs(dz - tw[1]) <= 1) {
+        data[idx(x, deck, z)] = 66;
+        data[idx(x, deck + 1, z)] = 66;
+        data[idx(x, deck + 2, z)] = 62;
+        heights[ci] = deck + 2;
+        break;
+      }
+    }
+
+    // ---- 泊位警示框：环绕六个固定 pad 的双格琥珀描边 ----
+    for (var p = 0; p < STATION_PAD_MARKS.length; p++) {
+      var pd = STATION_PAD_MARKS[p];
+      var cheb = Math.max(Math.abs(dx - pd[0]), Math.abs(dz - pd[1]));
+      if (cheb >= 1 && cheb <= 2) {
+        data[idx(x, deck, z)] = 63;
+        heights[ci] = deck;
+        break;
+      }
     }
   }
 

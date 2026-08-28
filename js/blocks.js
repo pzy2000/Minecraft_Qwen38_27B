@@ -33,7 +33,9 @@ Voxel.Blocks = (function () {
     RUIN_BRICK_MOSSY: 82, DEAD_LOG_SIDE: 83, DEAD_LOG_TOP: 84,
     MYCELIUM_TOP: 85, MYCELIUM_SIDE: 86, MUSHROOM_STEM: 87,
     MUSHROOM_CAP_RED: 88, MUSHROOM_CAP_BROWN: 89,
-    CHERRY_LOG_SIDE: 90, CHERRY_LOG_TOP: 91, CHERRY_LEAVES: 92, DARK_LEAVES: 93
+    CHERRY_LOG_SIDE: 90, CHERRY_LOG_TOP: 91, CHERRY_LEAVES: 92, DARK_LEAVES: 93,
+    STATION_HULL: 94, STATION_GRATE: 95, STATION_SEAM: 96, STATION_HAZARD: 97,
+    STATION_TRIM: 98, STATION_PORT: 99, STATION_DARK: 100
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -153,6 +155,31 @@ Voxel.Blocks = (function () {
   defs[59] = { name: '暗色树叶', solid: true, opaque: true, leaves: true,
     tiles: [T.DARK_LEAVES, T.DARK_LEAVES, T.DARK_LEAVES], sound: 'leaves',
     color: 0x2a462c, hard: 0.35 };
+
+  // ---- 阿特拉斯轨道空间站舱段方块（稳定方块 ID 60..66）----
+  // 只在注册表尾部追加，不得复用/移动旧 ID；仅 station 世界自然生成，
+  // 行星地形逐位不变，旧存档安全。
+  defs[60] = { name: '舱壁板', solid: true, opaque: true,
+    tiles: [T.STATION_HULL, T.STATION_HULL, T.STATION_HULL], sound: 'stone',
+    color: 0x9aa7b8, hard: 3.5, pick: true };
+  defs[61] = { name: '格栅甲板', solid: true, opaque: true,
+    tiles: [T.STATION_GRATE, T.STATION_GRATE, T.STATION_GRATE], sound: 'stone',
+    color: 0x46536b, hard: 3, pick: true };
+  defs[62] = { name: '光缝灯带', solid: true, opaque: true,
+    tiles: [T.STATION_SEAM, T.STATION_SEAM, T.STATION_SEAM], sound: 'glass', light: 12,
+    color: 0x6fe8ff, hard: 0.8 };
+  defs[63] = { name: '警示条纹', solid: true, opaque: true,
+    tiles: [T.STATION_HAZARD, T.STATION_HAZARD, T.STATION_HAZARD], sound: 'stone',
+    color: 0xd99a2b, hard: 3, pick: true };
+  defs[64] = { name: '辉光饰条', solid: true, opaque: true,
+    tiles: [T.STATION_TRIM, T.STATION_TRIM, T.STATION_TRIM], sound: 'glass', light: 7,
+    color: 0x57d8f2, hard: 3, pick: true };
+  defs[65] = { name: '舷窗玻璃', solid: true, opaque: false,
+    tiles: [T.STATION_PORT, T.STATION_PORT, T.STATION_PORT], sound: 'glass',
+    color: 0x8fd4e0, hard: 0.6 };
+  defs[66] = { name: '深空装甲', solid: true, opaque: true,
+    tiles: [T.STATION_DARK, T.STATION_DARK, T.STATION_DARK], sound: 'stone',
+    color: 0x2b3448, hard: 4.5, pick: true };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -911,6 +938,98 @@ Voxel.Blocks = (function () {
       if (r() < 0.14) return [16 + r() * 10, 36 + r() * 12, 16 + r() * 8];
       var v = n(r, 0, 22);
       return [44 + v * 0.6, 78 + v, 42 + v * 0.6];
+    });
+
+    // ---- 阿特拉斯空间站舱段方块纹理 ----
+    // 统一深空蓝灰合金基底：青色=功能发光，琥珀=警示，克制不撞色。
+
+    // 舱壁板：浅灰蓝大面板 + 板缝 + 铆钉 + 细拉丝
+    drawTile(T.STATION_HULL, function (x, y, r) {
+      var lx = x % 8, ly = y % 8;
+      if (lx === 0 || ly === 0) {                                   // 面板缝
+        var sv = n(r, 0, 10);
+        return [96 + sv, 106 + sv, 122 + sv];
+      }
+      if ((lx === 1 || lx === 6) && (ly === 1 || ly === 6))         // 角铆钉
+        return [112, 120, 136];
+      var v = n(r, 0, 18);
+      var base = ((x * 3 + y) % 11 === 0) ? 138 : 150;              // 拉丝暗线
+      return [base + v, base + 7 + v, base + 17 + v];
+    });
+
+    // 格栅甲板：暗色承重肋 + 方形漏空格
+    drawTile(T.STATION_GRATE, function (x, y, r) {
+      var v = n(r, 0, 12);
+      if (x % 4 === 0 || y % 4 === 0)                               // 肋条
+        return [84 + v * 0.5, 94 + v * 0.5, 114 + v * 0.5];
+      var hole = [40 + v * 0.3, 47 + v * 0.3, 62 + v * 0.4];        // 格眼
+      return hole;
+    });
+
+    // 光缝灯带：深色舱壳嵌中央十字发光缝，核心越靠中心越亮
+    drawTile(T.STATION_SEAM, function (x, y, r) {
+      var bandX = x >= 6 && x <= 9, bandY = y >= 6 && y <= 9;
+      if (bandX && bandY) return [228, 255, 255];                   // 十字核心
+      if (bandX || bandY) {
+        var edge = bandX ? Math.abs(x - 7.5) : Math.abs(y - 7.5);   // 向缝缘衰减
+        var glow = 1 - edge / 2.5;
+        var v = n(r, 0, 8);
+        return [90 + glow * 130 + v, 200 + glow * 55 + v, 235 + v];
+      }
+      var hv = n(r, 0, 8);
+      return [30 + hv, 37 + hv, 52 + hv];                           // 舱壳
+    });
+
+    // 警示条纹：琥珀/炭黑 45° 斜纹 + 磨损斑点
+    drawTile(T.STATION_HAZARD, function (x, y, r) {
+      var stripe = (((x + y) % 8) + 8) % 8 < 4;
+      var v = n(r, 0, 16);
+      if (!stripe && r() < 0.08) return [92 + v, 78 + v, 48 + v];   // 掉漆
+      return stripe ? [212 + v * 0.6, 148 + v * 0.6, 52 + v * 0.4]
+                    : [42 + v * 0.3, 44 + v * 0.3, 50 + v * 0.3];
+    });
+
+    // 辉光饰条：深海军蓝护墙基座 + 上下青色霓虹压线
+    drawTile(T.STATION_TRIM, function (x, y, r) {
+      var v = n(r, 0, 10);
+      if (y <= 1 || y >= 14) {
+        var bright = (y === 0 || y === 15);
+        return bright ? [128, 226, 246] : [70, 168, 196];           // 压线双行
+      }
+      if (x % 4 < 2) return [27 + v, 36 + v, 56 + v];               // 海军蓝细条纹
+      return [34 + v, 45 + v, 68 + v];
+    });
+
+    // 舷窗玻璃：厚金属法兰圈 + 圆形观察窗，窗内青蓝渐变与斜高光
+    drawTile(T.STATION_PORT, function (x, y, r) {
+      var dx = x - 7.5, dy = y - 7.5;
+      var d2 = dx * dx + dy * dy;
+      if (d2 <= 29) {                                               // 窗内玻璃
+        var depth = (dx * 0.55 - dy * 0.5) / 6;                     // 左上亮右下暗
+        var v = n(r, 0, 10);
+        var hi = (Math.abs(dx * 0.7 + dy * 0.7 + 3) < 1.2) ? 26 : 0; // 斜高光
+        return [96 + depth * 40 + hi + v, 176 + depth * 26 + hi + v, 208 + depth * 20 + hi + v];
+      }
+      if (d2 <= 50) return [24, 28, 42];                            // 密封圈
+      if (d2 <= 66) {                                               // 法兰环
+        var fv = n(r, 0, 14);
+        return [104 + fv, 116 + fv, 138 + fv];
+      }
+      if ((x === 1 || x === 14) && (y === 1 || y === 14))           // 角螺栓
+        return [132, 142, 160];
+      var bv = n(r, 0, 8);
+      return [46 + bv, 54 + bv, 72 + bv];                           // 舱壳底
+    });
+
+    // 深空装甲：近黑装甲板 + 对角焊接纹 + 稀疏铆点
+    drawTile(T.STATION_DARK, function (x, y, r) {
+      var weld = (((x + y) % 16) + 16) % 16 < 2;
+      var v = n(r, 0, 10);
+      if (weld) return [58 + v, 70 + v, 94 + v];                    // 焊缝
+      if ((x * 5 + y * 3) % 23 === 0) return [74, 86, 110];         // 铆点
+      var band = (y % 8 === 3);
+      if (band) return [30 + v * 0.4, 38 + v * 0.4, 56 + v * 0.4];  // 层间阴影
+      return [39 + v, 48 + v, 66 + v];
     });
 
     ctx.putImageData(img, 0, 0);

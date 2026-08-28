@@ -851,6 +851,63 @@ Voxel.SpaceTravel = (function () {
     return mesh;
   }
 
+  // 阿特拉斯轨道空间站统一色板：蓝灰合金分层读形，青色只做功能发光，
+  // 琥珀只做警示/导航灯，品红仅保留给慢速信标脉冲。
+  var STATION_PALETTE = {
+    deep: 0x232c44,      // 深空合金：底座/塔肩/设备箱
+    mid: 0x4d5f85,       // 中层装甲
+    cyan: 0x6fe0ff,      // 功能发光（屏幕/灯带）
+    cyanDim: 0x1b5a70,   // 描边暗态
+    amber: 0xffb356,     // 导航灯
+    beacon: 0xd46bff     // 慢速信标专属
+  };
+
+  function stationMaterial(color, options) {
+    options = options || {};
+    return track('materials', new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color),
+      fog: options.fog !== false,
+      transparent: !!options.transparent,
+      opacity: options.opacity === undefined ? 1 : options.opacity,
+      depthWrite: options.depthWrite === undefined ? true : !!options.depthWrite,
+      blending: options.blending
+    }));
+  }
+
+  // 把一组轴对齐盒子（可绕Y预旋转）合并成单个 BufferGeometry：
+  // MeshBasicMaterial 不读取法线/UV，只拷贝 position + index 即可；
+  // 合并后的几何进 GPU 账本，临时 scratch 几何立即释放不进账本。
+  function boxClusterGeometry(parts) {
+    var vertCount = parts.length * 24;              // BoxGeometry 恒为 24 顶点 36 索引
+    var IndexArray = vertCount > 65535 ? Uint32Array : Uint16Array;
+    var pos = new Float32Array(vertCount * 3);
+    var idx = new IndexArray(parts.length * 36);
+    var vertexOffset = 0;
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i];
+      var scratch = new THREE.BoxGeometry(part.s[0], part.s[1], part.s[2]);
+      if (part.r) scratch.rotateY(part.r);
+      scratch.translate(part.p[0], part.p[1], part.p[2]);
+      pos.set(scratch.attributes.position.array, vertexOffset * 3);
+      var src = scratch.index.array;
+      for (var k = 0; k < src.length; k++) idx[i * 36 + k] = src[k] + vertexOffset;
+      vertexOffset += 24;
+      scratch.dispose();
+    }
+    var out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    out.setIndex(new THREE.BufferAttribute(idx, 1));
+    return track('geometries', out);
+  }
+
+  function cluster(parent, parts, material, role) {
+    var mesh = new THREE.Mesh(boxClusterGeometry(parts), material);
+    setRole(mesh, role || 'structure');
+    mesh.name = 'SpaceTravel_' + (role || 'structure');
+    parent.add(mesh);
+    return mesh;
+  }
+
   function safeSurface(x, z) {
     var best = null;
     var finiteStation = !!world && world.kind === 'station';
@@ -1249,36 +1306,85 @@ Voxel.SpaceTravel = (function () {
     var g = setRole(new THREE.Group(), 'station-hub-root');
     g.name = 'StationTerminalHub';
     // 高塔负责远距离识别；抵达点位于其南侧，不再出生在不参与碰撞的装饰盒内部。
-    box(g, [8, 1, 8], [0, 0.5, 0], 0x202c43, null, 'station-terminal-base');
-    box(g, [5.5, 0.35, 5.5], [0, 1.15, 0], 0x39d8f2, 0x126b7d, 'station-terminal-glow');
-    box(g, [3.2, 4.8, 3.2], [0, 3.4, 0], 0x263c59, null, 'station-terminal');
-    // 显示面朝南方抵达点（+Z）。
-    box(g, [3.35, 1.4, 0.24], [0, 3.7, 1.72], 0x75f5ff, 0x176b88,
-      'station-terminal-screen', { transparent: true, opacity: 0.78, depthWrite: false });
-    box(g, [1.3, 6.8, 1.3], [0, 8.5, 0], 0x4b5b7c, null, 'station-mast');
-    box(g, [0.55, 3.6, 0.55], [0, 13.6, 0], 0xf16dff, 0x7b2488,
-      'station-beacon', { transparent: true, opacity: 0.9, depthWrite: false });
-    for (var i = 0; i < 4; i++) {
-      var a = i * Math.PI / 2 + Math.PI / 4;
-      var px = Math.cos(a) * 10, pz = Math.sin(a) * 10;
-      box(g, [1.1, 4.2, 1.1], [px, 2.1, pz], 0x354867, null,
-        'station-pylon', { detail: 'pylon-' + i });
-      box(g, [1.45, 0.45, 1.45], [px, 4.45, pz], i % 2 ? 0xf16dff : 0x53e8ff,
-        i % 2 ? 0x6b236f : 0x176b88, 'navigation-light', {
-          detail: 'pylon-' + i, transparent: true, opacity: 0.88, depthWrite: false
-        });
-    }
+    // 阿特拉斯 v2 造型：阶梯基座 → 分层塔身 → 桅杆/通讯环 → 信标，全部合批，
+    // 大幅减少 drawable 数量的同时用色块分层与发光灯带补足形体可读性。
+    var P = STATION_PALETTE;
+
+    // ---- 基座：深空合金阶梯 + 四角设备箱（deep），中层装甲过渡（mid）----
+    cluster(g, [
+      { s: [11, 0.5, 11], p: [0, 0.25, 0] },
+      { s: [8.6, 0.55, 8.6], p: [0, 0.78, 0] },
+      { s: [1.5, 1.2, 1.5], p: [-2.8, 1.65, -2.8] },
+      { s: [1.5, 1.2, 1.5], p: [2.8, 1.65, -2.8] },
+      { s: [1.5, 1.2, 1.5], p: [-2.8, 1.65, 2.8] },
+      { s: [1.5, 1.2, 1.5], p: [2.8, 1.65, 2.8] },
+      { s: [3.98, 0.42, 3.98], p: [0, 5.06, 0] },
+      { s: [2.55, 0.5, 2.55], p: [0, 7.32, 0] },
+      { s: [1.5, 2.2, 0.3], p: [0, 1.65, 1.85] },
+      { s: [0.95, 4.3, 0.95], p: [-10 * 0.7071, 2.15, -10 * 0.7071] },
+      { s: [0.95, 4.3, 0.95], p: [10 * 0.7071, 2.15, -10 * 0.7071] },
+      { s: [0.95, 4.3, 0.95], p: [-10 * 0.7071, 2.15, 10 * 0.7071] },
+      { s: [0.95, 4.3, 0.95], p: [10 * 0.7071, 2.15, 10 * 0.7071] },
+      { s: [1.25, 0.25, 1.25], p: [-10 * 0.7071, 0.12, -10 * 0.7071] },
+      { s: [1.25, 0.25, 1.25], p: [10 * 0.7071, 0.12, -10 * 0.7071] },
+      { s: [1.25, 0.25, 1.25], p: [-10 * 0.7071, 0.12, 10 * 0.7071] },
+      { s: [1.25, 0.25, 1.25], p: [10 * 0.7071, 0.12, 10 * 0.7071] }
+    ], stationMaterial(P.deep), 'station-terminal-base');
+
+    cluster(g, [
+      { s: [6.4, 0.62, 6.4], p: [0, 1.36, 0] },
+      { s: [5.4, 0.9, 5.4], p: [0, 2.05, 0] },
+      { s: [3.4, 2.3, 3.4], p: [0, 3.7, 0] },
+      { s: [3.05, 1.8, 3.05], p: [0, 6.17, 0] }
+    ], stationMaterial(P.mid), 'station-terminal');
+
+    // ---- 发光灯带：基座边线、塔角竖缝、门楣、顶盖压线（单网格青光）----
+    cluster(g, [
+      { s: [8.72, 0.13, 0.13], p: [0, 1.06, 4.29] },
+      { s: [8.72, 0.13, 0.13], p: [0, 1.06, -4.29] },
+      { s: [0.13, 0.13, 8.72], p: [4.29, 1.06, 0] },
+      { s: [0.13, 0.13, 8.72], p: [-4.29, 1.06, 0] },
+      { s: [0.14, 2.2, 0.14], p: [-1.58, 3.7, -1.58] },
+      { s: [0.14, 2.2, 0.14], p: [1.58, 3.7, -1.58] },
+      { s: [0.14, 2.2, 0.14], p: [-1.58, 3.7, 1.58] },
+      { s: [0.14, 2.2, 0.14], p: [1.58, 3.7, 1.58] },
+      { s: [2.9, 0.12, 0.09], p: [0, 4.62, 1.76] },
+      { s: [1.9, 0.12, 0.09], p: [0, 0.62, 2.02] },
+      { s: [2.66, 0.12, 2.66], p: [0, 7.6, 0] }
+    ], stationMaterial(P.cyanDim), 'station-lightstrip');
+
+    // 显示面朝南方抵达点（+Z）；测试语义角色名保持不变。
+    box(g, [2.5, 1.1, 0.22], [0, 5.9, 1.64], P.cyan, null,
+      'station-terminal-screen', { transparent: true, opacity: 0.82, depthWrite: false });
+
+    // ---- 桅杆 + 通讯环 + 信标 ----
+    cluster(g, [
+      { s: [0.34, 4.6, 0.34], p: [0, 9.85, 0] },
+      { s: [1.7, 0.18, 0.18], p: [0, 11.6, 0] },
+      { s: [0.16, 0.5, 0.16], p: [0, 12.45, 0] },
+      { s: [0.9, 0.22, 0.9], p: [0, 7.68, 0] }
+    ], stationMaterial(P.deep), 'station-mast');
     var ring = setRole(new THREE.Mesh(
-      track('geometries', new THREE.TorusGeometry(2.25, 0.12, 4, 16)),
-      track('materials', new THREE.MeshBasicMaterial({
-        color: 0x75f5ff, transparent: true, opacity: 0.72,
-        depthWrite: false, blending: THREE.AdditiveBlending
-      }))
+      track('geometries', new THREE.TorusGeometry(0.95, 0.07, 4, 14)),
+      stationMaterial(P.cyan, { transparent: true, opacity: 0.72, depthWrite: false })
     ), 'station-ring');
-    ring.position.set(0, 7.2, 0);
-    ring.rotation.x = 0.38;
+    ring.name = 'SpaceTravel_station-ring';
+    ring.position.set(0, 10.7, 0);
+    ring.rotation.x = 0.5;
     g.add(ring);
-    animatedRings.push({ mesh: ring, phase: 0.35, rate: 0.34, tiltX: 0.38 });
+    animatedRings.push({ mesh: ring, phase: 0.35, rate: 0.34, tiltX: 0.5 });
+    var beacon = box(g, [0.26, 1.7, 0.26], [0, 13.3, 0], P.beacon, null,
+      'station-beacon', { transparent: true, opacity: 0.8, depthWrite: false });
+    g.userData.beacon = beacon;
+
+    // ---- 信标塔灯帽：琥珀导航灯四盏合一 ----
+    cluster(g, [
+      { s: [1.06, 0.3, 1.06], p: [-10 * 0.7071, 4.42, -10 * 0.7071] },
+      { s: [1.06, 0.3, 1.06], p: [10 * 0.7071, 4.42, -10 * 0.7071] },
+      { s: [1.06, 0.3, 1.06], p: [-10 * 0.7071, 4.42, 10 * 0.7071] },
+      { s: [1.06, 0.3, 1.06], p: [10 * 0.7071, 4.42, 10 * 0.7071] }
+    ], stationMaterial(P.amber, { transparent: true, opacity: 0.92, depthWrite: false }),
+      'navigation-light');
     // 深空星场、远方母星与星环由 Atmosphere 单点拥有；这里仅生成空间站建筑，
     // 避免与全局天空叠加第二套不跟随相机的 Points。
     return g;
@@ -1287,31 +1393,34 @@ Voxel.SpaceTravel = (function () {
   function makeStationDock() {
     var g = setRole(new THREE.Group(), 'station-dock-root');
     g.name = 'StationArrivalDock';
+    var P = STATION_PALETTE;
+    // 下沉式泊位标记环：平面光环取代旧高段圆管，三角数减半以上。
     var ring = setRole(new THREE.Mesh(
-      track('geometries', new THREE.TorusGeometry(3.15, 0.1, 4, 24)),
-      track('materials', new THREE.MeshBasicMaterial({
-        color: 0x53e8ff, transparent: true, opacity: 0.7,
-        depthWrite: false, blending: THREE.AdditiveBlending
-      }))
+      track('geometries', new THREE.RingGeometry(2.7, 3.35, 20)),
+      stationMaterial(0x53e8ff, {
+        transparent: true, opacity: 0.75, depthWrite: false,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+      })
     ), 'dock-beacon');
-    ring.position.y = 0.18;
-    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.16;
+    ring.rotation.x = -Math.PI / 2;
     g.add(ring);
-    box(g, [0.38, 3.2, 0.38], [-3.2, 1.6, -5.0], 0x354867, null,
-      'dock-arch', { detail: 'left' });
-    box(g, [0.38, 3.2, 0.38], [3.2, 1.6, -5.0], 0x354867, null,
-      'dock-arch', { detail: 'right' });
-    box(g, [6.75, 0.34, 0.42], [0, 3.25, -5.0], 0x53e8ff, 0x176b88,
-      'dock-arch', { detail: 'header', transparent: true, opacity: 0.9, depthWrite: false });
-    [-2.5, -7.0, -11.0].forEach(function (z, row) {
-      [-1, 1].forEach(function (side) {
-        box(g, [0.42, 0.24, 0.42], [side * 2.15, 0.18, z], row % 2 ? 0xf16dff : 0x53e8ff,
-          row % 2 ? 0x6b236f : 0x176b88, 'navigation-light', {
-            detail: 'approach-' + row + '-' + side,
-            transparent: true, opacity: 0.9, depthWrite: false
-          });
-      });
-    });
+    // 泊位拱门与地面引导虚线（合批）。
+    cluster(g, [
+      { s: [0.42, 3.3, 0.42], p: [-3.3, 1.65, -5.0] },
+      { s: [0.42, 3.3, 0.42], p: [3.3, 1.65, -5.0] },
+      { s: [7.1, 0.4, 0.44], p: [0, 3.42, -5.0] },
+      { s: [0.62, 0.18, 0.62], p: [-3.3, 0.09, -5.0] },
+      { s: [0.62, 0.18, 0.62], p: [3.3, 0.09, -5.0] }
+    ], stationMaterial(STATION_PALETTE.deep), 'dock-arch');
+    cluster(g, [
+      { s: [6.7, 0.14, 0.14], p: [0, 3.2, -4.97] },
+      { s: [0.5, 0.08, 1.5], p: [0, 0.07, -2.5] },
+      { s: [0.5, 0.08, 1.5], p: [0, 0.07, -5.6] },
+      { s: [0.5, 0.08, 1.5], p: [0, 0.07, -8.7] },
+      { s: [0.5, 0.08, 1.5], p: [0, 0.07, -11.8] }
+    ], stationMaterial(P.cyanDim, { transparent: true, opacity: 0.88, depthWrite: false }),
+      'navigation-light');
     return g;
   }
 
@@ -1357,6 +1466,11 @@ Voxel.SpaceTravel = (function () {
         portal.userData.field.material.opacity = reducedMotion ? 0.22 :
           0.2 + Math.sin(now * 4 + portal.userData.spinPhase) * 0.05;
     }
+    // 空间站信标慢速脉冲；减少动态时保持恒定亮度不随时间漂移。
+    if (stationHub && stationHub.userData && stationHub.userData.beacon &&
+      stationHub.userData.beacon.material)
+      stationHub.userData.beacon.material.opacity = reducedMotion ? 0.8 :
+        0.58 + Math.sin(now * 2.6) * 0.26;
     var thrustLevel = flightState ? Math.min(1, Math.abs(flightState.throttle)) : 0;
     var enginePulse = reducedMotion ? 0.72 + thrustLevel * 0.24 :
       0.68 + thrustLevel * 0.22 + Math.sin(now * (5.2 + thrustLevel * 5)) * (0.08 + thrustLevel * 0.08);

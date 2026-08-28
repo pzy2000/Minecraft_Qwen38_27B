@@ -278,6 +278,9 @@ async function validatePngs(browser) {
     const s = Voxel.SpaceTravel.ship();
     Voxel.Player.pos().copy(s.position).add(new THREE.Vector3(0, 1, 1));
     Voxel.SpaceTravel.update(0.016);
+    // requestTravel('ship') 要求 isAboard()；脚本只把玩家挪到船边，必须先登舰。
+    if (!Voxel.SpaceTravel.isAboard() && !Voxel.SpaceTravel.boardShip())
+      throw new Error('固定截图无法登舰，跃迁前置条件不满足');
     Voxel.Game.openStarMap();
   });
   await sleep(100);

@@ -321,8 +321,11 @@
         JSON.stringify([[104.5,128.5],[152.5,128.5],[108.5,144.5],[148.5,144.5],[116.5,152.5],[140.5,152.5]]));
     check('空间站六门间距/AABB/保留区/面向dock全部安全',
       portalGeometryOK(stationSnap, fixture.player.toArray()));
+    // v2 阿特拉斯重构：hub/dock 合批后 drawable/材质反而下降（41/41），
+    // 但新增灯带与塔身分层使三角形升至约1580；上限按实测值有界上调至2000，
+    // 对任何目标GPU仍是极小常数，同时继续锁定"不得无界增长"。
     check('空间站对象预算有界', stationSnap.counts.drawables <= 55 &&
-      stationSnap.counts.triangles <= 1500 && stationSnap.counts.geometries <= 55 &&
+      stationSnap.counts.triangles <= 2000 && stationSnap.counts.geometries <= 55 &&
       stationSnap.counts.materials <= 55, JSON.stringify(stationSnap.counts));
     var stationLandmark = S.scanLandmark();
     check('scanLandmark使用移动后的真实终端坐标', stationLandmark &&
@@ -382,7 +385,7 @@
       var cycleSnap = S.visualSnapshot(), live = S.resourceStats();
       check('第' + (cycle + 1) + '次load单root/预算/账本', roots(scene).length === 1 &&
         cycleSnap.counts.drawables <= (useStation ? 55 : 40) &&
-        cycleSnap.counts.triangles <= (useStation ? 1500 : 1000) && resourcesBalanced(live));
+        cycleSnap.counts.triangles <= (useStation ? 2000 : 1000) && resourcesBalanced(live));
       S.clear();
       var cleared = S.resourceStats();
       check('第' + (cycle + 1) + '次clear唯一释放至零', roots(scene).length === 0 &&
