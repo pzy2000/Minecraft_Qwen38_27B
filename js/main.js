@@ -4419,6 +4419,8 @@ Voxel.Game = (function () {
         tickRegeneration(simulationDt);
         // 自动保存是基础设施墙钟，不因过载时主动丢弃模拟步而停止。
         tickAutosave(dt);
+        // 移动里程/群系踏入等环境观察在正常游玩时同样需要采样。
+        tickProgressObserver(dt);
       }
     }
 
