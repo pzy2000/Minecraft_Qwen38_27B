@@ -45,16 +45,16 @@ One universe seed recursively derives **infinite galaxies × infinite star syste
   </tr>
   <tr>
     <td align="center">
-      <img src="screenshots/biomes/jungle.png" alt="Jungle" />
-      <br /><sub>Jungle: towering 2×2 giant jungle trees</sub>
+      <img src="screenshots/biomes/mushroom-fields.png" alt="Mushroom fields" />
+      <br /><sub>Mushroom fields: mycelium ground with giant red/brown mushrooms</sub>
     </td>
     <td align="center">
-      <img src="screenshots/biomes/mountains.png" alt="Mountains" />
-      <br /><sub>Mountains: rocky peaks and exposed cliffs</sub>
+      <img src="screenshots/biomes/dark-forest.png" alt="Dark forest" />
+      <br /><sub>Dark forest: dense dark-leaf woods with mossy boulders</sub>
     </td>
     <td align="center">
-      <img src="screenshots/biomes/overview.png" alt="Overview" />
-      <br /><sub>Overview: natural biome transitions from above</sub>
+      <img src="screenshots/biomes/cherry-grove.png" alt="Cherry grove" />
+      <br /><sub>Cherry grove: leaning pink cherry blossom trees</sub>
     </td>
   </tr>
 </table>

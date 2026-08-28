@@ -39,8 +39,8 @@
 <table>
   <tr>
     <td align="center" width="25%">
-      <img src="screenshots/biomes/overview.png" alt="全景俯瞰" />
-      <br /><sub>俯瞰：多种群系自然过渡交界</sub>
+      <img src="screenshots/biomes/mushroom-fields.png" alt="蘑菇林" />
+      <br /><sub>蘑菇林：菌丝体地表与巨型红/棕蘑菇</sub>
     </td>
     <td align="center" width="25%">
       <img src="screenshots/biomes/plains.png" alt="平原" />
@@ -51,8 +51,8 @@
       <br /><sub>森林：密集橡树林</sub>
     </td>
     <td align="center" width="25%">
-      <img src="screenshots/biomes/birch-forest.png" alt="白桦森林" />
-      <br /><sub>白桦森林：银白树干的桦木林</sub>
+      <img src="screenshots/biomes/cherry-grove.png" alt="樱花林" />
+      <br /><sub>樱花林：斜干粉团樱花树</sub>
     </td>
   </tr>
   <tr>
@@ -61,8 +61,8 @@
       <br /><sub>沙漠：沙丘、仙人掌与砂岩层</sub>
     </td>
     <td align="center">
-      <img src="screenshots/biomes/jungle.png" alt="丛林" />
-      <br /><sub>丛林：高耸入云的巨型丛林树</sub>
+      <img src="screenshots/biomes/dark-forest.png" alt="黑森林" />
+      <br /><sub>黑森林：暗叶密林与苔石巨砾</sub>
     </td>
     <td align="center">
       <img src="screenshots/biomes/savanna.png" alt="热带草原" />
