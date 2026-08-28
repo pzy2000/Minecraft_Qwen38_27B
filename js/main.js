@@ -4275,6 +4275,15 @@ Voxel.Game = (function () {
     if (petCooldown > 0) petCooldown -= 0.5;
   }
 
+  // r128 的 THREE.Color 没有 clamp/clampScalar，这里手动把三分量压回 [0,1]。
+  function clampColorUnit(c) {
+    if (!c) return c;
+    c.r = c.r < 0 ? 0 : (c.r > 1 ? 1 : c.r);
+    c.g = c.g < 0 ? 0 : (c.g > 1 ? 1 : c.g);
+    c.b = c.b < 0 ? 0 : (c.b > 1 ? 1 : c.b);
+    return c;
+  }
+
   function frameBody(dt) {
     var startedState = state;
     frames++;
@@ -4447,6 +4456,12 @@ Voxel.Game = (function () {
       _skyTop.r += wFlash * 0.9; _skyTop.g += wFlash * 0.92; _skyTop.b += wFlash * 0.95;
       _sky.r += wFlash * 0.85; _sky.g += wFlash * 0.88; _sky.b += wFlash * 0.95;
     }
+    // 闪电白屏会把天空色推到约 1.9。8bit 帧缓冲本来就会截到 1，但 Bloom 用的是
+    // 半浮点缓冲，超亮的天空会整片泛光——所以只在辉光激活时把天空压回 1 以内。
+    if (Voxel.Bloom && Voxel.Bloom.active()) {
+      clampColorUnit(_skyTop);
+      clampColorUnit(_sky);
+    }
     Voxel.DayNight.applySky(_skyTop, _sky);
     renderer.setClearColor(_sky);
     scene.fog.color.copy(_sky).lerp(_uwColor, uwFade * 0.85);
@@ -4540,7 +4555,8 @@ Voxel.Game = (function () {
       );
     } else Voxel.HUD.showDebug('');
 
-    renderer.render(scene, camera);
+    // Bloom 激活时由 composer 接管渲染（它最后一趟会画到屏幕）；否则走原路径。
+    if (!Voxel.Bloom || !Voxel.Bloom.render(dt)) renderer.render(scene, camera);
   }
 
   function onResize() {
@@ -4549,6 +4565,7 @@ Voxel.Game = (function () {
     camera.aspect = size.width / size.height;
     camera.updateProjectionMatrix();
     renderer.setSize(size.width, size.height);
+    if (Voxel.Bloom) Voxel.Bloom.setSize(size.width, size.height, renderer.getPixelRatio());
   }
 
   var Game = {
@@ -4813,12 +4830,28 @@ Voxel.Game = (function () {
       var size = syncViewportCss();
       renderer.setPixelRatio(baseDPR * (r || 1));
       renderer.setSize(size.width, size.height);
+      if (Voxel.Bloom) Voxel.Bloom.setSize(size.width, size.height, renderer.getPixelRatio());
     }
     applyRes();
 
     scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x87ceeb, CFG.FOG_NEAR, CFG.FOG_FAR);
     camera = new THREE.PerspectiveCamera(75, initialViewport.width / initialViewport.height, 0.1, 1200);
+    // 能量辉光后期。软件渲染器（如 CI 的 SwiftShader）与初始化失败都会自动退回
+    // 原来的 renderer.render；?bloom=1 可强制在软件渲染器上开，便于手动验收。
+    // ?bloom=0/1 是会话级的验收开关，故意不写进存档。
+    // 注意：Settings.applyAll()（见 booted 前）会把存档里的 bloom 值重放一遍 onChange，
+    // 把这里设的状态冲掉 —— 触屏默认 bloom=0 时最明显：明明带了 ?bloom=1，最后仍被重放成关
+    //（桌面端只是因为默认值恰好是 1 才没暴露）。所以记下 override，
+    // 在 applyAll() 之后再应用一次；只应用那一次，之后用户在面板里的操作照常生效。
+    var bloomUrlOverride = /[?&]bloom=0/.test(location.search) ? false
+      : (/[?&]bloom=1/.test(location.search) ? true : null);
+    if (Voxel.Bloom) {
+      Voxel.Bloom.init(renderer, scene, camera, { force: bloomUrlOverride === true });
+      Voxel.Bloom.setEnabled(bloomUrlOverride === null
+        ? (Voxel.Settings ? Voxel.Settings.get('bloom') > 0 : true)
+        : bloomUrlOverride);
+    }
     camera.rotation.order = 'YXZ';
 
     highlight = new THREE.LineSegments(
@@ -5231,6 +5264,27 @@ Voxel.Game = (function () {
     }
     syncShadowButtons();
 
+    // 能量辉光按钮组（关/开）。测试面板副本里没有这一行，用长度守卫。
+    var bloomBtns = document.querySelectorAll('#bloom-row button');
+    function syncBloomButtons() {
+      var cur = (Voxel.Settings ? Voxel.Settings.get('bloom') : 1) > 0 ? 1 : 0;
+      for (var i = 0; i < bloomBtns.length; i++) {
+        var on = +bloomBtns[i].dataset.bloom === cur;
+        bloomBtns[i].classList.toggle('active', on);
+        bloomBtns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+    }
+    for (var bbi = 0; bbi < bloomBtns.length; bbi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          Voxel.Settings.set('bloom', +btn.dataset.bloom);
+          syncBloomButtons();
+          syncPresetButtons();
+        });
+      })(bloomBtns[bbi]);
+    }
+    if (bloomBtns.length) syncBloomButtons();
+
     // 分音效开关（羊叫/猪叫/僵尸等逐项开关）
     var sndToggles = document.querySelectorAll('#snd-toggles input[data-snd]');
     function buildSndToggles() {
@@ -5321,6 +5375,9 @@ Voxel.Game = (function () {
       sliderSyncs.forEach(function (fn) { fn(); });
       syncFpsButtons();
       syncPresetButtons();
+      // 预设里含 bloom（"流畅"关、"均衡/高"开），不刷新的话「能量辉光」按钮会停在旧状态：
+      // 实测点"流畅"后 setting 已经是 0、Bloom.active() 已经是 false，但按钮仍显示"开"选中。
+      syncBloomButtons();
       if (Voxel.HUD && Voxel.HUD.toast) Voxel.HUD.toast('已应用性能预设：' + label);
     }
     syncPresetButtons();
@@ -5356,6 +5413,9 @@ Voxel.Game = (function () {
           Voxel.Mobs.setDensity(v);
         else if (k === 'shadows' && Voxel.Shadow && Voxel.Shadow.setLevel)
           Voxel.Shadow.setLevel(v);
+        // ?bloom=0/1 的覆盖只在 applyAll() 之后应用一次（见下方 booted 前），
+        // 这里保持纯设置驱动，用户在面板里的手动操作要能正常生效
+        else if (k === 'bloom' && Voxel.Bloom) Voxel.Bloom.setEnabled(v > 0);
         else if (k === 'difficulty') {
           // 和平：立即清怪并回满饱食度；噩梦提示不可复活
           if (Voxel.Mobs && Voxel.Mobs.setDifficulty) Voxel.Mobs.setDifficulty(v);
@@ -5378,6 +5438,9 @@ Voxel.Game = (function () {
         }
       });
       Voxel.Settings.applyAll();
+      // applyAll() 会把存档里的 bloom 值重放一遍 onChange，把 ?bloom=0/1 的会话级覆盖冲掉。
+      // 所以覆盖要在重放之后再应用一次；只在这时应用，之后用户在面板里的操作照常生效。
+      if (bloomUrlOverride !== null && Voxel.Bloom) Voxel.Bloom.setEnabled(bloomUrlOverride);
       booted = true;
     }
 

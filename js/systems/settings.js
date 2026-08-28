@@ -13,6 +13,7 @@ Voxel.Settings = (function () {
     shadows: 0,             // 实时树叶阴影 0=关 1=中 2=高（触屏首启默认关）
     sway: 1,                // 树叶风摇强度档 0=关 0.5=弱 1=标准
     stream: 6,              // 后台区块加载的每帧时间预算（毫秒）：越大加载越快、瞬时掉帧越多
+    bloom: 1,               // 能量辉光后期 0=关 1=开（软件渲染器会强制关闭）
     // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
     sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
@@ -41,6 +42,7 @@ Voxel.Settings = (function () {
     shadows: [0, 2],
     sway: [0, 1],
     stream: [2, 16],
+    bloom: [0, 1],
     difficulty: [0, 3]
   };
   // 分音效开关均为 0/1
@@ -48,7 +50,8 @@ Voxel.Settings = (function () {
   // 触屏设备首启默认（无任何存档设置时）：均衡档，避免手机端默认满配卡顿
   var TOUCH_DEFAULTS = {
     fpsCap: 60, res: 0.8,
-    particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75
+    particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75,
+    bloom: 0              // 移动端默认关辉光，兼顾性能与续航
   };
   var vals = {};
   var listeners = [];

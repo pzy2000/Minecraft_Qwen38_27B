@@ -1,3 +1,5 @@
 node_modules/
 .DS_Store
 assets_src/dl/
+# WorkBuddy 会话记忆/项目笔记（工具生成的本地数据，不该进版本库）
+.workbuddy/

@@ -17,6 +17,9 @@ Voxel.SpaceTravel = (function () {
   var portalArmed = false, portalInside = false;
   var activePortalProof = null;
   var animatedRings = [];
+  // 传送门的四层几何在多个门之间共享，只构建一次；clear() 必须置空，
+  // 否则下次 loadWorld 会复用已经被 disposeList 释放掉的僵尸 geometry。
+  var portalGeoCache = null;
   var reducedMotion = false, visualTimeOverride = null;
   var rampTarget = 0, rampFrom = 0, rampChangedAt = 0, rampProgress = 0;
   var selectedDestinationId = null, flightMode = 'ship', flightSkipping = false;
@@ -51,6 +54,10 @@ Voxel.SpaceTravel = (function () {
   var _flightCandidate = new THREE.Object3D();
   var _flightBox = new THREE.Box3();
   var _flightCorner = new THREE.Vector3();
+  // 合批用的临时对象：避免每个盒子都新建 Euler/Matrix4。
+  var _clusterEuler = new THREE.Euler();
+  var _clusterMat4 = new THREE.Matrix4();
+  var _camWorldPos = new THREE.Vector3();
   var SHIP_LOCAL_MIN = [-5.8, 0, -6.2];
   var SHIP_LOCAL_MAX = [5.8, 3.15, 5.05];
   var COCKPIT_LOCAL = [0, 2.53, -1.45];
@@ -874,29 +881,99 @@ Voxel.SpaceTravel = (function () {
     }));
   }
 
-  // 把一组轴对齐盒子（可绕Y预旋转）合并成单个 BufferGeometry：
-  // MeshBasicMaterial 不读取法线/UV，只拷贝 position + index 即可；
-  // 合并后的几何进 GPU 账本，临时 scratch 几何立即释放不进账本。
-  function boxClusterGeometry(parts) {
-    var vertCount = parts.length * 24;              // BoxGeometry 恒为 24 顶点 36 索引
+  // 盒簇顶点属性 aMat 的取值：决定程序化纹理分支与质感。
+  // 有了分区，装甲板/散热口/陶瓷瓦/发光纹路可以挤在同一个 drawcall 里。
+  var MAT_ARMOR = 0;    // 装甲板：面板分割线 + 铆钉 + 轻微磨损，金属高光
+  var MAT_STRUCT = 1;   // 深色结构：细面板 + 重磨损条纹，无铆钉，哑光
+  var MAT_VENT = 2;     // 散热格栅：横向筋条 + 缝隙内暗腔
+  var MAT_CERAMIC = 3;  // 陶瓷隔热瓦：细密瓦片接缝，漫反射强、高光窄而白
+  var MAT_ENERGY = 4;   // 能量纹路：自发光，输出 HDR 供 Bloom 高阈值拾取
+  var MAT_GRATE = 5;    // 粗网格（坡道/甲板）
+
+  // 飞船色板：比空间站更冷更暗，让青色能量纹路成为唯一的高饱和信息。
+  var SHIP_PALETTE = {
+    hull: 0x2c3b5a,      // 主装甲
+    hullLit: 0x35486c,   // 受光面/背脊
+    hullDark: 0x27344f,  // 侧脊/引擎短舱
+    keel: 0x151f38,      // 龙骨深色结构
+    fin: 0x2a3852,       // 翼根整流
+    ceramic: 0xd8e2ec,   // 机鼻陶瓷隔热瓦
+    ceramicLit: 0xeef4f9,
+    ceramicDark: 0x8fa2b8,
+    vent: 0x2a3348,      // 散热格栅
+    conduit: 0x6e7d94,   // 表面导管（比装甲亮一档，才读得出走线）
+    clamp: 0x49556a,     // 导管卡箍
+    joint: 0x4a5c80,     // 关节轴承座/转轴
+    glowCyan: 0x7fe9ff,  // 能量纹路
+    glowAmber: 0xffb356  // 尾灯/导航灯
+  };
+
+  // 把一组盒子合并成单个 BufferGeometry。每盒恒 24 顶点 / 36 索引。
+  // part 字段：s 尺寸[w,h,d]、p 位置[x,y,z]、r 绕Y偏航、t 切角[rx,rz]、
+  //           m 材质分区、c 分区色、g 自发光强度。除 s/p 外全部可选。
+  // options.normals === false 时只产出 position+index（旧行为，供纯 Basic 材质复用）。
+  // 新增的 normal/aLocal/aMat/aTint/aEmis 对 MeshBasicMaterial 无害：three 只绑定
+  // 着色器实际声明的 attribute，未使用的不产生任何开销。
+  function boxClusterGeometry(parts, options) {
+    options = options || {};
+    var full = options.normals !== false;
+    var n = parts.length, vertCount = n * 24;
     var IndexArray = vertCount > 65535 ? Uint32Array : Uint16Array;
     var pos = new Float32Array(vertCount * 3);
-    var idx = new IndexArray(parts.length * 36);
+    var idx = new IndexArray(n * 36);
+    var nrm = full ? new Float32Array(vertCount * 3) : null;
+    var loc = full ? new Float32Array(vertCount * 3) : null;
+    var mat = full ? new Float32Array(vertCount) : null;
+    var tin = full ? new Float32Array(vertCount * 3) : null;
+    var emi = full ? new Float32Array(vertCount) : null;
     var vertexOffset = 0;
-    for (var i = 0; i < parts.length; i++) {
+    for (var i = 0; i < n; i++) {
       var part = parts[i];
       var scratch = new THREE.BoxGeometry(part.s[0], part.s[1], part.s[2]);
-      if (part.r) scratch.rotateY(part.r);
-      scratch.translate(part.p[0], part.p[1], part.p[2]);
+      // aLocal 取变换前的盒内坐标：position 会被旋转/平移污染、跨盒不连续，
+      // 而程序化纹理要沿着每个零件自己的轴向铺，密度也不该随盒子大小拉伸。
+      if (full) loc.set(scratch.attributes.position.array, vertexOffset * 3);
+      var rx = part.t ? (part.t[0] || 0) : 0;
+      var rz = part.t ? (part.t[1] || 0) : 0;
+      if (rx || rz || part.r) {
+        // applyMatrix4 会用 normalMatrix 同步变换 normal，切角后受光依然正确。
+        _clusterEuler.set(rx, part.r || 0, rz);
+        _clusterMat4.makeRotationFromEuler(_clusterEuler);
+        _clusterMat4.setPosition(part.p[0], part.p[1], part.p[2]);
+        scratch.applyMatrix4(_clusterMat4);
+      } else {
+        scratch.translate(part.p[0], part.p[1], part.p[2]);
+      }
       pos.set(scratch.attributes.position.array, vertexOffset * 3);
+      if (full) nrm.set(scratch.attributes.normal.array, vertexOffset * 3);
       var src = scratch.index.array;
       for (var k = 0; k < src.length; k++) idx[i * 36 + k] = src[k] + vertexOffset;
+      if (full) {
+        var m = part.m === undefined ? MAT_ARMOR : part.m;
+        var g = part.g || 0;
+        var col = part.c === undefined ? 0xffffff : part.c;
+        var cr = ((col >> 16) & 255) / 255, cg = ((col >> 8) & 255) / 255, cb = (col & 255) / 255;
+        for (var v = 0; v < 24; v++) {
+          mat[vertexOffset + v] = m;
+          emi[vertexOffset + v] = g;
+          tin[(vertexOffset + v) * 3] = cr;
+          tin[(vertexOffset + v) * 3 + 1] = cg;
+          tin[(vertexOffset + v) * 3 + 2] = cb;
+        }
+      }
       vertexOffset += 24;
-      scratch.dispose();
+      scratch.dispose();                 // 临时几何立即释放，不进账本
     }
     var out = new THREE.BufferGeometry();
     out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     out.setIndex(new THREE.BufferAttribute(idx, 1));
+    if (full) {
+      out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+      out.setAttribute('aLocal', new THREE.BufferAttribute(loc, 3));
+      out.setAttribute('aMat', new THREE.BufferAttribute(mat, 1));
+      out.setAttribute('aTint', new THREE.BufferAttribute(tin, 3));
+      out.setAttribute('aEmis', new THREE.BufferAttribute(emi, 1));
+    }
     return track('geometries', out);
   }
 
@@ -906,6 +983,325 @@ Voxel.SpaceTravel = (function () {
     mesh.name = 'SpaceTravel_' + (role || 'structure');
     parent.add(mesh);
     return mesh;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 程序化受光着色器
+  //
+  // 场景里没有任何 Light 实例（地形/生物用的是自己的 Basic 材质与自定义着色器），
+  // 所以这里不引入真光源，而是在 GLSL 里手搓一套够用的受光模型：
+  // 半球环境光 + wrap 漫反射 + Blinn-Phong 高光 + Fresnel 边缘光，
+  // 再叠加基于盒内坐标（aLocal）的三平面程序化纹理做面板线/铆钉/格栅/陶瓷瓦。
+  // 这样既拿到了金属与陶瓷的质感差异，又不影响场景里其它任何东西。
+  // ---------------------------------------------------------------------------
+
+  // 所有自写 ShaderMaterial 的 uniforms 都登记在这里，applyVisualState 统一推进
+  // uTime / uCamPos；clear() 里必须清空，否则会持有已释放材质的引用。
+  var shaderUniforms = [];
+
+  var PROGRAM_COMMON = [
+    'float hash21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }',
+    // 三平面权重：把法线幂次化后归一化，让接缝处过渡自然。
+    'vec3 triW(vec3 n){ vec3 w = abs(n); w = w * w * w * w; return w / max(1e-4, w.x + w.y + w.z); }',
+    // 面板分割线：返回缝隙遮罩，同时用 out 参数输出倒角高光。
+    'float gridSeam(vec2 uv, out float bevel) {',
+    '  vec2 f = abs(fract(uv) - 0.5);',
+    '  float d = min(f.x, f.y);',
+    '  bevel = 1.0 - smoothstep(0.030, 0.090, d);',
+    '  return 1.0 - smoothstep(0.0, 0.022, d);',
+    '}',
+    // 铆钉：格子四角小圆点，约一半格子缺失。
+    'float rivets(vec2 uv) {',
+    '  vec2 cell = floor(uv), c = fract(uv) - 0.5;',
+    '  if (hash21(cell) < 0.45) return 0.0;',
+    '  return 1.0 - smoothstep(0.030, 0.062, length(abs(c) - 0.36));',
+    '}',
+    // 磨损条纹：沿一个方向拉长的斑驳。
+    'float streaks(vec2 uv) {',
+    '  float n = hash21(floor(vec2(uv.x * 6.0, uv.y)));',
+    '  float m = hash21(floor(vec2(uv.x * 6.0 + 3.7, uv.y + 1.3)));',
+    '  return smoothstep(0.55, 0.95, n) * (0.35 + 0.65 * (sin(uv.y * 40.0 + m * 30.0) * 0.5 + 0.5));',
+    '}',
+    'float grille(vec2 uv){ return smoothstep(0.18, 0.34, abs(fract(uv.y * 8.0) - 0.5)); }',
+    'float tiles(vec2 uv){ vec2 f = abs(fract(uv * 3.0) - 0.5); return 1.0 - smoothstep(0.0, 0.05, min(f.x, f.y)); }'
+  ].join('\n');
+
+  var SHELL_VERT = [
+    'attribute vec3 aLocal;',
+    'attribute float aMat;',
+    'attribute vec3 aTint;',
+    'attribute float aEmis;',
+    'varying vec3 vNrmW;',
+    'varying vec3 vPosW;',
+    'varying vec3 vLocal;',
+    'varying vec3 vTint;',
+    'varying float vMat;',
+    'varying float vEmis;',
+    '#include <fog_pars_vertex>',
+    'void main() {',
+    '  vNrmW = normalize(mat3(modelMatrix) * normal);',
+    '  vec4 wp = modelMatrix * vec4(position, 1.0);',
+    '  vPosW = wp.xyz;',
+    '  vLocal = aLocal; vTint = aTint; vMat = aMat; vEmis = aEmis;',
+    '  vec4 mvPosition = viewMatrix * wp;',   // fog_vertex 依赖这个变量名
+    '  gl_Position = projectionMatrix * mvPosition;',
+    '  #include <fog_vertex>',
+    '}'
+  ].join('\n');
+
+  var SHELL_FRAG = [
+    'uniform vec3 uBase, uSunDir, uSunColor, uAmbTop, uAmbBot, uRimMetal, uRimCera;',
+    'uniform vec3 uEmisColor, uCamPos;',
+    'uniform float uSunStr, uAmbStr, uRimStr, uRough, uSpec, uMetal, uEmisGain;',
+    'uniform float uTexScale, uWear, uOpacity;',
+    'varying vec3 vNrmW;',
+    'varying vec3 vPosW;',
+    'varying vec3 vLocal;',
+    'varying vec3 vTint;',
+    'varying float vMat;',
+    'varying float vEmis;',
+    '#include <fog_pars_fragment>',
+    PROGRAM_COMMON,
+    'void main() {',
+    '  vec3 N = normalize(vNrmW);',
+    '  vec3 V = normalize(uCamPos - vPosW);',
+    '  vec3 L = normalize(uSunDir);',
+    '  vec3 H = normalize(L + V);',
+    '  vec3 W = triW(N);',
+    '  float sc = uTexScale;',
+    // ---- 按材质分区决定表面细节与质感系数 ----
+    // 金属度/粗糙度也逐顶点算（而不是走 uniform），这样一个 drawcall 里可以同时
+    // 混装装甲板、散热格栅、陶瓷瓦和发光纹路，不用为了质感差异拆成多个 Mesh。
+    '  float seam = 0.0, bevelA = 0.0, bevelB = 0.0, bevelC = 0.0, bevel = 0.0;',
+    '  float dark = 0.0, roughBias = 0.0, met = 1.0, specMul = 1.0;',
+    '  vec2 uvA = vLocal.yz * sc, uvB = vLocal.zx * sc, uvC = vLocal.xy * sc;',
+    '  if (vMat < 0.5) {',                                   // ARMOR：面板 + 铆钉
+    '    seam = gridSeam(uvA, bevelA) * W.x + gridSeam(uvB, bevelB) * W.y + gridSeam(uvC, bevelC) * W.z;',
+    '    dark = (rivets(uvA) * W.x + rivets(uvB) * W.y + rivets(uvC) * W.z) * 0.55;',
+    '    bevel = bevelA * W.x + bevelB * W.y + bevelC * W.z;',
+    '    roughBias = -0.10; met = 1.00; specMul = 0.85;',
+    '  } else if (vMat < 1.5) {',                            // STRUCT：细面板 + 重磨损
+    '    seam = gridSeam(uvA * 2.0, bevelA) * W.x + gridSeam(uvB * 2.0, bevelB) * W.y + gridSeam(uvC * 2.0, bevelC) * W.z;',
+    '    dark = (streaks(uvA) * W.x + streaks(uvB) * W.y + streaks(uvC) * W.z) * uWear;',
+    '    bevel = bevelA * W.x + bevelB * W.y + bevelC * W.z;',
+    '    roughBias = 0.25; met = 0.85; specMul = 0.35;',
+    '  } else if (vMat < 2.5) {',                            // VENT：格栅 + 缝隙内暗腔
+    '    float g = grille(uvA) * W.x + grille(uvB) * W.y + grille(uvC) * W.z;',
+    '    dark = (1.0 - g) * 0.85; roughBias = 0.45; met = 0.90; specMul = 0.25;',
+    '  } else if (vMat < 3.5) {',                            // CERAMIC：细密瓦片
+    '    seam = tiles(uvA) * W.x + tiles(uvB) * W.y + tiles(uvC) * W.z;',
+    '    dark = streaks(uvA * 0.5) * uWear * 0.4; roughBias = 0.05; met = 0.05; specMul = 1.00;',
+    '  } else if (vMat < 4.5) {',                            // ENERGY
+    '    bevel = 1.0; roughBias = -0.50; met = 0.00; specMul = 0.00;',
+    '  } else {',                                            // GRATE
+    '    float g = grille(uvA * 0.5) * W.x + grille(uvC * 0.5) * W.z;',
+    '    dark = (1.0 - g) * 0.7; roughBias = 0.40; met = 0.90; specMul = 0.30;',
+    '  }',
+    '  float rgh = clamp(uRough + roughBias, 0.0, 1.0);',
+    // ---- 受光 ----
+    '  float hemi = N.y * 0.5 + 0.5;',
+    '  vec3 ambient = mix(uAmbBot, uAmbTop, hemi) * uAmbStr;',
+    '  float wrap = clamp(dot(N, L) * 0.55 + 0.45, 0.0, 1.0);',  // 背光不死黑
+    '  float ndl = max(dot(N, L), 0.0);',
+    '  vec3 baseCol = uBase * vTint * (1.0 - dark * 0.55);',
+    '  vec3 diffCol = mix(baseCol, baseCol * 0.22, met);',        // 金属压暗漫反射
+    '  vec3 specCol = mix(vec3(1.0), baseCol, met);',             // 金属高光染基色
+    '  float shin = mix(14.0, 96.0, 1.0 - rgh);',
+    '  float spec = pow(max(dot(N, H), 0.0), shin) * (1.0 - rgh * 0.85) * uSpec * specMul;',
+    '  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);',
+    '  vec3 rim = mix(uRimCera, uRimMetal, met) * fres * uRimStr;',
+    '  vec3 col = ambient * diffCol',
+    '           + uSunColor * (diffCol * mix(wrap, ndl, 0.35) + specCol * spec) * uSunStr',
+    '           + rim;',
+    '  col += uSunColor * bevel * 0.10 * (0.4 + 0.6 * ndl) * (1.0 - met * 0.5);',
+    '  col *= 1.0 - seam * 0.45;',
+    // ---- 自发光：颜色取分区色，亮度乘增益超过 1.0，供 Bloom 高阈值拾取 ----
+    '  col += uEmisColor * vTint * vEmis * uEmisGain;',
+    '  gl_FragColor = vec4(col, uOpacity);',
+    '  #include <fog_fragment>',
+    '}'
+  ].join('\n');
+
+  var GLASS_VERT = [
+    'varying vec3 vNrmW;',
+    'varying vec3 vPosW;',
+    '#include <fog_pars_vertex>',
+    'void main() {',
+    '  vNrmW = normalize(mat3(modelMatrix) * normal);',
+    '  vec4 wp = modelMatrix * vec4(position, 1.0);',
+    '  vPosW = wp.xyz;',
+    '  vec4 mvPosition = viewMatrix * wp;',
+    '  gl_Position = projectionMatrix * mvPosition;',
+    '  #include <fog_vertex>',
+    '}'
+  ].join('\n');
+
+  var GLASS_FRAG = [
+    'uniform vec3 uSunDir, uSunColor, uGlassDeep, uGlassRim, uCamPos;',
+    'uniform float uOpacity, uSpec;',
+    'varying vec3 vNrmW;',
+    'varying vec3 vPosW;',
+    '#include <fog_pars_fragment>',
+    'void main() {',
+    '  vec3 N = normalize(vNrmW);',
+    '  vec3 V = normalize(uCamPos - vPosW);',
+    '  vec3 H = normalize(normalize(uSunDir) + V);',
+    '  float f = pow(1.0 - max(dot(N, V), 0.0), 2.5);',        // 菲涅尔
+    '  float s = pow(max(dot(N, H), 0.0), 140.0) * uSpec;',    // 窄高光
+    '  vec3 col = mix(uGlassDeep, uGlassRim, f) + uSunColor * s;',
+    '  gl_FragColor = vec4(col, uOpacity * (0.30 + 0.70 * f));', // 边缘更不透明
+    '  #include <fog_fragment>',
+    '}'
+  ].join('\n');
+
+  var VORTEX_VERT = [
+    'varying vec2 vUv;',
+    '#include <fog_pars_vertex>',
+    'void main() {',
+    '  vUv = uv;',
+    '  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);',
+    '  gl_Position = projectionMatrix * mvPosition;',
+    '  #include <fog_vertex>',
+    '}'
+  ].join('\n');
+
+  var VORTEX_FRAG = [
+    'uniform float uTime, uGain, uOpacity;',
+    'uniform vec3 uColorA, uColorB;',
+    'varying vec2 vUv;',
+    '#include <fog_pars_fragment>',
+    'float hash21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }',
+    'void main() {',
+    '  vec2 p = vUv * 2.0 - 1.0;',
+    '  float r = length(p), a = atan(p.y, p.x);',
+    '  float swirl = a + uTime * 1.6 - 3.0 / max(r, 0.12);',   // 漩涡：相位随半径扭曲
+    '  float rings = sin(r * 14.0 - uTime * 3.0) * 0.5 + 0.5;', // 同心能量环
+    '  float spokes = sin(swirl * 6.0) * 0.5 + 0.5;',          // 放射状流线
+    '  float grain = hash21(floor(vec2(swirl * 3.0, r * 9.0 - uTime * 1.2)));',
+    '  float core = 1.0 - smoothstep(0.0, 1.0, r);',
+    '  float lip = smoothstep(0.86, 1.0, r);',                 // 外缘收口
+    '  float e = core * (0.55 + 0.45 * rings) * (0.60 + 0.40 * spokes);',
+    '  e += lip * (0.35 + 0.65 * grain) * 0.8;',
+    '  e *= 1.0 - smoothstep(0.965, 1.0, r);',                 // 圆形硬边
+    '  vec3 col = mix(uColorA, uColorB, clamp(rings * 0.7 + spokes * 0.3, 0.0, 1.0));',
+    '  gl_FragColor = vec4(col * e * uGain, e * uOpacity);',   // uGain > 1 → HDR
+    '  #include <fog_fragment>',
+    '}'
+  ].join('\n');
+
+  // 受光方向与环境色：模拟"恒星主光 + 行星反照"的太空环境，与场景零光源无关。
+  var SHELL_LIGHT = {
+    sunDir: new THREE.Vector3(0.42, 0.78, 0.46).normalize(),
+    sunColor: new THREE.Color(0xfff2d8),
+    ambTop: new THREE.Color(0x2b3f66),   // 天顶：冷色深空
+    ambBot: new THREE.Color(0x241d18),   // 地面：行星反照的暖色
+    rimMetal: new THREE.Color(0x7fa8d8),
+    rimCera: new THREE.Color(0xc9d8e8)
+  };
+
+  // 质感预设只调整体"新旧程度"与边缘光强度；金属/陶瓷的硬差异由 aMat 分区决定。
+  var SHELL_PRESETS = {
+    armor: { rough: 0.42, spec: 1.0, rimStr: 0.55, wear: 0.35 },
+    struct: { rough: 0.55, spec: 1.0, rimStr: 0.35, wear: 0.85 },
+    ceramic: { rough: 0.30, spec: 1.0, rimStr: 0.22, wear: 0.20 }
+  };
+
+  // 自发光增益：让能量纹路的亮度超过 1.0，Bloom 的高阈值就能只挑中它们。
+  var HDR_GAIN = 2.6;
+
+  function shellMaterial(presetName, options) {
+    options = options || {};
+    var p = SHELL_PRESETS[presetName] || SHELL_PRESETS.armor;
+    var uniforms = THREE.UniformsUtils.merge([
+      THREE.UniformsLib.fog,
+      {
+        uBase: { value: new THREE.Color(options.base === undefined ? 0xffffff : options.base) },
+        uSunDir: { value: SHELL_LIGHT.sunDir.clone() },
+        uSunColor: { value: SHELL_LIGHT.sunColor.clone() },
+        uAmbTop: { value: SHELL_LIGHT.ambTop.clone() },
+        uAmbBot: { value: SHELL_LIGHT.ambBot.clone() },
+        uRimMetal: { value: SHELL_LIGHT.rimMetal.clone() },
+        uRimCera: { value: SHELL_LIGHT.rimCera.clone() },
+        uEmisColor: { value: new THREE.Color(options.emissive === undefined ? 0xffffff : options.emissive) },
+        uCamPos: { value: new THREE.Vector3() },
+        uSunStr: { value: 1.15 },
+        uAmbStr: { value: 1.0 },
+        uRimStr: { value: p.rimStr },
+        uRough: { value: p.rough },
+        uSpec: { value: p.spec },
+        uEmisGain: { value: HDR_GAIN },
+        uTexScale: { value: finite(options.texScale, 1.0, 0.1, 8) },
+        uWear: { value: p.wear },
+        uOpacity: { value: 1 }
+      }
+    ]);
+    var mat = track('materials', new THREE.ShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: SHELL_VERT,
+      fragmentShader: SHELL_FRAG,
+      // r128 的 ShaderMaterial.fog 默认是 false，且必须同时有 scene.fog 才会定义 USE_FOG。
+      fog: true,
+      transparent: !!options.transparent,
+      opacity: 1,
+      depthWrite: options.depthWrite === undefined ? true : !!options.depthWrite,
+      side: options.side === undefined ? THREE.FrontSide : options.side
+    }));
+    shaderUniforms.push(uniforms);
+    return mat;
+  }
+
+  function glassMaterial(options) {
+    options = options || {};
+    var uniforms = THREE.UniformsUtils.merge([
+      THREE.UniformsLib.fog,
+      {
+        uSunDir: { value: SHELL_LIGHT.sunDir.clone() },
+        uSunColor: { value: SHELL_LIGHT.sunColor.clone() },
+        uGlassDeep: { value: new THREE.Color(options.deep === undefined ? 0x123a55 : options.deep) },
+        uGlassRim: { value: new THREE.Color(options.rim === undefined ? 0x6bdcff : options.rim) },
+        uCamPos: { value: new THREE.Vector3() },
+        uOpacity: { value: finite(options.opacity, 0.46, 0, 1) },
+        uSpec: { value: 0.9 }
+      }
+    ]);
+    var mat = track('materials', new THREE.ShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: GLASS_VERT,
+      fragmentShader: GLASS_FRAG,
+      fog: true,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }));
+    shaderUniforms.push(uniforms);
+    return mat;
+  }
+
+  function vortexMaterial(accent, options) {
+    options = options || {};
+    var c = new THREE.Color(accent);
+    var uniforms = THREE.UniformsUtils.merge([
+      THREE.UniformsLib.fog,
+      {
+        uTime: { value: 0 },
+        uGain: { value: finite(options.gain, HDR_GAIN, 0, 12) },
+        uOpacity: { value: finite(options.opacity, 0.85, 0, 1) },
+        uColorA: { value: c.clone() },
+        uColorB: { value: c.clone().offsetHSL(0.08, -0.25, 0.22) }
+      }
+    ]);
+    var mat = track('materials', new THREE.ShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: VORTEX_VERT,
+      fragmentShader: VORTEX_FRAG,
+      fog: true,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending
+    }));
+    shaderUniforms.push(uniforms);
+    return mat;
   }
 
   function safeSurface(x, z) {
@@ -1215,49 +1611,221 @@ Voxel.SpaceTravel = (function () {
     return { armed: portalArmed, inside: portalInside };
   }
 
+  // 把一组零件沿 YZ 平面镜像：位置和绕 Y 的偏航取反，绕 Z 的切角也取反。
+  // 不能直接给 Mesh 用 scale.x = -1，那会翻转法线、把受光算反。
+  function mirrorPartsX(parts) {
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var q = parts[i];
+      out.push({
+        s: q.s,
+        p: [-q.p[0], q.p[1], q.p[2]],
+        r: q.r ? -q.r : 0,
+        t: q.t ? [q.t[0], -q.t[1]] : undefined,
+        m: q.m, c: q.c, g: q.g
+      });
+    }
+    return out;
+  }
+
+  // 建一个"位置在原点"的合批零件，方便之后直接改 mesh.position 做动画。
+  // 不能直接拿 box()：它的 BoxGeometry 没有着色器需要的 aLocal/aMat/aTint/aEmis，
+  // 缺了 aTint 会让基色变成全黑。
+  function shellPart(parent, parts, material, role, detail) {
+    var mesh = new THREE.Mesh(boxClusterGeometry(parts), material);
+    setRole(mesh, role, detail);
+    mesh.name = 'SpaceTravel_' + (role || 'structure');
+    parent.add(mesh);
+    return mesh;
+  }
+
   function makeShip() {
     var g = setRole(new THREE.Group(), 'ship-root');
     g.name = 'SpaceShip';
     shipParts = { engines: [], door: null, ramp: null };
-    box(g, [4.4, 1.25, 6.8], [0, 1.42, 0], 0x22304a, null, 'ship-hull', { detail: 'upper' });
-    box(g, [3.2, 0.42, 7.7], [0, 0.82, 0.22], 0x172238, null, 'ship-hull', { detail: 'keel' });
-    var nose = box(g, [3.0, 0.92, 2.0], [0, 1.48, -4.05], 0xbec9d5, null,
-      'ship-nose', { detail: 'forward', rotation: [0.08, 0, 0] });
-    box(g, [1.65, 0.55, 1.25], [0, 1.38, -5.32], 0xe1e8ee, null,
-      'ship-nose', { detail: 'tip', rotation: [0.14, 0, 0] });
-    box(g, [2.45, 0.82, 2.75], [0, 2.28, -1.12], 0x6bdcff, 0x123a55, 'ship-canopy', {
-      transparent: true, opacity: 0.46, depthWrite: false, side: THREE.DoubleSide
-    });
-    box(g, [4.25, 0.22, 2.35], [-3.45, 1.17, 0.48], 0x53647d, null,
-      'ship-wing', { detail: 'left', rotation: [0, -0.22, 0] });
-    box(g, [4.25, 0.22, 2.35], [3.45, 1.17, 0.48], 0x53647d, null,
-      'ship-wing', { detail: 'right', rotation: [0, 0.22, 0] });
-    box(g, [5.1, 0.18, 1.35], [0, 1.53, 3.18], 0x40516d, null,
-      'ship-tail', { detail: 'stabilizer' });
-    box(g, [0.22, 1.55, 1.75], [0, 2.28, 3.05], 0x6d7f99, null,
-      'ship-tail', { detail: 'fin' });
+    var P = SHIP_PALETTE;
+    var hullMat = shellMaterial('armor', { base: 0xffffff });
+    var structMat = shellMaterial('struct', { base: 0xffffff });
+    var ceramicMat = shellMaterial('ceramic', { base: 0xffffff });
+
+    // ---- 船体：20 个盒子合成一个 drawcall ----
+    // 包络约束 x±5.8 / y 0..3.15 / z -6.2..5.05，下面每个坐标都核算过极值。
+    cluster(g, [
+      { s: [3.5, 0.9, 6.6], p: [0, 1.60, 0.3], m: MAT_ARMOR, c: P.hull },
+      { s: [2.8, 0.62, 2.2], p: [0, 1.70, -3.6], t: [0.06, 0], m: MAT_ARMOR, c: P.hull },
+      { s: [2.5, 0.5, 7.5], p: [0, 0.95, 0.5], m: MAT_STRUCT, c: P.keel },
+      { s: [1.8, 0.4, 1.8], p: [0, 1.00, -4.0], t: [0.06, 0], m: MAT_STRUCT, c: P.keel },
+      { s: [0.62, 0.62, 6.4], p: [1.92, 1.26, 0.4], t: [0, 0.62], m: MAT_ARMOR, c: P.hullDark },
+      { s: [0.62, 0.62, 6.4], p: [-1.92, 1.26, 0.4], t: [0, -0.62], m: MAT_ARMOR, c: P.hullDark },
+      { s: [0.72, 0.4, 4.8], p: [0, 2.14, 0.9], m: MAT_ARMOR, c: P.hullLit },
+      { s: [0.5, 0.28, 1.6], p: [0, 2.08, -2.3], t: [0.10, 0], m: MAT_ARMOR, c: P.hullLit },
+      { s: [2.0, 0.12, 2.4], p: [0, 0.70, 1.3], m: MAT_VENT, c: P.vent },
+      { s: [1.6, 0.12, 1.5], p: [0, 0.70, -1.1], m: MAT_VENT, c: P.vent },
+      // 青色侧舷灯带：原来在 y=1.48，被侧脊（x 1.49~2.35、y 0.83~1.69）整个吞掉，
+      // 实测可见面 0%。挪到 y=1.95（侧脊之上、导管束之上）并加粗到 0.10×0.12，可见面 61%。
+      { s: [0.10, 0.12, 4.6], p: [1.79, 1.95, 0.30], m: MAT_ENERGY, c: P.glowCyan, g: 1 },
+      { s: [0.10, 0.12, 4.6], p: [-1.79, 1.95, 0.30], m: MAT_ENERGY, c: P.glowCyan, g: 1 },
+      { s: [2.9, 0.85, 0.55], p: [0, 1.55, 3.35], m: MAT_STRUCT, c: P.keel },
+      { s: [1.3, 0.55, 3.6], p: [2.05, 1.10, 1.5], t: [0, -0.12], m: MAT_ARMOR, c: P.fin },
+      { s: [1.3, 0.55, 3.6], p: [-2.05, 1.10, 1.5], t: [0, 0.12], m: MAT_ARMOR, c: P.fin },
+      { s: [0.9, 0.22, 1.2], p: [0, 2.05, 2.6], t: [0.12, 0], m: MAT_ARMOR, c: P.hullLit },
+      // 尾部结构块：原来在 z=3.0，整个埋在机身主盒（z≤3.6）里，可见面 0%。后移到 z=3.85。
+      { s: [3.2, 0.3, 1.0], p: [0, 1.28, 3.85], t: [0.14, 0], m: MAT_STRUCT, c: P.keel },
+      // 琥珀色导航灯：原来在 [±1.55, 1.30, 3.7]，被引擎短舱（x 1.08~2.08）吞掉，可见面 0%。
+      // 挪到短舱顶后段，可见面 65%。
+      { s: [0.14, 0.14, 0.9], p: [1.58, 1.66, 4.30], m: MAT_ENERGY, c: P.glowAmber, g: 1 },
+      { s: [0.14, 0.14, 0.9], p: [-1.58, 1.66, 4.30], m: MAT_ENERGY, c: P.glowAmber, g: 1 },
+      { s: [2.2, 0.16, 0.8], p: [0, 0.62, 3.2], m: MAT_VENT, c: P.vent },
+      // ---- 表面导管束：上下各两路并排细管纵贯全机长，走 MAT_STRUCT 哑光金属 ----
+      // 取位要点：船体主盒 x 到 ±1.75，侧脊盖到 x 2.23 但只到 y 1.57，
+      // 所以上部导管放 x=±1.79 且 y≥1.72 才露在外面；腹部导管放 x=±1.35，
+      // 正好卡在龙骨（x≤1.25）与翼根整流（x≥1.40）之间的空隙。
+      { s: [0.09, 0.09, 5.8], p: [1.79, 1.72, 0.30], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.07, 0.07, 5.8], p: [1.79, 1.84, 0.30], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.09, 0.09, 5.8], p: [-1.79, 1.72, 0.30], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.07, 0.07, 5.8], p: [-1.79, 1.84, 0.30], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.09, 0.09, 6.8], p: [1.35, 0.95, 0.50], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.07, 0.07, 6.8], p: [1.35, 0.86, 0.50], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.09, 0.09, 6.8], p: [-1.35, 0.95, 0.50], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.07, 0.07, 6.8], p: [-1.35, 0.86, 0.50], m: MAT_STRUCT, c: P.conduit },
+      // ---- 卡箍：每隔一段把导管束固定在船体上 ----
+      { s: [0.15, 0.15, 0.10], p: [1.79, 1.72, -1.60], m: MAT_STRUCT, c: P.clamp },
+      { s: [0.15, 0.15, 0.10], p: [1.79, 1.72, 1.60], m: MAT_STRUCT, c: P.clamp },
+      { s: [0.15, 0.15, 0.10], p: [-1.79, 1.72, -1.60], m: MAT_STRUCT, c: P.clamp },
+      { s: [0.15, 0.15, 0.10], p: [-1.79, 1.72, 1.60], m: MAT_STRUCT, c: P.clamp }
+    ], hullMat, 'ship-hull');
+
+    // ---- 机鼻：陶瓷隔热瓦，阶梯收窄到鼻尖 ----
+    var nose = cluster(g, [
+      { s: [2.4, 0.55, 1.4], p: [0, 1.66, -4.7], t: [0.10, 0], m: MAT_CERAMIC, c: P.ceramic },
+      { s: [1.7, 0.45, 1.1], p: [0, 1.58, -5.45], t: [0.14, 0], m: MAT_CERAMIC, c: 0xe4ecf3 },
+      { s: [0.95, 0.32, 0.8], p: [0, 1.50, -5.72], t: [0.16, 0], m: MAT_CERAMIC, c: P.ceramicLit },
+      { s: [1.5, 0.3, 1.6], p: [0, 0.95, -4.9], t: [0.08, 0], m: MAT_CERAMIC, c: 0xaebccd },
+      { s: [0.12, 0.12, 1.2], p: [0, 1.42, -5.85], t: [0.14, 0], m: MAT_ENERGY, c: 0x9be8ff, g: 0.8 },
+      { s: [0.34, 0.26, 0.5], p: [0.55, 1.30, -4.6], m: MAT_CERAMIC, c: P.ceramicDark },
+      { s: [0.34, 0.26, 0.5], p: [-0.55, 1.30, -4.6], m: MAT_CERAMIC, c: P.ceramicDark }
+    ], ceramicMat, 'ship-nose');
+
+    // ---- 座舱：菲涅尔玻璃，边缘更不透明 ----
+    cluster(g, [
+      { s: [1.9, 0.62, 2.2], p: [0, 2.32, -1.15], t: [0.05, 0], m: MAT_ARMOR, c: 0x2a3550 },
+      { s: [1.35, 0.40, 1.1], p: [0, 2.46, -2.30], t: [0.16, 0], m: MAT_ARMOR, c: 0x2a3550 },
+      { s: [0.14, 0.62, 2.2], p: [0.88, 2.32, -1.15], m: MAT_ARMOR, c: 0x35486c },
+      { s: [0.14, 0.62, 2.2], p: [-0.88, 2.32, -1.15], m: MAT_ARMOR, c: 0x35486c },
+      { s: [1.9, 0.12, 0.16], p: [0, 2.62, -0.10], m: MAT_ARMOR, c: 0x35486c }
+    ], hullMat, 'ship-canopy-frame');
+    cluster(g, [
+      { s: [1.72, 0.50, 2.05], p: [0, 2.34, -1.18], t: [0.05, 0], m: MAT_ARMOR, c: 0xffffff },
+      { s: [1.22, 0.32, 0.98], p: [0, 2.47, -2.28], t: [0.16, 0], m: MAT_ARMOR, c: 0xffffff }
+    ], glassMaterial({ deep: 0x0d2a44, rim: 0x7fe0ff, opacity: 0.52 }), 'ship-canopy');
+
+    // ---- 机翼：后掠梯形 + 翼尖小翼，左右各一个 Mesh（测试断言 wing===2）----
+    var wingParts = [
+      // 翼根轴承座：翼面插进机身的位置，做出可动关节的机械感。
+      // y 必须 ≥1.77 —— 该处（x=1.98）机身外表面在 y=1.68，放低了会被鳍整流罩整个埋掉。
+      { s: [0.44, 0.34, 0.52], p: [1.98, 1.77, 1.05], m: MAT_ARMOR, c: P.joint },
+      { s: [2.6, 0.18, 1.9], p: [3.05, 1.14, 1.05], t: [0, -0.06], r: 0.30, m: MAT_ARMOR, c: 0x2f405f },
+      { s: [1.7, 0.16, 1.2], p: [4.35, 1.10, 1.95], t: [0, -0.06], r: 0.30, m: MAT_ARMOR, c: 0x2f405f },
+      { s: [0.16, 0.50, 1.0], p: [4.95, 1.34, 2.40], m: MAT_ARMOR, c: 0x3a4d70 },
+      { s: [0.9, 0.14, 0.7], p: [3.05, 1.06, 2.35], t: [0, -0.06], r: 0.30, m: MAT_STRUCT, c: 0x1e2a44 },
+      // 翼根整流罩：原来 s=[0.5,0.2,1.6] 几乎全埋在机翼主盒里（可见面 1.9%）。
+      // 加厚到 0.44 并外移到 x=2.55，让它从翼面上下鼓出来，可见面 33%。
+      { s: [0.52, 0.44, 1.6], p: [2.55, 1.12, 0.40], t: [0, -0.06], r: 0.30, m: MAT_ARMOR, c: 0x2f405f },
+      { s: [0.10, 0.06, 1.4], p: [3.20, 1.24, 1.00], r: 0.30, m: MAT_ENERGY, c: P.glowCyan, g: 0.9 }
+    ];
+    cluster(g, wingParts, hullMat, 'ship-wing');
+    cluster(g, mirrorPartsX(wingParts), hullMat, 'ship-wing');
+
+    // ---- 尾翼：水平安定面 + 垂尾 + 端板 ----
+    cluster(g, [
+      // 水平安定面：原来在 y=1.58，整个埋在机身主盒（y 1.15~2.05、z≤3.6）里，可见面 0%。
+      // 抬到 y=2.16 —— 机身顶面在 y=2.05，留 0.03 缝隙既贴合又不共面（共面会 z-fighting）。
+      { s: [3.4, 0.16, 1.3], p: [0, 2.16, 3.15], t: [0.06, 0], m: MAT_ARMOR, c: 0x33456a },
+      { s: [0.20, 1.25, 1.5], p: [0, 2.20, 3.05], m: MAT_ARMOR, c: 0x3a4d70 },
+      // 安定面根部整流块：跟着安定面抬上去，坐在机背与安定面之间
+      { s: [1.1, 0.30, 0.9], p: [0, 2.24, 2.50], t: [0.10, 0], m: MAT_STRUCT, c: P.keel },
+      { s: [0.60, 0.26, 0.8], p: [0, 1.55, 3.85], t: [0.16, 0], m: MAT_STRUCT, c: P.keel },
+      { s: [0.70, 0.34, 1.0], p: [0, 2.05, 1.40], t: [0.10, 0], m: MAT_ARMOR, c: P.hullLit },
+      { s: [0.10, 0.06, 1.1], p: [0, 2.82, 3.05], m: MAT_ENERGY, c: 0x9be8ff, g: 1 },
+      // 安定面端板：跟着安定面抬到 y=2.16（原来 1.56 时可见面只有 3.7%）
+      { s: [0.50, 0.16, 0.6], p: [1.35, 2.16, 3.30], t: [0, 0.50], m: MAT_ARMOR, c: 0x2f405f },
+      { s: [0.50, 0.16, 0.6], p: [-1.35, 2.16, 3.30], t: [0, -0.50], m: MAT_ARMOR, c: 0x2f405f },
+      // 垂尾转轴耳片：夹在垂尾（x ±0.10）两侧。y 要在 2.34 以上 ——
+      // 垂尾根部那一段机身外表面到 y=2.34，放低了会被机身吞掉。
+      { s: [0.14, 0.26, 0.34], p: [0.16, 2.50, 3.05], m: MAT_ARMOR, c: P.joint },
+      { s: [0.14, 0.26, 0.34], p: [-0.16, 2.50, 3.05], m: MAT_ARMOR, c: P.joint },
+      // 水平安定面枢轴：坐在安定面上表面（y=2.24）之上，抬高 0.02 避共面。
+      // z 取 3.70 是因为机身只到 z=3.63；x 取 ±0.62 是为了避开垂尾（x ±0.10）又别太靠外。
+      { s: [0.30, 0.24, 0.22], p: [0.62, 2.38, 3.70], m: MAT_ARMOR, c: P.joint },
+      { s: [0.30, 0.24, 0.22], p: [-0.62, 2.38, 3.70], m: MAT_ARMOR, c: P.joint }
+    ], hullMat, 'ship-tail');
+
+    // ---- 引擎短舱：短舱 + 进气环 + 挂架 + 喷口 ----
+    var engineParts = [
+      { s: [1.00, 0.78, 2.30], p: [1.58, 1.22, 3.35], m: MAT_ARMOR, c: P.hullDark },
+      // 进气环：原来 1.14×0.90 大半埋在短舱（1.0×0.78）里，可见面 13%。
+      // 放大到 1.30×1.06，让它比短舱粗一圈、从上下缘露出来，可见面 20%。
+      { s: [1.30, 1.06, 0.40], p: [1.58, 1.22, 2.35], m: MAT_STRUCT, c: P.keel },
+      { s: [0.14, 0.14, 0.90], p: [2.16, 1.30, 3.35], m: MAT_STRUCT, c: P.keel },
+      // 挂架尾端接头：卡在挂架靠后那一端（挂架 z 2.90~3.80）。
+      // 曾因"挂架被埋"而砍掉 —— 那是中心射线只看 ±X/±Y 的误判，表面采样实测可见面 50%。
+      { s: [0.26, 0.26, 0.22], p: [2.16, 1.30, 3.90], m: MAT_ARMOR, c: P.joint },
+      { s: [0.95, 0.62, 0.22], p: [1.58, 1.22, 4.60], m: MAT_VENT, c: P.vent }
+    ];
+    cluster(g, engineParts, hullMat, 'ship-engine');
+    cluster(g, mirrorPartsX(engineParts), hullMat, 'ship-engine');
+
+    // ---- 引擎辉光：保持 MeshBasicMaterial，沿用 opacity/scale 脉冲动画 ----
+    // 颜色分量乘以增益超过 1.0（THREE.Color 不 clamp），Bloom 的高阈值就能只挑中它。
+    var glowGeo = track('geometries', new THREE.BoxGeometry(0.86, 0.62, 0.18));
+    var glowMat = track('materials', new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x8ff6ff).multiplyScalar(HDR_GAIN),
+      transparent: true, opacity: 0.82, depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }));
     [-1, 1].forEach(function (side) {
-      box(g, [1.12, 0.86, 2.45], [side * 1.58, 1.25, 3.45], 0x263852, null,
-        'ship-engine', { detail: side < 0 ? 'left' : 'right' });
-      var glow = box(g, [0.78, 0.58, 0.16], [side * 1.58, 1.25, 4.75], 0x42e8ff, 0x0788c8,
-        'ship-engine-glow', {
-          detail: side < 0 ? 'left' : 'right', transparent: true, opacity: 0.82,
-          depthWrite: false, blending: THREE.AdditiveBlending
-        });
+      var glow = new THREE.Mesh(glowGeo, glowMat);
+      glow.position.set(side * 1.58, 1.22, 4.78);
+      setRole(glow, 'ship-engine-glow', side < 0 ? 'left' : 'right');
+      glow.name = 'SpaceTravel_ship-engine-glow';
+      g.add(glow);
       shipParts.engines.push(glow);
     });
-    [[-1.55, -2.15], [1.55, -2.15], [-1.55, 2.15], [1.55, 2.15]].forEach(function (v, i) {
-      box(g, [0.28, 0.76, 0.28], [v[0], 0.38, v[1]], 0x78879a, null,
-        'ship-landing-gear', { detail: 'gear-' + i });
+
+    // ---- 起落架：一份合批几何 + 4 个 Mesh ----
+    // 测试断言 byRole['ship-landing-gear'] === 4，所以必须是 4 个独立 Mesh；
+    // 但共享同一份 geometry/material，账本里只记 1 个。
+    var gearGeo = boxClusterGeometry([
+      // 支柱 + 脚垫 + 顶端铰接轴环（比支柱略粗，露出一圈才读得出关节）
+      { s: [0.26, 0.62, 0.26], p: [0, 0.42, 0], m: MAT_STRUCT, c: 0x78879a },
+      { s: [0.34, 0.14, 0.34], p: [0, 0.70, 0], m: MAT_ARMOR, c: P.joint },
+      { s: [0.52, 0.12, 0.52], p: [0, 0.06, 0], m: MAT_STRUCT, c: 0x5b6a7d }
+    ]);
+    GEAR_LOCAL.forEach(function (v, i) {
+      var gear = new THREE.Mesh(gearGeo, structMat);
+      gear.position.set(v[0], v[1], v[2]);
+      setRole(gear, 'ship-landing-gear', 'gear-' + i);
+      gear.name = 'SpaceTravel_ship-landing-gear';
+      g.add(gear);
     });
-    shipParts.door = box(g, [0.14, 1.28, 1.7], [2.26, 1.56, 0.5], 0x91e8ff, 0x123a55,
-      'ship-door', { detail: 'starboard' });
+
+    // ---- 舱门与坡道：位置烘焙为原点，靠 mesh.position 做开合动画 ----
+    shipParts.door = shellPart(g, [
+      { s: [0.16, 1.30, 1.70], p: [0, 0, 0], m: MAT_ARMOR, c: P.hullDark },
+      { s: [0.05, 0.10, 1.40], p: [0.10, 0.45, 0], m: MAT_ENERGY, c: P.glowCyan, g: 0.8 },
+      { s: [0.05, 0.10, 1.40], p: [0.10, -0.45, 0], m: MAT_ENERGY, c: P.glowCyan, g: 0.8 }
+    ], hullMat, 'ship-door', 'starboard');
+    shipParts.door.position.set(2.24, 1.56, 0.5);
     shipParts.door.userData.baseY = shipParts.door.position.y;
-    shipParts.ramp = box(g, [1.8, 0.12, 1.55], [2.34, 0.32, 0.5], 0x71839a, null,
-      'ship-ramp', { detail: 'starboard' });
+
+    shipParts.ramp = shellPart(g, [
+      { s: [1.8, 0.12, 1.55], p: [0, 0, 0], m: MAT_GRATE, c: 0x71839a }
+    ], structMat, 'ship-ramp', 'starboard');
+    shipParts.ramp.position.set(2.34, 0.32, 0.5);
     shipParts.ramp.userData.baseX = shipParts.ramp.position.x;
     shipParts.ramp.scale.x = 0.04;
     shipParts.ramp.visible = false;
+
     g.userData.interactionLocal = [3.25, 0.8, 0.5];
     g.userData.cockpitLocal = COCKPIT_LOCAL.slice();
     g.userData.exitLocal = EXIT_LOCAL.slice();
@@ -1266,39 +1834,109 @@ Voxel.SpaceTravel = (function () {
     return g;
   }
 
+  // 把 #rgb / #rrggbb 之类的强调色转成整数，供合批的分区色 c 使用。
+  function accentInt(v) {
+    var s = safeAccent(v).slice(1);
+    if (s.length === 3)
+      s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
+    var n = parseInt(s.slice(0, 6), 16);
+    return isFinite(n) ? n : 0x8df7ff;
+  }
+
+  // 传送门的三个"通用"几何在所有门之间共享，只构建一次：
+  // 同一份 geometry 被多个 Mesh 复用，账本里只记一次。
+  // 门框几何不能共享——它把每扇门的 accent 色烘焙进了 aTint 顶点属性。
+  function portalShared() {
+    if (portalGeoCache) return portalGeoCache;
+    portalGeoCache = {
+      ring: track('geometries', new THREE.TorusGeometry(1.68, 0.15, 6, 16)),
+      inner: track('geometries', new THREE.TorusGeometry(1.16, 0.05, 4, 12)),
+      core: track('geometries', new THREE.CircleGeometry(1.42, 20)),
+      frameMat: shellMaterial('struct', { base: 0xffffff })
+    };
+    return portalGeoCache;
+  }
+
   function makePortal(p, dest) {
     var g = setRole(new THREE.Group(), 'portal-root');
-    var c = new THREE.Color(dest.accent || '#8df7ff');
-    var ring = setRole(new THREE.Mesh(
-      track('geometries', new THREE.TorusGeometry(1.65, 0.18, 4, 12)),
-      track('materials', new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.92 }))
-    ), 'portal-ring');
+    var shared = portalShared();
+    // 必须自己取一次调色板别名：makeShip 里的 var P = SHIP_PALETTE 是函数内局部的，
+    // 这里直接用 P 会 ReferenceError，而且因为 makePortal 在 loadWorld 里被调用、
+    // 异常会被上层吞掉，表现是"传送门一个都不出现"却没有任何报错，极难定位。
+    var P = SHIP_PALETTE;
+    var accent = accentInt(dest && dest.accent);
+    var accentColor = new THREE.Color(accent);
+
+    // ---- 门框：13 个盒子合成一个 drawcall（底座/双柱/斜撑/顶梁/灯带/散热片）----
+    // 外形严格控制在 conservativePortalBounds 内：半宽 ≤2.10 < 2.7，局部顶 ≤5.25。
+    cluster(g, [
+      { s: [0.50, 3.90, 0.50], p: [-1.72, 1.95, 0], m: MAT_STRUCT, c: 0x20283b },
+      { s: [0.50, 3.90, 0.50], p: [1.72, 1.95, 0], m: MAT_STRUCT, c: 0x20283b },
+      { s: [4.10, 0.46, 0.80], p: [0, 4.06, 0], m: MAT_ARMOR, c: 0x33415f },
+      { s: [3.60, 0.10, 0.10], p: [0, 3.78, 0.42], m: MAT_ENERGY, c: accent, g: 0.9 },
+      { s: [0.95, 0.30, 0.95], p: [-1.72, 0.15, 0], m: MAT_STRUCT, c: 0x1a2133 },
+      { s: [0.95, 0.30, 0.95], p: [1.72, 0.15, 0], m: MAT_STRUCT, c: 0x1a2133 },
+      { s: [4.20, 0.16, 1.10], p: [0, 0.08, 0], m: MAT_STRUCT, c: 0x1a2133 },
+      // 斜撑：x 必须取 ±1.30 而不是 ±1.72 —— 立柱占 x 1.47~1.97，贴在立柱上会被整个吞掉。
+      // 往内侧挪之后（含 0.34 切角撑开到 x 0.95~1.65）会从门洞内侧露出来。
+      { s: [0.22, 1.50, 0.22], p: [-1.30, 3.10, 0], t: [0, 0.34], m: MAT_STRUCT, c: 0x20283b },
+      { s: [0.22, 1.50, 0.22], p: [1.30, 3.10, 0], t: [0, -0.34], m: MAT_STRUCT, c: 0x20283b },
+      { s: [0.14, 0.90, 0.14], p: [0, 4.75, 0], m: MAT_STRUCT, c: 0x2a3550 },
+      { s: [0.26, 0.26, 0.26], p: [0, 5.05, 0], m: MAT_ENERGY, c: accent, g: 1 },
+      // 散热片：进深给到 0.62（立柱是 0.50），前后各凸出 0.06。
+      // 之前和立柱前表面精确共面（都是 z ±0.25），既看不见又会 z-fighting 闪。
+      { s: [0.30, 1.20, 0.62], p: [-1.72, 1.20, 0], m: MAT_VENT, c: 0x2a3348 },
+      { s: [0.30, 1.20, 0.62], p: [1.72, 1.20, 0], m: MAT_VENT, c: 0x2a3348 },
+      // ---- 立柱走线与柱顶关节：和飞船用同一套"管线 / 机械关节"的造型语言，保证风格统一 ----
+      // 导管贴在立柱正面（立柱 z ±0.25，导管到 0.265~0.335），实测可见面 43%。
+      // 内/外侧都试过：内侧只有 22%，外侧虽 50% 但会顶到 2.10 的半宽上限，所以取正面。
+      { s: [0.07, 3.60, 0.07], p: [-1.72, 2.00, 0.30], m: MAT_STRUCT, c: P.conduit },
+      { s: [0.07, 3.60, 0.07], p: [1.72, 2.00, 0.30], m: MAT_STRUCT, c: P.conduit },
+      // 柱顶关节：立柱与顶梁的接合处，顶梁下沿在 y=3.83，所以卡在 3.56~3.80
+      { s: [0.62, 0.24, 0.62], p: [-1.72, 3.68, 0], m: MAT_ARMOR, c: P.joint },
+      { s: [0.62, 0.24, 0.62], p: [1.72, 3.68, 0], m: MAT_ARMOR, c: P.joint }
+    ], shared.frameMat, 'portal-frame');
+
+    // ---- 内外双环：外环正向、内环反向，制造齿轮般的相对转动 ----
+    // 颜色分量乘增益超过 1.0，配合 AdditiveBlending 形成可被 Bloom 拾取的亮环。
+    // 增益统一取 HDR_GAIN，和飞船引擎/能量纹路同一个标准：实测外环是门上辉光的
+    // 主要来源（1.8 只有 0.71% 画面被提亮，2.2 就有 1.85%），核心增益则几乎无感。
+    var ringMat = track('materials', new THREE.MeshBasicMaterial({
+      color: accentColor.clone().multiplyScalar(HDR_GAIN),
+      transparent: true, opacity: 0.9, depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }));
+    var ring = setRole(new THREE.Mesh(shared.ring, ringMat), 'portal-ring');
     ring.name = 'SpaceTravel_portal-ring';
     ring.position.y = 2.05;
     g.add(ring);
-    box(g, [0.55, 3.8, 0.55], [-1.75, 1.9, 0], 0x20283b, null, 'portal-frame', { detail: 'left' });
-    box(g, [0.55, 3.8, 0.55], [1.75, 1.9, 0], 0x20283b, null, 'portal-frame', { detail: 'right' });
-    box(g, [4.0, 0.5, 0.75], [0, 3.8, 0], 0x33415f, null, 'portal-frame', { detail: 'top' });
+
+    var inner = setRole(new THREE.Mesh(shared.inner, ringMat), 'portal-ring-inner');
+    inner.name = 'SpaceTravel_portal-ring-inner';
+    inner.position.y = 2.05;
+    g.add(inner);
+
+    // ---- 能量核心：同心涡流 + 放射流线，全部在 GLSL 里算 ----
     var field = setRole(new THREE.Mesh(
-      track('geometries', new THREE.PlaneGeometry(2.9, 2.9)),
-      track('materials', new THREE.MeshBasicMaterial({
-        color: c, transparent: true, opacity: 0.22, side: THREE.DoubleSide,
-        depthWrite: false, blending: THREE.AdditiveBlending
-      }))
+      shared.core,
+      vortexMaterial(accentColor, { gain: HDR_GAIN, opacity: 0.85 })
     ), 'portal-field');
     field.name = 'SpaceTravel_portal-field';
-    field.position.y = 2.0;
+    field.position.y = 2.05;
     g.add(field);
+
     var key = String(p && p.id || 'portal');
     var hash = 2166136261 >>> 0;
     for (var hi = 0; hi < key.length; hi++)
       hash = Math.imul((hash ^ key.charCodeAt(hi)) >>> 0, 16777619) >>> 0;
     g.userData = {
-      role: 'portal-root', portal: p, ring: ring, field: field, destination: dest,
+      role: 'portal-root', portal: p, ring: ring, inner: inner, field: field,
+      core: field, destination: dest,
       spinPhase: (hash / 4294967296) * Math.PI * 2,
       spinRate: (hash & 1) ? -0.8 : 0.8
     };
     animatedRings.push({ mesh: ring, phase: g.userData.spinPhase, rate: g.userData.spinRate });
+    animatedRings.push({ mesh: inner, phase: -g.userData.spinPhase, rate: -g.userData.spinRate * 1.7 });
     return g;
   }
 
@@ -1452,8 +2090,23 @@ Voxel.SpaceTravel = (function () {
     rampChangedAt = now;
   }
 
+  // 推进自写着色器的时间与相机位置：Fresnel 边缘光与能量涡流都依赖它们。
+  // 相机位置用玩家坐标近似（第一人称下两者基本重合），省去把 camera 传进本模块。
+  function updateShaderUniforms(now) {
+    var pp = (Voxel.Player && Voxel.Player.pos) ? Voxel.Player.pos() : null;
+    if (pp && isFinite(pp.x) && isFinite(pp.y) && isFinite(pp.z))
+      _camWorldPos.set(pp.x, pp.y + 1.6, pp.z);
+    for (var i = 0; i < shaderUniforms.length; i++) {
+      var u = shaderUniforms[i];
+      if (!u) continue;
+      if (u.uTime) u.uTime.value = reducedMotion ? 0.35 : now;
+      if (u.uCamPos) u.uCamPos.value.copy(_camWorldPos);
+    }
+  }
+
   function applyVisualState(now) {
     now = finite(now, 0, 0, 1e9);
+    updateShaderUniforms(now);
     for (var i = 0; i < animatedRings.length; i++) {
       var item = animatedRings[i];
       if (!item || !item.mesh) continue;
@@ -1462,9 +2115,13 @@ Voxel.SpaceTravel = (function () {
     }
     for (var p = 0; p < portals.length; p++) {
       var portal = portals[p];
-      if (portal && portal.userData && portal.userData.field && portal.userData.field.material)
-        portal.userData.field.material.opacity = reducedMotion ? 0.22 :
-          0.2 + Math.sin(now * 4 + portal.userData.spinPhase) * 0.05;
+      if (!portal || !portal.userData) continue;
+      var fieldMat = portal.userData.field && portal.userData.field.material;
+      if (!fieldMat) continue;
+      var fieldPulse = reducedMotion ? 0.85 : 0.78 + Math.sin(now * 4 + portal.userData.spinPhase) * 0.07;
+      // 涡流核心是自写着色器，透明度走 uOpacity uniform；这里两种材质都照顾到。
+      if (fieldMat.uniforms && fieldMat.uniforms.uOpacity) fieldMat.uniforms.uOpacity.value = fieldPulse;
+      else fieldMat.opacity = fieldPulse;
     }
     // 空间站信标慢速脉冲；减少动态时保持恒定亮度不随时间漂移。
     if (stationHub && stationHub.userData && stationHub.userData.beacon &&
@@ -1500,6 +2157,9 @@ Voxel.SpaceTravel = (function () {
     disposeList('materials');
     disposeList('geometries');
     disposeList('textures');
+    // 材质已随账本释放，这里的 uniforms 引用必须一并断开，否则会持有僵尸对象。
+    shaderUniforms.length = 0;
+    portalGeoCache = null;
     aboardShip = false; boardedWorldId = null; shieldImpactUntil = 0; cockpitSignature = '';
     cockpitLastSyncAt = -Infinity;
     flightState = null; flightEvents.length = 0; lastSafeExit = null; lastLandingPose = null;

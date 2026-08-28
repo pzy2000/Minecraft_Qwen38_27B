@@ -577,6 +577,10 @@
       <button class="btn small" data-shadow="1" aria-pressed="false">中</button>
       <button class="btn small" data-shadow="2" aria-pressed="false">高</button>
     </span></div>
+    <div class="set-row"><span id="bloom-label" class="set-label">能量辉光</span><span class="btn-row" id="bloom-row" role="group" aria-labelledby="bloom-label">
+      <button class="btn small" data-bloom="0" aria-pressed="false">关</button>
+      <button class="btn small" data-bloom="1" aria-pressed="false">开</button>
+    </span></div>
     <div class="set-row"><label for="set-sway">树叶风摇</label><input id="set-sway" type="range" min="0" max="1" step="0.05" aria-describedby="set-sway-v"><span><output id="set-sway-v" for="set-sway"></output></span></div>
     <div class="set-row"><label for="set-stream">后台加载</label><input id="set-stream" type="range" min="2" max="16" step="1" aria-describedby="set-stream-v"><span><output id="set-stream-v" for="set-stream"></output></span></div>
     <div class="set-row"><span id="perf-preset-label" class="set-label">性能预设</span><span class="btn-row" id="perf-preset-row" role="group" aria-labelledby="perf-preset-label">
@@ -608,7 +612,16 @@
 </div>
 
 <script src="vendor/three.min.js"></script>
-<script src="js/config.js?v=a32126db7ace2279eda6a66c4bf8ed5757bdcb8ff7cfefbd7935844b23d67685"></script>
+<!-- 能量辉光后期处理（three r128 examples/js 全局风格版本），顺序不可调换 -->
+<script src="vendor/postprocessing/CopyShader.js?v=20260828a"></script>
+<script src="vendor/postprocessing/LuminosityHighPassShader.js?v=20260828a"></script>
+<script src="vendor/postprocessing/Pass.js?v=20260828a"></script>
+<script src="vendor/postprocessing/ShaderPass.js?v=20260828a"></script>
+<script src="vendor/postprocessing/MaskPass.js?v=20260828a"></script>
+<script src="vendor/postprocessing/EffectComposer.js?v=20260828a"></script>
+<script src="vendor/postprocessing/RenderPass.js?v=20260828a"></script>
+<script src="vendor/postprocessing/UnrealBloomPass.js?v=20260828a"></script>
+<script src="js/config.js?v=33696a4b1a71c0c3161c6cbb7b1d8891fb30f2163448210f88902769a5744350"></script>
 <script src="js/assets.js?v=e99991a4b81fc931f386244b5fcdfd01ee186a6d439aa7a8d8dc512d2dcd80f7"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
 <script src="js/world/universe.js?v=20260825b"></script>
@@ -634,7 +647,7 @@
 <script src="js/player/controls.js?v=7650a80bae65366d5d4e345bdc37004584d64dab1bf5281d9d163c683f8f0091"></script>
 <script src="js/player/player.js?v=4e4ea714be2323f70136456d38a7839be1c6aacbb18942df449f7a4250868ead"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
-<script src="js/systems/settings.js?v=7c768be0"></script>
+<script src="js/systems/settings.js?v=20260828a"></script>
 <script src="js/systems/environment.js?v=f5bb638810a2f8a7f3c85bac6ab743f79845340f39ac175dcfdff1dbb038568d"></script>
 <script src="js/systems/ship_flight.js?v=6620cbc652dfa166bad1fabc040d2b196579f5a2ffb62abc3350de8b300548df"></script>
 <script src="js/systems/landing_assist.js?v=c8ad9f9a73e15cd4f8b3ad54337e6c5a3657357f842c4689854908b9c9c14635"></script>
@@ -646,7 +659,8 @@
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
 <script src="js/ui/galaxy_map.js?v=20260825a"></script>
-<script src="js/systems/space_travel.js?v=20260827"></script>
+<script src="js/systems/space_travel.js?v=20260828g"></script>
+<script src="js/systems/bloom.js?v=20260828b"></script>
 <script src="js/entities/mobs.js?v=c74ecbe4682aba983e4d7b090da2661b024f41b2d38f6eb45981355a273f7ff7"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=b47975758c7713f3521487a32ce25e48dce7c0079f7007de52655f69bfb3fd5b"></script>
@@ -655,6 +669,6 @@
 <script src="js/ui/touch.js?v=2aa0796fe55f76eb93014e83b8fbe903167abb3dc40d19447d74f1eefed7f701"></script>
 <script src="js/ui/hud.js?v=20260824r"></script>
 <script src="js/ui/codex.js?v=20260828a"></script>
-<script src="js/main.js?v=2889dbcbbd2ee03c639c3e6a014bdbf74abcb127f6dc0688f8e11d26e9f011cd"></script>
+<script src="js/main.js?v=c1fa6835eb0581fa5022b4146f315f1428be1dcc5b43b0c5baf0fc81e228a47d"></script>
 </body>
 </html>
