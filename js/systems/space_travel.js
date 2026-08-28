@@ -1145,6 +1145,7 @@ Voxel.SpaceTravel = (function () {
     'void main() {',
     '  vec3 N = normalize(vNrmW);',
     '  vec3 V = normalize(uCamPos - vPosW);',
+    '  if (dot(N, V) < 0.0) N = -N;',                          // 薄壳玻璃：从内侧直视按正面算，避免整面磨砂发白
     '  vec3 H = normalize(normalize(uSunDir) + V);',
     '  float f = pow(1.0 - max(dot(N, V), 0.0), 2.5);',        // 菲涅尔
     '  float s = pow(max(dot(N, H), 0.0), 140.0) * uSpec;',    // 窄高光
@@ -1707,9 +1708,11 @@ Voxel.SpaceTravel = (function () {
     ], ceramicMat, 'ship-nose');
 
     // ---- 座舱：菲涅尔玻璃，边缘更不透明 ----
+    // 注意：COCKPIT_LOCAL=[0,2.53,-1.45] 是硬契约，驾驶位眼睛就坐在这个高度。
+    // 座舱框绝不能在眼位前方（z<-1.45 一侧）放 y<=2.66 的实心装甲，
+    // 否则下半屏会被装甲内壁糊死（21b1649 曾因此挡掉整个前向视野）。
     cluster(g, [
       { s: [1.9, 0.62, 2.2], p: [0, 2.32, -1.15], t: [0.05, 0], m: MAT_ARMOR, c: 0x2a3550 },
-      { s: [1.35, 0.40, 1.1], p: [0, 2.46, -2.30], t: [0.16, 0], m: MAT_ARMOR, c: 0x2a3550 },
       { s: [0.14, 0.62, 2.2], p: [0.88, 2.32, -1.15], m: MAT_ARMOR, c: 0x35486c },
       { s: [0.14, 0.62, 2.2], p: [-0.88, 2.32, -1.15], m: MAT_ARMOR, c: 0x35486c },
       { s: [1.9, 0.12, 0.16], p: [0, 2.62, -0.10], m: MAT_ARMOR, c: 0x35486c }
