@@ -1507,7 +1507,7 @@ Voxel.Game = (function () {
       if (Voxel.Progress) Voxel.Progress.track('use_block', { id: 15 });
       return true;
     }
-    if (hit.id === 17) { useBed(hit); return true; }
+    if (Voxel.Blocks.isBed(hit.id)) { useBed(hit); return true; }
     if (hit.id === 37) { openFurnace(hit); return true; }
     if (hit.id === 38) { openChest(hit); return true; }
     return false;
@@ -1646,6 +1646,14 @@ Voxel.Game = (function () {
     if (t.id === 37) dumpContainerContents(t.x, t.y, t.z, ['in', 'fuel', 'out']);
     if (t.id === 38) dumpChest(t.x, t.y, t.z);
     Voxel.World.set(t.x, t.y, t.z, 0);
+    if (Voxel.Blocks.isBed(t.id)) {
+      // 双格床：破坏任一半同时拆掉另一半，整张床只掉一张床物品
+      var pb = bedPartner(t.x, t.y, t.z, t.id);
+      if (pb) {
+        Voxel.World.set(pb.x, pb.y, pb.z, 0);
+        enqueueWaterAround(pb.x, pb.y, pb.z);
+      }
+    }
     var blockPos = new THREE.Vector3(t.x + 0.5, t.y + 0.5, t.z + 0.5);
     var bodyGot = addInv(dropId, 1);
     if (bodyGot < 1) {
@@ -1681,7 +1689,6 @@ Voxel.Game = (function () {
     var x = hit.x + hit.nx, y = hit.y + hit.ny, z = hit.z + hit.nz;
     var cur = Voxel.World.get(x, y, z);
     if (cur !== 0 && cur !== 7) return;
-    if (id === 17 && cur !== 0) return; // 床只能放在空气格
     if (id === 19) {
       // 火把需要依托：下方或任一水平邻为实体
       var supported = Voxel.Blocks.isSolid(Voxel.World.get(x, y - 1, z)) ||
@@ -1693,6 +1700,29 @@ Voxel.Game = (function () {
     }
     var p = Voxel.Player.pos();
     var hw = C.W / 2 + 0.01;
+    // 床：与 Minecraft 一致占两格——床尾在近身格，床头沿视线主方向外推一格。
+    // 任一格非空气或与玩家重叠都放不下，不消耗物品。
+    if (id === 17) {
+      if (cur !== 0) return;
+      var fd = Voxel.Player.lookDir();
+      var bdx = Math.abs(fd.x) >= Math.abs(fd.z) ? (fd.x >= 0 ? 1 : -1) : 0;
+      var bdz = bdx !== 0 ? 0 : (fd.z >= 0 ? 1 : -1);
+      var hbx = x + bdx, hbz = z + bdz;
+      if (Voxel.World.get(hbx, y, hbz) !== 0) return;
+      var bedOverlap = function (cx, cz) {
+        return cx < p.x + hw && cx + 1 > p.x - hw &&
+          y < p.y + C.H + 0.01 && y + 1 > p.y &&
+          cz < p.z + hw && cz + 1 > p.z - hw;
+      };
+      if (bedOverlap(x, z) || bedOverlap(hbx, hbz)) return;
+      Voxel.World.set(x, y, z, 67);                                   // 床尾
+      Voxel.World.set(hbx, y, hbz, Voxel.Blocks.bedHeadId(bdx, bdz)); // 床头（按朝向选型）
+      decSel();
+      Voxel.Sound.place('wood');
+      if (Voxel.Progress) Voxel.Progress.track('place', { placedId: 17 });
+      if (Voxel.HandItem) Voxel.HandItem.swing();
+      return;
+    }
     var overlap = x < p.x + hw && x + 1 > p.x - hw &&
       y < p.y + C.H + 0.01 && y + 1 > p.y &&
       z < p.z + hw && z + 1 > p.z - hw;
@@ -3942,7 +3972,7 @@ Voxel.Game = (function () {
       hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
       hitEl.dataset.kind = 'craft';
       hitEl.style.display = 'block';
-    } else if (hit && hit.type === 'block' && hit.id === 17) {
+    } else if (hit && hit.type === 'block' && Voxel.Blocks.isBed(hit.id)) {
       hitEl.textContent = Voxel.DayNight.isNight()
         ? (isTouch ? '轻点睡觉（并设置重生点）' : '按 E 睡觉（并设置重生点）')
         : (isTouch ? '轻点设置重生点' : '按 E 设置重生点');
@@ -3965,25 +3995,92 @@ Voxel.Game = (function () {
   // ---------- 床：设置重生点 / 睡觉跳过夜晚 ----------
 
   var sleepTimer = null;
+  var sleepPose = null;   // 睡觉期间的躺卧视角（枕头上方），null=正常跟随玩家
+
+  // 床头定位：点在床头直接返回；点在床尾则找"枕头方向指向本格"的床头
+  // （床头 ID 编码了枕头朝向，可排除相邻的另一张床）
+  function bedHeadOf(x, y, z) {
+    var selfId = Voxel.World.get(x, y, z);
+    if (selfId === 17 || (selfId >= 68 && selfId <= 71))
+      return { x: x, y: y, z: z, id: selfId };
+    var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    var fallback = null;
+    for (var i = 0; i < 4; i++) {
+      var px = x + dirs[i][0], pz = z + dirs[i][1];
+      var id = Voxel.World.get(px, y, pz);
+      if (id >= 68 && id <= 71) {
+        var d = bedPillowDir(id);
+        if (px - d.x === x && pz - d.z === z) return { x: px, y: y, z: pz, id: id };
+        if (!fallback) fallback = { x: px, y: y, z: pz, id: id };
+      } else if (id === 17 && !fallback) {
+        fallback = { x: px, y: y, z: pz, id: id };   // 旧单格床按床头兼容
+      }
+    }
+    return fallback;
+  }
+
+  // 床头方块对应的枕头朝向（= 床尾→床头的延伸方向）
+  function bedPillowDir(headId) {
+    if (headId === 69) return { x: 1, z: 0 };
+    if (headId === 70) return { x: 0, z: -1 };
+    if (headId === 71) return { x: 0, z: 1 };
+    return { x: -1, z: 0 };   // 17/68：枕头朝 -x
+  }
+
+  // 找床的另一半：床头按枕头方向直接定位床尾；床尾则匹配"枕头指向本格"
+  // 的床头，避免把相邻另一张床的半格误当成自己的另一半
+  function bedPartner(x, y, z, id) {
+    if (id === 67) {
+      var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (var i = 0; i < 4; i++) {
+        var px = x + dirs[i][0], pz = z + dirs[i][1];
+        var nid = Voxel.World.get(px, y, pz);
+        if (nid >= 68 && nid <= 71) {
+          var d = bedPillowDir(nid);
+          if (px - d.x === x && pz - d.z === z) return { x: px, y: y, z: pz };
+        } else if (nid === 17) {
+          return { x: px, y: y, z: pz };   // 旧单格床兼容
+        }
+      }
+      return null;
+    }
+    var hd = bedPillowDir(id);             // 床头（17/68..71）：枕头朝向即床尾反方向
+    var fx = x - hd.x, fz = z - hd.z;
+    if (Voxel.World.get(fx, y, fz) === 67) return { x: fx, y: y, z: fz };
+    var dirs2 = [[1, 0], [-1, 0], [0, 1], [0, -1]];   // 旧单格床兜底
+    for (var j = 0; j < 4; j++) {
+      var qx = x + dirs2[j][0], qz = z + dirs2[j][1];
+      if (Voxel.Blocks.isBed(Voxel.World.get(qx, y, qz))) return { x: qx, y: y, z: qz };
+    }
+    return null;
+  }
 
   function useBed(hit) {
-    // 床占半格，重生点取床顶上方
-    Voxel.Player.setBed(new THREE.Vector3(hit.x + 0.5, hit.y + 1, hit.z + 0.5));
+    // 床占两格半高；重生点取床头正上方（靠近枕头一侧，与 MC 一致）
+    var head = bedHeadOf(hit.x, hit.y, hit.z) || hit;
+    Voxel.Player.setBed(new THREE.Vector3(head.x + 0.5, head.y + 1, head.z + 0.5));
     var bedSaved = doSave(true, 'bed');
-    if (Voxel.DayNight.isNight()) sleep();
+    if (Voxel.DayNight.isNight()) sleep(head);
     else Voxel.HUD.toast(bedSaved
       ? '重生点已设置为这张床 · 存档校验完成'
       : '重生点仅保留在当前会话 · 存档失败，请立即重试');
     return bedSaved;
   }
 
-  function sleep() {
+  function sleep(head) {
     if (state !== 'playing' || sleepTimer) return;
     setState('sleeping');
     stopDig();
+    // 视角滑到枕头上方的躺卧位（约床面高度），仍可转动鼠标环顾，与 MC 睡觉观感一致
+    var d = bedPillowDir(head.id);
+    sleepPose = {
+      t: 0,
+      from: camera.position.clone(),
+      to: new THREE.Vector3(head.x + 0.5 + d.x * 0.32, head.y + 0.62, head.z + 0.5 + d.z * 0.32)
+    };
     var fade = document.getElementById('sleep-fade');
     if (fade) fade.classList.add('on');
-    sleepTimer = setTimeout(finishSleep, 1100);
+    sleepTimer = setTimeout(finishSleep, 2400);
     return true;
   }
 
@@ -3991,6 +4088,7 @@ Voxel.Game = (function () {
     if (state !== 'sleeping') return false;
     if (sleepTimer) clearTimeout(sleepTimer);
     sleepTimer = null;
+    sleepPose = null;
     // 跳到清晨（t≈0.27 为上午），完成后立即保存，避免刷新又回到夜晚。
     Voxel.DayNight.setTime(0.27);
     Voxel.DayNight.update(0);
@@ -4554,6 +4652,17 @@ Voxel.Game = (function () {
         '  GPU:' + gpu
       );
     } else Voxel.HUD.showDebug('');
+
+    // 睡觉躺卧视角：相机滑向枕头上方约床面高度，旋转仍跟随鼠标（与 MC 一致）。
+    // 每帧在玩家相机更新之后覆盖，起床（sleepPose 置空）即自动回到玩家眼睛。
+    if (state === 'sleeping' && sleepPose) {
+      sleepPose.t += dt;
+      var lieK = Math.min(1, sleepPose.t / 0.8);
+      var lieE = lieK * lieK * (3 - 2 * lieK);
+      camera.position.lerpVectors(sleepPose.from, sleepPose.to, lieE);
+      camera.rotation.x = Voxel.Controls.pitch();
+      camera.rotation.y = Voxel.Controls.yaw();
+    }
 
     // Bloom 激活时由 composer 接管渲染（它最后一趟会画到屏幕）；否则走原路径。
     if (!Voxel.Bloom || !Voxel.Bloom.render(dt)) renderer.render(scene, camera);

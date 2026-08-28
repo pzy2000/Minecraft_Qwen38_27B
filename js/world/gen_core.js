@@ -397,7 +397,8 @@ Voxel.GenCore = (function () {
     }
 
     // 遗迹写入器：覆写石土等自然方块，但不吃基岩/水/功能方块（工作台/床/熔炉/箱子）。
-    var STRUCT_KEEP = { 12: true, 7: true, 15: true, 17: true, 37: true, 38: true };
+    var STRUCT_KEEP = { 12: true, 7: true, 15: true, 17: true, 37: true, 38: true,
+      67: true, 68: true, 69: true, 70: true, 71: true };
     function structSet(s, x, y, z, id, mode) {
       if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
       var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));

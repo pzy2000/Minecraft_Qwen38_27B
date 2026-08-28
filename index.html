@@ -1,284 +1,284 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<html lang="zh-CN" data-page-node-id="rEVn4aEvQ0WzXDlSE5QZ2G">
+<head data-page-node-id="mUtqH4TMl5g8inudDW4iEh">
+<meta charset="UTF-8" data-page-node-id="6Ed83fwTlNwCvfhCh5cepy">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" data-page-node-id="SNwk9ypjhepsOzcFx5FVtv">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=aa0c00a643df43ce3b85803f44cd479b4504e96a69f0f40d734edd13ae8f5c25">
+<link rel="stylesheet" href="css/style.css?v=aa0c00a643df43ce3b85803f44cd479b4504e96a69f0f40d734edd13ae8f5c25" data-page-node-id="CxIEjnWZTBu2DDZuWYtQrJ">
 </head>
-<body data-game-state="loading">
-<canvas id="game"></canvas>
+<body data-game-state="loading" data-page-node-id="wlwVJajMNWaMffHiK8RDyL">
+<canvas id="game" data-page-node-id="Wki7bx67oRCSr5vkdCFyDe"></canvas>
 
 <!-- HUD -->
-<div id="hud">
-  <div id="crosshair"></div>
-  <div id="debug"></div>
-  <canvas id="oxygen" width="212" height="20" role="meter" aria-label="氧气" aria-valuemin="0" aria-valuemax="10" aria-valuenow="10"></canvas>
-  <canvas id="hunger" width="212" height="20" role="meter" aria-label="饥饿值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
-  <canvas id="health" width="212" height="20" role="meter" aria-label="生命值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+<div id="hud" data-page-node-id="QkUA6StPjaeltBommFdRJq">
+  <div id="crosshair" data-page-node-id="gqQEI3kBCqFGMzPZIaJyYV"></div>
+  <div id="debug" data-page-node-id="nWfYydiORw04l1PtiXTHiY"></div>
+  <canvas id="oxygen" width="212" height="20" role="meter" aria-label="氧气" aria-valuemin="0" aria-valuemax="10" aria-valuenow="10" data-page-node-id="sJrlJHfHttLDvudNUGMPfc"></canvas>
+  <canvas id="hunger" width="212" height="20" role="meter" aria-label="饥饿值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20" data-page-node-id="RpOEN4JSxMM4HoztUxgIHa"></canvas>
+  <canvas id="health" width="212" height="20" role="meter" aria-label="生命值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20" data-page-node-id="uGa3qSVnsbwjGvInqKVr6e"></canvas>
   <div id="environment-meter" role="meter" aria-label="环境危害暴露"
        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="环境稳定 0%"
-       data-hazard="none" data-level="safe" data-active="false" data-protected="true">
-    <span class="environment-icon" aria-hidden="true">◇</span>
-    <span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span>
-    <span id="environment-intensity" aria-hidden="true"></span>
-    <span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span>
-    <span id="environment-value" aria-hidden="true">0%</span>
+       data-hazard="none" data-level="safe" data-active="false" data-protected="true" data-page-node-id="HE1Fvmpi0q8bnkepa9mcbV">
+    <span class="environment-icon" aria-hidden="true" data-page-node-id="DgXIn9WAdRDsIbptV0beKJ">◇</span>
+    <span class="environment-copy" data-page-node-id="0txdHAJewcsYJRtCKQk4MI"><strong id="environment-label" data-page-node-id="rKqvm2Akl623gtwPLbJYLu">环境稳定</strong><small id="environment-detail" data-page-node-id="FcefiI7S9Ccx6Ft8si6RjS">防护 · 环境稳定</small></span>
+    <span id="environment-intensity" aria-hidden="true" data-page-node-id="iO9yrvrVDYegzKngsFYbGa"></span>
+    <span class="environment-track" aria-hidden="true" data-page-node-id="vQmpkW6K5HVoIz0TzD8cqu"><i id="environment-fill" data-page-node-id="nvBBujaWEsqrfhmgB19DzJ"></i></span>
+    <span id="environment-value" aria-hidden="true" data-page-node-id="ZaSBoV0yWHYcvXiilcDRBQ">0%</span>
   </div>
-  <div id="hotbar" role="toolbar" aria-label="快捷栏"></div>
-  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-  <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
-  <div id="lock-hint">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
-  <div id="save-health" data-state="idle" aria-live="off" hidden>存档状态尚未验证</div>
-  <div id="error-banner" role="alert" aria-live="assertive" aria-atomic="true"></div>
-  <div id="dmg-flash"></div>
-  <div id="uw-overlay"></div>
-  <div id="dmg-dir"><i></i></div>
-  <div id="sleep-fade"></div>
-  <div id="telemetry-rail">
-    <div id="space-hud">
-      <div id="world-name">◆ 导航链路离线</div>
-      <div id="world-coord">星图坐标离线</div>
-      <div id="warp-fuel">跃迁待机</div>
+  <div id="hotbar" role="toolbar" aria-label="快捷栏" data-page-node-id="euwFD20gEPOzz766GN6Pkf"></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="fmq8P6FPdAf9HknwukU2DT"></div>
+  <div id="use-hint" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="vu1jU6NYNsY7UG0ZkTGeFf"></div>
+  <div id="lock-hint" data-page-node-id="E0BANGvb30lTheZPJAlHii">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
+  <div id="save-health" data-state="idle" aria-live="off" hidden data-page-node-id="8kAEDQqmYcUEOAUzZrz7Id">存档状态尚未验证</div>
+  <div id="error-banner" role="alert" aria-live="assertive" aria-atomic="true" data-page-node-id="zPJpxZypRXtZ4NhH8WYzQz"></div>
+  <div id="dmg-flash" data-page-node-id="zEevmgesR72k6S5KUlLunJ"></div>
+  <div id="uw-overlay" data-page-node-id="1BA98cYQd8CjicbXViJ1Cd"></div>
+  <div id="dmg-dir" data-page-node-id="E5SWrGYeqMI3Xjk3PXgg8C"><i data-page-node-id="Ag0PG2ece33DIl08ytIb70"></i></div>
+  <div id="sleep-fade" data-page-node-id="tjoc9GFfHb8yMUEg55y8wS"></div>
+  <div id="telemetry-rail" data-page-node-id="rTf4UwsNSe1wvLDnRAAFUU">
+    <div id="space-hud" data-page-node-id="mvE43bEnlwSwRYEvJbm0Fk">
+      <div id="world-name" data-page-node-id="3kT37jU57BdV4yWmFnWfTE">◆ 导航链路离线</div>
+      <div id="world-coord" data-page-node-id="GjgYE38m7MWpGCojpLsS3G">星图坐标离线</div>
+      <div id="warp-fuel" data-page-node-id="qgsgMAxn0jfNi2lkLv8wqB">跃迁待机</div>
     </div>
-    <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+    <button id="btn-starmap-hud" type="button" aria-label="打开星图" data-page-node-id="yezfpfjdZvcjiLhJR1pVPV">星图</button>
   </div>
   <section id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
-           aria-hidden="true" data-status="offline" data-target-kind="none" data-view="passive">
-    <div id="scan-passive">
-      <div class="scan-terminal-head">
-        <span class="scan-terminal-mark" aria-hidden="true">◈</span>
-        <h2 id="scan-terminal-title">环境扫描终端</h2>
-        <span class="scan-terminal-mode">PASSIVE</span>
+           aria-hidden="true" data-status="offline" data-target-kind="none" data-view="passive" data-page-node-id="2FDhN0B1H58RNehUuRKxeA">
+    <div id="scan-passive" data-page-node-id="eCIU3FFrakw6KFBe7Hc1SH">
+      <div class="scan-terminal-head" data-page-node-id="FGiVLW5WP7MpfEJh5apFeP">
+        <span class="scan-terminal-mark" aria-hidden="true" data-page-node-id="EbgTZl9l9mnGrrxJtH3F7N">◈</span>
+        <h2 id="scan-terminal-title" data-page-node-id="fQU0fAq7ezKCpvmFuUljF2">环境扫描终端</h2>
+        <span class="scan-terminal-mode" data-page-node-id="I0T73PUIFQ2lGb3GXSNZwD">PASSIVE</span>
       </div>
-      <dl class="scan-terminal-grid">
-        <div class="scan-field scan-secondary"><dt>世界</dt><dd id="scan-world">扫描链路离线</dd></div>
-        <div class="scan-field scan-secondary"><dt>位置</dt><dd id="scan-position">定位服务离线</dd></div>
-        <div class="scan-field scan-secondary"><dt>生物群系</dt><dd id="scan-biome">群系数据离线</dd></div>
-        <div class="scan-field scan-secondary"><dt>环境</dt><dd id="scan-environment">环境传感器离线</dd></div>
-        <div class="scan-field scan-primary"><dt>目标</dt><dd id="scan-target">未锁定目标</dd></div>
-        <div class="scan-field scan-primary"><dt>距离</dt><dd id="scan-distance">无距离数据</dd></div>
+      <dl class="scan-terminal-grid" data-page-node-id="CeEeAMZDb4Z1FlhMRTyBY3">
+        <div class="scan-field scan-secondary" data-page-node-id="K4blirSoFFBEzIdd6qwHwg"><dt data-page-node-id="cw8RBMhaqdIhMi2TTtkeH8">世界</dt><dd id="scan-world" data-page-node-id="FGFbpBYBQNdDfy6LBcL691">扫描链路离线</dd></div>
+        <div class="scan-field scan-secondary" data-page-node-id="fbhdLPYn7a5oXyE1hqmmqv"><dt data-page-node-id="a45HBUNr79YHz6fmq198gq">位置</dt><dd id="scan-position" data-page-node-id="4O9bARmR7dVHny5dRJdJvm">定位服务离线</dd></div>
+        <div class="scan-field scan-secondary" data-page-node-id="e58PkOjxguWj3cZ83FBWGJ"><dt data-page-node-id="9xyk0DaG9woWBFcsxXBEdt">生物群系</dt><dd id="scan-biome" data-page-node-id="BRGdsUOQqpuSgz5tR9FGxV">群系数据离线</dd></div>
+        <div class="scan-field scan-secondary" data-page-node-id="rVk6zFZRZWUtnhwXdTznqW"><dt data-page-node-id="3yDBLLb7F4EqccrZaxcPL1">环境</dt><dd id="scan-environment" data-page-node-id="szlabk1ekLFrOphdhTHhQZ">环境传感器离线</dd></div>
+        <div class="scan-field scan-primary" data-page-node-id="3XoIH2WAY62FfDbml6f53L"><dt data-page-node-id="C0m2TlYaerzcRZ3lBUSekD">目标</dt><dd id="scan-target" data-page-node-id="4bKKyeWrjEjtduSHNfA2UK">未锁定目标</dd></div>
+        <div class="scan-field scan-primary" data-page-node-id="sT06cxhIrPLyTS0Gjb8hBt"><dt data-page-node-id="JtGkMVisOS7e09W8vX1FHz">距离</dt><dd id="scan-distance" data-page-node-id="Mb6LRFMPea2HOt66leTQ8V">无距离数据</dd></div>
       </dl>
     </div>
     <article id="arrival-card" class="hidden" data-mode="ship"
-             aria-labelledby="arrival-world" aria-describedby="arrival-type arrival-detail">
-      <span id="arrival-kicker" aria-hidden="true">NAV // ARRIVAL</span>
-      <strong id="arrival-world">目标天体</strong>
-      <span id="arrival-type">航行数据待同步</span>
-      <span id="arrival-guidance">导航方向待同步</span>
-      <span id="arrival-detail">正在建立地表与探索链路</span>
+             aria-labelledby="arrival-world" aria-describedby="arrival-type arrival-detail" data-page-node-id="BhzlWi13EoRSXOjux6AKjq">
+      <span id="arrival-kicker" aria-hidden="true" data-page-node-id="IPnr1c1lNFMz9FimgMln3R">NAV // ARRIVAL</span>
+      <strong id="arrival-world" data-page-node-id="AAHBt1duO2jfCDyGruFa5r">目标天体</strong>
+      <span id="arrival-type" data-page-node-id="VGCErQKC7szf1tzwbifxRf">航行数据待同步</span>
+      <span id="arrival-guidance" data-page-node-id="WLyM8EJ1EPUeVMlBQfZ2oM">导航方向待同步</span>
+      <span id="arrival-detail" data-page-node-id="GYUxyrJL7DDwnF8QVpIEg1">正在建立地表与探索链路</span>
     </article>
   </section>
-  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
-    <div class="scan-active-actions">
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制" data-page-node-id="DkWCUN7dxTki2lzKGUZ3T8">
+    <div class="scan-active-actions" data-page-node-id="2CQAY4LdeyUDLrwhcmAT2z">
       <button id="btn-scan-hud" type="button" aria-label="启动主动扫描"
               aria-keyshortcuts="G" aria-pressed="false"
-              aria-controls="scan-active-status scan-progress scan-result">
-        <span class="scan-active-icon" aria-hidden="true">◎</span>
-        <span class="scan-active-label">扫描</span>
+              aria-controls="scan-active-status scan-progress scan-result" data-page-node-id="w9vk0TAhaUt4UEYgH4ebm4">
+        <span class="scan-active-icon" aria-hidden="true" data-page-node-id="CwouWFT19XwV6199G1Zujz">◎</span>
+        <span class="scan-active-label" data-page-node-id="l9grKtzYJiwh0q0x66Wnnx">扫描</span>
       </button>
       <button id="btn-discovery-log" type="button" aria-label="打开发现档案"
-              aria-haspopup="dialog" aria-controls="overlay-discovery">
-        <span aria-hidden="true">▤</span>
-        <span class="scan-active-label">档案</span>
+              aria-haspopup="dialog" aria-controls="overlay-discovery" data-page-node-id="fpZGblruBccB5H8RLE52hV">
+        <span aria-hidden="true" data-page-node-id="FAf4QECqdpTnNjiQzYi0EG">▤</span>
+        <span class="scan-active-label" data-page-node-id="2RuAPT8hPcijL0MOIOxsI4">档案</span>
       </button>
     </div>
-    <div class="scan-active-readout">
-      <div class="scan-active-kicker" aria-hidden="true">ANALYSIS // ACTIVE</div>
-      <div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true">主动扫描待机</div>
+    <div class="scan-active-readout" data-page-node-id="2zjeFCcO7viuBA5S2oax2I">
+      <div class="scan-active-kicker" aria-hidden="true" data-page-node-id="USmfWWioVHDsbqCHQFgCz2">ANALYSIS // ACTIVE</div>
+      <div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="dma2aPriwQ0Kj8EjSf9odG">主动扫描待机</div>
       <div id="scan-progress" role="progressbar" aria-label="主动扫描进度"
-           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
-      <div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div>
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-page-node-id="fXCXiBVrZckYBGSJMOFCWA"><i aria-hidden="true" data-page-node-id="6mYZd6zhSrSJSqUwHsh03r"></i></div>
+      <div id="scan-result" data-page-node-id="FtSfpcMKGBe1rmioQ0V8TD">按 G 或触摸“扫描”发射探索脉冲</div>
     </div>
   </div>
 </div>
 
 <!-- 真实飞船座舱：非模态HUD，中央始终透出WebGL世界 -->
 <section id="cockpit-hud" aria-hidden="true" data-state="safe" data-landed="true"
-         data-impact="false" style="--cockpit-hazard:0%;--cockpit-throttle:0%;--cockpit-roll:0deg">
-  <div class="cockpit-glass" aria-hidden="true">
-    <i class="cockpit-arch"></i><i class="cockpit-pillar left"></i><i class="cockpit-pillar right"></i>
-    <i class="cockpit-horizon"></i><i class="cockpit-reticle"></i><i class="cockpit-scanline"></i>
+         data-impact="false" style="--cockpit-hazard:0%;--cockpit-throttle:0%;--cockpit-roll:0deg" data-page-node-id="3B6XXc3VIdI6jJQvZPHKZI">
+  <div class="cockpit-glass" aria-hidden="true" data-page-node-id="MIdgK5hHfTBV1KdSJlFv9Y">
+    <i class="cockpit-arch" data-page-node-id="72HJAeCICCfwx3Aj42ZLnw"></i><i class="cockpit-pillar left" data-page-node-id="vrm6sctH4jCznFqY5lyT1F"></i><i class="cockpit-pillar right" data-page-node-id="O2EdceNBG8l3pvZrFI86zY"></i>
+    <i class="cockpit-horizon" data-page-node-id="x46kekuqlLW3TVljknv1u0"></i><i class="cockpit-reticle" data-page-node-id="EAPgmNINuopiW6bHUroms9"></i><i class="cockpit-scanline" data-page-node-id="pqlaaNOFPB2K7IfBNKEaDB"></i>
   </div>
-  <section class="cockpit-monitor cockpit-monitor-left" aria-labelledby="cockpit-speed-label">
-    <span class="cockpit-monitor-kicker">FLIGHT // VELOCITY</span>
-    <strong id="cockpit-speed"><b>0</b><small>u/s</small></strong>
+  <section class="cockpit-monitor cockpit-monitor-left" aria-labelledby="cockpit-speed-label" data-page-node-id="ohHCndBMPyVHjQqSzIZrb7">
+    <span class="cockpit-monitor-kicker" data-page-node-id="hqsMrO8mUSqa7u8fWb4R0I">FLIGHT // VELOCITY</span>
+    <strong id="cockpit-speed" data-page-node-id="u4Ear3KFUN0mprkNTeAdRd"><b data-page-node-id="4r5FcvtQM5pYtOameXgm3E">0</b><small data-page-node-id="10dnw4VAwvaKcboUjW40v4">u/s</small></strong>
     <div class="cockpit-throttle-track" role="meter" aria-labelledby="cockpit-speed-label"
-         aria-valuemin="-25" aria-valuemax="100" aria-valuenow="0"><i></i></div>
-    <div class="cockpit-monitor-row"><span id="cockpit-speed-label">推进</span><b id="cockpit-throttle">0%</b></div>
-    <div class="cockpit-monitor-row"><span>高度</span><b id="cockpit-altitude">0 m</b></div>
+         aria-valuemin="-25" aria-valuemax="100" aria-valuenow="0" data-page-node-id="E71HuZ5QN5MnOxP1sRQUNl"><i data-page-node-id="YwUv9xtxGIt5Zvk8EL2HC8"></i></div>
+    <div class="cockpit-monitor-row" data-page-node-id="u2zgq1ozKWMrbiWPR0EfJM"><span id="cockpit-speed-label" data-page-node-id="ArKCDccx7qIEFnoaqUDVCg">推进</span><b id="cockpit-throttle" data-page-node-id="nGCL7tldphszgBAOxhmp2g">0%</b></div>
+    <div class="cockpit-monitor-row" data-page-node-id="svzs16t1hjZtXrZadiegXt"><span data-page-node-id="6DHlAfQdTSlAuzy7INr2tG">高度</span><b id="cockpit-altitude" data-page-node-id="FclfWefyUcbYwR396EbKYZ">0 m</b></div>
   </section>
-  <section class="cockpit-monitor cockpit-monitor-right" aria-labelledby="cockpit-shelter-state">
-    <span class="cockpit-monitor-kicker">LIFE SUPPORT // SEALED</span>
-    <strong id="cockpit-shelter-state" role="status" aria-live="polite">密封完成 · 舱内安全</strong>
-    <small id="cockpit-shelter-detail">外界环境稳定 · 生命维持系统在线</small>
+  <section class="cockpit-monitor cockpit-monitor-right" aria-labelledby="cockpit-shelter-state" data-page-node-id="lpfYmrSYXIA3O8NA5FsBJs">
+    <span class="cockpit-monitor-kicker" data-page-node-id="WA63hM9ByCwSGmlEFEnSUX">LIFE SUPPORT // SEALED</span>
+    <strong id="cockpit-shelter-state" role="status" aria-live="polite" data-page-node-id="WBlBSyiaqWi4EiGS7RX5y8">密封完成 · 舱内安全</strong>
+    <small id="cockpit-shelter-detail" data-page-node-id="7h5CxDAr0Cpcz71LZVkA3Q">外界环境稳定 · 生命维持系统在线</small>
     <div id="cockpit-hazard-meter" role="progressbar" aria-label="舱内有害环境残留"
          aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
-         aria-valuetext="有害环境残留已净化至 0%"><i></i><b id="cockpit-hazard-value">0%</b></div>
-    <div class="cockpit-monitor-row"><span>舱压</span><b id="cockpit-atmosphere-value">O₂ 98% · 1.00 ATM</b></div>
-    <div class="cockpit-monitor-row"><span>舱体</span><b id="cockpit-hull-value">100%</b></div>
+         aria-valuetext="有害环境残留已净化至 0%" data-page-node-id="vOBtDrmVKhp9CcIFUxMwo2"><i data-page-node-id="19IREAFsKPjIKGBzNxBbCi"></i><b id="cockpit-hazard-value" data-page-node-id="tkk1y955II2m7YqUL6MuD3">0%</b></div>
+    <div class="cockpit-monitor-row" data-page-node-id="EgyKULfWzrbOK7YKqsnSrm"><span data-page-node-id="35WXAciC0SPFmHxeDrDdtS">舱压</span><b id="cockpit-atmosphere-value" data-page-node-id="Hwf3MiDKwgTW0PxXsUhX5i">O₂ 98% · 1.00 ATM</b></div>
+    <div class="cockpit-monitor-row" data-page-node-id="KLrT1gzomb1dUFkg5e1yIB"><span data-page-node-id="1O6FR6CiPzFcCspDKn8luK">舱体</span><b id="cockpit-hull-value" data-page-node-id="0WQCCvR7fAAXgTAnb8OGbN">100%</b></div>
   </section>
-  <div class="cockpit-console" aria-label="飞船驾驶台">
-    <section class="cockpit-console-side left">
-      <span class="cockpit-monitor-kicker">LOCAL ENVIRONMENT</span>
-      <strong id="cockpit-world-value">未知天体</strong>
-      <small id="cockpit-weather-value">日间 · 晴</small>
-      <small id="cockpit-position-value">X +0.0 · Y +0.0 · Z +0.0</small>
+  <div class="cockpit-console" aria-label="飞船驾驶台" data-page-node-id="RGXwgO4Pq4AclHDtk8xZKq">
+    <section class="cockpit-console-side left" data-page-node-id="ErFKZmVQTxzLqJfjKnRS67">
+      <span class="cockpit-monitor-kicker" data-page-node-id="H9XvoHRqS8AEFGyIVgPMTJ">LOCAL ENVIRONMENT</span>
+      <strong id="cockpit-world-value" data-page-node-id="seblAxIuIUdYJpHpp8YFBf">未知天体</strong>
+      <small id="cockpit-weather-value" data-page-node-id="rqh4YtPpMWHTAIafvy7RXV">日间 · 晴</small>
+      <small id="cockpit-position-value" data-page-node-id="1jdg754PYH9rm3AwNtu0Jd">X +0.0 · Y +0.0 · Z +0.0</small>
     </section>
-    <section class="cockpit-radar-wrap" aria-label="附近导航雷达">
-      <div class="cockpit-radar" aria-hidden="true">
-        <i class="radar-ring r1"></i><i class="radar-ring r2"></i><i class="radar-ring r3"></i>
-        <i class="radar-sweep"></i><i class="radar-heading"></i>
-        <b id="cockpit-radar-marker-0"></b><b id="cockpit-radar-marker-1"></b>
-        <b id="cockpit-radar-marker-2"></b><b id="cockpit-radar-marker-3"></b>
+    <section class="cockpit-radar-wrap" aria-label="附近导航雷达" data-page-node-id="EQrIvDRjjMlWAC6jdDhYaj">
+      <div class="cockpit-radar" aria-hidden="true" data-page-node-id="Aw5qWdBVUB1aeG2JGC9Rwh">
+        <i class="radar-ring r1" data-page-node-id="F57wXcEfIHBceAGJv3tBbK"></i><i class="radar-ring r2" data-page-node-id="G1sne1pu0FnvSyzKeH90IB"></i><i class="radar-ring r3" data-page-node-id="AgH2FbuPO1pp4kf9HhSiWh"></i>
+        <i class="radar-sweep" data-page-node-id="L5gb4wwT5stN2LRi0C6mCo"></i><i class="radar-heading" data-page-node-id="iIUD31uF0xHmJkMCilTbMf"></i>
+        <b id="cockpit-radar-marker-0" data-page-node-id="kp6ljMr0z4SV4ctg5BlEbP"></b><b id="cockpit-radar-marker-1" data-page-node-id="TzTASSBjWBF3Dfgwe6rFsx"></b>
+        <b id="cockpit-radar-marker-2" data-page-node-id="9V0qAEdcA87MAHRooUBMJg"></b><b id="cockpit-radar-marker-3" data-page-node-id="XG0QlmmQSCulHb5osl1LN4"></b>
       </div>
-      <span id="cockpit-flight-mode">LANDED</span>
+      <span id="cockpit-flight-mode" data-page-node-id="hDymPCq5oHeIoJG8Chsq9W">LANDED</span>
     </section>
-    <section class="cockpit-console-side right">
-      <span class="cockpit-monitor-kicker">NAV // SYSTEMS</span>
-      <strong id="cockpit-engine-value">跃迁 0/100</strong>
-      <small id="cockpit-exit-status">安全离舰就绪</small>
-      <div class="cockpit-actions">
-        <button id="btn-cockpit-map" type="button" aria-label="打开星图" aria-keyshortcuts="H">H · 星图</button>
-        <button id="btn-cockpit-exit" type="button" aria-label="离开飞船" aria-keyshortcuts="E">E · 离舰</button>
+    <section class="cockpit-console-side right" data-page-node-id="DN8zTIEKZaXMESGw82V0AH">
+      <span class="cockpit-monitor-kicker" data-page-node-id="fZyoQemaDcAZFcsF7dJ9iA">NAV // SYSTEMS</span>
+      <strong id="cockpit-engine-value" data-page-node-id="j50oT42m1F2owWIr5wuJkk">跃迁 0/100</strong>
+      <small id="cockpit-exit-status" data-page-node-id="1Hb9ZRfLoBPJOvHlQ3MUZn">安全离舰就绪</small>
+      <div class="cockpit-actions" data-page-node-id="jCrI3XInxAFK35etXirF8W">
+        <button id="btn-cockpit-map" type="button" aria-label="打开星图" aria-keyshortcuts="H" data-page-node-id="JFkevWPdOO8GBX8pdQh0iE">H · 星图</button>
+        <button id="btn-cockpit-exit" type="button" aria-label="离开飞船" aria-keyshortcuts="E" data-page-node-id="apvEA9yheFQcEX0F8snK7d">E · 离舰</button>
       </div>
     </section>
   </div>
-  <div id="cockpit-touch-controls" aria-label="移动端飞船驾驶控制">
-    <button id="btn-cockpit-thrust" type="button" aria-label="按住推进">推进</button>
-    <button id="btn-cockpit-brake" type="button" aria-label="按住制动或倒车">制动</button>
-    <button id="btn-cockpit-up" type="button" aria-label="按住上升">升</button>
-    <button id="btn-cockpit-down" type="button" aria-label="按住下降">降</button>
+  <div id="cockpit-touch-controls" aria-label="移动端飞船驾驶控制" data-page-node-id="QyXZAmIRPIZFXOWf8rFyJH">
+    <button id="btn-cockpit-thrust" type="button" aria-label="按住推进" data-page-node-id="792y42pKzPSNyHHOGtoTBv">推进</button>
+    <button id="btn-cockpit-brake" type="button" aria-label="按住制动或倒车" data-page-node-id="raWT62KzAslntNaMhp6J6N">制动</button>
+    <button id="btn-cockpit-up" type="button" aria-label="按住上升" data-page-node-id="FYZXuL1DTDBEbl4exBf8UR">升</button>
+    <button id="btn-cockpit-down" type="button" aria-label="按住下降" data-page-node-id="er6UnxwGyYEvAtrJJA7h9J">降</button>
   </div>
 </section>
 
 <!-- 存档故障只在健康状态由正常转为失败时播报一次；恢复走独立 polite 通道。 -->
-<div id="save-failure-announcer" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
-<div id="save-recovery-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="save-failure-announcer" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true" data-page-node-id="4t8r6G9G1qMO2nQaIb2oCX"></div>
+<div id="save-recovery-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="Vvenh4ttfLjW7PcBqEXYxt"></div>
 
 <!-- 背包 -->
-<div id="inventory" class="hidden">
-  <div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
-    <div class="panel-titlebar">
-      <div id="inventory-title" class="inv-title">背包</div>
-      <button id="btn-inv-close" class="panel-close" type="button" aria-label="关闭背包" title="关闭背包">×</button>
+<div id="inventory" class="hidden" data-page-node-id="VzZKZGYsGbIwjfROoy8fly">
+  <div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title" data-page-node-id="Vzfzivbx7PrzykKZTQmJNP">
+    <div class="panel-titlebar" data-page-node-id="8dyDTfZ6euUAOG3kz52M90">
+      <div id="inventory-title" class="inv-title" data-page-node-id="7izKLv3o5lLRGuRfOMLfDR">背包</div>
+      <button id="btn-inv-close" class="panel-close" type="button" aria-label="关闭背包" title="关闭背包" data-page-node-id="uLbIeeYaa0a4FXiAfJHrjb">×</button>
     </div>
-    <div class="craft-row">
-      <div id="inv-craft-grid"></div>
-      <div class="craft-arrow">→</div>
-      <div id="inv-craft-result" class="slot result"></div>
+    <div class="craft-row" data-page-node-id="zzCNNcEX5vJwQQF6BVQJYR">
+      <div id="inv-craft-grid" data-page-node-id="ZhW2AaVS97NOc636DPAe9n"></div>
+      <div class="craft-arrow" data-page-node-id="SxNGRMAAh5OV5AVaK4FSqM">→</div>
+      <div id="inv-craft-result" class="slot result" data-page-node-id="4yVo6HHnMEVXfFv2ikBMhf"></div>
     </div>
-    <div id="inv-grid"></div>
-    <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
-    <div class="inv-tip">拖拽或点击 拾取 / 放置 · Shift+点击 快搬 · 右键 拆半堆/逐个放 · Q 丢出（可捡回）· 同类自动堆叠（×64）· 2×2 格合成木板/工作台/木棍 · E 或 ESC 关闭 · M 手册</div>
+    <div id="inv-grid" data-page-node-id="5W1hS2AuAh3ugu7GDDhojb"></div>
+    <div class="inv-held-row" data-page-node-id="XF9KdngVqRSXPTOlGAMTA9">手持：<canvas id="inv-held" width="44" height="44" data-page-node-id="q4nd8DR0lj2TqMSZnYXGob"></canvas></div>
+    <div class="inv-tip" data-page-node-id="aVDJ46fU14ZJDpvKGkAdAh">拖拽或点击 拾取 / 放置 · Shift+点击 快搬 · 右键 拆半堆/逐个放 · Q 丢出（可捡回）· 同类自动堆叠（×64）· 2×2 格合成木板/工作台/木棍 · E 或 ESC 关闭 · M 手册</div>
   </div>
 </div>
 
 <!-- 工作台 -->
-<div id="crafting" class="hidden">
-  <div class="panel craft-panel" role="dialog" aria-modal="true" aria-labelledby="crafting-title">
-    <div class="panel-titlebar">
-      <div id="crafting-title" class="inv-title">工作台</div>
-      <button id="btn-craft-close" class="panel-close" type="button" aria-label="关闭工作台" title="关闭工作台">×</button>
+<div id="crafting" class="hidden" data-page-node-id="HExfsTCKv9ubasn3LBFZNe">
+  <div class="panel craft-panel" role="dialog" aria-modal="true" aria-labelledby="crafting-title" data-page-node-id="1NaQwfKTwlI3PhzyN5jqgE">
+    <div class="panel-titlebar" data-page-node-id="T92ZDhiiWfmryoREfsuktQ">
+      <div id="crafting-title" class="inv-title" data-page-node-id="9T8Jt0JjmEkN55XMWaolEN">工作台</div>
+      <button id="btn-craft-close" class="panel-close" type="button" aria-label="关闭工作台" title="关闭工作台" data-page-node-id="DNs1f0MQBJD1pRFtAivk4V">×</button>
     </div>
-    <div class="craft-row">
-      <div id="craft-grid"></div>
-      <div class="craft-arrow">→</div>
-      <div id="craft-result" class="slot result"></div>
+    <div class="craft-row" data-page-node-id="y03n6thNbnDIjIOlLUz6zI">
+      <div id="craft-grid" data-page-node-id="iMNHNYTZL4XYcCBJ2df8fo"></div>
+      <div class="craft-arrow" data-page-node-id="fAphJvdFMz2mDAjM0TTTmE">→</div>
+      <div id="craft-result" class="slot result" data-page-node-id="dpRF50BLnjNO8Ja6W7IMQk"></div>
     </div>
-    <div id="craft-inv-grid"></div>
-    <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
-    <div class="inv-tip">拖拽或点击 拾取 / 放置材料 · 点击结果格取出物品 · E 或 ESC 关闭</div>
-    <button id="btn-manual" class="btn">查看合成手册</button>
+    <div id="craft-inv-grid" data-page-node-id="H9Ip9PNlfuuCt1YaXQSMBf"></div>
+    <div class="inv-held-row" data-page-node-id="8HgmgJM195KPQepeVLiETD">手持：<canvas id="craft-held" width="44" height="44" data-page-node-id="ijiePdm03xZ6LLXeK18f9q"></canvas></div>
+    <div class="inv-tip" data-page-node-id="0HIJ9MWpdOVHUkH4IjdbAs">拖拽或点击 拾取 / 放置材料 · 点击结果格取出物品 · E 或 ESC 关闭</div>
+    <button id="btn-manual" class="btn" data-page-node-id="zQHog8iJpVSpGoEMUpuL3W">查看合成手册</button>
   </div>
 </div>
 
 <!-- 熔炉 -->
-<div id="furnace" class="hidden">
-  <div class="panel furnace-panel" role="dialog" aria-modal="true" aria-labelledby="furnace-title">
-    <div class="panel-titlebar">
-      <div id="furnace-title" class="inv-title">熔炉</div>
-      <button id="btn-furnace-close" class="panel-close" type="button" aria-label="关闭熔炉" title="关闭熔炉">×</button>
+<div id="furnace" class="hidden" data-page-node-id="H7AICBkJwCjXkuCp44PKVD">
+  <div class="panel furnace-panel" role="dialog" aria-modal="true" aria-labelledby="furnace-title" data-page-node-id="qiZ6Md5x0nz2NfFdb0o3dh">
+    <div class="panel-titlebar" data-page-node-id="Aplx6u3HkVhkvSIUGSzzHw">
+      <div id="furnace-title" class="inv-title" data-page-node-id="LfZfkVUQOZYx3npzr7O0AF">熔炉</div>
+      <button id="btn-furnace-close" class="panel-close" type="button" aria-label="关闭熔炉" title="关闭熔炉" data-page-node-id="SWdyy8VNOAzFgHEL41Kcix">×</button>
     </div>
-    <div class="furnace-row">
-      <div class="furnace-col">
-        <div id="fur-in" class="slot"></div>
-        <div id="fur-flame" role="meter" aria-label="燃料余量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
-        <div id="fur-fuel" class="slot"></div>
+    <div class="furnace-row" data-page-node-id="tpujMiLI7dP6BCnW7bpm8a">
+      <div class="furnace-col" data-page-node-id="EcuwOl7nMZD1KTti6CeCXR">
+        <div id="fur-in" class="slot" data-page-node-id="cwiHbFeaFwAB6aOqVVgXHl"></div>
+        <div id="fur-flame" role="meter" aria-label="燃料余量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-page-node-id="RbfvnmLTCvk8Q6yPngPqha"><i aria-hidden="true" data-page-node-id="IjINckLD5ppGjGh2o5eHKr"></i></div>
+        <div id="fur-fuel" class="slot" data-page-node-id="QPmQsBMkADj82eG3Vm75nT"></div>
       </div>
-      <div class="furnace-arrow"><span aria-hidden="true">➜</span><div class="fur-track" role="progressbar" aria-label="烧制进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fur-prog" aria-hidden="true"></i></div></div>
-      <div id="fur-out" class="slot result"></div>
+      <div class="furnace-arrow" data-page-node-id="esHlewNFejudkhSQJy6gF0"><span aria-hidden="true" data-page-node-id="SgHLgbHMh49FVlrEUIcQ3y">➜</span><div class="fur-track" role="progressbar" aria-label="烧制进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-page-node-id="c2X3jLyj8yn36BJZJlOm4g"><i id="fur-prog" aria-hidden="true" data-page-node-id="MkTTml3xNhJaIoWPvDJEiw"></i></div></div>
+      <div id="fur-out" class="slot result" data-page-node-id="Ad5FohQBwYjIVUG7qoCRSc"></div>
     </div>
-    <div id="fur-inv-grid"></div>
-    <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
-    <div class="inv-tip">上=原料 下=燃料 · 右键拆半堆/逐个放 · Shift+点击 快取 · E 或 ESC 关闭（炉子继续烧）</div>
+    <div id="fur-inv-grid" data-page-node-id="HJnHWb2AhnxcEZhBqHDG3c"></div>
+    <div class="inv-held-row" data-page-node-id="dOYRNTq8a4XDfwclCumtB0">手持：<canvas id="fur-held" width="44" height="44" data-page-node-id="rLf4O6Y98GoYuJ413gX9Jc"></canvas></div>
+    <div class="inv-tip" data-page-node-id="EPQGppSShPj9bbKqp9VvQf">上=原料 下=燃料 · 右键拆半堆/逐个放 · Shift+点击 快取 · E 或 ESC 关闭（炉子继续烧）</div>
   </div>
 </div>
 
 <!-- 箱子 -->
-<div id="chest" class="hidden">
-  <div class="panel chest-panel" role="dialog" aria-modal="true" aria-labelledby="chest-title">
-    <div class="panel-titlebar">
-      <div id="chest-title" class="inv-title">箱子</div>
-      <button id="btn-chest-close" class="panel-close" type="button" aria-label="关闭箱子" title="关闭箱子">×</button>
+<div id="chest" class="hidden" data-page-node-id="pGFuoj10iCBqzeub7sJz0x">
+  <div class="panel chest-panel" role="dialog" aria-modal="true" aria-labelledby="chest-title" data-page-node-id="gzyNv6I33DFsZ975js2BZ9">
+    <div class="panel-titlebar" data-page-node-id="BKe8yZH4E0Y4YHO8GyBF1N">
+      <div id="chest-title" class="inv-title" data-page-node-id="Vw5gIHfFKWPK22GFYUBJhN">箱子</div>
+      <button id="btn-chest-close" class="panel-close" type="button" aria-label="关闭箱子" title="关闭箱子" data-page-node-id="5Zd5vMwBhfZaDGXCVYrAth">×</button>
     </div>
-    <div id="chest-grid"></div>
-    <div id="chest-inv-grid"></div>
-    <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
-    <div class="inv-tip">拖拽或点击 存取 · 右键 拆半堆/逐个放 · Shift+点击 快存快取 · E 或 ESC 关闭</div>
+    <div id="chest-grid" data-page-node-id="ldYQI6O4FLKywROOpuujan"></div>
+    <div id="chest-inv-grid" data-page-node-id="W5X3j4L0fUx4dbgDjLF3Br"></div>
+    <div class="inv-held-row" data-page-node-id="ER1Xo8D65BQFDxjJGLP13r">手持：<canvas id="chest-held" width="44" height="44" data-page-node-id="CVMsRrlA1sK8x8sJfHLc2P"></canvas></div>
+    <div class="inv-tip" data-page-node-id="DoE9XYArw7jQFsN3BS0BVJ">拖拽或点击 存取 · 右键 拆半堆/逐个放 · Shift+点击 快存快取 · E 或 ESC 关闭</div>
   </div>
 </div>
 
 <!-- 合成手册 -->
-<div id="manual" class="hidden">
-  <div class="panel manual-panel" role="dialog" aria-modal="true" aria-labelledby="manual-title">
-    <div class="panel-titlebar">
-      <div id="manual-title" class="inv-title">合成手册</div>
-      <button id="btn-manual-close" class="panel-close" type="button" aria-label="关闭合成手册" title="关闭合成手册">×</button>
+<div id="manual" class="hidden" data-page-node-id="tdY5Ctfwdf4uLmAEXjtxOV">
+  <div class="panel manual-panel" role="dialog" aria-modal="true" aria-labelledby="manual-title" data-page-node-id="uQ2Ui0sGY3YlEEEUKEBOqI">
+    <div class="panel-titlebar" data-page-node-id="1vGctObrLdjtS5FnYiQuRH">
+      <div id="manual-title" class="inv-title" data-page-node-id="nRETBkiPWApHQx4mMgdQER">合成手册</div>
+      <button id="btn-manual-close" class="panel-close" type="button" aria-label="关闭合成手册" title="关闭合成手册" data-page-node-id="3BKexYjcmgJ7c1TEnc8dMS">×</button>
     </div>
-    <div id="manual-list"></div>
-    <div class="inv-tip">M 或 ESC 关闭</div>
+    <div id="manual-list" data-page-node-id="3vEl7EErVD2hACA2w6vvq3"></div>
+    <div class="inv-tip" data-page-node-id="djaaKq3FM6CfpgfVPcMBEy">M 或 ESC 关闭</div>
   </div>
 </div>
 
 <!-- 开始界面 -->
-<div id="overlay-start" class="overlay start-overlay">
-  <div class="panel start-panel">
-    <header class="start-brand">
-      <div class="start-kicker">EXO-ARK // WAKE SEQUENCE</div>
-      <h1>星海方舟</h1>
-      <div class="sub">STARBOUND VOXEL</div>
-      <p class="start-tagline">启动方舟导航核，重连深空航路。</p>
-      <div class="start-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<div id="overlay-start" class="overlay start-overlay" data-page-node-id="vBSAnsmKtzPcSfNlldfyti">
+  <div class="panel start-panel" data-page-node-id="271Vi5xgceErtBlrBJsQWn">
+    <header class="start-brand" data-page-node-id="8BdyKGxtitZQzA8BGDcN7u">
+      <div class="start-kicker" data-page-node-id="hAEqANLkFXMzn0FzgiRSwi">EXO-ARK // WAKE SEQUENCE</div>
+      <h1 data-page-node-id="bAbIvwgh8ZZWKaDV0U22Mr">星海方舟</h1>
+      <div class="sub" data-page-node-id="ugBXoMlQc9sJqfOtwSJNYz">STARBOUND VOXEL</div>
+      <p class="start-tagline" data-page-node-id="nX2r6wWZO1MtRRC7Kazsxx">启动方舟导航核，重连深空航路。</p>
+      <div class="start-signal" aria-hidden="true" data-page-node-id="KtFJ2xFNoK7Uam31MHrnFL"><i data-page-node-id="MsXWKyHIXaXjH1JnPPncVC"></i><i data-page-node-id="RTQHTCor3ot9vjEixUCzA0"></i><i data-page-node-id="3A91TxeQAAq5jwI4zYkAe0"></i><i data-page-node-id="Xn7F5qqI7Ko32MH5Oli18r"></i><i data-page-node-id="rzpvrwptl2qIzHwbHRS2L8"></i></div>
     </header>
 
-    <div class="start-actions" aria-label="世界启动选项">
-      <button id="btn-start" class="btn primary">继续游戏</button>
-      <button id="btn-new" class="btn" aria-haspopup="dialog">新世界</button>
-      <button id="btn-featured" class="btn">精选世界</button>
-      <button id="btn-restore-backup" class="btn restore hidden" type="button">恢复上一存档</button>
-      <div class="seed-row">
-        <label class="sr-only" for="seed-input">星系种子</label>
-        <input id="seed-input" type="text" maxlength="32" placeholder="星系种子 · 留空随机" spellcheck="false">
-        <button id="btn-seed-random" class="btn small" type="button">随机</button>
+    <div class="start-actions" aria-label="世界启动选项" data-page-node-id="mFDbaISjuB33a4fQqjGdrb">
+      <button id="btn-start" class="btn primary" data-page-node-id="wjS5FTlYmRAVn4s1yNxyRE">继续游戏</button>
+      <button id="btn-new" class="btn" aria-haspopup="dialog" data-page-node-id="YdkP2F4VkI16TTj9DTh9co">新世界</button>
+      <button id="btn-featured" class="btn" data-page-node-id="jsryLqd0RXOASDXwuInm30">精选世界</button>
+      <button id="btn-restore-backup" class="btn restore hidden" type="button" data-page-node-id="1aKjFjKpf8wPa6JAEwoLnz">恢复上一存档</button>
+      <div class="seed-row" data-page-node-id="LRl9c1nyHBa0Em6XiwKiRA">
+        <label class="sr-only" for="seed-input" data-page-node-id="jFOsb2UGGVeztyJ5gsQHfE">星系种子</label>
+        <input id="seed-input" type="text" maxlength="32" placeholder="星系种子 · 留空随机" spellcheck="false" data-page-node-id="o2Gnur2F1UpUf4sOQag8sg">
+        <button id="btn-seed-random" class="btn small" type="button" data-page-node-id="OdzYrdHFfUN19v94ZJqbbG">随机</button>
       </div>
-      <button id="btn-settings-menu" class="btn">设置</button>
-      <div id="start-hint" class="hint" role="status" aria-live="polite">正在校验本地存档与导航信标…</div>
+      <button id="btn-settings-menu" class="btn" data-page-node-id="ggSSG2fNvk2MkJvfxTZ0tW">设置</button>
+      <div id="start-hint" class="hint" role="status" aria-live="polite" data-page-node-id="R76HyvaYN2WwmZ2JCqnYTJ">正在校验本地存档与导航信标…</div>
     </div>
 
-    <details class="start-brief">
-      <summary>
-        <span class="start-brief-code">MISSION // DEEP SPACE</span>
-        <strong>展开航行简报</strong>
+    <details class="start-brief" data-page-node-id="3WKbzqgoU8nfj3kJLWcolN">
+      <summary data-page-node-id="wKE6EiLWxletRpGBCrTolw">
+        <span class="start-brief-code" data-page-node-id="y5TP9c6IeF37zaLWVUNPoh">MISSION // DEEP SPACE</span>
+        <strong data-page-node-id="UYxNL94asvwsQ4lFKERCHF">展开航行简报</strong>
       </summary>
-      <div class="start-brief-body">
-        <p>探索种子星系，穿越随机传送门；在降落点附近登上飞船，使用跃迁引擎前往未知星球与空间站。</p>
-        <div class="controls">
-          <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
-          <div><b>左键</b> 放置 <b>右键长按</b> 挖掘/攻击 <b>中键</b> 吸取方块</div>
-          <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>G</b> 主动扫描 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
-          <div><b>M</b> 合成手册 · <b>Q</b> 丢弃 · <b>R</b> 进食 · <b>N</b> 切换天气 · <b>J</b> 成就 · <b>B</b> 图鉴</div>
-          <div><b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
+      <div class="start-brief-body" data-page-node-id="z8Njj02KWDoCCPjnUNSyGm">
+        <p data-page-node-id="n3EimwN1jrruRkVqLaFb06">探索种子星系，穿越随机传送门；在降落点附近登上飞船，使用跃迁引擎前往未知星球与空间站。</p>
+        <div class="controls" data-page-node-id="S9k4HuH8RVOt5RFFby5q0t">
+          <div data-page-node-id="Dla7gmtYj1RPxJn6ERqkml"><b data-page-node-id="eCMaCtmLny9MuB46zsD1zE">WASD</b> 移动 <b data-page-node-id="ZZUFO7HuVojwyG48XBL063">鼠标</b> 视角 <b data-page-node-id="hnm6fHPpkpxwbfYWzQOasn">空格</b> 跳跃 <b data-page-node-id="usZQ3MpPqeHtATG9CMY3Gh">Shift</b> 疾跑</div>
+          <div data-page-node-id="4WCkGzucmfbdcA81JFEFJB"><b data-page-node-id="xgQ7cZdEgYXYPGBukkclXc">左键</b> 放置 <b data-page-node-id="NYGYbe7iKzk8oQKRQjt2Q7">右键长按</b> 挖掘/攻击 <b data-page-node-id="Nt0CndZdqFtDQB0qvxD7Yj">中键</b> 吸取方块</div>
+          <div data-page-node-id="Sp3qWYaZMLfluWTADCiFHb"><b data-page-node-id="tEp8frnqFz8DxxXYBXGxEW">1-9 / 滚轮</b> 快捷栏 <b data-page-node-id="AFQ7Qiafqc5MNhuXyRycxP">E</b> 交互/背包 <b data-page-node-id="e5kxKjYLQSzGyPTZajyXjO">G</b> 主动扫描 <b data-page-node-id="8s3hxVqf4SvuLLHxDatdlR">H</b> 飞船星图 <b data-page-node-id="6e9d9gVzheREbdUIBvophA">F</b> 飞行</div>
+          <div data-page-node-id="Q45frlaBK1zqZ2d7dS1W9n"><b data-page-node-id="73GLD9yAZYoumbuBpcko9M">M</b> 合成手册 · <b data-page-node-id="OANO0hxqQSqk9cJJgvIHuf">Q</b> 丢弃 · <b data-page-node-id="iU1rXi4gdr7Evcw0O6Rz3k">R</b> 进食 · <b data-page-node-id="wksbkqph9TV7fbZK0Yp2BG">N</b> 切换天气 · <b data-page-node-id="ZDVe7iV87A9r5lfj53ZFu1">J</b> 成就 · <b data-page-node-id="aJNmMDYImR7YiqWPXKcCzi">B</b> 图鉴</div>
+          <div data-page-node-id="vGupJ94mNCqMguAAIoHeAa"><b data-page-node-id="SvHkcY2WfAhWnBG4Sf8uCL">F3</b> 调试 <b data-page-node-id="t85tNDeNq8bCFHy3N9enDR">P</b> 暂停 <b data-page-node-id="pc9vmQrZWD6mFUVxDlMVVO">Esc</b> 释放鼠标</div>
         </div>
       </div>
     </details>
@@ -286,328 +286,328 @@
 </div>
 
 <!-- 新建世界前保护当前存档的确认对话框 -->
-<div id="overlay-world-replace" class="overlay world-replace-overlay hidden">
+<div id="overlay-world-replace" class="overlay world-replace-overlay hidden" data-page-node-id="LpOYqoObCB93A9ggMjzzGK">
   <div class="panel world-replace-panel" role="alertdialog" aria-modal="true"
        aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note"
-       aria-busy="false">
-    <div class="world-replace-kicker">存档保护协议</div>
-    <h2 id="world-replace-title">创建新世界？</h2>
-    <p id="world-replace-message" class="world-replace-message">当前世界会先存入“上一存档”备份槽。</p>
-    <div id="world-replace-note" class="world-replace-note">备份成功后才会创建新世界；若备份失败，当前存档不会被清除。</div>
-    <div id="world-replace-error" class="world-replace-error hidden" role="alert" aria-live="assertive"></div>
-    <div class="world-replace-actions">
-      <button id="btn-world-replace-cancel" class="btn" type="button">取消</button>
-      <button id="btn-world-replace-confirm" class="btn primary" type="button">备份并创建</button>
+       aria-busy="false" data-page-node-id="PfEiI65BriugKCswCWdlNO">
+    <div class="world-replace-kicker" data-page-node-id="MjnJZRchSSHqfTrt60i91P">存档保护协议</div>
+    <h2 id="world-replace-title" data-page-node-id="5j5DBi9i8XNP28xPrqtRbw">创建新世界？</h2>
+    <p id="world-replace-message" class="world-replace-message" data-page-node-id="xtyTSlkIks1VWOAgZ6gYSe">当前世界会先存入“上一存档”备份槽。</p>
+    <div id="world-replace-note" class="world-replace-note" data-page-node-id="qnJCCAnF7AEFlXeGw8hB6K">备份成功后才会创建新世界；若备份失败，当前存档不会被清除。</div>
+    <div id="world-replace-error" class="world-replace-error hidden" role="alert" aria-live="assertive" data-page-node-id="tOLp5hjeoicZ971riW12BN"></div>
+    <div class="world-replace-actions" data-page-node-id="CZ2T3Ro0SelGFIr3HHzd2f">
+      <button id="btn-world-replace-cancel" class="btn" type="button" data-page-node-id="UVCFDrnbHu2f59q8zSrSC6">取消</button>
+      <button id="btn-world-replace-confirm" class="btn primary" type="button" data-page-node-id="nkHW1L8Hg44g2CCUn1iQL7">备份并创建</button>
     </div>
   </div>
 </div>
 
 <!-- 精选世界 -->
-<div id="overlay-featured" class="overlay hidden">
-  <div class="panel featured-panel" role="dialog" aria-modal="true" aria-labelledby="featured-title">
-    <h2 id="featured-title">精选世界</h2>
-    <div id="featured-grid"></div>
-    <div class="hint">点击卡片以固定种子创建对应世界并直接进入（会覆盖当前存档）</div>
-    <button id="btn-featured-back" class="btn">返回</button>
+<div id="overlay-featured" class="overlay hidden" data-page-node-id="0CDmktZ9Xi8TDBX08ISoUU">
+  <div class="panel featured-panel" role="dialog" aria-modal="true" aria-labelledby="featured-title" data-page-node-id="qgGrmdhlYWx59hdekz13jB">
+    <h2 id="featured-title" data-page-node-id="2vAHYrtdgaE92pGj2eys5i">精选世界</h2>
+    <div id="featured-grid" data-page-node-id="XPsBHDaWVnyuG1bI1g7utN"></div>
+    <div class="hint" data-page-node-id="heQjGIFhhjYJM6LWV6OubH">点击卡片以固定种子创建对应世界并直接进入（会覆盖当前存档）</div>
+    <button id="btn-featured-back" class="btn" data-page-node-id="btin4w9p9sz0JIBUqNxWmD">返回</button>
   </div>
 </div>
 
 <!-- 暂停菜单 -->
-<div id="overlay-pause" class="overlay hidden">
+<div id="overlay-pause" class="overlay hidden" data-page-node-id="LP1SRFXF0dRpup4grScvBf">
   <div class="panel pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title"
-       aria-describedby="pause-save-status pause-save-feedback pause-autosave-hint">
-    <h2 id="pause-title">游戏暂停</h2>
+       aria-describedby="pause-save-status pause-save-feedback pause-autosave-hint" data-page-node-id="poGqrzp2mHYoeTXiyHWhyB">
+    <h2 id="pause-title" data-page-node-id="7XYX3VzxewudvsvHZiJv0F">游戏暂停</h2>
     <div id="pause-save-status" class="pause-save-status" data-state="idle"
-         role="status" aria-live="off" aria-atomic="true">
-      <strong>存档待验证</strong><span>本次会话尚未完成已验证写入。</span>
+         role="status" aria-live="off" aria-atomic="true" data-page-node-id="B7KgbpCidKR8CTVbAqws6w">
+      <strong data-page-node-id="VGmDzCThOETgLW6wRkchQD">存档待验证</strong><span data-page-node-id="1aXIXLr6VRmS9zDu1X6Czo">本次会话尚未完成已验证写入。</span>
     </div>
     <div id="pause-save-feedback" class="pause-save-feedback" role="status"
-         aria-live="polite" aria-atomic="true"></div>
-    <button id="btn-resume" class="btn primary">继续游戏</button>
-    <button id="btn-fullscreen" class="btn">进入全屏</button>
-    <div class="pause-row">
-      <button id="btn-pause-achievements" class="btn">成就 (J)</button>
-      <button id="btn-pause-codex" class="btn">图鉴 (B)</button>
-      <button id="btn-pause-tutorial" class="btn">教程回顾</button>
+         aria-live="polite" aria-atomic="true" data-page-node-id="ykMe8cf9ZnTCfl5XErpcWK"></div>
+    <button id="btn-resume" class="btn primary" data-page-node-id="hKAaPV0zu85hHnqkgRDNr0">继续游戏</button>
+    <button id="btn-fullscreen" class="btn" data-page-node-id="V9CAJHMSG1NEQx1r3RM6tZ">进入全屏</button>
+    <div class="pause-row" data-page-node-id="2S3BHbxnHXhvL72RlmwmaW">
+      <button id="btn-pause-achievements" class="btn" data-page-node-id="qE47oXWGMPCaYSlwj41FEi">成就 (J)</button>
+      <button id="btn-pause-codex" class="btn" data-page-node-id="WjCJiyWuoq3Z2m6uc1qPEo">图鉴 (B)</button>
+      <button id="btn-pause-tutorial" class="btn" data-page-node-id="hnp0BL8pA2QZ7iAYRMsjap">教程回顾</button>
     </div>
-    <button id="btn-save" class="btn" aria-describedby="pause-save-status">立即存档</button>
-    <button id="btn-settings" class="btn">设置</button>
-    <button id="btn-menu" class="btn" aria-describedby="pause-save-status">存档并回主菜单</button>
-    <div id="pause-autosave-hint" class="hint">提示：游戏每 30 秒自动存档；只有写入并回读验证成功后才会显示完成。</div>
-    <div class="controls">
-      <div><b>WASD</b> 移动 · <b>空格</b> 跳/上浮 · <b>Shift</b> 疾跑/下降</div>
-      <div><b>左键</b> 放置 · <b>右键长按</b> 挖掘/攻击 · <b>中键</b> 吸取</div>
-      <div><b>E</b> 背包 / 交互 / 登舰 · <b>G</b> 主动扫描 · <b>H</b> 星图 · <b>F</b> 飞行</div>
-      <div><b>座舱</b> 鼠标转向 · <b>W/S</b> 推进/制动 · <b>A/D</b> 侧滚转弯 · <b>空格/Shift</b> 升/降 · <b>长按E</b> 24m下自动着陆 · <b>E</b> 着陆后离舰</div>
-      <div><b>M</b> 合成手册 · <b>Q</b> 丢弃 · <b>R</b> 进食 · <b>N</b> 切换天气 · <b>F3</b> 调试 · <b>P/Esc</b> 暂停</div>
+    <button id="btn-save" class="btn" aria-describedby="pause-save-status" data-page-node-id="GQiiTz9eifnjJRMzc1A5pM">立即存档</button>
+    <button id="btn-settings" class="btn" data-page-node-id="6v9EbNSmqy7ro3mavIN9GS">设置</button>
+    <button id="btn-menu" class="btn" aria-describedby="pause-save-status" data-page-node-id="S4ZOZ5DPSczFQizw3Tw8F8">存档并回主菜单</button>
+    <div id="pause-autosave-hint" class="hint" data-page-node-id="cGARETELKXXJSUezlAOA2x">提示：游戏每 30 秒自动存档；只有写入并回读验证成功后才会显示完成。</div>
+    <div class="controls" data-page-node-id="23rOPiL7KfYDx6sCSyeZE6">
+      <div data-page-node-id="XiC6jE2DECxDdeQkE2IwDP"><b data-page-node-id="udD7Kf6bAqFhvSdAg7FlyH">WASD</b> 移动 · <b data-page-node-id="7eo3rwegD6ZP54Did9ZXMs">空格</b> 跳/上浮 · <b data-page-node-id="OAgTy3nGSdSS7DRmF8HLpv">Shift</b> 疾跑/下降</div>
+      <div data-page-node-id="78HuMFZFd3eighjCQEqjHT"><b data-page-node-id="IM76yZMcHH45rvCePWvP3l">左键</b> 放置 · <b data-page-node-id="zjdWSXwmUpLxFK8YdGQMGl">右键长按</b> 挖掘/攻击 · <b data-page-node-id="Ujgdk0ymmlgs57LBBUNMbN">中键</b> 吸取</div>
+      <div data-page-node-id="CN5uqTAoa8dEkR4ZT91uph"><b data-page-node-id="4EuCC5G4FQTakBoxobL5Ng">E</b> 背包 / 交互 / 登舰 · <b data-page-node-id="XbvSQPjvhoWQFl2U09C8mr">G</b> 主动扫描 · <b data-page-node-id="WFUJJ9HO57YmKOTwd6L93q">H</b> 星图 · <b data-page-node-id="uuFgLiE8WQUcXYoYEa6L9J">F</b> 飞行</div>
+      <div data-page-node-id="AW12BqE2kf1ovjSM4FYrIX"><b data-page-node-id="CAVsiDDnEGujAAZwzo7dxn">座舱</b> 鼠标转向 · <b data-page-node-id="7JIsxNXPrTQHRQxZNBBMHC">W/S</b> 推进/制动 · <b data-page-node-id="ZwI06UauilJPtbFuRTVLqM">A/D</b> 侧滚转弯 · <b data-page-node-id="Dr1uxdGK0BXPdKIeznI7rR">空格/Shift</b> 升/降 · <b data-page-node-id="X6EmJgy54iGESEvCs0nhjA">长按E</b> 24m下自动着陆 · <b data-page-node-id="3JbwT2Cq0PVwuKeLDCoT84">E</b> 着陆后离舰</div>
+      <div data-page-node-id="R4SycGks5A5dmP3QRfTRAv"><b data-page-node-id="QXjQJYvXWAzAT9t7TLvVM2">M</b> 合成手册 · <b data-page-node-id="B2NuJksZHQV9fgYuKeoyzR">Q</b> 丢弃 · <b data-page-node-id="rRuFvafhahlQMBTwf0w9Cu">R</b> 进食 · <b data-page-node-id="KunZLVD9UXPvpfr51LY1VM">N</b> 切换天气 · <b data-page-node-id="k5eeUQqUvKDwVptu7lYoKh">F3</b> 调试 · <b data-page-node-id="jmhIDfAoi6O0AqLraQcDQw">P/Esc</b> 暂停</div>
     </div>
   </div>
 </div>
 
 <!-- 外部 / 座舱内星图模态 -->
-<div id="overlay-starmap" class="overlay hidden" data-mode="remote">
+<div id="overlay-starmap" class="overlay hidden" data-mode="remote" data-page-node-id="SnRK34UWEZyjnEvBfSjVSZ">
   <div class="panel starmap-panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title"
-       aria-describedby="starmap-status starmap-help">
-    <div class="panel-titlebar">
-      <div class="starmap-ident">
-        <div class="starmap-kicker">ARK NAVIGATION // ROUTE SELECT</div>
-        <h2 id="starmap-title">星系航行图</h2>
-        <div id="starmap-status" class="terminal-line">导航引擎待机 · 等待星域数据</div>
+       aria-describedby="starmap-status starmap-help" data-page-node-id="nT1LW6uH2GiNZK4T6VM1gj">
+    <div class="panel-titlebar" data-page-node-id="APoaTMItj3Ec40dMpuWxKw">
+      <div class="starmap-ident" data-page-node-id="U4lcWWWq0p7BUn4aq7U8Og">
+        <div class="starmap-kicker" data-page-node-id="2En6bP8H7dzwFckubfuG3J">ARK NAVIGATION // ROUTE SELECT</div>
+        <h2 id="starmap-title" data-page-node-id="fSP1SPq3bFInAWD4WHlpPd">星系航行图</h2>
+        <div id="starmap-status" class="terminal-line" data-page-node-id="yREBebggfRo85ALLDLNKPb">导航引擎待机 · 等待星域数据</div>
       </div>
-      <div class="starmap-tabs" role="tablist" aria-label="星图层级">
+      <div class="starmap-tabs" role="tablist" aria-label="星图层级" data-page-node-id="r22jrv8rgp1zU9fjkgNcRi">
         <button id="btn-map-system" class="starmap-tab" type="button" data-mode="system"
-                aria-pressed="true">恒星系</button>
+                aria-pressed="true" data-page-node-id="n90dXlmZRp1imJ2HaXGv9l">恒星系</button>
         <button id="btn-map-galaxy" class="starmap-tab" type="button" data-mode="galaxy"
-                aria-pressed="false">银河</button>
+                aria-pressed="false" data-page-node-id="62Vps15tIUbDhnZpDEme8j">银河</button>
       </div>
       <button id="btn-starmap-close" class="panel-close" type="button"
-              aria-label="关闭星图" title="关闭星图">×</button>
+              aria-label="关闭星图" title="关闭星图" data-page-node-id="8GN2NMUWUZ4Ly7jBdje805">×</button>
     </div>
     <section id="starmap-cockpit" data-state="idle" aria-labelledby="cockpit-title"
-             aria-describedby="cockpit-selection">
-      <div class="cockpit-frame" aria-hidden="true"><i></i><i></i><i></i></div>
-      <div class="cockpit-route-copy">
-        <span id="cockpit-title">FLIGHT DECK // ROUTE LOCK</span>
-        <strong id="cockpit-selection" role="status" aria-live="polite" aria-atomic="true">请选择目的地以锁定跃迁航线</strong>
+             aria-describedby="cockpit-selection" data-page-node-id="jNsJEBRcXu1vg7p1kV8sJG">
+      <div class="cockpit-frame" aria-hidden="true" data-page-node-id="xbmzUg82MDsUZzybV8o6HY"><i data-page-node-id="C31jC7ezF4SDo5ZayILBFi"></i><i data-page-node-id="6K9cZgjYsEczr4NaNYkv6y"></i><i data-page-node-id="w07Ikxkoqw0hwTEfoEePfo"></i></div>
+      <div class="cockpit-route-copy" data-page-node-id="j49cyVEKbh2UGKoDRDoxNF">
+        <span id="cockpit-title" data-page-node-id="xuwZVK8B2MQR9YxdfXSIAO">FLIGHT DECK // ROUTE LOCK</span>
+        <strong id="cockpit-selection" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="70KcMFXgNBT1TU93FpRAn8">请选择目的地以锁定跃迁航线</strong>
       </div>
       <button id="btn-travel-ignite" type="button" disabled aria-disabled="true"
               aria-label="点火并前往所选目的地" aria-controls="starmap-grid"
-              aria-describedby="cockpit-selection">点火跃迁</button>
+              aria-describedby="cockpit-selection" data-page-node-id="pzv04Ha1xEU059ZUISrPdp">点火跃迁</button>
     </section>
-    <div id="starmap-route-map" data-ready="false" aria-hidden="true">
-      <svg id="starmap-route-svg" viewBox="0 0 700 120" preserveAspectRatio="xMidYMid meet" focusable="false">
-        <g class="starmap-route-grid">
-          <path d="M20 30H680M20 60H680M20 90H680"></path>
-          <path d="M100 10V110M250 10V110M400 10V110M550 10V110"></path>
+    <div id="starmap-route-map" data-ready="false" aria-hidden="true" data-page-node-id="MeO4StD1r1nw5tGIUyoUT4">
+      <svg id="starmap-route-svg" viewBox="0 0 700 120" preserveAspectRatio="xMidYMid meet" focusable="false" data-page-node-id="6jDKcCdyv0Z8EwYOhmTfIe">
+        <g class="starmap-route-grid" data-page-node-id="ATHUpGxKDHZCZrx0G2Lt1K">
+          <path d="M20 30H680M20 60H680M20 90H680" data-page-node-id="G2lmDrFgi0EdlEHMLZnbyF"></path>
+          <path d="M100 10V110M250 10V110M400 10V110M550 10V110" data-page-node-id="ae0XoDg6Ae5WToEYcAISOk"></path>
         </g>
-        <g id="starmap-portal-edges">
-          <line id="starmap-portal-edge-0" class="starmap-portal-edge" data-edge-index="0" data-active="false" x1="70" y1="68" x2="210" y2="32"></line>
-          <line id="starmap-portal-edge-1" class="starmap-portal-edge" data-edge-index="1" data-active="false" x1="70" y1="68" x2="310" y2="82"></line>
-          <line id="starmap-portal-edge-2" class="starmap-portal-edge" data-edge-index="2" data-active="false" x1="70" y1="68" x2="470" y2="38"></line>
-          <line id="starmap-portal-edge-3" class="starmap-portal-edge" data-edge-index="3" data-active="false" x1="70" y1="68" x2="620" y2="76"></line>
-          <line id="starmap-portal-edge-4" class="starmap-portal-edge" data-edge-index="4" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
-          <line id="starmap-portal-edge-5" class="starmap-portal-edge" data-edge-index="5" data-active="false" x1="0" y1="0" x2="0" y2="0"></line>
+        <g id="starmap-portal-edges" data-page-node-id="WG9GtOWIAB5oUecSMkF15p">
+          <line id="starmap-portal-edge-0" class="starmap-portal-edge" data-edge-index="0" data-active="false" x1="70" y1="68" x2="210" y2="32" data-page-node-id="Lxsa51aWGpUkhQ06QGL01p"></line>
+          <line id="starmap-portal-edge-1" class="starmap-portal-edge" data-edge-index="1" data-active="false" x1="70" y1="68" x2="310" y2="82" data-page-node-id="ihWz17ZrrcPsHLC1nrHPmx"></line>
+          <line id="starmap-portal-edge-2" class="starmap-portal-edge" data-edge-index="2" data-active="false" x1="70" y1="68" x2="470" y2="38" data-page-node-id="XnZX4VnDX6PVMhPLDZkOcN"></line>
+          <line id="starmap-portal-edge-3" class="starmap-portal-edge" data-edge-index="3" data-active="false" x1="70" y1="68" x2="620" y2="76" data-page-node-id="9KQDMIdy88SyDtXJJmDnNn"></line>
+          <line id="starmap-portal-edge-4" class="starmap-portal-edge" data-edge-index="4" data-active="false" x1="0" y1="0" x2="0" y2="0" data-page-node-id="zQV2e7fR5hYQbDbQJ6420n"></line>
+          <line id="starmap-portal-edge-5" class="starmap-portal-edge" data-edge-index="5" data-active="false" x1="0" y1="0" x2="0" y2="0" data-page-node-id="EuhFE2VhpRpraomDTdf1f2"></line>
         </g>
-        <line id="starmap-active-route" data-active="false" x1="70" y1="68" x2="210" y2="32"></line>
-        <g id="starmap-node-layer">
-          <g id="starmap-node-planet-0" class="starmap-node" data-world-id="planet-0" data-state="current" data-x="70" data-y="68" transform="translate(70 68)"><circle r="8"></circle><text y="3">A</text></g>
-          <g id="starmap-node-planet-1" class="starmap-node" data-world-id="planet-1" data-state="unknown" data-x="210" data-y="32" transform="translate(210 32)"><circle r="7"></circle><text y="3">B</text></g>
-          <g id="starmap-node-planet-2" class="starmap-node" data-world-id="planet-2" data-state="unknown" data-x="310" data-y="82" transform="translate(310 82)"><circle r="7"></circle><text y="3">C</text></g>
-          <g id="starmap-node-planet-3" class="starmap-node" data-world-id="planet-3" data-state="unknown" data-x="400" data-y="25" transform="translate(400 25)"><circle r="7"></circle><text y="3">D</text></g>
-          <g id="starmap-node-planet-4" class="starmap-node" data-world-id="planet-4" data-state="unknown" data-x="470" data-y="76" transform="translate(470 76)"><circle r="7"></circle><text y="3">E</text></g>
-          <g id="starmap-node-planet-5" class="starmap-node" data-world-id="planet-5" data-state="unknown" data-x="580" data-y="28" transform="translate(580 28)"><circle r="7"></circle><text y="3">F</text></g>
-          <g id="starmap-node-station-0" class="starmap-node station" data-world-id="station-0" data-state="unknown" data-x="620" data-y="76" transform="translate(620 76)"><rect x="-7" y="-7" width="14" height="14"></rect><text y="3">S</text></g>
+        <line id="starmap-active-route" data-active="false" x1="70" y1="68" x2="210" y2="32" data-page-node-id="uqgGndASC7pNI2WgGVOnN1"></line>
+        <g id="starmap-node-layer" data-page-node-id="fHnTXG0DhQkqM643AulI6p">
+          <g id="starmap-node-planet-0" class="starmap-node" data-world-id="planet-0" data-state="current" data-x="70" data-y="68" transform="translate(70 68)" data-page-node-id="11gc6BHKRCeLXntALwW9US"><circle r="8" data-page-node-id="LDBSxoxvzXMXJfJoPIz0Py"></circle><text y="3" data-page-node-id="7BwgiiNEZrTFZsEBGAzVcP">A</text></g>
+          <g id="starmap-node-planet-1" class="starmap-node" data-world-id="planet-1" data-state="unknown" data-x="210" data-y="32" transform="translate(210 32)" data-page-node-id="j9VtaBodWZnxSB6el2Z5oY"><circle r="7" data-page-node-id="poj2Q4CBtbUk2vMP0Hofn6"></circle><text y="3" data-page-node-id="JbOBipif5InXdkciTCMR0V">B</text></g>
+          <g id="starmap-node-planet-2" class="starmap-node" data-world-id="planet-2" data-state="unknown" data-x="310" data-y="82" transform="translate(310 82)" data-page-node-id="KD5TYpdzW3AmDJgSnDAB4B"><circle r="7" data-page-node-id="UGCwj7yKC980jBSr7mop0b"></circle><text y="3" data-page-node-id="cHGCIlTsEdkDTwYa4NY0VI">C</text></g>
+          <g id="starmap-node-planet-3" class="starmap-node" data-world-id="planet-3" data-state="unknown" data-x="400" data-y="25" transform="translate(400 25)" data-page-node-id="nOs4Ao1vaj4CECM1GUVLE9"><circle r="7" data-page-node-id="jHEZXuGxK5LCepP8RXv0jh"></circle><text y="3" data-page-node-id="EZfAXtOKISJeQntu1varU6">D</text></g>
+          <g id="starmap-node-planet-4" class="starmap-node" data-world-id="planet-4" data-state="unknown" data-x="470" data-y="76" transform="translate(470 76)" data-page-node-id="XJTDAuUEFkUNwLJ9s2vJju"><circle r="7" data-page-node-id="9Ae80UBSiqBvB1zhnZ8AAS"></circle><text y="3" data-page-node-id="l4xe78qCCMpBGIcJ9zXB7a">E</text></g>
+          <g id="starmap-node-planet-5" class="starmap-node" data-world-id="planet-5" data-state="unknown" data-x="580" data-y="28" transform="translate(580 28)" data-page-node-id="jyh8LpDIIX4fEeWZF5xC3s"><circle r="7" data-page-node-id="4Zcwft0gcHDEXi5lkrvcH9"></circle><text y="3" data-page-node-id="LGfOWc6wOIOd5G6CGSKctG">F</text></g>
+          <g id="starmap-node-station-0" class="starmap-node station" data-world-id="station-0" data-state="unknown" data-x="620" data-y="76" transform="translate(620 76)" data-page-node-id="fQapY0ooLvaBzOOtkJ5W8t"><rect x="-7" y="-7" width="14" height="14" data-page-node-id="6OR3CBQ7go7184EZbKeJkw"></rect><text y="3" data-page-node-id="TJ6vdDFlxmdVmGrMj5DdqT">S</text></g>
         </g>
       </svg>
     </div>
-    <div id="galaxy-toolbar" aria-label="银河视窗控制">
-      <span class="galaxy-coords" id="galaxy-origin-label">视窗 g0/s0</span>
-      <button id="galaxy-pan-up" type="button" aria-label="视窗上移">▲</button>
-      <button id="galaxy-pan-left" type="button" aria-label="视窗左移">◀</button>
-      <button id="galaxy-home" type="button" aria-label="回到当前恒星系">◎</button>
-      <button id="galaxy-pan-right" type="button" aria-label="视窗右移">▶</button>
-      <button id="galaxy-pan-down" type="button" aria-label="视窗下移">▼</button>
+    <div id="galaxy-toolbar" aria-label="银河视窗控制" data-page-node-id="o2hB1BGgeNnl03nMPwTIBY">
+      <span class="galaxy-coords" id="galaxy-origin-label" data-page-node-id="79UJuWkkH1zvCgrgMq6m6y">视窗 g0/s0</span>
+      <button id="galaxy-pan-up" type="button" aria-label="视窗上移" data-page-node-id="JpvTgFKAJdlj7gCQ6NfxQE">▲</button>
+      <button id="galaxy-pan-left" type="button" aria-label="视窗左移" data-page-node-id="SOBm0JKDjKqVrcmxTyLw3c">◀</button>
+      <button id="galaxy-home" type="button" aria-label="回到当前恒星系" data-page-node-id="Jg9FBqKeDaTNCXlDPz6XaO">◎</button>
+      <button id="galaxy-pan-right" type="button" aria-label="视窗右移" data-page-node-id="Za8pis88ZWnny1iJfG2wph">▶</button>
+      <button id="galaxy-pan-down" type="button" aria-label="视窗下移" data-page-node-id="BndfIWiBzFKQZxbbVF5veZ">▼</button>
     </div>
-    <div id="starmap-grid" role="group" aria-label="目的地航线，按距离由近到远"></div>
-    <div id="starmap-help" class="starmap-footer hint"><span>ROUTE PROTOCOL</span>星图点火使用飞船能量 · 银河跳跃消耗曲速电池（2 枚高阶晶体+铁锭合成） · 地表传送门免费 · 空间站自动补满能量</div>
+    <div id="starmap-grid" role="group" aria-label="目的地航线，按距离由近到远" data-page-node-id="2rENJcMzj4UrC9uoIW1H0G"></div>
+    <div id="starmap-help" class="starmap-footer hint" data-page-node-id="lXqtx3YEd31R2GB9zN21gu"><span data-page-node-id="DfQzEuY2LZIi9zY9vGqgR4">ROUTE PROTOCOL</span>星图点火使用飞船能量 · 银河跳跃消耗曲速电池（2 枚高阶晶体+铁锭合成） · 地表传送门免费 · 空间站自动补满能量</div>
   </div>
 </div>
 
 <!-- 发现档案 -->
-<div id="overlay-discovery" class="overlay discovery-overlay hidden">
+<div id="overlay-discovery" class="overlay discovery-overlay hidden" data-page-node-id="pAC2rwfKP6R9ytCXoicCnC">
   <div class="panel discovery-panel" role="dialog" aria-modal="true"
-       aria-labelledby="discovery-title" aria-describedby="discovery-reward">
-    <div class="panel-titlebar discovery-titlebar">
-      <div class="discovery-heading">
-        <div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div>
-        <h2 id="discovery-title">发现档案</h2>
+       aria-labelledby="discovery-title" aria-describedby="discovery-reward" data-page-node-id="JyCIsSetnTHYbbUgQOPCrs">
+    <div class="panel-titlebar discovery-titlebar" data-page-node-id="8Li7ef9t2WNI5MEbmQYEWk">
+      <div class="discovery-heading" data-page-node-id="3i9jy0ECbLXSfTUQVMz4uL">
+        <div class="discovery-kicker" data-page-node-id="rDvd0rch07T3c6J3t9xqsA">EXPLORATION ARCHIVE // LOCAL GALAXY</div>
+        <h2 id="discovery-title" data-page-node-id="S9HYCfxm3q4a1BG9vySD2Y">发现档案</h2>
       </div>
       <button id="btn-discovery-close" class="panel-close" type="button"
-              aria-label="关闭发现档案" title="关闭发现档案">×</button>
+              aria-label="关闭发现档案" title="关闭发现档案" data-page-node-id="wAy7e5UP3FhbJX4n1iRLo7">×</button>
     </div>
 
-    <section class="discovery-goal" aria-labelledby="discovery-goal-title">
-      <div class="discovery-goal-copy">
-        <span class="discovery-section-label">CURRENT OBJECTIVE</span>
-        <h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3>
-        <p id="discovery-reward">完成环境、资源与生命记录可获得探索点及跃迁能量。</p>
+    <section class="discovery-goal" aria-labelledby="discovery-goal-title" data-page-node-id="IwNQzunYDujctFzALjPGHH">
+      <div class="discovery-goal-copy" data-page-node-id="SRDWkmFB8xBCob3xw7ksSg">
+        <span class="discovery-section-label" data-page-node-id="5GoSZpApyWYH9uDxZra88V">CURRENT OBJECTIVE</span>
+        <h3 id="discovery-goal-title" data-page-node-id="G3gRDbonNwDaGEQ2x78szX">启动主动扫描，记录当前天体</h3>
+        <p id="discovery-reward" data-page-node-id="1Ie8CN1BBxvpEPDHAepaE5">完成环境、资源与生命记录可获得探索点及跃迁能量。</p>
       </div>
-      <strong id="discovery-goal-progress" aria-label="当前探索目标进度">0 / 1</strong>
+      <strong id="discovery-goal-progress" aria-label="当前探索目标进度" data-page-node-id="dZYAH6QmnMVcrSrfqDrbb1">0 / 1</strong>
     </section>
 
-    <div class="discovery-stats" role="group" aria-label="发现统计">
-      <div class="discovery-stat points"><span>探索点</span><strong id="discovery-points">0</strong></div>
-      <div class="discovery-stat"><span>已测绘天体</span><strong id="discovery-worlds">0</strong></div>
-      <div class="discovery-stat"><span>生物群系</span><strong id="discovery-biomes">0</strong></div>
-      <div class="discovery-stat"><span>资源样本</span><strong id="discovery-resources">0</strong></div>
-      <div class="discovery-stat"><span>生命记录</span><strong id="discovery-fauna">0</strong></div>
+    <div class="discovery-stats" role="group" aria-label="发现统计" data-page-node-id="IRuGAUsPw7lRAvCzi6NMzn">
+      <div class="discovery-stat points" data-page-node-id="glkHj91tYrCCW5wPofyxMj"><span data-page-node-id="ll0D0tl8C7ZxvRx2HEKGpu">探索点</span><strong id="discovery-points" data-page-node-id="BmRWzN2mlXFCDJNx4MAqAl">0</strong></div>
+      <div class="discovery-stat" data-page-node-id="P2qpKG17HRfjGnaqRZ7iO9"><span data-page-node-id="TUSo5GLX2Njmh1brTjt3I1">已测绘天体</span><strong id="discovery-worlds" data-page-node-id="A7B9GiBU568gwcjzDkUrit">0</strong></div>
+      <div class="discovery-stat" data-page-node-id="lH1WXw8W5cG5ZmcFQuTpVY"><span data-page-node-id="6XNCAuzQOe8Fn5GCDfw7Sr">生物群系</span><strong id="discovery-biomes" data-page-node-id="eYVQTlaIRWLa63w3lJZubq">0</strong></div>
+      <div class="discovery-stat" data-page-node-id="Tnyks2D4xCCpimTJPvYSEX"><span data-page-node-id="gA1RAjGPSKMRiBjcYlrYmt">资源样本</span><strong id="discovery-resources" data-page-node-id="eKyvLEFmIFIVLuGwElWP48">0</strong></div>
+      <div class="discovery-stat" data-page-node-id="Ae0E6NfCY2AGP7TkDILzZJ"><span data-page-node-id="SDeAXItEVyy27KolprPyht">生命记录</span><strong id="discovery-fauna" data-page-node-id="f5hDsbDjHbq0l880iorTWl">0</strong></div>
     </div>
 
-    <div class="discovery-list-head">
-      <span class="discovery-section-label">WORLD CATALOG</span>
-      <span>扫描进度按天体独立保存</span>
+    <div class="discovery-list-head" data-page-node-id="oMamE2Zvo2UtwQSvM69Y0p">
+      <span class="discovery-section-label" data-page-node-id="r5DYHNpJ34CipNuYpV7NHi">WORLD CATALOG</span>
+      <span data-page-node-id="DWJ3lQWwi9Q4JAWCGiNHW0">扫描进度按天体独立保存</span>
     </div>
-    <div id="discovery-world-list" aria-label="天体发现记录">
-      <div class="discovery-empty">尚无发现记录 · 返回世界并启动主动扫描</div>
+    <div id="discovery-world-list" aria-label="天体发现记录" data-page-node-id="s6Rjs0xDAgtMSD2Jv80qLw">
+      <div class="discovery-empty" data-page-node-id="SMFcDuMpKK7DpKmnKak6lf">尚无发现记录 · 返回世界并启动主动扫描</div>
     </div>
   </div>
 </div>
 
 <!-- 成就 -->
-<div id="overlay-achievements" class="overlay hidden">
-  <div class="panel ach-panel" role="dialog" aria-modal="true" aria-labelledby="ach-title">
-    <div class="panel-titlebar">
-      <div>
-        <div class="ach-kicker">MISSION LOG // ACHIEVEMENTS</div>
-        <h2 id="ach-title">成就</h2>
+<div id="overlay-achievements" class="overlay hidden" data-page-node-id="zt2meIpTc2XxsnbepTxZsz">
+  <div class="panel ach-panel" role="dialog" aria-modal="true" aria-labelledby="ach-title" data-page-node-id="2r1AdOpZjw9tiJTAqabrsV">
+    <div class="panel-titlebar" data-page-node-id="JlrlBbe9QFtn8zoBe30PI6">
+      <div data-page-node-id="vT4Bwg55ZmFeJ3M5AHTmCM">
+        <div class="ach-kicker" data-page-node-id="UBvsh0SRbQiNSGjBbgdzrS">MISSION LOG // ACHIEVEMENTS</div>
+        <h2 id="ach-title" data-page-node-id="C199F8lOki2xDmTMC518mT">成就</h2>
       </div>
-      <button id="btn-ach-close" class="panel-close" type="button" aria-label="关闭成就面板" title="关闭成就面板">×</button>
+      <button id="btn-ach-close" class="panel-close" type="button" aria-label="关闭成就面板" title="关闭成就面板" data-page-node-id="6ogd41VG5e4LKRyxWGuZP4">×</button>
     </div>
-    <div class="ach-summary">
-      <b>0 / 0</b>
-      <div class="ach-progressbar"><i class="ach-progress-fill"></i></div>
-      <span>0%</span>
+    <div class="ach-summary" data-page-node-id="X5m6vECPGl1hhmVj7v2YoK">
+      <b data-page-node-id="2wGF2AR4O9V4vvQ7zvAeFG">0 / 0</b>
+      <div class="ach-progressbar" data-page-node-id="gJFcM4GFJh7ZlIsYfgg0Zt"><i class="ach-progress-fill" data-page-node-id="9SAB15MkaSbwBUA2eFxAlq"></i></div>
+      <span data-page-node-id="2Gi0bGOEb8usDu2hL6WSFb">0%</span>
     </div>
-    <div class="ach-tabs" role="group" aria-label="成就分类"></div>
-    <div id="ach-grid"></div>
-    <div class="inv-tip">J 或 ESC 关闭 · 部分成就是隐藏的，继续探索来揭开它们</div>
+    <div class="ach-tabs" role="group" aria-label="成就分类" data-page-node-id="ORYJlRHHQL6FWL4L8yUA5v"></div>
+    <div id="ach-grid" data-page-node-id="V4CtyHq4NCS5IUxrAMexBQ"></div>
+    <div class="inv-tip" data-page-node-id="uxAbkb0vDviNoxINUaVynH">J 或 ESC 关闭 · 部分成就是隐藏的，继续探索来揭开它们</div>
   </div>
 </div>
 
 <!-- 星海图鉴 -->
-<div id="overlay-codex" class="overlay hidden">
-  <div class="panel codex-panel" role="dialog" aria-modal="true" aria-labelledby="codex-title">
-    <div class="panel-titlebar">
-      <div>
-        <div class="ach-kicker">ARCHIVE // CODEX</div>
-        <h2 id="codex-title">星海图鉴</h2>
+<div id="overlay-codex" class="overlay hidden" data-page-node-id="UoOPfSUNvPeSSbTEA1Nkh3">
+  <div class="panel codex-panel" role="dialog" aria-modal="true" aria-labelledby="codex-title" data-page-node-id="PI3BOXMhXjliWDrkPgEFJ8">
+    <div class="panel-titlebar" data-page-node-id="SQjM7ugk1wuWkbVvHJABPh">
+      <div data-page-node-id="6B6V60g9l0QduF1RypUi21">
+        <div class="ach-kicker" data-page-node-id="eOKhcXaUUYjQeJUQ2FvzcL">ARCHIVE // CODEX</div>
+        <h2 id="codex-title" data-page-node-id="sAnMEKzNzUfQ08lgwE6Ed1">星海图鉴</h2>
       </div>
-      <button id="btn-codex-close" class="panel-close" type="button" aria-label="关闭星海图鉴" title="关闭星海图鉴">×</button>
+      <button id="btn-codex-close" class="panel-close" type="button" aria-label="关闭星海图鉴" title="关闭星海图鉴" data-page-node-id="5G3v79IpBNorUEUN9BjPJh">×</button>
     </div>
-    <div class="ach-summary codex-summary">
-      <b>0%</b>
-      <div class="ach-progressbar"><i class="ach-progress-fill"></i></div>
-      <span>本页进度</span>
+    <div class="ach-summary codex-summary" data-page-node-id="lcHQL3wcFFi474Q3G5rQYZ">
+      <b data-page-node-id="5tO91K2iJw2yEXQzUuwwu3">0%</b>
+      <div class="ach-progressbar" data-page-node-id="D4uJY6wEdzVyLlLD6YPzEO"><i class="ach-progress-fill" data-page-node-id="bAeHzixH1s0OcIKbGmArdL"></i></div>
+      <span data-page-node-id="h17QEDpVAtU2FRsBkTSOOf">本页进度</span>
     </div>
-    <div class="ach-tabs" id="codex-tabs" role="group" aria-label="图鉴分类"></div>
-    <div id="codex-body"></div>
-    <div class="inv-tip">B 或 ESC 关闭 · 获得物品、靠近生物、踏入群系、抵达天体都会点亮对应条目</div>
+    <div class="ach-tabs" id="codex-tabs" role="group" aria-label="图鉴分类" data-page-node-id="dIiGpOrBBWKDtBaZJSeRAg"></div>
+    <div id="codex-body" data-page-node-id="6aWUOhPDhB3QBUv1BrFLYX"></div>
+    <div class="inv-tip" data-page-node-id="KfdJbD1noVdERO5ssr7P64">B 或 ESC 关闭 · 获得物品、靠近生物、踏入群系、抵达天体都会点亮对应条目</div>
   </div>
 </div>
 
 <!-- 跃迁过场 -->
 <div id="overlay-warp" class="overlay warp-overlay hidden" data-mode="ship" data-phase="ignition"
-     style="--warp-progress: 0%">
-  <div class="warp-stars" aria-hidden="true"></div>
-  <div id="warp-cockpit" aria-hidden="true">
-    <i class="warp-frame warp-frame-left"></i>
-    <i class="warp-frame warp-frame-right"></i>
-    <i class="warp-horizon"></i>
-    <i class="warp-reticle"></i>
+     style="--warp-progress: 0%" data-page-node-id="iGKFq0Eng5hdmOJUVkDG2L">
+  <div class="warp-stars" aria-hidden="true" data-page-node-id="8oGNiRNmABr8a00ZUqyFdi"></div>
+  <div id="warp-cockpit" aria-hidden="true" data-page-node-id="MEBznoHzCXHh70hbIzNZ7d">
+    <i class="warp-frame warp-frame-left" data-page-node-id="U7DE0lF6RsHEfLDoXIWytR"></i>
+    <i class="warp-frame warp-frame-right" data-page-node-id="Cpg77Idf768r43yxl3yiCU"></i>
+    <i class="warp-horizon" data-page-node-id="cfllGMmW1GkLl73GeFPLls"></i>
+    <i class="warp-reticle" data-page-node-id="u0Yre0aPWz1GDxldTvu8vP"></i>
   </div>
   <section id="warp-console" class="warp-copy" aria-labelledby="warp-title"
-           aria-describedby="warp-route warp-phase-label">
-    <div class="warp-kicker" aria-hidden="true">EXO-ARK // FTL NAV</div>
-    <h2 id="warp-title">跃迁序列启动</h2>
-    <div id="warp-route">
-      <span id="warp-origin">当前位置</span>
-      <span class="warp-route-arrow" aria-hidden="true">→</span>
-      <span id="warp-destination">目标天体</span>
+           aria-describedby="warp-route warp-phase-label" data-page-node-id="jsYXxvUip8aJwYqEqeTU56">
+    <div class="warp-kicker" aria-hidden="true" data-page-node-id="RWccebLnN7N25gGK2lCVj1">EXO-ARK // FTL NAV</div>
+    <h2 id="warp-title" data-page-node-id="RZIf4BU2jZCpUA4YdbZ0fg">跃迁序列启动</h2>
+    <div id="warp-route" data-page-node-id="r4WGILCQTg0g1SWN5Hg6DP">
+      <span id="warp-origin" data-page-node-id="D8yrktIh4Dqtp4igBOyVNy">当前位置</span>
+      <span class="warp-route-arrow" aria-hidden="true" data-page-node-id="RKtsGIFiVZGZRlMjtsizy4">→</span>
+      <span id="warp-destination" data-page-node-id="EWtPgJ8W76ky9hJNJhmo7h">目标天体</span>
     </div>
-    <span id="warp-sub" class="sr-only">正在计算航线</span>
-    <div class="warp-phase-row">
-      <span id="warp-phase-code" aria-hidden="true">IGNITION // 01</span>
-      <strong id="warp-phase-label">跃迁核心点火</strong>
+    <span id="warp-sub" class="sr-only" data-page-node-id="BX8ioJybuTaM79i8BeY1n7">正在计算航线</span>
+    <div class="warp-phase-row" data-page-node-id="gN7F7IEitbFPOddpgKfGO5">
+      <span id="warp-phase-code" aria-hidden="true" data-page-node-id="ViWFupHa2HrvDE1vlQuFqP">IGNITION // 01</span>
+      <strong id="warp-phase-label" data-page-node-id="0yL0KlrqBbzAzxxDGD7C24">跃迁核心点火</strong>
     </div>
     <div id="warp-progress" class="warp-track" role="progressbar" aria-label="跃迁演出进度"
-         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="跃迁核心点火">
-      <i id="warp-progress-fill" aria-hidden="true"></i>
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="跃迁核心点火" data-page-node-id="OAcW2DnXPbOpuFmFTpUFCS">
+      <i id="warp-progress-fill" aria-hidden="true" data-page-node-id="ScMoIN0XE0XcKzH0k1354f"></i>
     </div>
-    <div id="warp-eta" aria-hidden="true">ETA 00:01.7</div>
+    <div id="warp-eta" aria-hidden="true" data-page-node-id="1BkWmjNA9XqBN3gHxRmTqE">ETA 00:01.7</div>
   </section>
-  <div class="warp-actions">
+  <div class="warp-actions" data-page-node-id="XVBHM49u8tD0kMsjzyzHP0">
     <button id="btn-warp-skip" type="button" aria-label="跳过跃迁演出，立即开始加载目标世界"
-            aria-keyshortcuts="Escape" aria-controls="warp-progress">跳过演出</button>
+            aria-keyshortcuts="Escape" aria-controls="warp-progress" data-page-node-id="lGNceCbgFrEeJHxbf6xQ6f">跳过演出</button>
     <button id="btn-disembark" type="button" hidden disabled aria-disabled="true"
-            aria-label="下船并继续探索">下船</button>
+            aria-label="下船并继续探索" data-page-node-id="4RCF53zDwCqYcDPxyJbEX6">下船</button>
   </div>
 </div>
-<div id="travel-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="travel-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="zVJvEFrGAZbE2mDfHpIavW"></div>
 
 <!-- 死亡界面 -->
-<div id="overlay-dead" class="overlay hidden">
-  <div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause">
-    <h2 id="dead-title" class="dead">你死了！</h2>
-    <div id="death-cause" class="hint"></div>
-    <button id="btn-respawn" class="btn primary">重生</button>
-    <button id="btn-dead-menu" class="btn danger hidden">存档已删除 · 回到主菜单</button>
+<div id="overlay-dead" class="overlay hidden" data-page-node-id="RKSA8eNb2TAPYjx1KsKdIx">
+  <div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause" data-page-node-id="PFK3mcoNvlFKDOUMvbUG1w">
+    <h2 id="dead-title" class="dead" data-page-node-id="0tLk0W7rMCdKmpj0TW3fWk">你死了！</h2>
+    <div id="death-cause" class="hint" data-page-node-id="vqvqTTzFaguSTg29b1Ikvv"></div>
+    <button id="btn-respawn" class="btn primary" data-page-node-id="8eJ9oGCYMaDCKVK58CS6CA">重生</button>
+    <button id="btn-dead-menu" class="btn danger hidden" data-page-node-id="AYA6Zm0oMP0zvJCYrJPvpF">存档已删除 · 回到主菜单</button>
   </div>
 </div>
 
 <!-- 设置 -->
-<div id="overlay-settings" class="overlay hidden">
-  <div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-    <div class="panel-titlebar">
-      <h2 id="settings-title">设置</h2>
-      <button id="btn-settings-close" class="panel-close" type="button" aria-label="关闭设置" title="关闭设置">×</button>
+<div id="overlay-settings" class="overlay hidden" data-page-node-id="zxJtHG0vf2VGwgNHwCNgTg">
+  <div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" data-page-node-id="s92GvPHnAApmOBR4XpJExS">
+    <div class="panel-titlebar" data-page-node-id="Uhp5QvXpLP8t9rpB4JcBj4">
+      <h2 id="settings-title" data-page-node-id="7ShKaG1OEG8jCzttAz6CQ5">设置</h2>
+      <button id="btn-settings-close" class="panel-close" type="button" aria-label="关闭设置" title="关闭设置" data-page-node-id="hfLlWnAActPXrOHnnFfHPe">×</button>
     </div>
-    <div class="set-row"><label for="set-sens">鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05" aria-describedby="set-sens-v"><span><output id="set-sens-v" for="set-sens"></output></span></div>
-    <div class="set-row"><label for="set-volume">音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05" aria-describedby="set-volume-v"><span><output id="set-volume-v" for="set-volume"></output></span></div>
-    <div class="set-row"><span id="snd-toggles-label" class="set-label">音效开关</span><span class="btn-row snd-toggles" id="snd-toggles" role="group" aria-labelledby="snd-toggles-label"></span></div>
-    <div class="set-row"><label for="set-fov">视场角 (FOV)</label><input id="set-fov" type="range" min="60" max="100" step="1" aria-describedby="set-fov-v"><span><output id="set-fov-v" for="set-fov"></output></span></div>
-    <div class="set-row"><label for="set-fog">雾距（视野远近）</label><input id="set-fog" type="range" min="0.5" max="2" step="0.05" aria-describedby="set-fog-v"><span><output id="set-fog-v" for="set-fog"></output></span></div>
-    <div class="set-row" id="set-tsens-row"><label for="set-tsens">触摸灵敏度</label><input id="set-tsens" type="range" min="0.4" max="3" step="0.05" aria-describedby="set-tsens-v"><span><output id="set-tsens-v" for="set-tsens"></output></span></div>
-    <div class="set-row"><label for="set-res">渲染分辨率</label><input id="set-res" type="range" min="0.35" max="1" step="0.05" aria-describedby="set-res-v"><span><output id="set-res-v" for="set-res"></output></span></div>
-    <div class="set-row"><span id="fps-cap-label" class="set-label">帧率上限</span><span class="btn-row" id="fps-cap-row" role="group" aria-labelledby="fps-cap-label">
-      <button class="btn small" data-fps="0" aria-pressed="false">原生</button>
-      <button class="btn small" data-fps="30" aria-pressed="false">30</button>
-      <button class="btn small" data-fps="60" aria-pressed="false">60</button>
+    <div class="set-row" data-page-node-id="dvSw0AfiFzBVosKovh5sv7"><label for="set-sens" data-page-node-id="JgGbrqOPfbvfU9awaS8vWl">鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05" aria-describedby="set-sens-v" data-page-node-id="kGZmc52ofh5L54j9nQnbV1"><span data-page-node-id="p5bNUCnqFsnpLsu8hwvh39"><output id="set-sens-v" for="set-sens" data-page-node-id="XIP6IMcmlFbi46nFRtMF33"></output></span></div>
+    <div class="set-row" data-page-node-id="1G8xSIUXYeOc0HMotCOP21"><label for="set-volume" data-page-node-id="vqhmHMeeIAaqwOw7n9H7hc">音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05" aria-describedby="set-volume-v" data-page-node-id="I5SUfPhJfBUUSwPyCBf5uM"><span data-page-node-id="MbDApowJG3WoAGzxaWDxtM"><output id="set-volume-v" for="set-volume" data-page-node-id="qzL5d15Nw01CC0JXCcmGE1"></output></span></div>
+    <div class="set-row" data-page-node-id="JFH2CTTw0iyEusvsFEhJSD"><span id="snd-toggles-label" class="set-label" data-page-node-id="Vdbp8ilYF3xYLQdjamTxe9">音效开关</span><span class="btn-row snd-toggles" id="snd-toggles" role="group" aria-labelledby="snd-toggles-label" data-page-node-id="RIqmHbPh41TrsHMfqpEahT"></span></div>
+    <div class="set-row" data-page-node-id="4fsO9SmrzgFkUUxx18ftu6"><label for="set-fov" data-page-node-id="H49x1I1Dwp0o2owlzIaUQ3">视场角 (FOV)</label><input id="set-fov" type="range" min="60" max="100" step="1" aria-describedby="set-fov-v" data-page-node-id="ZCKmvBTlyvHLWANYRnl47O"><span data-page-node-id="vf1mhAD05nMzK7cEIyL7VJ"><output id="set-fov-v" for="set-fov" data-page-node-id="wkH3CKnMdoeX5QBVUC1usj"></output></span></div>
+    <div class="set-row" data-page-node-id="2YnPw6D0k8QPfqtO0xDwAA"><label for="set-fog" data-page-node-id="yzvGzNtz3gDQsHaJtJ0Dfu">雾距（视野远近）</label><input id="set-fog" type="range" min="0.5" max="2" step="0.05" aria-describedby="set-fog-v" data-page-node-id="0x9A3iTYPBGwFlnhIMBHvu"><span data-page-node-id="SYWjVK63XYYoDsAO11JrlC"><output id="set-fog-v" for="set-fog" data-page-node-id="IpyYyM0eUt9xwipwgeLxxr"></output></span></div>
+    <div class="set-row" id="set-tsens-row" data-page-node-id="IIDRxLDqDTTVc5hnpQfOJa"><label for="set-tsens" data-page-node-id="BfSQ3GQwMeL00AFtlAjVhC">触摸灵敏度</label><input id="set-tsens" type="range" min="0.4" max="3" step="0.05" aria-describedby="set-tsens-v" data-page-node-id="0gF9JchRDVk7dI6DPb6zzA"><span data-page-node-id="Kcj33KgwGVspBcDhwZCz0W"><output id="set-tsens-v" for="set-tsens" data-page-node-id="Hu3WgMKBW10GGd5pfQhHaF"></output></span></div>
+    <div class="set-row" data-page-node-id="iPgka7L4cqMqFE1OhBFMVB"><label for="set-res" data-page-node-id="1lq8ZN4RA5DGj8YRCzMhK5">渲染分辨率</label><input id="set-res" type="range" min="0.35" max="1" step="0.05" aria-describedby="set-res-v" data-page-node-id="VBfEIlTpl5Dv7PsEdQIAow"><span data-page-node-id="ycDldIThHrPj3lHBRmbcDA"><output id="set-res-v" for="set-res" data-page-node-id="a6u858UP7ZGmsBnASx5Nft"></output></span></div>
+    <div class="set-row" data-page-node-id="zv57VH0PunSFUSBAKBx1B7"><span id="fps-cap-label" class="set-label" data-page-node-id="fApguGIT2psqbWJUOdWfj1">帧率上限</span><span class="btn-row" id="fps-cap-row" role="group" aria-labelledby="fps-cap-label" data-page-node-id="GQDcMFgIkIlqokVrTJwDyv">
+      <button class="btn small" data-fps="0" aria-pressed="false" data-page-node-id="vwU0J59OeHcTSWPYH5GNX5">原生</button>
+      <button class="btn small" data-fps="30" aria-pressed="false" data-page-node-id="o5LxXp1jvDkXPxCY2MB3NE">30</button>
+      <button class="btn small" data-fps="60" aria-pressed="false" data-page-node-id="hyZAdJMEyiTG2bhzUD4GEx">60</button>
     </span></div>
-    <div class="set-row"><span id="difficulty-label" class="set-label">游戏难度</span><span class="btn-row" id="difficulty-row" role="group" aria-labelledby="difficulty-label">
-      <button class="btn small" data-diff="0" aria-pressed="false">和平</button>
-      <button class="btn small" data-diff="1" aria-pressed="false">简单</button>
-      <button class="btn small" data-diff="2" aria-pressed="false">困难</button>
-      <button class="btn small" data-diff="3" aria-pressed="false">噩梦</button>
+    <div class="set-row" data-page-node-id="mrHHtZocEikMO1OvEYRp2n"><span id="difficulty-label" class="set-label" data-page-node-id="SX8LbD8B7W6pye7MavnnY9">游戏难度</span><span class="btn-row" id="difficulty-row" role="group" aria-labelledby="difficulty-label" data-page-node-id="Vl98BIvATwcF0G9U0HVUM3">
+      <button class="btn small" data-diff="0" aria-pressed="false" data-page-node-id="ZYoZ8luSNV1uVPyBuYs6x3">和平</button>
+      <button class="btn small" data-diff="1" aria-pressed="false" data-page-node-id="MtqKeVc981bXXFX1NYKel3">简单</button>
+      <button class="btn small" data-diff="2" aria-pressed="false" data-page-node-id="DGW89oMi8DcHzpzwd3rVYm">困难</button>
+      <button class="btn small" data-diff="3" aria-pressed="false" data-page-node-id="SJGQ3liRKraz64azBqxO6s">噩梦</button>
     </span></div>
-    <div class="set-row"><label for="set-particleDensity">粒子密度</label><input id="set-particleDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-particleDensity-v"><span><output id="set-particleDensity-v" for="set-particleDensity"></output></span></div>
-    <div class="set-row"><label for="set-rainDensity">雨滴密度</label><input id="set-rainDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-rainDensity-v"><span><output id="set-rainDensity-v" for="set-rainDensity"></output></span></div>
-    <div class="set-row"><label for="set-mobDensity">生物数量</label><input id="set-mobDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-mobDensity-v"><span><output id="set-mobDensity-v" for="set-mobDensity"></output></span></div>
-    <div class="set-row"><span id="shadows-label" class="set-label">实时阴影</span><span class="btn-row" id="shadows-row" role="group" aria-labelledby="shadows-label">
-      <button class="btn small" data-shadow="0" aria-pressed="false">关</button>
-      <button class="btn small" data-shadow="1" aria-pressed="false">中</button>
-      <button class="btn small" data-shadow="2" aria-pressed="false">高</button>
+    <div class="set-row" data-page-node-id="kYKwDebnHxBtAoOvbLVeyj"><label for="set-particleDensity" data-page-node-id="6aAV9iwVgCACSCKCw8K95M">粒子密度</label><input id="set-particleDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-particleDensity-v" data-page-node-id="GjMGabb2HjK6JQEiq6tbDc"><span data-page-node-id="4iBzQ2PhyO9ydxBJt0oyv0"><output id="set-particleDensity-v" for="set-particleDensity" data-page-node-id="YCiuEvdS0v6V8ETAOx9Tvb"></output></span></div>
+    <div class="set-row" data-page-node-id="8AEgdOv6X03TPI0AdE8s6r"><label for="set-rainDensity" data-page-node-id="m3VuFnoZ0Zpp89ZsuqAsUq">雨滴密度</label><input id="set-rainDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-rainDensity-v" data-page-node-id="rkbyBgKCi0YiVXCvJKvXqj"><span data-page-node-id="yQtejapBmWJWnynPhTd1Sg"><output id="set-rainDensity-v" for="set-rainDensity" data-page-node-id="Kf4ZY3uJ7Hl0Oa7llKxdkS"></output></span></div>
+    <div class="set-row" data-page-node-id="RkmQwtduuhtWFZxFkNobJU"><label for="set-mobDensity" data-page-node-id="WVKp7UOgig4OMKN0sYGJqi">生物数量</label><input id="set-mobDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-mobDensity-v" data-page-node-id="Tuiy5XH00JpOteYmUC77wM"><span data-page-node-id="eQJw0Fsy6fgMnPBIWkdGwT"><output id="set-mobDensity-v" for="set-mobDensity" data-page-node-id="RdrMYlHTOpAAk7l5qG2kkM"></output></span></div>
+    <div class="set-row" data-page-node-id="qABP5lWisGVZFLRMqfp1Re"><span id="shadows-label" class="set-label" data-page-node-id="yiqGbmv48xSVFbnZXjmw2V">实时阴影</span><span class="btn-row" id="shadows-row" role="group" aria-labelledby="shadows-label" data-page-node-id="OUgwK7Bqz2O8FIIfP8a6Ux">
+      <button class="btn small" data-shadow="0" aria-pressed="false" data-page-node-id="UcGAqtJiP5Tx9x6kv7Rnoj">关</button>
+      <button class="btn small" data-shadow="1" aria-pressed="false" data-page-node-id="HmhSc7sxrqEygZsHKDNanC">中</button>
+      <button class="btn small" data-shadow="2" aria-pressed="false" data-page-node-id="7q7bMzrZBWMBv1FLR2DMgY">高</button>
     </span></div>
-    <div class="set-row"><span id="bloom-label" class="set-label">能量辉光</span><span class="btn-row" id="bloom-row" role="group" aria-labelledby="bloom-label">
-      <button class="btn small" data-bloom="0" aria-pressed="false">关</button>
-      <button class="btn small" data-bloom="1" aria-pressed="false">开</button>
+    <div class="set-row" data-page-node-id="VO6qFQ3B0oCEkHxwpm3ET3"><span id="bloom-label" class="set-label" data-page-node-id="wbDWAlVdj0O7hgL35thHLm">能量辉光</span><span class="btn-row" id="bloom-row" role="group" aria-labelledby="bloom-label" data-page-node-id="AnJj83ZBRoxBj51ZGgCe5E">
+      <button class="btn small" data-bloom="0" aria-pressed="false" data-page-node-id="kUMovoaqv9MygD8yCM8w4F">关</button>
+      <button class="btn small" data-bloom="1" aria-pressed="false" data-page-node-id="U2daNeBzYrObM51sWmF3Gm">开</button>
     </span></div>
-    <div class="set-row"><label for="set-sway">树叶风摇</label><input id="set-sway" type="range" min="0" max="1" step="0.05" aria-describedby="set-sway-v"><span><output id="set-sway-v" for="set-sway"></output></span></div>
-    <div class="set-row"><label for="set-stream">后台加载</label><input id="set-stream" type="range" min="2" max="16" step="1" aria-describedby="set-stream-v"><span><output id="set-stream-v" for="set-stream"></output></span></div>
-    <div class="set-row"><span id="perf-preset-label" class="set-label">性能预设</span><span class="btn-row" id="perf-preset-row" role="group" aria-labelledby="perf-preset-label">
-      <button class="btn small" data-preset="smooth" aria-pressed="false">流畅</button>
-      <button class="btn small" data-preset="balanced" aria-pressed="false">均衡</button>
-      <button class="btn small" data-preset="high" aria-pressed="false">高画质</button>
+    <div class="set-row" data-page-node-id="rQJQKWngY6cZTPApOtwTA9"><label for="set-sway" data-page-node-id="4NCDkQsVIj4wl76EDHeEGG">树叶风摇</label><input id="set-sway" type="range" min="0" max="1" step="0.05" aria-describedby="set-sway-v" data-page-node-id="I2lrZf9dfDqhdtwwFTsDwE"><span data-page-node-id="3RbqAGnr7ExlajcBsE2YXt"><output id="set-sway-v" for="set-sway" data-page-node-id="ghgKYanMikArEzCHo87KYp"></output></span></div>
+    <div class="set-row" data-page-node-id="ZKSSIEEiduFXwEVknx9YH3"><label for="set-stream" data-page-node-id="Em07utSoe3d7DdcP5MYQRP">后台加载</label><input id="set-stream" type="range" min="2" max="16" step="1" aria-describedby="set-stream-v" data-page-node-id="qGcJNtovpxSHUI3G0r39t6"><span data-page-node-id="3DEd3TJRnZcdUR3w6oxPKO"><output id="set-stream-v" for="set-stream" data-page-node-id="AkAwvEA1kwdMRszCF6CKlD"></output></span></div>
+    <div class="set-row" data-page-node-id="hMDDw1yCEEWNtAZxMzCctn"><span id="perf-preset-label" class="set-label" data-page-node-id="70R0sf24PDFHH2IjCY8sZh">性能预设</span><span class="btn-row" id="perf-preset-row" role="group" aria-labelledby="perf-preset-label" data-page-node-id="SyHxx512K0LsOhDVJgxJat">
+      <button class="btn small" data-preset="smooth" aria-pressed="false" data-page-node-id="H1pgQltprFK8DeD4BsGfkT">流畅</button>
+      <button class="btn small" data-preset="balanced" aria-pressed="false" data-page-node-id="ReKJQEkoMQzrj0tAureNOs">均衡</button>
+      <button class="btn small" data-preset="high" aria-pressed="false" data-page-node-id="Iii7tNipoaSWrl7DIeey0v">高画质</button>
     </span></div>
-    <div class="hint">设置立即生效并自动保存（本浏览器）· 低配设备建议「流畅」预设</div>
-    <button id="btn-set-close" class="btn primary">返回</button>
+    <div class="hint" data-page-node-id="2EUjF97FUkOr3InJHELjnr">设置立即生效并自动保存（本浏览器）· 低配设备建议「流畅」预设</div>
+    <button id="btn-set-close" class="btn primary" data-page-node-id="Rc2CARTjmmePFiA8BXg7Lo">返回</button>
   </div>
 </div>
 
 <!-- 竖屏提示（移动端，可关闭） -->
-<div id="rotate-hint" class="hidden">
-  <div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
-    <div class="rh-icon">⟳</div>
-    <div id="rotate-title" class="rh-text">建议横屏游玩<br>体验更佳</div>
-    <button id="btn-rotate-ok" class="btn primary">仍要继续</button>
+<div id="rotate-hint" class="hidden" data-page-node-id="1t0p1kPCGJrfIieDCk8R3j">
+  <div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title" data-page-node-id="YWGXCS31UerYeYYkA12CGB">
+    <div class="rh-icon" data-page-node-id="9wgUwXSTVr15sCXdH0Z6al">⟳</div>
+    <div id="rotate-title" class="rh-text" data-page-node-id="BI4K46UZ8DIGobn62YI3xm">建议横屏游玩<br data-page-node-id="oK6XEQ0l0aEWVpFXF2XDOL">体验更佳</div>
+    <button id="btn-rotate-ok" class="btn primary" data-page-node-id="flscT32vc7dDBrPjKS2zWF">仍要继续</button>
   </div>
 </div>
 
 <!-- 生成进度 -->
-<div id="overlay-loading" class="overlay hidden" aria-labelledby="loading-title" aria-describedby="loading-text">
-  <div class="panel">
-    <h2 id="loading-title">方块世界</h2>
-    <div id="loading-text">正在生成世界...</div>
-    <div class="bar"><div id="loading-bar" role="progressbar" aria-label="世界生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
+<div id="overlay-loading" class="overlay hidden" aria-labelledby="loading-title" aria-describedby="loading-text" data-page-node-id="ZSdbEVybzW487VyLUqDYEC">
+  <div class="panel" data-page-node-id="souCkjcIFdIeVaYECO2LCN">
+    <h2 id="loading-title" data-page-node-id="BXnTcVYYqDSs0AxQ6ryAB3">方块世界</h2>
+    <div id="loading-text" data-page-node-id="x3o0BYVaxLawAyqgUnQAzc">正在生成世界...</div>
+    <div class="bar" data-page-node-id="67aEkJmBJmDx5QwCgdOPad"><div id="loading-bar" role="progressbar" aria-label="世界生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-page-node-id="BwU4krqhc62ZrLWB44oujQ"></div></div>
   </div>
 </div>
 
@@ -632,8 +632,8 @@
 <script src="js/world/planet_rules.js?v=20260824o"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
 <script src="js/world/structures.js?v=20260826a"></script>
-<script src="js/world/gen_core.js?v=20260827"></script>
-<script src="js/blocks.js?v=20260826a"></script>
+<script src="js/world/gen_core.js?v=20260829"></script>
+<script src="js/blocks.js?v=20260829a"></script>
 <script src="js/systems/discovery.js?v=20260826a"></script>
 <script src="js/systems/progress.js?v=20260828a"></script>
 <script src="js/systems/tutorial.js?v=20260828a"></script>
@@ -641,11 +641,11 @@
 <script src="js/crafting.js?v=20260825a"></script>
 <script src="js/world/world.js?v=20260827b"></script>
 <script src="js/world/infinite.js?v=20260827b"></script>
-<script src="js/world/mesh.js?v=20260826b"></script>
+<script src="js/world/mesh.js?v=20260829a"></script>
 <script src="js/systems/shadow.js?v=20260826a"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=7650a80bae65366d5d4e345bdc37004584d64dab1bf5281d9d163c683f8f0091"></script>
-<script src="js/player/player.js?v=4e4ea714be2323f70136456d38a7839be1c6aacbb18942df449f7a4250868ead"></script>
+<script src="js/player/player.js?v=5b1e96d6718a1d8a830f5ae87357fc1f141a3701c0bfe04261bece2499c4922c"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260828a"></script>
 <script src="js/systems/environment.js?v=f5bb638810a2f8a7f3c85bac6ab743f79845340f39ac175dcfdff1dbb038568d"></script>
@@ -659,7 +659,7 @@
 <script src="js/systems/furnace.js?v=20260824i"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
 <script src="js/ui/galaxy_map.js?v=20260825a"></script>
-<script src="js/systems/space_travel.js?v=20260828h"></script>
+<script src="js/systems/space_travel.js?v=20260829a"></script>
 <script src="js/systems/bloom.js?v=20260828b"></script>
 <script src="js/entities/mobs.js?v=c74ecbe4682aba983e4d7b090da2661b024f41b2d38f6eb45981355a273f7ff7"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
@@ -668,7 +668,7 @@
 <script src="js/ui/featured.js?v=5ba412f27c992e53a810a041a9eef280621058aeb18365c1ed71b597b9f17012"></script>
 <script src="js/ui/touch.js?v=2aa0796fe55f76eb93014e83b8fbe903167abb3dc40d19447d74f1eefed7f701"></script>
 <script src="js/ui/hud.js?v=20260824r"></script>
-<script src="js/ui/codex.js?v=20260828a"></script>
-<script src="js/main.js?v=c1fa6835eb0581fa5022b4146f315f1428be1dcc5b43b0c5baf0fc81e228a47d"></script>
+<script src="js/ui/codex.js?v=20260829a"></script>
+<script src="js/main.js?v=29628aebdad45683ebc7f8c24870370605d1380ddb754ffb9c1c1372932eb9e0"></script>
 </body>
 </html>

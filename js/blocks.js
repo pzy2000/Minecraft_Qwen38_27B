@@ -7,6 +7,8 @@ Voxel.Blocks = (function () {
     LEAVES: 6, SAND: 7, WATER: 8, COAL: 9, IRON: 10, PLANKS: 11, COBBLE: 12,
     BEDROCK: 13, GLASS: 14, GRAVEL: 15,
     TABLE_TOP: 16, TABLE_SIDE: 17, WOOL: 18, BED_TOP: 19, BED_SIDE: 20,
+    BED_TOP_PX: 101, BED_TOP_NZ: 102, BED_TOP_PZ: 103,
+    BED_TOP_FOOT: 104, BED_SIDE_FOOT: 105,
     SNOW: 21,
     STICK: 22, PICK_WOOD: 23, PICK_STONE: 24, PICK_IRON: 25,
     SWORD_WOOD: 26, SWORD_STONE: 27, SWORD_IRON: 28, TORCH: 29,
@@ -57,7 +59,10 @@ Voxel.Blocks = (function () {
     { name: '沙砾', solid: true, opaque: true, tiles: [T.GRAVEL, T.GRAVEL, T.GRAVEL], sound: 'dirt', color: 0x857f77, hard: 0.5 },
     { name: '工作台', solid: true, opaque: true, tiles: [T.TABLE_TOP, T.TABLE_SIDE, T.TABLE_SIDE], sound: 'wood', color: 0xb08d57, hard: 1.5 },
     { name: '羊毛', solid: true, opaque: true, tiles: [T.WOOL, T.WOOL, T.WOOL], sound: 'wool', color: 0xf0f0f0, hard: 0.7 },
-    { name: '床', solid: true, opaque: false, half: true, tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d, hard: 0.8 },
+    // 床头半格（枕头朝 -x）。17 同时是床的物品/合成产物 ID；
+    // 旧存档里的单格床按此方块渲染，兼容不动。
+    { name: '床', solid: true, opaque: false, half: true, bed: 'head',
+      tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood', color: 0xc0504d, hard: 0.8 },
     { name: '雪块', solid: true, opaque: true, tiles: [T.SNOW, T.SNOW, T.SNOW], sound: 'snow', color: 0xeef4f8, hard: 0.35 },
     { name: '火把', solid: false, opaque: false, cross: true, light: 14,
       tiles: [T.TORCH, T.TORCH, T.TORCH], sound: 'wood', color: 0xffcc66, hard: 0.05, icon: T.TORCH },
@@ -180,6 +185,26 @@ Voxel.Blocks = (function () {
   defs[66] = { name: '深空装甲', solid: true, opaque: true,
     tiles: [T.STATION_DARK, T.STATION_DARK, T.STATION_DARK], sound: 'stone',
     color: 0x2b3448, hard: 4.5, pick: true };
+
+  // ---- 双格床（稳定方块 ID 67..71）----
+  // 与 Minecraft 一致，一张床占两个方块位：床尾(67) + 床头(68..71，按枕头
+  // 朝向分四向，放置时按玩家视线主方向选型)。破坏任一半整张床掉落为
+  // 物品 17。17 保留为床的物品 ID 与旧存档兼容（单格 17 视作枕头朝 -x 的床头）。
+  defs[67] = { name: '床', solid: true, opaque: false, half: true, bed: 'foot', drop: 17,
+    tiles: [T.BED_TOP_FOOT, T.BED_SIDE_FOOT, T.BED_SIDE_FOOT], sound: 'wood',
+    color: 0xc0504d, hard: 0.8, icon: T.BED_TOP_FOOT };
+  defs[68] = { name: '床', solid: true, opaque: false, half: true, bed: 'head', drop: 17,
+    tiles: [T.BED_TOP, T.BED_SIDE, T.BED_SIDE], sound: 'wood',
+    color: 0xc0504d, hard: 0.8, icon: T.BED_TOP };
+  defs[69] = { name: '床', solid: true, opaque: false, half: true, bed: 'head', drop: 17,
+    tiles: [T.BED_TOP_PX, T.BED_SIDE, T.BED_SIDE], sound: 'wood',
+    color: 0xc0504d, hard: 0.8, icon: T.BED_TOP_PX };
+  defs[70] = { name: '床', solid: true, opaque: false, half: true, bed: 'head', drop: 17,
+    tiles: [T.BED_TOP_NZ, T.BED_SIDE, T.BED_SIDE], sound: 'wood',
+    color: 0xc0504d, hard: 0.8, icon: T.BED_TOP_NZ };
+  defs[71] = { name: '床', solid: true, opaque: false, half: true, bed: 'head', drop: 17,
+    tiles: [T.BED_TOP_PZ, T.BED_SIDE, T.BED_SIDE], sound: 'wood',
+    color: 0xc0504d, hard: 0.8, icon: T.BED_TOP_PZ };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -426,6 +451,50 @@ Voxel.Blocks = (function () {
       if (x >= 2 && x <= 5 && y >= 3 && y <= 7) return [236 + r() * 10, 232 + r() * 10, 226 + r() * 10]; // 枕头侧面
       if (x === 6) return [150 + v, 44 + v * 0.5, 40 + v * 0.5];
       return [202 + v, 62 + v * 0.6, 56 + v * 0.6];
+    });
+
+    // 双格床：床头四向顶面（顶面纹理 canvas x→世界 +x、canvas y→世界 +z，
+    // 枕头必须落在床头块的远端）+ 床尾顶/侧面（纯床品无枕头）
+    function bedSeam(v) { return [150 + v, 44 + v * 0.5, 40 + v * 0.5]; }
+    drawTile(T.BED_TOP_PX, function (x, y, r) {                                // 枕头朝 +x（BED_TOP 左右镜像）
+      if (x >= 10 && y >= 2 && y <= 13 && (x === 14 || y === 2 || y === 13)) return [196, 52, 48];
+      if (x >= 10 && x <= 13 && y >= 3 && y <= 12) return [238 + r() * 10, 234 + r() * 10, 228 + r() * 10];
+      var v = n(r, 0, 26);
+      if (x === 8) return bedSeam(v);
+      return [204 + v, 64 + v * 0.6, 58 + v * 0.6];
+    });
+    drawTile(T.BED_TOP_NZ, function (x, y, r) {                                // 枕头朝 -z（BED_TOP 逆时针旋转）
+      if (y === 1 || x === 2 || x === 13) {
+        if (y >= 1 && y <= 5 && x >= 2 && x <= 13) return [196, 52, 48];
+        var vb0 = n(r, 0, 26);
+        return [204 + vb0, 64 + vb0 * 0.6, 58 + vb0 * 0.6];
+      }
+      if (y >= 2 && y <= 4 && x >= 3 && x <= 12) return [238 + r() * 10, 234 + r() * 10, 228 + r() * 10];
+      var v = n(r, 0, 26);
+      if (y === 7) return bedSeam(v);
+      return [204 + v, 64 + v * 0.6, 58 + v * 0.6];
+    });
+    drawTile(T.BED_TOP_PZ, function (x, y, r) {                                // 枕头朝 +z（BED_TOP 顺时针旋转）
+      if (y === 14 || x === 2 || x === 13) {
+        if (y >= 10 && y <= 14 && x >= 2 && x <= 13) return [196, 52, 48];
+        var vb1 = n(r, 0, 26);
+        return [204 + vb1, 64 + vb1 * 0.6, 58 + vb1 * 0.6];
+      }
+      if (y >= 11 && y <= 13 && x >= 3 && x <= 12) return [238 + r() * 10, 234 + r() * 10, 228 + r() * 10];
+      var v2 = n(r, 0, 26);
+      if (y === 8) return bedSeam(v2);
+      return [204 + v2, 64 + v2 * 0.6, 58 + v2 * 0.6];
+    });
+    drawTile(T.BED_TOP_FOOT, function (x, y, r) {                              // 床尾顶面：纯床品
+      var v3 = n(r, 0, 26);
+      return [204 + v3, 64 + v3 * 0.6, 58 + v3 * 0.6];
+    });
+    drawTile(T.BED_SIDE_FOOT, function (x, y, r) {                             // 床尾侧面：无枕头
+      if (y >= 10) return [96 + r() * 14, 74 + r() * 10, 44 + r() * 8];        // 木质床脚
+      if (y === 9) return [70, 52, 30];
+      if (y <= 1) return [196, 52, 48];
+      var v4 = n(r, 0, 22);
+      return [202 + v4, 62 + v4 * 0.6, 56 + v4 * 0.6];
     });
 
     drawTile(T.SNOW, function (x, y, r) {
@@ -1074,6 +1143,15 @@ Voxel.Blocks = (function () {
     isOpaque: function (id) { return id > 0 && !!defs[id] && !!defs[id].opaque; },
     // 树叶（风摇 + 实时阴影投射体）
     isLeaves: function (id) { return id > 0 && !!defs[id] && !!defs[id].leaves; },
+    // 床的任意半格（17=旧单格/床头 -x，67=床尾，68..71=床头四向）
+    isBed: function (id) { return id === 17 || (id >= 67 && id <= 71); },
+    // 床头方块选型：床的延伸方向 dx/dz（枕头朝延伸方向远端）
+    bedHeadId: function (dx, dz) {
+      if (dx < 0) return 68;
+      if (dx > 0) return 69;
+      if (dz < 0) return 70;
+      return 71;
+    },
     name: function (id) { return defs[id] ? defs[id].name : '?'; },
     tileForFace: function (id, face) {
       var d = defs[id];

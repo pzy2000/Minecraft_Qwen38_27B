@@ -458,8 +458,8 @@ Voxel.MeshBuilder = (function () {
             var show;
             if (isWater) show = (nb === 0 || nb === 13 || nb === 19);
             else if (isBed) {
-              // 床占格子下半：侧面被不透明邻居或相邻床遮盖，顶/底面被不透明邻居遮盖
-              show = !B.isOpaque(nb) && (f === 2 || f === 3 || nb !== 17);
+              // 床占格子下半：侧面被不透明邻居或相邻床半格遮盖，顶/底面被不透明邻居遮盖
+              show = !B.isOpaque(nb) && (f === 2 || f === 3 || !B.isBed(nb));
             }
             else if (def.opaque) show = !B.isOpaque(nb);
             else show = (nb !== id && !B.isOpaque(nb)); // 玻璃
@@ -475,11 +475,11 @@ Voxel.MeshBuilder = (function () {
               emitFace(target, F, tile, x, y, z, y, y + 0.5, 0, 1, ls, lb);
             } else if (isWater) {
               emitFace(target, F, tile, x, y, z, y, (f === 2 && aboveWaterOf(x, y, z)) ? y + 0.89 : y + 1, 0, 1, ls, lb);
-            } else if (nb === 17 && (f === 2 || f === 3)) {
+            } else if (B.isBed(nb) && (f === 2 || f === 3)) {
               // 顶面正上方是床 → 被床底面完全覆盖，剔除；底面正下方是床 → 床顶在 y-0.5 处，不遮盖，照常发射
               if (f === 2) continue;
               emitFace(target, F, tile, x, y, z, y, y + 1, 0, 1, ls, lb);
-            } else if (nb === 17) {
+            } else if (B.isBed(nb)) {
               // 侧面邻居是半高床：只发未被遮盖的上半面，避免同平面 z-fight
               emitFace(target, F, tile, x, y, z, y + 0.5, y + 1, 0.5, 1, ls, lb);
             } else {

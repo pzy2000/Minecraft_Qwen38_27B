@@ -49,8 +49,8 @@ Voxel.Player = (function () {
   }
 
   function update(dt) {
-    // ESC 菜单期间世界继续运转：只冻结玩家的移动/跳跃输入，物理与代谢照常
-    var frozen = !!(Voxel.Game && Voxel.Game.state === 'paused');
+    // ESC 菜单/睡觉期间世界继续运转：只冻结玩家的移动/跳跃输入，物理与代谢照常
+    var frozen = !!(Voxel.Game && (Voxel.Game.state === 'paused' || Voxel.Game.state === 'sleeping'));
     var K = frozen ? {} : Voxel.Controls.keys;
     var f = (K['KeyW'] || K['ArrowUp'] ? 1 : 0) - (K['KeyS'] || K['ArrowDown'] ? 1 : 0);
     var s = (K['KeyD'] || K['ArrowRight'] ? 1 : 0) - (K['KeyA'] || K['ArrowLeft'] ? 1 : 0);
@@ -264,9 +264,10 @@ Voxel.Player = (function () {
 
   function respawn() {
     var sp = null;
-    // bedPos 保存的是床上方站立点，因此床块位于其正下方一格。
+    // bedPos 保存的是床上方站立点，因此床块位于其正下方一格（床头或床尾均可）。
     if (canRespawnAt(bedPos) &&
-      Voxel.World.get(Math.floor(bedPos.x), Math.floor(bedPos.y) - 1, Math.floor(bedPos.z)) === 17) {
+      Voxel.Blocks.isBed(
+        Voxel.World.get(Math.floor(bedPos.x), Math.floor(bedPos.y) - 1, Math.floor(bedPos.z)))) {
       sp = bedPos.clone();
     } else {
       // 床被挖掉或上方受阻时清除失效重生点，回到当前世界的固定出生点。

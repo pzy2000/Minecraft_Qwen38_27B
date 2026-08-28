@@ -38,7 +38,8 @@ Voxel.SpaceTravel = (function () {
   var PORTAL_ENTER_R2 = 1.35, PORTAL_ENTER_Y = 2.2;
   var PORTAL_EXIT_R2 = 1.8 * 1.8, PORTAL_EXIT_Y = 2.7;
   var PORTAL_MIN_DISTANCE = 8;
-  var FUNCTIONAL_BLOCKS = { 15: true, 17: true, 37: true, 38: true };
+  var FUNCTIONAL_BLOCKS = { 15: true, 17: true, 37: true, 38: true,
+    67: true, 68: true, 69: true, 70: true, 71: true };   // 床头/床尾同为功能方块
   var ORGANIC_BLOCKS = { 4: true, 5: true, 20: true, 21: true, 22: true, 23: true,
     24: true, 26: true, 33: true, 34: true, 35: true, 36: true };
   var STATION_PADS = [

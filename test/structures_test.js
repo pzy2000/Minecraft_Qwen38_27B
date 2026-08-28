@@ -226,7 +226,7 @@ Object.keys(expectedNames).forEach(function (idKey) {
 ok(Voxel.Blocks.defs[53] && Voxel.Blocks.defs[53].name === '菌丝体', 'defs[53]=菌丝体（群系扩展新尾）');
 ok(Voxel.Blocks.defs[59] && Voxel.Blocks.defs[59].name === '暗色树叶', 'defs[59]=暗色树叶');
 // 阿特拉斯空间站舱段方块扩展（稳定 ID 60..66）：同一尾部追加纪律——
-// 旧 ID 永不复用/移动；67 起仍是下一个追加点。
+// 旧 ID 永不复用/移动。
 var expectedStationBlocks = {
   60: '舱壁板', 61: '格栅甲板', 62: '光缝灯带', 63: '警示条纹',
   64: '辉光饰条', 65: '舷窗玻璃', 66: '深空装甲'
@@ -235,7 +235,19 @@ Object.keys(expectedStationBlocks).forEach(function (idKey) {
   var d = Voxel.Blocks.defs[idKey];
   ok(d && d.name === expectedStationBlocks[idKey], 'defs[' + idKey + ']=' + expectedStationBlocks[idKey]);
 });
-ok(Voxel.Blocks.defs[67] === undefined, 'ID 67 未占用（尾部追加纪律）');
+// 双格床扩展（稳定 ID 67..71）：床尾 67 + 床头四向 68..71，均为床物品 17 的半格。
+// 同一尾部追加纪律——72 起仍是下一个追加点。
+var expectedBedBlocks = {
+  67: '床', 68: '床', 69: '床', 70: '床', 71: '床'
+};
+Object.keys(expectedBedBlocks).forEach(function (idKey) {
+  var d = Voxel.Blocks.defs[idKey];
+  ok(d && d.name === expectedBedBlocks[idKey], 'defs[' + idKey + ']=' + expectedBedBlocks[idKey] + '（双格床）');
+});
+ok(Voxel.Blocks.defs[67].bed === 'foot' && Voxel.Blocks.defs[67].drop === 17, '床尾半格破坏掉落床物品');
+ok(Voxel.Blocks.isBed(17) && Voxel.Blocks.isBed(71) && !Voxel.Blocks.isBed(72), 'isBed 覆盖 17/67..71');
+ok(Voxel.Blocks.bedHeadId(1, 0) === 69 && Voxel.Blocks.bedHeadId(0, -1) === 70, '床头按延伸方向选型');
+ok(Voxel.Blocks.defs[72] === undefined, 'ID 72 未占用（尾部追加纪律）');
 
 console.log('');
 if (failed) { console.log('失败 ' + failed + ' 项'); process.exit(1); }
