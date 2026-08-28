@@ -91,8 +91,16 @@ python3 -m http.server 8080
 | N | Cycle weather (clear → rain → thunderstorm; disabled on the station) |
 | F3 | Show/hide debug overlay |
 | M | Open/close crafting handbook (recipe list + one-click craft; hold to craft continuously) |
-| P | Pause menu (manual save / settings / key bindings / save and return to main menu) |
+| J | Open/close the achievements panel (6 categories, 52 achievements, hidden ones included) |
+| B | Open/close the Star Codex (items / fauna / biomes / cosmos collection tabs) |
+| P | Pause menu (manual save / achievements / codex / tutorial recap / settings / save and return to main menu) |
 | Esc | Release the mouse |
+
+## Progression: tutorial, achievements & codex
+
+- **Guided tutorial**: a step-by-step quest card appears in the top-left corner of new worlds, walking the chain *move → chop logs → planks → crafting table → wooden pick → stone → furnace → smelt iron → board ship* across 11 auto-detected steps. Skip it anytime; re-enable it from the pause menu.
+- **Achievements**: 52 achievements across Survival / Building / Exploration / Collection / Challenge / Hidden, including progress-tracked ones and 3 secret eggs. Unlocking shows a golden toast; press `J` to browse overall and per-category completion. Saved with the current save file.
+- **Star Codex**: press `B` for four collection tabs — 82 item entries in themed groups (silhouettes until obtained), 6 fauna cards with procedural pixel portraits, 22 biomes lit up by setting foot in them, and a cosmos archive of visited celestial bodies. Items gained, mobs approached, biomes entered, and worlds visited are recorded automatically.
 
 ## Mobile touch controls
 

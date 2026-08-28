@@ -325,6 +325,8 @@ Voxel.Mobs = (function () {
   function kill(m) {
     m.dead = true;
     Voxel.Sound.pop();
+    if (Voxel.Progress && Voxel.Progress.track)
+      Voxel.Progress.track('kill', { type: m.type });
     var p = m.pos.clone();
     p.y += m.h * 0.5;
     Voxel.Particles.burst(p, m.baseColors[0], 14);

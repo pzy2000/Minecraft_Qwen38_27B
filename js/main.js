@@ -94,8 +94,15 @@ Voxel.Game = (function () {
     'game', 'hud', 'cockpit-hud', 'btn-starmap-hud', 'btn-scan-hud', 'btn-discovery-log',
     'inventory', 'crafting', 'furnace', 'chest', 'manual',
     'overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-featured',
-    'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'rotate-hint'
+    'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'rotate-hint',
+    'overlay-achievements', 'overlay-codex', 'tutorial-card'
   ];
+
+  // 成长系统事件分发：Progress 只负责计数与广播，Tutorial/Achievements 自行判定。
+  if (Voxel.Progress && Voxel.Tutorial)
+    Voxel.Progress.subscribe(function (t, d) { Voxel.Tutorial.onEvent(t, d); });
+  if (Voxel.Progress && Voxel.Achievements)
+    Voxel.Progress.subscribe(function (t, d) { Voxel.Achievements.onEvent(t, d); });
 
   function modalTop() { return modalStack.length ? modalStack[modalStack.length - 1] : null; }
 
@@ -749,6 +756,13 @@ Voxel.Game = (function () {
 
   function enterWorld() {
     hideOverlays();
+    // 成长系统数据随当前存档载入；新存档自动开启新手教程
+    var freshRun = !saveData;
+    if (Voxel.Progress) {
+      Voxel.Progress.hydrate(saveData ? saveData.progress : null);
+      if (freshRun) Voxel.Progress.beginRun();
+    }
+    resetProgressObserver();
     lastBlankCheck = performance.now(); // 进入后 3 秒内不做空白自检
     var commitTx = pendingTravel && pendingTravel.toId === (currentWorld && currentWorld.id) &&
       pendingTravel.sequence && pendingTravel.sequence.phase === 'target_loading' ? pendingTravel : null;
@@ -1204,7 +1218,8 @@ Voxel.Game = (function () {
         drops: snapshot.drops,
         meta: snapshot.meta,
         edits: snapshot.edits,
-        galaxy: galaxyState
+        galaxy: galaxyState,
+        progress: Voxel.Progress ? Voxel.Progress.snapshot() : null
       });
     } catch (writeError) {
       console.warn('存档写入失败', writeError);
@@ -1306,7 +1321,11 @@ Voxel.Game = (function () {
         added += take;
       }
     }
-    if (added > 0) refreshInv();
+    if (added > 0) {
+      refreshInv();
+      // 首次获得记录（图鉴/成就数据源）——覆盖挖掘、拾取、容器与合成产出
+      if (Voxel.Progress) Voxel.Progress.track('gain', { id: id });
+    }
     return added;
   }
 
@@ -1322,11 +1341,16 @@ Voxel.Game = (function () {
 
   function acceptCraftResult(id, n) {
     n = Math.max(1, Math.floor(n || 1));
-    if (id !== WARP_CELL_ITEM_ID) return addInv(id, n);
+    if (id !== WARP_CELL_ITEM_ID) {
+      var added = addInv(id, n);
+      if (added > 0 && Voxel.Progress) Voxel.Progress.track('craft', { id: id, n: added });
+      return added;
+    }
     if (!canAcceptCraftResult(id, n)) return 0;
     var current = Number(galaxyState.ship.warpCells);
     galaxyState.ship.warpCells = Math.max(0, Math.floor(isFinite(current) ? current : 0)) + n;
     if (Voxel.SpaceTravel && Voxel.SpaceTravel.syncCockpit) Voxel.SpaceTravel.syncCockpit(true);
+    if (Voxel.Progress) Voxel.Progress.track('craft', { id: id, n: n });
     return n;
   }
 
@@ -1417,7 +1441,10 @@ Voxel.Game = (function () {
       dur[i] = (typeof d === 'number' && d > 0 && d <= md) ? d : md;
       added++;
     }
-    if (added > 0) refreshInv();
+    if (added > 0) {
+      refreshInv();
+      if (Voxel.Progress) Voxel.Progress.track('gain', { id: id });
+    }
     return added;
   }
 
@@ -1475,7 +1502,11 @@ Voxel.Game = (function () {
   // 对功能方块执行 E 类交互；命中返回 true
   function interactWith(hit) {
     if (!hit || hit.type !== 'block') return false;
-    if (hit.id === 15) { openCrafting(); return true; }
+    if (hit.id === 15) {
+      openCrafting();
+      if (Voxel.Progress) Voxel.Progress.track('use_block', { id: 15 });
+      return true;
+    }
     if (hit.id === 17) { useBed(hit); return true; }
     if (hit.id === 37) { openFurnace(hit); return true; }
     if (hit.id === 38) { openChest(hit); return true; }
@@ -1631,6 +1662,12 @@ Voxel.Game = (function () {
     Voxel.Particles.burst(blockPos, def.color, 10);
     Voxel.Player.addExhaust(C.EXHAUST_DIG);
     damageHeldTool(1);   // 挖掘损耗工具耐久
+    // 成长系统：挖掘事件（含深层/水下判定）
+    if (Voxel.Progress) {
+      Voxel.Progress.track('mine', { id: t.id });
+      if (t.y < 20) Voxel.Progress.track('depth', {});
+      if (Voxel.Player.headIn && Voxel.Player.headIn()) Voxel.Progress.track('wetdig', {});
+    }
     spawnFallersAbove(t.x, t.y, t.z);   // 上方沙/砾失去支撑 → 下落
     enqueueWaterAround(t.x, t.y, t.z);  // 临水 → 水流入
     if (Voxel.HandItem) Voxel.HandItem.swing();
@@ -1663,6 +1700,7 @@ Voxel.Game = (function () {
     Voxel.World.set(x, y, z, id);
     decSel();
     Voxel.Sound.place(def.sound);
+    if (Voxel.Progress) Voxel.Progress.track('place', { placedId: id });
     if (Voxel.HandItem) Voxel.HandItem.swing();
   }
 
@@ -1681,6 +1719,7 @@ Voxel.Game = (function () {
     decSel();
     Voxel.Sound.eat();
     Voxel.HUD.toast('吃了' + def.name + '（饥饿 +' + got + '）');
+    if (Voxel.Progress) Voxel.Progress.track('eat', { id: id });
   }
 
   function pickBlockId(id) {
@@ -2345,7 +2384,12 @@ Voxel.Game = (function () {
     for (var k in activeFurnaces) {
       var p = k.split(',');
       if (Voxel.World.get(+p[0], +p[1], +p[2]) !== 37) { delete activeFurnaces[k]; continue; }
-      Voxel.FurnaceSys.tickOne(activeFurnaces[k], dt);
+      var f = activeFurnaces[k];
+      var outBefore = f.out ? f.out.n : 0;
+      Voxel.FurnaceSys.tickOne(f, dt);
+      var produced = (f.out ? f.out.n : 0) - outBefore;
+      if (produced > 0 && Voxel.Progress)
+        Voxel.Progress.track('smelt', { id: f.out.id, n: produced });
     }
     if (state === 'furnace' && curFurnace) refreshFurnacePanel(curFurnace);
   }
@@ -2413,7 +2457,9 @@ Voxel.Game = (function () {
     if (!doSave(true, 'ruin-discovery')) {
       galaxyState.discovery = oldDiscovery;
       galaxyState.ship.fuel = oldFuel;
+      return;
     }
+    if (Voxel.Progress) Voxel.Progress.track('ruin', {});
   }
 
   function openChest(hit) {
@@ -2574,7 +2620,10 @@ Voxel.Game = (function () {
   function resume() {
     if (state !== 'paused' && state !== 'dead') return;
     var wasDead = state === 'dead';
-    if (wasDead) Voxel.Player.respawn();
+    if (wasDead) {
+      Voxel.Player.respawn();
+      if (Voxel.Progress) Voxel.Progress.track('respawn', {});
+    }
     if (wasDead && Voxel.Environment && Voxel.Environment.status)
       syncEnvironmentHUD(Voxel.Environment.status(), true);
     closeModalLayer(wasDead ? 'overlay-dead' : 'overlay-pause', false);
@@ -2641,6 +2690,7 @@ Voxel.Game = (function () {
     if (Voxel.Player.setFlying) Voxel.Player.setFlying(false);
     if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
     setState('cockpit');
+    if (Voxel.Progress) Voxel.Progress.track('board', {});
     // 物理键盘的登舰 keydown 会在状态切换后继续保持；先等这次按键释放，
     // 避免下一物理帧把同一次 E 当作座舱内离舰/长按手势。
     cockpitKeyE.t = 0;
@@ -2991,6 +3041,7 @@ Voxel.Game = (function () {
         : (fuelAwarded > 0 ? ' · 跃迁能量已满' : ''));
     setActiveScanUI('cooldown', rewards.length ? '探索目标完成' : '扫描档案已写入', rewardText + bearingNote + analysisNote, 100);
     Voxel.HUD.toast(rewardText);
+    if (Voxel.Progress) Voxel.Progress.track('scan', { added: addedEntries.length });
     refreshDiscoveryUI();
     return true;
   }
@@ -3026,6 +3077,48 @@ Voxel.Game = (function () {
   function closeDiscoveryLog() {
     if (state !== 'discovery') return false;
     return closeModalLayer('overlay-discovery', true);
+  }
+
+  // ---------- 成就 / 图鉴 / 教程面板 ----------
+  function openAchievements() {
+    if (state !== 'playing' && state !== 'paused' && state !== 'cockpit') return false;
+    var returnState = state;
+    var opened = openModalLayer({
+      id: 'overlay-achievements', state: 'achievements', returnState: returnState,
+      initialFocus: '#btn-ach-close', closeKeys: ['KeyJ', 'KeyE'],
+      onEscape: closeAchievements
+    });
+    if (opened && Voxel.Achievements) Voxel.Achievements.refreshPanel();
+    return !!opened;
+  }
+
+  function closeAchievements() {
+    if (state !== 'achievements') return false;
+    return closeModalLayer('overlay-achievements', true);
+  }
+
+  function openCodex() {
+    if (state !== 'playing' && state !== 'paused' && state !== 'cockpit') return false;
+    var returnState = state;
+    var opened = openModalLayer({
+      id: 'overlay-codex', state: 'codex', returnState: returnState,
+      initialFocus: '#btn-codex-close', closeKeys: ['KeyB', 'KeyE'],
+      onEscape: closeCodex
+    });
+    if (opened && Voxel.Codex) Voxel.Codex.refresh();
+    return !!opened;
+  }
+
+  function closeCodex() {
+    if (state !== 'codex') return false;
+    return closeModalLayer('overlay-codex', true);
+  }
+
+  function restartTutorialFromUI() {
+    if (!Voxel.Tutorial) return false;
+    Voxel.Tutorial.restart();
+    Voxel.HUD.toast('新手教程已重新开启，跟着左上角任务卡行动吧');
+    return true;
   }
 
   function flightReducedMotion() {
@@ -3204,6 +3297,12 @@ Voxel.Game = (function () {
     try { if (Voxel.SpaceTravel && Voxel.SpaceTravel.hideWarp) Voxel.SpaceTravel.hideWarp(); }
     catch (warpError) { console.error('驾驶舱退场失败', warpError); }
     setState('playing');
+    // 成长系统：一次完整跃迁事务（跨系 / 传送门 / 系内飞船）
+    if (Voxel.Progress) {
+      if (tx.mode === 'jump') Voxel.Progress.track('jump', {});
+      else if (tx.mode === 'portal') Voxel.Progress.track('portal', {});
+      else Voxel.Progress.track('warp', {});
+    }
     // 驾驶舱退场后，把同一抵达信息短暂交给世界 HUD。presentationOnly
     // 防止复用 ship/portal 样式时重新打开全屏跃迁层，silent 防止重复播报。
     try {
@@ -3550,6 +3649,9 @@ Voxel.Game = (function () {
   }
 
   function onPlayerDead() {
+    if (Voxel.Progress) {
+      Voxel.Progress.track('death', { cause: (Voxel.Player.lastDamageCause && Voxel.Player.lastDamageCause()) || 'generic' });
+    }
     if (Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard() &&
       Voxel.SpaceTravel.disembarkShip) Voxel.SpaceTravel.disembarkShip({ silent: true });
     if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(true);
@@ -3631,6 +3733,8 @@ Voxel.Game = (function () {
       } else if (code === 'KeyR') {
         tryEat();
       } else if (code === 'KeyH') openStarMap();
+      else if (code === 'KeyJ') openAchievements();
+      else if (code === 'KeyB') openCodex();
       else if (code === 'KeyN') {
         if (currentWorld && currentWorld.kind === 'station') {
           Voxel.HUD.toast('空间站内没有天气');
@@ -3646,11 +3750,15 @@ Voxel.Game = (function () {
     } else if (state === 'cockpit') {
       // KeyE 不在这里处理：长按触发着陆辅助、轻按离舰，由 tickCockpitKeyE 按固定步计时。
       if (code === 'KeyH') openStarMap();
+      else if (code === 'KeyJ') openAchievements();
+      else if (code === 'KeyB') openCodex();
       else if (code === 'KeyP' || code === 'Escape') pause();
       else if (code === 'F3') debug = !debug;
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape') resume();
       else if (code === 'KeyM') openManual();
+      else if (code === 'KeyJ') openAchievements();
+      else if (code === 'KeyB') openCodex();
     } else if (state === 'inventory') {
       if (code === 'KeyE' || code === 'Escape') toggleInv(false);
       else if (code === 'KeyM') openManual();
@@ -3667,6 +3775,10 @@ Voxel.Game = (function () {
       if (code === 'Escape' || code === 'KeyH' || code === 'KeyE') closeStarMap();
     } else if (state === 'discovery') {
       if (code === 'Escape' || code === 'KeyG' || code === 'KeyE') closeDiscoveryLog();
+    } else if (state === 'achievements') {
+      if (code === 'Escape' || code === 'KeyJ' || code === 'KeyE') closeAchievements();
+    } else if (state === 'codex') {
+      if (code === 'Escape' || code === 'KeyB' || code === 'KeyE') closeCodex();
     } else if (state === 'settings') {
       if (code === 'Escape') {
         var settingsModal = modalTop();
@@ -3882,6 +3994,7 @@ Voxel.Game = (function () {
     // 跳到清晨（t≈0.27 为上午），完成后立即保存，避免刷新又回到夜晚。
     Voxel.DayNight.setTime(0.27);
     Voxel.DayNight.update(0);
+    if (Voxel.Progress) Voxel.Progress.track('sleep', {});
     var fade = document.getElementById('sleep-fade');
     if (fade) fade.classList.remove('on');
     setState('playing');
@@ -4097,6 +4210,71 @@ Voxel.Game = (function () {
     }
   }
 
+  // ---------- 成长系统环境观察 ----------
+  // 低频采样（0.5s）：群系踏入记录、生物近距离编录、撸猫计数、移动里程。
+  var obsT = 0, obsLastBiome = -2, obsPrevX = null, obsPrevZ = null,
+    moveAccum = 0, petCooldown = 0;
+
+  function resetProgressObserver() {
+    obsT = 0; obsLastBiome = -2; obsPrevX = null; obsPrevZ = null;
+    moveAccum = 0; petCooldown = 0;
+  }
+
+  function tickProgressObserver(dt) {
+    if (state !== 'playing' || !currentWorld || !Voxel.World.isReady()) return;
+    if (!Voxel.Progress || !Voxel.Progress.track) return;
+    var p = Voxel.Player.pos();
+
+    // 移动里程：0.5s 采样一次水平位移
+    if (obsPrevX !== null) {
+      var dxm = p.x - obsPrevX, dzm = p.z - obsPrevZ;
+      moveAccum += Math.sqrt(dxm * dxm + dzm * dzm);
+      if (moveAccum >= 1) {
+        var wholeMeters = Math.floor(moveAccum);
+        Voxel.Progress.track('move', { meters: wholeMeters });
+        moveAccum -= wholeMeters;
+      }
+    }
+    obsPrevX = p.x; obsPrevZ = p.z;
+
+    obsT -= dt;
+    if (obsT > 0) return;
+    obsT = 0.5;
+
+    if (currentWorld.kind === 'planet') {
+      // 群系踏入（变化时才记录，Progress 内部为幂等集合）
+      try {
+        var bi = Voxel.World.biomeAt(Math.floor(p.x), Math.floor(p.z));
+        if (typeof bi === 'number' && bi >= 0 && bi !== obsLastBiome) {
+          obsLastBiome = bi;
+          Voxel.Progress.track('biome', { i: bi });
+        }
+      } catch (e) { }
+
+      // 生物接近编录（12 格内最近者）
+      var mobsList = Voxel.Mobs && Voxel.Mobs.list ? Voxel.Mobs.list : null;
+      if (mobsList && mobsList.length) {
+        var nearest = null, nearestD2 = 12 * 12;
+        for (var mi = 0; mi < mobsList.length; mi++) {
+          var m = mobsList[mi];
+          if (!m || m.dead || !m.pos) continue;
+          var ddx = m.pos.x - p.x, ddz = m.pos.z - p.z, ddy = m.pos.y - p.y;
+          var d2 = ddx * ddx + ddz * ddz + ddy * ddy;
+          if (d2 < nearestD2) { nearestD2 = d2; nearest = m; }
+        }
+        if (nearest) {
+          Voxel.Progress.track('fauna', { type: nearest.type });
+          if (nearest.type === 'cat' && petCooldown <= 0 && nearestD2 <= 3.5 * 3.5) {
+            Voxel.Progress.track('pet', { type: 'cat' });
+            petCooldown = 6;
+            Voxel.HUD.toast('猫在你身边蹭了蹭…（好感度+1）');
+          }
+        }
+      }
+    }
+    if (petCooldown > 0) petCooldown -= 0.5;
+  }
+
   function frameBody(dt) {
     var startedState = state;
     frames++;
@@ -4105,6 +4283,8 @@ Voxel.Game = (function () {
 
     // 触控 UI 状态同步（显隐/复位）
     if (Voxel.Touch && Voxel.Touch.onFrame) Voxel.Touch.onFrame(state);
+    // 教程任务卡可见性（内部带变更检测，避免每帧写 DOM）
+    if (Voxel.Tutorial && Voxel.Tutorial.refresh) Voxel.Tutorial.refresh();
 
     tickFlight(dt);
 
@@ -4211,6 +4391,7 @@ Voxel.Game = (function () {
         if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
         tickRegeneration(simulationDt);
         tickAutosave(dt);
+        tickProgressObserver(dt);
       } else if (startedState === 'playing' || pausedState) {
         if (!mouseDown[2] && (digT || digProg)) stopDig();
 
@@ -4416,6 +4597,11 @@ Voxel.Game = (function () {
     startActiveScan: startActiveScan,
     openDiscoveryLog: openDiscoveryLog,
     closeDiscoveryLog: closeDiscoveryLog,
+    openAchievements: openAchievements,
+    closeAchievements: closeAchievements,
+    openCodex: openCodex,
+    closeCodex: closeCodex,
+    restartTutorialFromUI: restartTutorialFromUI,
     openRotateHint: openRotateHint,
     closeRotateHint: closeRotateHint,
     // 触控接口（ui/touch.js 调用）
@@ -4961,6 +5147,16 @@ Voxel.Game = (function () {
     });
     var discoveryClose = document.getElementById('btn-discovery-close');
     if (discoveryClose) discoveryClose.addEventListener('click', closeDiscoveryLog);
+    var achClose = document.getElementById('btn-ach-close');
+    if (achClose) achClose.addEventListener('click', closeAchievements);
+    var codexClose = document.getElementById('btn-codex-close');
+    if (codexClose) codexClose.addEventListener('click', closeCodex);
+    var pauseAchBtn = document.getElementById('btn-pause-achievements');
+    if (pauseAchBtn) pauseAchBtn.addEventListener('click', function () { openAchievements(); });
+    var pauseCodexBtn = document.getElementById('btn-pause-codex');
+    if (pauseCodexBtn) pauseCodexBtn.addEventListener('click', function () { openCodex(); });
+    var pauseTutBtn = document.getElementById('btn-pause-tutorial');
+    if (pauseTutBtn) pauseTutBtn.addEventListener('click', function () { restartTutorialFromUI(); });
 
     // 所有可由触屏打开的面板都提供可见关闭入口，并复用原有状态机收尾逻辑。
     var closeBindings = [

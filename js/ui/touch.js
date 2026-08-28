@@ -46,7 +46,8 @@ Voxel.Touch = (function () {
   var enabled = detect();
   var domBuilt = false;
   var capture = null, base = null, knob = null;
-  var btnJump = null, btnDescend = null, btnFly = null, btnPause = null, btnBag = null;
+  var btnJump = null, btnDescend = null, btnFly = null, btnPause = null, btnBag = null,
+    btnAch = null, btnCodex = null;
 
   // ---- 摇杆状态 ----
   var stickId = null, baseX = 0, baseY = 0;
@@ -111,12 +112,16 @@ Voxel.Touch = (function () {
     btnFly.setAttribute('aria-pressed', 'false');
     btnPause = actionButton('touch-btn touch-btn-top pause', '暂停游戏', 'Ⅱ');
     btnBag = actionButton('touch-btn touch-btn-top bag', '打开背包', '包');
-    [btnJump, btnFly, btnPause, btnBag].forEach(function (b) { b.style.display = 'none'; });
+    btnAch = actionButton('touch-btn touch-btn-top achlog', '打开成就面板', 'J');
+    btnCodex = actionButton('touch-btn touch-btn-top codex', '打开星海图鉴', 'B');
+    [btnJump, btnFly, btnPause, btnBag, btnAch, btnCodex].forEach(function (b) { b.style.display = 'none'; });
     document.body.appendChild(btnJump);
     document.body.appendChild(btnDescend);
     document.body.appendChild(btnFly);
     document.body.appendChild(btnPause);
     document.body.appendChild(btnBag);
+    document.body.appendChild(btnAch);
+    document.body.appendChild(btnCodex);
 
     bindButtons();
     setupRotateHint();
@@ -206,6 +211,8 @@ Voxel.Touch = (function () {
     tapKey(btnFly, 'KeyF');
     tapKey(btnPause, 'KeyP');
     tapKey(btnBag, 'KeyE');
+    tapKey(btnAch, 'KeyJ');
+    tapKey(btnCodex, 'KeyB');
   }
 
   // ---- 手势主流程 ----
@@ -367,7 +374,7 @@ Voxel.Touch = (function () {
     var previousCapture = lastState === 'playing';
     if (captureShow !== previousCapture || show !== (lastState === 'playing')) {
       capture.style.display = captureShow ? 'block' : 'none';
-      [btnJump, btnFly, btnPause, btnBag].forEach(function (b) {
+      [btnJump, btnFly, btnPause, btnBag, btnAch, btnCodex].forEach(function (b) {
         b.style.display = show ? 'flex' : 'none';
       });
       btnDescend.style.display =

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=2d90838ad24481fff3a02133cd74ddca5ef642cfc93ef5418505603c3fafdc60">
+<link rel="stylesheet" href="css/style.css?v=aa0c00a643df43ce3b85803f44cd479b4504e96a69f0f40d734edd13ae8f5c25">
 </head>
 <body data-game-state="loading">
 <canvas id="game"></canvas>
@@ -277,7 +277,8 @@
           <div><b>WASD</b> 移动 <b>鼠标</b> 视角 <b>空格</b> 跳跃 <b>Shift</b> 疾跑</div>
           <div><b>左键</b> 放置 <b>右键长按</b> 挖掘/攻击 <b>中键</b> 吸取方块</div>
           <div><b>1-9 / 滚轮</b> 快捷栏 <b>E</b> 交互/背包 <b>G</b> 主动扫描 <b>H</b> 飞船星图 <b>F</b> 飞行</div>
-          <div><b>M</b> 合成手册 <b>Q</b> 丢弃 <b>R</b> 进食 <b>N</b> 切换天气 <b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
+          <div><b>M</b> 合成手册 · <b>Q</b> 丢弃 · <b>R</b> 进食 · <b>N</b> 切换天气 · <b>J</b> 成就 · <b>B</b> 图鉴</div>
+          <div><b>F3</b> 调试 <b>P</b> 暂停 <b>Esc</b> 释放鼠标</div>
         </div>
       </div>
     </details>
@@ -324,6 +325,11 @@
          aria-live="polite" aria-atomic="true"></div>
     <button id="btn-resume" class="btn primary">继续游戏</button>
     <button id="btn-fullscreen" class="btn">进入全屏</button>
+    <div class="pause-row">
+      <button id="btn-pause-achievements" class="btn">成就 (J)</button>
+      <button id="btn-pause-codex" class="btn">图鉴 (B)</button>
+      <button id="btn-pause-tutorial" class="btn">教程回顾</button>
+    </div>
     <button id="btn-save" class="btn" aria-describedby="pause-save-status">立即存档</button>
     <button id="btn-settings" class="btn">设置</button>
     <button id="btn-menu" class="btn" aria-describedby="pause-save-status">存档并回主菜单</button>
@@ -444,6 +450,48 @@
     <div id="discovery-world-list" aria-label="天体发现记录">
       <div class="discovery-empty">尚无发现记录 · 返回世界并启动主动扫描</div>
     </div>
+  </div>
+</div>
+
+<!-- 成就 -->
+<div id="overlay-achievements" class="overlay hidden">
+  <div class="panel ach-panel" role="dialog" aria-modal="true" aria-labelledby="ach-title">
+    <div class="panel-titlebar">
+      <div>
+        <div class="ach-kicker">MISSION LOG // ACHIEVEMENTS</div>
+        <h2 id="ach-title">成就</h2>
+      </div>
+      <button id="btn-ach-close" class="panel-close" type="button" aria-label="关闭成就面板" title="关闭成就面板">×</button>
+    </div>
+    <div class="ach-summary">
+      <b>0 / 0</b>
+      <div class="ach-progressbar"><i class="ach-progress-fill"></i></div>
+      <span>0%</span>
+    </div>
+    <div class="ach-tabs" role="group" aria-label="成就分类"></div>
+    <div id="ach-grid"></div>
+    <div class="inv-tip">J 或 ESC 关闭 · 部分成就是隐藏的，继续探索来揭开它们</div>
+  </div>
+</div>
+
+<!-- 星海图鉴 -->
+<div id="overlay-codex" class="overlay hidden">
+  <div class="panel codex-panel" role="dialog" aria-modal="true" aria-labelledby="codex-title">
+    <div class="panel-titlebar">
+      <div>
+        <div class="ach-kicker">ARCHIVE // CODEX</div>
+        <h2 id="codex-title">星海图鉴</h2>
+      </div>
+      <button id="btn-codex-close" class="panel-close" type="button" aria-label="关闭星海图鉴" title="关闭星海图鉴">×</button>
+    </div>
+    <div class="ach-summary codex-summary">
+      <b>0%</b>
+      <div class="ach-progressbar"><i class="ach-progress-fill"></i></div>
+      <span>本页进度</span>
+    </div>
+    <div class="ach-tabs" id="codex-tabs" role="group" aria-label="图鉴分类"></div>
+    <div id="codex-body"></div>
+    <div class="inv-tip">B 或 ESC 关闭 · 获得物品、靠近生物、踏入群系、抵达天体都会点亮对应条目</div>
   </div>
 </div>
 
@@ -574,6 +622,9 @@
 <script src="js/world/gen_core.js?v=20260827"></script>
 <script src="js/blocks.js?v=20260826a"></script>
 <script src="js/systems/discovery.js?v=20260826a"></script>
+<script src="js/systems/progress.js?v=20260828a"></script>
+<script src="js/systems/tutorial.js?v=20260828a"></script>
+<script src="js/systems/achievements.js?v=20260828a"></script>
 <script src="js/crafting.js?v=20260825a"></script>
 <script src="js/world/world.js?v=20260827b"></script>
 <script src="js/world/infinite.js?v=20260827b"></script>
@@ -598,11 +649,12 @@
 <script src="js/systems/space_travel.js?v=20260827"></script>
 <script src="js/entities/mobs.js?v=c74ecbe4682aba983e4d7b090da2661b024f41b2d38f6eb45981355a273f7ff7"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
-<script src="js/systems/save.js?v=5c3699619f41fe0dd5efb67341d8ad8025db82dae606b0bd2bf03fa6cd952c00"></script>
+<script src="js/systems/save.js?v=b47975758c7713f3521487a32ce25e48dce7c0079f7007de52655f69bfb3fd5b"></script>
 <script src="js/ui/handitem.js?v=3bbb6d458732035d4ea791b5a8494ecd5d3974925a30d3b8778cce723d3c4343"></script>
 <script src="js/ui/featured.js?v=5ba412f27c992e53a810a041a9eef280621058aeb18365c1ed71b597b9f17012"></script>
 <script src="js/ui/touch.js?v=2aa0796fe55f76eb93014e83b8fbe903167abb3dc40d19447d74f1eefed7f701"></script>
 <script src="js/ui/hud.js?v=20260824r"></script>
-<script src="js/main.js?v=518f3564fb09318c8652972c4621b55fe19ca2937e94702ae21bb613a521295b"></script>
+<script src="js/ui/codex.js?v=20260828a"></script>
+<script src="js/main.js?v=7d885f0014fd306836f5529379791025a861331f06f4eae6c8be1c2dc2907157"></script>
 </body>
 </html>

@@ -235,7 +235,9 @@ Voxel.Save = (function () {
         // 上层可一次性捕获一致快照后传入；仅兼容旧调用方时才现场读取 world。
         meta: hasOwn.call(extra, 'meta') ? extra.meta : world.getAllMeta(),
         edits: hasOwn.call(extra, 'edits') ? extra.edits : world.getEdits(),
-        galaxy: extra.galaxy || null
+        galaxy: extra.galaxy || null,
+        // 成长系统（教程/成就/图鉴统计）随存档生命周期；缺失时加载方兜底
+        progress: extra.progress || null
       };
       // 无限宇宙瘦身：存档前丢弃可再生的世界快照并 LRU 裁剪其他恒星系档案。
       if (obj.galaxy && Voxel.Galaxy && Voxel.Galaxy.pruneForSave) {

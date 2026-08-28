@@ -4612,3 +4612,351 @@ body[data-touch-mode="true"][data-game-state="cockpit"] #cockpit-touch-controls 
   .star-card:hover,
   .star-card:focus-visible { transform: none; }
 }
+
+/* ==================== 成长系统：新手教程 / 成就 / 图鉴 / 成就弹窗 ==================== */
+
+/* ---- 新手任务卡 ---- */
+#tutorial-card {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: 170px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(248px, calc(var(--app-width) - 28px));
+  padding: 12px 14px 10px;
+  color: #e8f3ff;
+  background: linear-gradient(160deg, rgba(11, 28, 52, .92), rgba(7, 16, 34, .88));
+  border: 1px solid rgba(126, 240, 255, .42);
+  border-left: 3px solid rgba(255, 226, 95, .85);
+  border-radius: 8px;
+  box-shadow: inset 0 0 18px rgba(89, 232, 255, .08), 0 10px 26px rgba(0, 0, 0, .45);
+  pointer-events: auto;
+}
+#tutorial-card.hidden { display: none !important; }
+#tutorial-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 226, 95, .5), transparent);
+}
+.tut-kicker {
+  color: rgba(255, 232, 140, .82);
+  font-size: 9px;
+  letter-spacing: 2.5px;
+}
+.tut-title { font-size: 14px; line-height: 1.35; }
+.tut-desc { font-size: 11.5px; line-height: 1.5; color: #c9dcf2; }
+.tut-hint { font-size: 10px; line-height: 1.45; color: #7e97b4; }
+.tut-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(126, 240, 255, .22);
+}
+.tut-step-label {
+  color: #7ef0ff;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+.tut-skip {
+  color: #91a9c4;
+  background: none;
+  border: 1px solid rgba(145, 169, 196, .32);
+  border-radius: 4px;
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.tut-skip:hover, .tut-skip:focus-visible { color: #fff; border-color: #fff; }
+body[data-game-state="paused"] #tutorial-card { opacity: .78; }
+
+/* ---- 成就解锁弹窗 ---- */
+#ach-toast {
+  position: absolute;
+  top: max(64px, calc(env(safe-area-inset-top) + 64px));
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px 10px 12px;
+  transform: translate(-50%, -160%);
+  transition: transform .45s cubic-bezier(.22, 1.4, .36, 1), opacity .3s ease;
+  opacity: 0;
+  pointer-events: none;
+  color: #ffe9a8;
+  background: linear-gradient(135deg, rgba(38, 30, 6, .96), rgba(20, 17, 8, .94));
+  border: 1px solid rgba(255, 214, 92, .65);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(255, 200, 60, .25), inset 0 0 22px rgba(255, 210, 90, .12);
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .4));
+}
+#ach-toast.show { transform: translate(-50%, 0); opacity: 1; }
+#ach-toast .ach-toast-icon {
+  display: grid;
+  place-items: center;
+  width: 44px; height: 44px;
+  background: radial-gradient(circle at 50% 36%, rgba(255, 216, 96, .35), rgba(120, 84, 10, .28) 72%);
+  border: 1px solid rgba(255, 220, 110, .55);
+  border-radius: 8px;
+}
+#ach-toast .ach-toast-icon canvas { width: 36px; height: 36px; image-rendering: pixelated; }
+#ach-toast .ach-glyph { font-size: 22px; text-shadow: 0 0 10px rgba(255, 224, 130, .8); }
+#ach-toast .ach-toast-copy { display: flex; flex-direction: column; }
+#ach-toast .ach-toast-copy small { color: rgba(255, 226, 150, .66); font-size: 9px; letter-spacing: 2px; }
+#ach-toast .ach-toast-copy strong { font-size: 15px; }
+
+/* ---- 成就面板 ---- */
+.ach-panel,
+.codex-panel {
+  width: min(860px, calc(var(--app-width) - 24px));
+  max-height: calc(var(--app-height) - 48px);
+  overflow-y: auto;
+}
+.ach-kicker { color: #7189a7; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 2px; }
+.ach-panel h2, .codex-panel h2 { margin: 0; }
+.ach-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 12px;
+  color: #dfeeff;
+}
+.ach-summary b { white-space: nowrap; font-size: 14px; }
+.ach-progressbar {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(126, 240, 255, .4);
+  border-radius: 99px;
+  background: rgba(6, 16, 33, .8);
+}
+.ach-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #59e8ff, #ffd65f);
+  box-shadow: 0 0 10px rgba(89, 232, 255, .5);
+  transition: width .4s ease;
+}
+.ach-summary span { white-space: nowrap; color: #7ef0ff; font-size: 12px; }
+.ach-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ach-tab[aria-pressed="true"] {
+  color: #04101f;
+  background: linear-gradient(135deg, #7ef0ff, #ffd65f);
+  border-color: #bfeaff;
+}
+#ach-grid, .codex-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: 8px;
+}
+.ach-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(90, 118, 148, .35);
+  border-radius: 8px;
+  background: rgba(8, 18, 36, .62);
+}
+.ach-card.unlocked {
+  border-color: rgba(255, 214, 92, .55);
+  background: linear-gradient(150deg, rgba(46, 36, 10, .5), rgba(10, 20, 40, .68));
+  box-shadow: inset 0 0 16px rgba(255, 208, 80, .08);
+}
+.ach-card.secret { opacity: .85; border-style: dashed; }
+.ach-card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px; height: 52px;
+  border-radius: 8px;
+  background: rgba(2, 8, 18, .75);
+  border: 1px solid rgba(120, 150, 185, .28);
+}
+.ach-card-icon canvas { width: 40px; height: 40px; image-rendering: pixelated; }
+.ach-card-icon .ach-glyph { font-size: 24px; color: #9fb8d6; }
+.ach-card.unlocked .ach-card-icon { border-color: rgba(255, 214, 92, .5); }
+.ach-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ach-card-body strong { font-size: 13px; color: #ecf5ff; }
+.ach-card-body span { font-size: 11px; line-height: 1.4; color: #93aac6; }
+.ach-bar {
+  height: 5px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, .1);
+}
+.ach-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #59e8ff, #ffd65f);
+}
+.ach-prog-text { color: #7ef0ff !important; font-variant-numeric: tabular-nums; }
+
+/* ---- 图鉴 ---- */
+.codex-tab[aria-pressed="true"] {
+  color: #04101f;
+  background: linear-gradient(135deg, #9be7ff, #bfa3ff);
+  border-color: #cfe6ff;
+}
+.codex-section h3, #codex-body h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 14px 0 8px;
+  color: #9fd9ff;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.codex-section h3 small, #codex-body h3 small { color: #6d87a8; font-weight: normal; letter-spacing: 0; }
+.codex-grid { margin-bottom: 6px; }
+.codex-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 118, 148, .35);
+  background: rgba(8, 18, 36, .62);
+}
+.codex-card strong { font-size: 12.5px; color: #ecf5ff; }
+.codex-card small { color: #8aa2bf; font-size: 10.5px; line-height: 1.4; }
+.codex-icon {
+  position: relative;
+  width: 48px; height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background:
+    repeating-conic-gradient(rgba(255,255,255,.05) 0% 25%, rgba(0,0,0,.18) 0% 50%) 0 0/12px 12px,
+    rgba(2, 8, 18, .6);
+  border: 1px solid rgba(120, 150, 185, .25);
+}
+.codex-icon canvas { width: 38px; height: 38px; image-rendering: pixelated; }
+.codex-icon i {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(212, 228, 250, .8);
+  font-style: normal;
+  font-size: 18px;
+}
+.codex-fauna-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(90, 118, 148, .35);
+  background: rgba(8, 18, 36, .62);
+}
+.codex-fauna-card.secret { border-style: dashed; }
+.codex-fauna-portrait canvas {
+  width: 96px; height: 96px;
+  image-rendering: pixelated;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 150, 185, .3);
+}
+.codex-fauna-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.codex-fauna-info strong { color: #ecf5ff; font-size: 14px; }
+.codex-fauna-info small { color: #8aa2bf; line-height: 1.5; }
+.codex-fauna-info p { margin: 2px 0 0; color: #a9bfd9; font-size: 11.5px; line-height: 1.55; }
+.biomes-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+.codex-biome-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 108px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(10, 16, 30, .55);
+  box-shadow: inset 0 -22px 34px rgba(4, 8, 18, .35);
+}
+.codex-biome-card.secret { background: rgba(8, 18, 36, .62) !important; border-style: dashed; }
+.codex-biome-icon { background: rgba(2, 8, 18, .5); }
+.codex-biome-card strong { color: #fff; text-shadow: 0 1px 4px rgba(4, 10, 20, .8); }
+.codex-biome-card small { color: rgba(240, 248, 255, .88); text-shadow: 0 1px 3px rgba(4, 10, 20, .8); }
+.cosmos-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.codex-cosmos-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px 12px;
+  text-align: center;
+  border-radius: 10px;
+  border: 1px solid rgba(90, 118, 148, .35);
+  background: radial-gradient(circle at 50% 0%, rgba(30, 50, 90, .45), rgba(6, 12, 26, .8));
+}
+.codex-cosmos-card strong { color: #ecf5ff; font-size: 13px; }
+.codex-cosmos-card small { color: #8aa2bf; font-size: 10.5px; line-height: 1.45; }
+.codex-orbit {
+  display: grid;
+  place-items: center;
+  width: 74px; height: 74px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  border: 1px dashed rgba(126, 200, 255, .3);
+  background: radial-gradient(circle at 50% 50%, transparent 58%, rgba(126, 200, 255, .06) 60%);
+}
+.codex-orbit i {
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: rgba(10, 18, 34, .85);
+  box-shadow: inset -6px -6px 12px rgba(0, 0, 0, .55), 0 0 14px rgba(120, 180, 255, .12);
+}
+.codex-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.codex-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 118, 148, .35);
+  background: rgba(8, 18, 36, .62);
+}
+.codex-stat b { color: #ffd65f; font-size: 20px; }
+.codex-stat span { color: #8aa2bf; font-size: 10.5px; }
+
+/* ---- 暂停菜单行内按钮组 ---- */
+.pause-row { display: flex; gap: 8px; }
+.pause-row .btn { flex: 1; }
+
+@media (max-width: 720px) {
+  #tutorial-card { bottom: 158px; padding: 10px 12px 8px; }
+  .tut-desc { font-size: 11px; }
+  .ach-panel, .codex-panel { width: calc(var(--app-width) - 12px); max-height: calc(var(--app-height) - 28px); }
+  #ach-grid, .codex-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .codex-fauna-card { flex-direction: row; align-items: flex-start; }
+  .codex-fauna-portrait canvas { width: 72px; height: 72px; }
+}
+@media (max-width: 480px) {
+  #ach-grid, .codex-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+  .ach-card-icon { width: 44px; height: 44px; }
+  .pause-row { flex-wrap: wrap; }
+  .tut-skip { padding: 5px 9px; min-height: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ach-toast { transition: opacity .2s ease; transform: translate(-50%, 0); }
+  .ach-progress-fill { transition: none; }
+}
