@@ -41,7 +41,12 @@ Voxel.Blocks = (function () {
     // 物品/矿物扩展瓦片（稳定序号 106..116，只追加不移动）
     GOLD_ORE: 106, DIAMOND_ORE: 107, INGOT_GOLD: 108, GEM_DIAMOND: 109,
     CHARCOAL: 110, PICK_GOLD: 111, PICK_DIAMOND: 112,
-    SWORD_GOLD: 113, SWORD_DIAMOND: 114, MASK_GAS: 115, SUIT_COLD: 116
+    SWORD_GOLD: 113, SWORD_DIAMOND: 114, MASK_GAS: 115, SUIT_COLD: 116,
+    // 星海嘉年华瓦片（稳定序号 117..131，只追加不移动）
+    PARK_LAWN_TOP: 117, PARK_LAWN_SIDE: 118, CREAM_PAVE: 119, PASTEL_BRICK: 120,
+    CANDY_STRIPE: 121, GOLD_TRIM: 122, LANTERN: 123, RAIL_WHITE: 124,
+    ROOF_BLUE: 125, NEON_PURPLE: 126, NEON_CYAN: 127, BUNTING: 128,
+    RIDE_PAD: 129, CASTLE_PINK: 130, CASTLE_BLUE: 131
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -219,6 +224,54 @@ Voxel.Blocks = (function () {
   defs[73] = { name: '钻石矿石', solid: true, opaque: true,
     tiles: [T.DIAMOND_ORE, T.DIAMOND_ORE, T.DIAMOND_ORE], sound: 'stone', color: 0x5ce2da,
     hard: 6.5, pick: true, tier: 3, drop: 124 };
+
+  // ---- 星海嘉年华方块（稳定方块 ID 74..87）----
+  // 只在旧注册表尾部追加，不得复用/移动旧 ID。自然生成仅出现在乐园群系的
+  // 园区结构里（structures.js parkAt），其余世界地形逐位不变。
+  // 经典嘉年华暖色系：奶油白铺装、糖果条纹、金饰描边、暖黄灯球；
+  // 创极速光轮区使用霓虹紫/青两色作主题点缀。
+  defs[74] = { name: '游乐草坪', solid: true, opaque: true,
+    tiles: [T.PARK_LAWN_TOP, T.PARK_LAWN_SIDE, T.PARK_LAWN_SIDE], sound: 'dirt',
+    color: 0x63ab4e, hard: 0.65 };
+  defs[75] = { name: '奶油石板', solid: true, opaque: true,
+    tiles: [T.CREAM_PAVE, T.CREAM_PAVE, T.CREAM_PAVE], sound: 'stone',
+    color: 0xe9ddc4, hard: 1.8, pick: true };
+  defs[76] = { name: '粉彩砖', solid: true, opaque: true,
+    tiles: [T.PASTEL_BRICK, T.PASTEL_BRICK, T.PASTEL_BRICK], sound: 'stone',
+    color: 0xdfaab4, hard: 1.8, pick: true };
+  defs[77] = { name: '糖果柱', solid: true, opaque: true,
+    tiles: [T.CANDY_STRIPE, T.CANDY_STRIPE, T.CANDY_STRIPE], sound: 'wool',
+    color: 0xd8574f, hard: 0.9 };
+  defs[78] = { name: '金饰块', solid: true, opaque: true,
+    tiles: [T.GOLD_TRIM, T.GOLD_TRIM, T.GOLD_TRIM], sound: 'stone', light: 2,
+    color: 0xdca843, hard: 2.2, pick: true };
+  defs[79] = { name: '暖黄灯球', solid: true, opaque: true,
+    tiles: [T.LANTERN, T.LANTERN, T.LANTERN], sound: 'glass', light: 15,
+    color: 0xffd27a, hard: 0.6 };
+  defs[80] = { name: '白漆栏杆', solid: true, opaque: false, half: true,
+    tiles: [T.RAIL_WHITE, T.RAIL_WHITE, T.RAIL_WHITE], sound: 'wood',
+    color: 0xf2ede2, hard: 0.7 };
+  defs[81] = { name: '蓝瓦块', solid: true, opaque: true,
+    tiles: [T.ROOF_BLUE, T.ROOF_BLUE, T.ROOF_BLUE], sound: 'stone',
+    color: 0x40699e, hard: 2.5, pick: true };
+  defs[82] = { name: '霓虹紫灯带', solid: true, opaque: true,
+    tiles: [T.NEON_PURPLE, T.NEON_PURPLE, T.NEON_PURPLE], sound: 'glass', light: 15,
+    color: 0xc06bf5, hard: 0.8 };
+  defs[83] = { name: '霓虹青灯带', solid: true, opaque: true,
+    tiles: [T.NEON_CYAN, T.NEON_CYAN, T.NEON_CYAN], sound: 'glass', light: 15,
+    color: 0x53e6ef, hard: 0.8 };
+  defs[84] = { name: '彩旗串', solid: false, opaque: false, cross: true,
+    tiles: [T.BUNTING, T.BUNTING, T.BUNTING], sound: 'wool',
+    color: 0xef8080, hard: 0.05 };
+  defs[85] = { name: '乘坐台', solid: true, opaque: true,
+    tiles: [T.RIDE_PAD, T.RIDE_PAD, T.RIDE_PAD], sound: 'stone',
+    color: 0xd7dee8, hard: 2.5, pick: true };
+  defs[86] = { name: '童话粉墙', solid: true, opaque: true,
+    tiles: [T.CASTLE_PINK, T.CASTLE_PINK, T.CASTLE_PINK], sound: 'stone',
+    color: 0xecd6ce, hard: 2, pick: true };
+  defs[87] = { name: '城堡深蓝墙', solid: true, opaque: true,
+    tiles: [T.CASTLE_BLUE, T.CASTLE_BLUE, T.CASTLE_BLUE], sound: 'stone',
+    color: 0x5577b5, hard: 2.5, pick: true };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -1219,6 +1272,178 @@ Voxel.Blocks = (function () {
       var band = (y % 8 === 3);
       if (band) return [30 + v * 0.4, 38 + v * 0.4, 56 + v * 0.4];  // 层间阴影
       return [39 + v, 48 + v, 66 + v];
+    });
+
+    // ---- 星海嘉年华瓦片（经典嘉年华暖色系）----
+
+    // 游乐草坪：修剪过的翠绿草皮 + 稀疏彩纸屑点缀
+    drawTile(T.PARK_LAWN_TOP, function (x, y, r) {
+      var v = n(r, 0, 14);
+      var confetti = r() < 0.045;
+      if (confetti) {
+        var pick = (x + y * 3) % 4;
+        if (pick === 0) return [246 + v, 242 + v, 236];   // 白
+        if (pick === 1) return [240 + v, 150 + v, 168];   // 粉
+        if (pick === 2) return [250 + v, 214 + v, 110];   // 黄
+        return [132 + v, 214 + v, 226];                   // 青
+      }
+      return [88 + v, 158 + v, 70 + v];
+    });
+    // 草坪侧：泥土底 + 厚草皮压边
+    drawTile(T.PARK_LAWN_SIDE, function (x, y, r) {
+      var v = n(r, 0, 12);
+      if (y <= 3) return [92 - y * 3 + v, 162 - y * 4 + v, 72 + v];
+      if (y === 4 && r() < 0.5) return [86 + v, 146 + v, 66 + v];
+      var speck = r() < 0.06;
+      return speck ? [128 + v, 96 + v, 64] : [124 + v, 88 + v, 58 + v];
+    });
+
+    // 奶油石板：暖象牙色大板 + 浅焦糖勾缝与细斑点
+    drawTile(T.CREAM_PAVE, function (x, y, r) {
+      var v = n(r, 0, 8);
+      var seam = (x % 8 === 7) || (y % 8 === 7);
+      if (seam) return [206 + v, 186 + v, 152];
+      var dot = ((x * 5 + y * 11) % 29) === 0;
+      return dot ? [222 + v, 200 + v, 164] : [235 + v, 224 + v, 200 + v];
+    });
+
+    // 粉彩砖：奶粉色错缝砖 + 奶白灰浆
+    drawTile(T.PASTEL_BRICK, function (x, y, r) {
+      var v = n(r, 0, 9);
+      var row = (y / 4) | 0;
+      var off = row % 2 ? 4 : 0;
+      var mortar = (y % 4 === 3) || ((x + off) % 8 === 7);
+      if (mortar) return [240 + v, 230 + v, 220];
+      return [226 + v, 165 + v, 176 + v];
+    });
+
+    // 糖果柱：红白糖果 45° 宽条纹，亮带高光
+    drawTile(T.CANDY_STRIPE, function (x, y, r) {
+      var s = (((x + y) % 10) + 10) % 10;
+      var v = n(r, 0, 10);
+      if (s < 5) return (s === 1 || s === 2) ? [246 + v, 118 + v, 108] : [232 + v, 96 + v, 88];
+      return (s === 7) ? [252, 248, 244] : [244 + v, 238 + v, 232];
+    });
+
+    // 金饰块：缎金浮雕回纹 + 顶部抛光高光
+    drawTile(T.GOLD_TRIM, function (x, y, r) {
+      var v = n(r, 0, 8);
+      var groove = (y % 4 === 2) && ((x + ((y / 4) % 2) * 2) % 4 !== 0);
+      if (groove) return [148 + v, 100 + v, 40];                  // 回纹凹槽
+      if (y === 0) return [252, 226, 148];                        // 抛光棱线
+      if (y === 15) return [172 + v, 120 + v, 46];                // 底部收影
+      var sheen = ((x * 7 + y * 13) % 31) === 0;
+      return sheen ? [250, 218, 130] : [222 + v, 174 + v, 78 + v];
+    });
+
+    // 暖黄灯球：磨砂暖光球心 + 深色金属抱箍
+    drawTile(T.LANTERN, function (x, y, r) {
+      var dx = x - 7.5, dy = y - 7.5;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      var hoop = Math.abs(dy) > 4.4 && Math.abs(dy) < 6.2 && d > 4.5; // 上下钢箍
+      if (hoop) return [82, 72, 62];
+      if (d > 7.6) {
+        var hv = n(r, 0, 8);
+        return [84 + hv, 76 + hv, 66 + hv];                       // 边角舱壳
+      }
+      var glow = Math.max(0, 1 - d / 7.6);                        // 径向暖光
+      return [255, 208 + glow * 38, 128 + glow * 74];
+    });
+
+    // 白漆栏杆：奶白烤漆面 + 铆点与漆面阴影
+    drawTile(T.RAIL_WHITE, function (x, y, r) {
+      var v = n(r, 0, 7);
+      if (y <= 1) return [252, 250, 244];
+      if (y >= 14) return [212 + v, 204 + v, 188];                 // 底部落影
+      if ((x * 3 + y * 5) % 37 === 0) return [198, 192, 178];      // 铆点
+      var grain = ((x * 13 + y * 3) % 47) === 0;
+      return grain ? [228 + v, 222 + v, 206] : [242 + v, 237 + v, 226];
+    });
+
+    // 蓝瓦块：石板蓝鱼鳞瓦行 + 行间深影
+    drawTile(T.ROOF_BLUE, function (x, y, r) {
+      var v = n(r, 0, 10);
+      var row = (y / 4) | 0;
+      var off = row % 2 ? 4 : 0;
+      var scaleDip = ((x + off) % 8 === 0) || (y % 4 === 0);
+      if (scaleDip) return [42 + v, 66 + v, 104];
+      var scaleHi = ((x + off) % 8 === 1);
+      return scaleHi ? [94 + v, 132 + v, 182] : [68 + v, 102 + v, 148];
+    });
+
+    // 霓虹紫灯带：哑黑槽壳内嵌亮紫光管
+    drawTile(T.NEON_PURPLE, function (x, y, r) {
+      var v = n(r, 0, 6);
+      if (y >= 5 && y <= 10) {
+        var core = y >= 7 && y <= 8;
+        return core ? [238, 170, 255] : [172 + v, 90 + v, 216 + v];
+      }
+      var bolt = ((x * 7 + y * 5) % 53) === 0;
+      return bolt ? [64, 44, 78] : [36 + v, 30 + v, 44 + v];
+    });
+
+    // 霓虹青灯带：同构青色版
+    drawTile(T.NEON_CYAN, function (x, y, r) {
+      var v = n(r, 0, 6);
+      if (y >= 5 && y <= 10) {
+        var core = y >= 7 && y <= 8;
+        return core ? [214, 255, 255] : [70 + v, 196 + v, 210 + v];
+      }
+      var bolt = ((x * 7 + y * 5) % 53) === 0;
+      return bolt ? [40, 66, 72] : [26 + v, 38 + v, 44 + v];
+    });
+
+    // 彩旗串：透明底挂绳 + 红黄蓝三角旗
+    drawTile(T.BUNTING, function (x, y, r) {
+      if (y > 9) return undefined;                                  // 下半悬空
+      if (y === 1 && (x % 16) >= 0) return [124, 106, 88];          // 挂绳
+      if (y < 2) return undefined;
+      var cell = (x / 4) | 0;
+      var inTri = x % 4 < 3 && y - 2 < 5 - (Math.abs((x % 4) - 1)) * 1.6;
+      if (!inTri) return undefined;
+      var v = n(r, 0, 8);
+      var tri = cell % 3;
+      if (tri === 0) return [235 + v, 92 + v, 84];                  // 红
+      if (tri === 1) return [248 + v, 206 + v, 98];                 // 黄
+      return [96 + v, 156 + v, 232];                                // 蓝
+    });
+
+    // 乘坐台：安全黄圆盘 + 钢圈描边 + 中央箭头
+    drawTile(T.RIDE_PAD, function (x, y, r) {
+      var dx = x - 7.5, dy = y - 7.5;
+      var d2 = dx * dx + dy * dy;
+      var v = n(r, 0, 8);
+      if (d2 > 56) {
+        var steel = ((x + y) % 15 === 0);
+        return steel ? [148 + v, 154 + v, 166] : [122 + v, 130 + v, 142 + v]; // 包边钢板
+      }
+      if (d2 > 45) return [60, 63, 70];                             // 钢圈内衬
+      if (d2 <= 18 && Math.abs(dx * 0.7 - dy * 0.7) < 3.2 && dx + dy > 2)
+        return [54, 58, 66];                                        // 前进箭头
+      var wear = ((x * 5 + y * 9) % 41) === 0;
+      return wear ? [222 + v, 168 + v, 52] : [246 + v, 194 + v, 62]; // 安全黄
+    });
+
+    // 童话粉墙：粉雪石砌块 + 细金线顶饰
+    drawTile(T.CASTLE_PINK, function (x, y, r) {
+      var v = n(r, 0, 8);
+      if (y === 0) return [246, 224, 176];                          // 金线
+      var row = (y / 4) | 0;
+      var off = row % 2 ? 5 : 0;
+      var joint = (y % 4 === 3) || ((x + off) % 10 === 9);
+      if (joint) return [214 + v, 190 + v, 180];
+      return [240 + v, 218 + v, 212];
+    });
+
+    // 城堡深蓝墙：蓝宝石砌块 + 收影
+    drawTile(T.CASTLE_BLUE, function (x, y, r) {
+      var v = n(r, 0, 9);
+      var row = (y / 4) | 0;
+      var off = row % 2 ? 5 : 0;
+      var joint = (y % 4 === 3) || ((x + off) % 10 === 9);
+      if (joint) return [58 + v, 76 + v, 116];
+      var hi = ((x * 3 + y * 7) % 37) === 0;
+      return hi ? [126 + v, 152 + v, 200] : [96 + v, 120 + v, 168];
     });
 
     ctx.putImageData(img, 0, 0);

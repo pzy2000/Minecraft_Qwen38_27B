@@ -184,6 +184,11 @@ Voxel.Progress = (function () {
       case 'pet':
         bump(s.c, 'pets_' + String(data.type || ''), 1);
         break;
+      case 'ride':       // 星海嘉年华乘坐（kind ∈ ferris/carousel/drop/coaster/tron）
+        s.rides = s.rides || {};
+        if (data.kind) s.rides[String(data.kind)] = true;
+        bump(s.c, 'rides', 1);
+        break;
       default:
         // 非计数事件（如 use_block）仍需广播给订阅者（教程判定用）
         if (type === 'use_block') break;
@@ -220,6 +225,7 @@ Voxel.Progress = (function () {
     unlockedCount: unlockedCount,
     biomeSet: biomeSet,
     faunaSet: faunaSet,
+    rideSet: function () { return state.rides || {}; },
     state: function () { return state; },
     subscribe: subscribe,
     hydrate: hydrate,

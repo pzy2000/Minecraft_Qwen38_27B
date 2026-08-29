@@ -152,7 +152,8 @@ check('未开启时不推进；skip 可跳过', (function () {
 })());
 
 // ---------- 成就 ----------
-check('52 个成就定义且 id 唯一', (function () {
+// v7 新增隐藏成就 h_park_all，总数 52→53
+check('53 个成就定义且 id 唯一', (function () {
   var ids = {};
   var dup = false;
   for (var i = 0; i < Achievements.defs.length; i++) {
@@ -160,7 +161,7 @@ check('52 个成就定义且 id 唯一', (function () {
     if (ids[d.id]) dup = true;
     ids[d.id] = 1;
   }
-  return Achievements.defs.length === 52 && !dup;
+  return Achievements.defs.length === 53 && !dup;
 })());
 
 check('事件驱动成就即时解锁（煤矿大亨进度型）', (function () {

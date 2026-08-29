@@ -86,10 +86,13 @@ while (!V.World.isReady()) V.World.generateNext(64);
 function fingerprint(cx, cz) {
   V.World.ensureChunk(cx, cz);
   var CS = V.Config.CHUNK, H = V.Config.WORLD_H;
+  // 地形一致性契约：FP_BASELINE 生成于旧限高 H=64，哈希域钉住旧内容域
+  // （限高提升新增的空气行不得参与摘要）。
+  var FP_DOMAIN_H = Math.min(64, H);
   var h = 2166136261 >>> 0;
   var x0 = cx * CS, z0 = cz * CS;
   for (var z = z0; z < z0 + CS; z++)
-    for (var y = 0; y < H; y++)
+    for (var y = 0; y < FP_DOMAIN_H; y++)
       for (var x = x0; x < x0 + CS; x++)
         h = Math.imul((h ^ V.World.get(x, y, z)) >>> 0, 16777619) >>> 0;
   for (var z2 = z0; z2 < z0 + CS; z2++)

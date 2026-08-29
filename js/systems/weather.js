@@ -200,7 +200,8 @@ Voxel.Weather = (function () {
 
   function setBolt(sx, sy, sz) {
     var a = boltGeo.attributes.position.array;
-    var SEG = 16, topY = 118;
+    var SEG = 16;
+    var topY = sy + 78; // 相对落点取顶（世界限高提升后不再用绝对高度，任何海拔都不穿帮）
     var x = sx, z = sz;
     a[0] = x; a[1] = topY; a[2] = z;
     for (var i = 1; i <= SEG; i++) {

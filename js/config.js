@@ -4,7 +4,7 @@ window.Voxel = window.Voxel || {};
 Voxel.Config = {
   // 世界
   WORLD_W: 256,        // X 方向方块数
-  WORLD_H: 64,         // 高度
+  WORLD_H: 256,        // 高度（v7：限高提升到 256，地形由生成包络钉住不变）
   WORLD_D: 256,        // Z 方向方块数
   CHUNK: 32,           // 区块边长（越大区块越少、draw call 越少，对 ANGLE/Edge 更友好）
   // 无限行星的流式区块工作集（单位：区块）。空间站仍保持有限真空平台。
@@ -14,6 +14,12 @@ Voxel.Config = {
   STREAM_GENERATE_PER_FRAME: 1, // 游戏中每渲染帧最多生成的外围区块
   WATER_LEVEL: 27,     // 水位线
   SNOW_LEVEL: 49,      // 雪线：地表高度 ≥ 此值覆雪
+  // 生成包络：自然地形+装饰的最高可达高度（巨树树冠峰值 ≈92，含余量）。
+  // 生成/光照只处理此高度以下；其上为纯空气域（255 高天空供建造与飞行）。
+  GEN_ENVELOPE_TOP: 96,
+  // 自然与确定性结构的内容顶：包络之上还允许乐园结构写入（最高 ≈108，含余量）。
+  // 光照快路径假设此线以上恒为空气；玩家手动建得更高会即时抬升该列。
+  CONTENT_NATURAL_TOP: 116,
   DAY_LENGTH: 1800,    // 昼夜循环秒数
 
   // 玩家
@@ -99,8 +105,8 @@ Voxel.Config = {
     KEY_YAW_RATE: 34 * Math.PI / 180,
     SWEEP_STEP: 0.35,
     LAND_SPEED: 3,
-    MAX_ALTITUDE: 64,
-    MAX_ABSOLUTE_Y: 120,
+    MAX_ALTITUDE: 190,
+    MAX_ABSOLUTE_Y: 250,
     SHIP_BASE_CLEARANCE: 1.02,
     // 着陆辅助（长按 E 自动着陆）
     LANDING_ASSIST_MAX_ALT: 24,        // 激活高度上限(相对地面)
@@ -129,6 +135,12 @@ Voxel.Config = {
     LONGPRESS_MS: 250,       // 长按挖掘触发时长
     LONGPRESS_DIST: 12,      // 长按触发时允许的位移
     LEFT_ZONE_FRAC: 0.45     // 屏幕左侧此比例内为摇杆区，其余为视角/手势区
+  },
+
+  // 星海嘉年华乘坐系统（长按 E 上车 / 轻按下车）
+  RIDE: {
+    HOLD_MS: 600,     // 长按判定阈值
+    RADIUS: 5.5       // 乘坐台吸附半径
   },
 
   // 性能预设（设置面板一键应用；键名对应 Voxel.Settings）

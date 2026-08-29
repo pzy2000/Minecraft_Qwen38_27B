@@ -58,7 +58,9 @@ Voxel.Shaper = (function () {
         h += jag * jag * 17 * v;
       }
       if (h < 4) h = 4;
-      if (h > H - 6) h = H - 6;
+      // 地形一致性契约：钳制值曾为旧限高 H-6=58，世界抬升后必须钉住字面量，
+      // 否则极值山峰会被"释放"导致所有种子的山脉外观改变（test/terrain_parity_test.js 守护）
+      if (h > 58) h = 58;
       return h;
     }
 
@@ -71,8 +73,10 @@ Voxel.Shaper = (function () {
     }
 
     // ---- 区块密度格网：全局网格对齐，跨区块结果天然一致 ----
-    // 角点数 (CS/CELL+1)^2 × (H/CELL+1)
-    var NX = CS / CELL + 1, NY = H / CELL + 1;
+    // 角点数 (CS/CELL+1)^2 × NY。NY 覆盖到生成包络即够（包络上方纯空气，
+    // generateBase 不再查询），把限高提升的密度采样成本压回原量级。
+    var ENV_Y = Math.min(H, CFG.GEN_ENVELOPE_TOP || H);
+    var NX = CS / CELL + 1, NY = (ENV_Y / CELL | 0) + 1;
 
     function computeChunkLattice(cx, cz, climateAt) {
       var nxy = NX * NY;

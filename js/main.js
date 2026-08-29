@@ -73,8 +73,8 @@ Voxel.Game = (function () {
   function setState(s) {
     // playing/furnace 是活跃固定时钟；任一端跨状态都清余量，离开活跃态时
     // 使墙钟基线失效，避免 furnace→manual→furnace 等路径补算隐藏时间。
-    var wasActive = state === 'playing' || state === 'furnace' || state === 'cockpit';
-    var nextActive = s === 'playing' || s === 'furnace' || s === 'cockpit';
+    var wasActive = state === 'playing' || state === 'furnace' || state === 'cockpit' || state === 'riding';
+    var nextActive = s === 'playing' || s === 'furnace' || s === 'cockpit' || s === 'riding';
     if (state !== s && (wasActive || nextActive)) {
       simAccumulator = 0;
       // 离开活跃模拟态时先使墙钟基线失效；若面板期间仍有渲染帧，frame() 会自然
@@ -723,26 +723,41 @@ Voxel.Game = (function () {
   // 之外——无限外围按全局坐标确定性生成，出生与取景同样有效。
   function applyFeaturedSpawn(w) {
     var spot = null;
-    if (w.overview || !w.biome || Voxel.Biomes.B[w.biome] === undefined) {
-      spot = { x: 128, z: 128 };
-    } else {
-      var want = Voxel.Biomes.B[w.biome];
-      // 海洋卡片本来就该落在水面，关闭干地校验；其余群系必须踩得到陆地。
-      var dryGround = w.biome !== 'OCEAN';
-      spot = findFeaturedSpot(want, 4, true, dryGround) ||
-        (!Voxel.World.climateAt ? findFeaturedSpot(want, 2, false, dryGround) : null) ||
-        findFeaturedSpot(want, 4, 'wide', dryGround);
+    var yaw = 0.75;
+    var pitch = w.overview ? -0.8 : -0.15;
+    // 星海嘉年华卡：直接落位到最近乐园的大门口（确定性 cellPark 门控，
+    // 与 terrain 生成同一事实源），面向园门——进门即是喷泉广场。
+    if (w.parkSpawn && !w.overview && Voxel.Structures && Voxel.Structures.enabled()) {
+      var park = Voxel.Structures.nearestParkTo(0, 0, 4);
+      var gate = park ? Voxel.Structures.parkGateSpawn(park) : null;
+      if (gate) {
+        spot = { x: Math.floor(gate.x), z: Math.floor(gate.z) };
+        yaw = gate.yaw;
+        pitch = -0.1;
+      }
+    }
+    if (!spot) {
+      if (w.overview || !w.biome || Voxel.Biomes.B[w.biome] === undefined) {
+        spot = { x: 128, z: 128 };
+      } else {
+        var want = Voxel.Biomes.B[w.biome];
+        // 海洋卡片本来就该落在水面，关闭干地校验；其余群系必须踩得到陆地。
+        var dryGround = w.biome !== 'OCEAN';
+        spot = findFeaturedSpot(want, 4, true, dryGround) ||
+          (!Voxel.World.climateAt ? findFeaturedSpot(want, 2, false, dryGround) : null) ||
+          findFeaturedSpot(want, 4, 'wide', dryGround);
+      }
     }
     if (!spot) spot = { x: 128, z: 128 };
     var sy = Voxel.World.surfaceAt(spot.x, spot.z);
-    var pitch = w.overview ? -0.8 : -0.15;
+    pitch = w.overview ? -0.8 : pitch;
     var py = w.overview ? Math.max(sy + 1.2, 90) : sy + 1.2;
     if (!(sy > 0) && !w.overview) py = 33.2;
     var landing = new THREE.Vector3(spot.x + 0.5, py, spot.z + 0.5);
     Voxel.Player.setSpawn(landing);
-    Voxel.Player.init(landing, 0.75, pitch);
+    Voxel.Player.init(landing, yaw, pitch);
     if (w.overview) Voxel.Player.setFlying(true);
-    Voxel.Controls.setYaw(0.75);
+    Voxel.Controls.setYaw(yaw);
     Voxel.Controls.setPitch(pitch);
     Voxel.HUD.toast('已进入精选世界：' + w.name + ' · 种子 ' + w.seed);
   }
@@ -820,9 +835,15 @@ Voxel.Game = (function () {
         var vyaw = +p.yaw, vpitch = +p.pitch;
         var savedAboard = p.aboard === true && currentWorld && currentWorld.kind === 'planet';
         var savedStand = new THREE.Vector3(vx, vy, vz);
+        // legacy core 之外的存档位置：外围区块此刻尚未流式生成，World.get 的
+        // "未加载=实心"语义会让 canStandAt 必然判负并把玩家错误送回核心出生点。
+        // 外围坐标确定性可再生，直接信任存档（加载后由物理自然落地对齐）。
+        var savedOutland = !savedAboard && currentWorld && currentWorld.kind === 'planet' &&
+          (vx < 0 || vz < 0 || vx > 255 || vz > 255);
         if (!isFinite(vx) || !isFinite(vy) || !isFinite(vz) || vy < 2 ||
-          (savedAboard && (Math.abs(vx) > 30000000 || vy > 122 || Math.abs(vz) > 30000000)) ||
-          (!savedAboard && Voxel.Player.canStandAt && !Voxel.Player.canStandAt(savedStand, true))) {
+          (savedAboard && (Math.abs(vx) > 30000000 || vy > 252 || Math.abs(vz) > 30000000)) ||
+          (!savedAboard && !savedOutland &&
+            Voxel.Player.canStandAt && !Voxel.Player.canStandAt(savedStand, true))) {
           Voxel.Player.initAtSpawn();
         } else {
           if (!isFinite(vyaw)) vyaw = 0;
@@ -2911,6 +2932,186 @@ Voxel.Game = (function () {
       Voxel.HUD.toast('着陆辅助中断 · 请手动着陆');
   }
 
+  // ---------- 星海嘉年华 · 长按乘坐（对齐 cockpitKeyE 三件套语义） ----------
+
+  var ride = {
+    pending: false,        // KeyE 已按下但尚未判定（附近有乘坐台时抑制背包）
+    holdT: 0, fired: false,
+    prevHeld: false,
+    waitRelease: false,    // 刚上车：先松开 E，之后轻按才下车
+    board: null,           // 上车点（下车落回用）
+    lookYaw: 0, lookPitch: 0
+  };
+
+  function rideHoldSeconds() {
+    return ((CFG.RIDE && CFG.RIDE.HOLD_MS) || 600) / 1000;
+  }
+  function rideRadius() { return (CFG.RIDE && CFG.RIDE.RADIUS) || 5.5; }
+
+  function nearRideBoard() {
+    if (!Voxel.Amusement || !Voxel.Amusement.nearestBoard) return null;
+    return Voxel.Amusement.nearestBoard(Voxel.Player.pos(), rideRadius());
+  }
+
+  function tickRideHold(step) {
+    // 仅在 playing 态轮询（长按上车）；riding 态的轻按下车在 riderFixedUpdate 处理
+    var held = !!Voxel.Controls.keys.KeyE;
+    if (!ride.pending) { ride.prevHeld = held; return; }
+    if (ride.prevHeld && !held) {
+      // 提前松开（未达长按阈值）：只取消计时；站在台旁时不开背包
+      ride.pending = false;
+      ride.holdT = 0; ride.fired = false;
+      return;
+    }
+    ride.prevHeld = held;
+    if (!held) return;
+    ride.holdT += step;
+    if (!ride.fired && ride.holdT >= rideHoldSeconds()) {
+      ride.fired = true;
+      var nb = nearRideBoard();
+      ride.pending = false; ride.holdT = 0;
+      if (nb) boardRide(nb);
+    }
+  }
+
+  function boardRide(nb) {
+    if (!Voxel.Amusement || state !== 'playing') return;
+    ride.board = nb;
+    Voxel.Player.setFlying(false);
+    stopDig();
+    if (mouseDown[0] || mouseDown[2]) { mouseDown[0] = false; mouseDown[2] = false; }
+    ride.lookYaw = 0; ride.lookPitch = 0;
+    if (Voxel.HandItem && Voxel.HandItem.setVisible) Voxel.HandItem.setVisible(false);
+    if (Voxel.Amusement.beginRide(nb.kind, performance.now() / 1000)) {
+      setState('riding');
+      ride.waitRelease = true;   // 先松开当前按住的 E，之后轻按才下车（对齐座舱语义）
+      tryLock();
+      Voxel.HUD.toast('长按 E 乘坐 · ' + nb.name + '（提示已上车，轻按 E 下车）');
+      Voxel.Progress.track('ride', { kind: nb.kind });
+      Voxel.Sound.select();
+    } else {
+      Voxel.HUD.toast('设施暂时无法乘坐');
+    }
+  }
+
+  function exitRide() {
+    if (state !== 'riding') return;
+    var b = ride.board || nearRideBoard();
+    if (b && Voxel.Player.canStandAt) {
+      var cands = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]];
+      for (var i = 0; i < cands.length; i++) {
+        var sxp = b.x + 0.5 + cands[i][0], szp = b.z + 0.5 + cands[i][1];
+        var stand = new THREE.Vector3(sxp, b.y + 1.05, szp);
+        if (Voxel.Player.canStandAt(stand, true)) {
+          Voxel.Player.init(stand, Voxel.Controls.yaw(), 0);
+          break;
+        }
+      }
+    }
+    ride.board = null;
+    ride.fired = false; ride.holdT = 0; ride.prevHeld = false;
+    ride.waitRelease = false;
+    if (Voxel.Amusement) Voxel.Amusement.endRide();
+    setState('playing');
+    Voxel.Sound.select();
+  }
+
+  // riding 态固定步：waitRelease 期间忽略按住；之后轻按（释放沿）=下车。
+  var _rideProxy = new THREE.Vector3();
+  function riderFixedUpdate(step) {
+    var held = !!Voxel.Controls.keys.KeyE;
+    if (ride.waitRelease) {
+      if (!held) ride.waitRelease = false;
+      ride.prevHeld = held;
+    } else if (ride.prevHeld && !held) {
+      exitRide();
+      ride.prevHeld = held;
+    } else ride.prevHeld = held;
+    var nowS = performance.now() / 1000;
+    var pose = Voxel.Amusement ? Voxel.Amusement.riderState(nowS) : null;
+    if (pose) {
+      _rideProxy.set(pose.pos.x, pose.pos.y - C.EYE, pose.pos.z);
+      if (Voxel.Player.updateBoarded)
+        Voxel.Player.updateBoarded(step, _rideProxy, null);
+    }
+    tickEnvironment(step);
+    if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
+    Voxel.Drops.update(step, { allowPickup: false });
+    updateFallers(step);
+    Voxel.Controls.setYaw(Voxel.Controls.yaw() * 0.86);
+    Voxel.Controls.setPitch(Voxel.Controls.pitch() * 0.86);
+  }
+
+  // riding 态每帧：相机接管（基向位姿 + ±60° 自由环视，缓回中）
+  function applyRideCamera(dt) {
+    if (!camera) return;
+    var nowS = performance.now() / 1000;
+    var pose = Voxel.Amusement ? Voxel.Amusement.riderState(nowS) : null;
+    if (!pose) return;
+    var sens = 0.0026;
+    ride.lookYaw += (Voxel.Controls._rideMouseDX || 0) * sens;
+    ride.lookPitch += (Voxel.Controls._rideMouseDY || 0) * sens;
+    Voxel.Controls._rideMouseDX = 0; Voxel.Controls._rideMouseDY = 0;
+    var LIM = Math.PI / 3;
+    ride.lookYaw = Math.max(-LIM, Math.min(LIM, ride.lookYaw));
+    ride.lookPitch = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, ride.lookPitch));
+    ride.lookYaw *= 0.985; ride.lookPitch *= 0.985;
+    camera.position.copy(pose.pos);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = pose.yaw + ride.lookYaw;
+    camera.rotation.x = Math.max(-1.45, Math.min(1.45, pose.pitch + ride.lookPitch));
+    camera.rotation.z = 0;
+  }
+
+  // 乘坐浮钮（触屏）：近台显示"乘坐"，乘车中变"下车"
+  function ensureRideButton(isTouch) {
+    var btn = document.getElementById('ride-btn');
+    var nb = isTouch && state === 'playing' ? nearRideBoard() : null;
+    var showBtn = isTouch && (nb || state === 'riding');
+    if (!showBtn) {
+      if (btn) btn.style.display = 'none';
+      return;
+    }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'ride-btn';
+      btn.setAttribute('aria-label', '乘坐设施');
+      document.body.appendChild(btn);
+      var _t0 = 0, firedLong = false;
+      btn.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        _t0 = performance.now(); firedLong = false;
+        if (state !== 'riding') {
+          Voxel.Controls.keys.KeyE = true;
+          ride.pending = true; ride.holdT = 0; ride.fired = false;
+        }
+      });
+      var release = function (e) {
+        e.preventDefault();
+        Voxel.Controls.keys.KeyE = false;
+        if (state === 'riding') exitRide();
+        else if (performance.now() - _t0 < rideHoldSeconds() * 1000) {
+          // 短点未达阈值：还原为无操作（避免误开背包）
+          ride.pending = false; ride.holdT = 0;
+        }
+      };
+      btn.addEventListener('pointerup', release);
+      btn.addEventListener('pointerleave', release);
+      btn.addEventListener('pointercancel', release);
+    }
+    btn.textContent = state === 'riding' ? '下车' : '乘坐';
+    btn.style.display = 'flex';
+  }
+
+  function showRideHint(isTouch) {
+    var hitEl = document.getElementById('use-hint');
+    if (!hitEl) return;
+    hitEl.textContent = isTouch ? '轻点「下车」离开设施' : '轻按 E 下车 · 环顾四周可自由观看';
+    hitEl.dataset.kind = 'ride';
+    hitEl.style.display = 'block';
+  }
+
+
   function closeStarMap() {
     if (state !== 'starmap') return false;
     selectedTravelId = null;
@@ -3830,6 +4031,10 @@ Voxel.Game = (function () {
         if (Voxel.SpaceTravel && Voxel.SpaceTravel.canBoardShip && Voxel.SpaceTravel.canBoardShip()) {
           boardShip();
         } else if (Voxel.SpaceTravel && Voxel.SpaceTravel.canOpenMap()) { openStarMap(); }
+        // 星海嘉年华乘坐台附近：长按上车（由 tickRideHold 计时），松开未达阈值照旧开背包
+        else if (nearRideBoard()) {
+          ride.pending = true; ride.holdT = 0; ride.fired = false;
+        }
         // 准星对准功能方块交互；否则开背包
         else {
           var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
@@ -3866,6 +4071,10 @@ Voxel.Game = (function () {
       else if (code === 'KeyJ') openAchievements();
       else if (code === 'KeyB') openCodex();
       else if (code === 'KeyP' || code === 'Escape') pause();
+      else if (code === 'F3') debug = !debug;
+    } else if (state === 'riding') {
+      // KeyE 不在这里处理：轻按下车由 riderFixedUpdate 按固定步判定。
+      if (code === 'Escape' || code === 'KeyP') exitRide();
       else if (code === 'F3') debug = !debug;
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape') resume();
@@ -4379,6 +4588,7 @@ Voxel.Game = (function () {
     if (mouseDown[0] && !frozen && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
     if (!frozen && mouseDown[2]) tickDig(step);
     else if (digT || digProg) stopDig();
+    if (!frozen && state === 'playing') tickRideHold(step);   // 长按 E 上车计时
     Voxel.Player.update(step);
     if (state === 'playing' || state === 'paused') tickEnvironment(step);
     if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
@@ -4601,9 +4811,11 @@ Voxel.Game = (function () {
     var boardedShelterState = startedState === 'cockpit' &&
       Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard();
     var pausedState = startedState === 'paused';
+    var rideStarted = startedState === 'riding';
     var pausedAboard = pausedState &&
       !!(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard());
     if ((startedState === 'playing' || startedState === 'furnace' ||
+      startedState === 'riding' ||
       boardedShelterState || pausedState) &&
       state === startedState) {
       simAccumulator += dt;
@@ -4612,7 +4824,8 @@ Voxel.Game = (function () {
         fixedStepsThisFrame < MAX_FIXED_STEPS) {
         simAccumulator -= FIXED_DT;
         if (simAccumulator < 0 && simAccumulator > -STEP_EPSILON) simAccumulator = 0;
-        if (startedState === 'playing' || (pausedState && !pausedAboard)) fixedUpdate(FIXED_DT);
+        if (rideStarted && !pausedState) riderFixedUpdate(FIXED_DT);
+        else if (startedState === 'playing' || (pausedState && !pausedAboard)) fixedUpdate(FIXED_DT);
         else if (boardedShelterState || pausedAboard) cockpitFixedUpdate(FIXED_DT);
         fixedStepsThisFrame++;
         fixedStepsTotal++;
@@ -4646,7 +4859,7 @@ Voxel.Game = (function () {
         tickRegeneration(simulationDt);
         tickAutosave(dt);
         tickProgressObserver(dt);
-      } else if (startedState === 'playing' || pausedState) {
+      } else if (startedState === 'playing' || pausedState || rideStarted) {
         if (!mouseDown[2] && (digT || digProg)) stopDig();
 
         // 玩法时钟与物理使用同一实际模拟时长；纯视觉动画仍使用渲染 dt。
@@ -4660,7 +4873,15 @@ Voxel.Game = (function () {
         Voxel.Sound.setMusic(Voxel.DayNight.isNight() ? 'night' : 'day');
         Voxel.Particles.update(dt);
         if (Voxel.SpaceTravel) Voxel.SpaceTravel.update(simulationDt, dt);
-        updateHighlight();
+        // 星海嘉年华：动态设施与乘坐状态（渲染帧驱动）
+        if (Voxel.Amusement) {
+          Voxel.Amusement.setReducedMotion(flightReducedMotion());
+          Voxel.Amusement.update(dt, performance.now() / 1000,
+            Voxel.Player.pos(), currentWorld ? currentWorld.id : null);
+        }
+        ensureRideButton(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
+        if (rideStarted) showRideHint(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
+        else updateHighlight();
 
         // 第一人称手持物是纯视觉反馈，按渲染帧平滑推进。
         if (Voxel.HandItem) {
@@ -4810,6 +5031,9 @@ Voxel.Game = (function () {
       camera.rotation.x = Voxel.Controls.pitch();
       camera.rotation.y = Voxel.Controls.yaw();
     }
+
+    // 星海嘉年华乘坐视角：设施运动位姿 + 有限的鼠标自由环视（缓回中）。
+    if (state === 'riding') applyRideCamera(dt);
 
     // Bloom 激活时由 composer 接管渲染（它最后一趟会画到屏幕）；否则走原路径。
     if (!Voxel.Bloom || !Voxel.Bloom.render(dt)) renderer.render(scene, camera);
@@ -5106,6 +5330,16 @@ Voxel.Game = (function () {
     scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x87ceeb, CFG.FOG_NEAR, CFG.FOG_FAR);
     camera = new THREE.PerspectiveCamera(75, initialViewport.width / initialViewport.height, 0.1, 1200);
+    Game.scene = scene;
+    // 星海嘉年华动态设施挂载到主场景
+    if (Voxel.Amusement) Voxel.Amusement.bind({ scene: scene });
+    // 乘坐中的自由环视：指针锁定时的鼠标增量（不回写玩家朝向）
+    document.addEventListener('mousemove', function (e) {
+      if (state === 'riding' && Voxel.Controls.isLocked()) {
+        Voxel.Controls._rideMouseDX = (Voxel.Controls._rideMouseDX || 0) + (e.movementX || 0);
+        Voxel.Controls._rideMouseDY = (Voxel.Controls._rideMouseDY || 0) + (e.movementY || 0);
+      }
+    }, { passive: true });
     // 能量辉光后期。软件渲染器（如 CI 的 SwiftShader）与初始化失败都会自动退回
     // 原来的 renderer.render；?bloom=1 可强制在软件渲染器上开，便于手动验收。
     // ?bloom=0/1 是会话级的验收开关，故意不写进存档。
@@ -5205,6 +5439,7 @@ Voxel.Game = (function () {
       cockpitKeyE.t = 0;
       cockpitKeyE.fired = false;
       cockpitKeyE.waitRelease = false;
+      ride.pending = false; ride.holdT = 0; ride.fired = false; ride.prevHeld = false;
     });
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     // 游戏中未锁定时，点击窗口任意位置都可请求锁定（触控模式恒锁定，自动跳过）

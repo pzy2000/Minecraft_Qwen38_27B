@@ -130,7 +130,14 @@ Voxel.Achievements = (function () {
     { id: 'h_cat_pets', cat: 'hidden', name: '???', desc: '反复靠近同一只猫的朋友', hidden: true, glyph: '🐱',
       prog: function () { return [Math.min(10, P().count('pets_cat')), 10]; } },
     { id: 'h_wet_dig', cat: 'hidden', name: '???', desc: '在水下坚持工作', hidden: true, icon: 13,
-      prog: function () { return [Math.min(10, P().count('wetDigs')), 10]; } }
+      prog: function () { return [Math.min(10, P().count('wetDigs')), 10]; } },
+    { id: 'h_park_all', cat: 'hidden', name: '???', desc: '在星海嘉年华乘遍所有设施', hidden: true, icon: 79,
+      prog: function () {
+        var set = P().rideSet ? P().rideSet() : {};
+        var n = 0;
+        ['ferris', 'carousel', 'drop', 'coaster', 'tron'].forEach(function (k) { if (set[k]) n++; });
+        return [n, 5];
+      } }
   ];
 
   function LOG_IDS_ALL() { return { 4: 1, 20: 1, 22: 1, 33: 1, 35: 1, 46: 1, 52: 1, 57: 1 }; }

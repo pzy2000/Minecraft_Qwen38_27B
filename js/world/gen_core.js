@@ -15,6 +15,12 @@ Voxel.GenCore = (function () {
     var CFG = Voxel.Config;
     var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D, CS = CFG.CHUNK;
     var WATER = CFG.WATER_LEVEL, SNOW_LEVEL = CFG.SNOW_LEVEL;
+    // 生成包络：base 密度/水填充只扫到此处；上方零初始化即空气，与旧实现
+    // 对 y>WATER 显式写 0 的结果逐位一致。限高 256 后靠它抵消生成成本增量。
+    var ENVELOPE = Math.min(H, CFG.GEN_ENVELOPE_TOP || H);
+    // 地形一致性契约：装饰器的世界顶判定曾为旧限高 H=64。世界抬升后必须
+    // 钉住字面量，保证所有种子的地形与树冠外观逐位不变（test/terrain_parity_test.js）。
+    var GEN_TOP = 64;
     var FEATURE_RADIUS = 6;
 
     var seed = String(opts.seed);
@@ -109,7 +115,7 @@ Voxel.GenCore = (function () {
       }
       if (top <= WATER + 2 && biome !== BI.STONY_SHORE &&
         biome !== BI.JAGGED_PEAKS && biome !== BI.FROZEN_PEAKS && biome !== BI.STONY_PEAKS &&
-        !bd.badlandsBands) {
+        !bd.badlandsBands && biome !== BI.PLAYGROUND) {
         surf = BL.SAND; fill = BL.SAND;
       }
       if (bd.gravelPatches && patch < 0.22) { surf = BL.GRAVEL; fill = BL.STONE; }
@@ -146,7 +152,7 @@ Voxel.GenCore = (function () {
           var bd = Voxel.Biomes.def(biome);
           var th = shaper.sampleTh(lat, lx, lz);
           var top = -1;
-          for (var y = 0; y < H; y++) {
+          for (var y = 0; y < ENVELOPE; y++) {
             var i = chunkIndex(lx, y, lz);
             if (y === 0 || (y === 1 && noise.hash3(x, y, z) < 0.55) ||
               (y === 2 && noise.hash3(x + 31, y, z) < 0.25)) {
@@ -256,7 +262,7 @@ Voxel.GenCore = (function () {
       if (baseSurfaceAt(x + 1, z) !== h || baseSurfaceAt(x, z + 1) !== h || baseSurfaceAt(x + 1, z + 1) !== h)
         return false;
       var th = 16 + ((r * 100000) | 0) % 9;
-      if (h + th + 3 >= H) th = H - 4 - h;
+      if (h + th + 3 >= GEN_TOP) th = GEN_TOP - 4 - h;
       if (th < 10) return false;
       for (var y = 1; y <= th; y++) for (var dx = 0; dx <= 1; dx++) for (var dz = 0; dz <= 1; dz++)
         decorSet(s, x + dx, h + y, z + dz, 20, false);
@@ -284,7 +290,7 @@ Voxel.GenCore = (function () {
       if (baseSurfaceAt(x + 1, z) !== h || baseSurfaceAt(x, z + 1) !== h || baseSurfaceAt(x + 1, z + 1) !== h)
         return false;
       var th = 24 + ((r * 100000) | 0) % 8;
-      if (h + th + 4 >= H) th = H - 5 - h;
+      if (h + th + 4 >= GEN_TOP) th = GEN_TOP - 5 - h;
       if (th < 14) return false;
       for (var y = 1; y <= th; y++) for (var dx = 0; dx <= 1; dx++) for (var dz = 0; dz <= 1; dz++)
         decorSet(s, x + dx, h + y, z + dz, 22, false);
@@ -315,7 +321,7 @@ Voxel.GenCore = (function () {
     function swampOak(s, x, h, z, r) {
       var rr = (r * 100000) | 0;
       var th = 5 + (rr >> 3) % 4;
-      if (h + th + 3 >= H) return;
+      if (h + th + 3 >= GEN_TOP) return;
       for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 4, false);
       ring(s, x, h + th - 1, z, 3, 5);
       decorSet(s, x, h + th - 1, z, 4, false);
@@ -332,7 +338,7 @@ Voxel.GenCore = (function () {
       var rr = (r * 100000) | 0;
       var cap = (rr % 5 === 0) ? 56 : 55;
       var th = 9 + rr % 3 * 3;
-      if (h + th + 4 >= H) th = H - 7 - h;
+      if (h + th + 4 >= GEN_TOP) th = GEN_TOP - 7 - h;
       if (th < 6) return;
       for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 54, false);
       for (var dx = -5; dx <= 5; dx++) for (var dz = -5; dz <= 5; dz++) {
@@ -353,7 +359,7 @@ Voxel.GenCore = (function () {
       var rr = (r * 100000) | 0;
       var th = 8 + ((r * 100000) | 0) % 5;
       var sx = ((rr >> 2) & 1) ? 1 : -1;
-      if (h + th + 3 >= H) return;
+      if (h + th + 3 >= GEN_TOP) return;
       for (var y = 1; y <= th; y++)
         decorSet(s, x + (y > th - 3 ? sx : 0), h + y, z, 57, false);
       var tx = x + sx;
@@ -373,7 +379,7 @@ Voxel.GenCore = (function () {
     function darkOak(s, x, h, z, r) {
       var rr = (r * 100000) | 0;
       var th = 9 + ((rr >> 1) % 6);
-      if (h + th + 3 >= H) return;
+      if (h + th + 3 >= GEN_TOP) return;
       for (var y = 1; y <= th; y++) decorSet(s, x, h + y, z, 4, false);
       for (var ly = th - 3; ly <= th + 1; ly++) {
         var rad = ly >= th ? 1 : (ly === th - 1 ? 2 : 3);
@@ -403,8 +409,11 @@ Voxel.GenCore = (function () {
       if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
       var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
       var old = s.blocks[i];
-      if (STRUCT_KEEP[old]) return;
-      if (mode === 'air' && old !== 0) return;
+      if (old === 12) return;                                  // 基岩永远不覆写
+      if (STRUCT_KEEP[old] && mode !== 'overwrite') return;
+      if (mode === 'air') { if (old !== 0) return; }
+      else if (mode === 'overwrite') { /* 仅基岩豁免 */ }
+      else if (STRUCT_KEEP[old]) return;
       s.blocks[i] = id;
     }
 
@@ -430,11 +439,62 @@ Voxel.GenCore = (function () {
       }
     }
 
+    // 星海嘉年华园区：同一套 cell 重算裁剪模式；EXTENT 更大（100），写侧走
+    // structSet（保护区沿用），'overwrite' 仅允许越过自然方块不改基岩。
+    // 返回本区块 ±FEATURE_RADIUS 内所有园区的锚点（植被 pass 跳过占地用）。
+    function collectParkFootprints(s) {
+      var S = Voxel.Structures;
+      var out = [];
+      if (!S || !S.enabled() || !S.cellPark) return out;
+      var x0 = s.cx * CS, z0 = s.cz * CS;
+      var PE = S.PARK_EXTENT, PC = S.PARK_CELL;
+      var p0x = floorDiv(x0 - PE - FEATURE_RADIUS, PC), p1x = floorDiv(x0 + CS + PE + FEATURE_RADIUS, PC);
+      var p0z = floorDiv(z0 - PE - FEATURE_RADIUS, PC), p1z = floorDiv(z0 + CS + PE + FEATURE_RADIUS, PC);
+      for (var pcx = p0x; pcx <= p1x; pcx++)
+        for (var pcz = p0z; pcz <= p1z; pcz++) {
+          var park = S.cellPark(pcx, pcz);
+          if (park) out.push({ ax: park.ax, az: park.az });
+        }
+      return out;
+    }
+
+    function decorateParks(s) {
+      var S = Voxel.Structures;
+      if (!S || !S.enabled() || !S.cellPark) return;
+      var x0 = s.cx * CS, z0 = s.cz * CS;
+      var PE = S.PARK_EXTENT, PC = S.PARK_CELL;
+      var p0x = floorDiv(x0 - PE, PC), p1x = floorDiv(x0 + CS + PE, PC);
+      var p0z = floorDiv(z0 - PE, PC), p1z = floorDiv(z0 + CS + PE, PC);
+      for (var pcx = p0x; pcx <= p1x; pcx++) {
+        for (var pcz = p0z; pcz <= p1z; pcz++) {
+          var park = S.cellPark(pcx, pcz);
+          if (!park) continue;
+          if (park.ax + PE <= x0 || park.ax - PE >= x0 + CS ||
+            park.az + PE <= z0 || park.az - PE >= z0 + CS) continue;
+          S.buildPark(park, function (x, y, z, id, mode) {
+            structSet(s, x, y, z, id, mode);
+          });
+        }
+      }
+    }
+
     function decorate(s) {
       if (s.decorated) return;
       var defs = Voxel.Biomes.defs;
       var x0 = s.cx * CS, z0 = s.cz * CS;
       decorateStructures(s);
+      var parkFootprints = collectParkFootprints(s);
+      // 园区找平椭圆（与 Structures.buildPark 的铺装范围一致）：植被锚点在园内
+      // 必须跳过——植被 pass 读的是 base 自然地形，找平后树会穿透铺装长进园里。
+      // 纯函数判定（锚点全局坐标 vs 园区锚点），跨区块结果一致。
+      function inParkFootprint(x, z) {
+        for (var i = 0; i < parkFootprints.length; i++) {
+          var dx = x - parkFootprints[i].ax, dz = z - parkFootprints[i].az;
+          if (dx * dx * 0.85 + dz * dz <= 8464) return true; // 92² 椭圆
+        }
+        return false;
+      }
+      decorateParks(s);
       // 外星巨树的写入语义与普通树一致（force 主干 / airOnly 树冠）。
       var megaPen = Voxel.Structures ? {
         force: function (px, py, pz, pid) { decorSet(s, px, py, pz, pid, false); },
@@ -448,6 +508,7 @@ Voxel.GenCore = (function () {
           // 这样既不会改写旧档自然地形，也不会在 0/255 接缝留下被裁掉的半棵树。
           if (x >= -FEATURE_RADIUS && x <= W - 1 + FEATURE_RADIUS &&
             z >= -FEATURE_RADIUS && z <= D - 1 + FEATURE_RADIUS) continue;
+          if (inParkFootprint(x, z)) continue;
           var h = baseSurfaceAt(x, z);
           if (h <= WATER + 1 || h > SNOW_LEVEL - 2) continue;
           var biomeId = baseBiomeAt(x, z);

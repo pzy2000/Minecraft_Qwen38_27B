@@ -29,7 +29,8 @@ Voxel.Biomes = (function () {
     MUSHROOM_FIELDS: 18, // 蘑菇林
     SWAMP: 19,           // 沼泽
     CHERRY_GROVE: 20,    // 樱花树林
-    DARK_FOREST: 21      // 黑森林
+    DARK_FOREST: 21,     // 黑森林
+    PLAYGROUND: 22       // 星海嘉年华（v7 新增）
   };
 
   // 方块 ID 引用（与 blocks.js 保持一致）
@@ -38,7 +39,12 @@ Voxel.Biomes = (function () {
     SPRUCE_LOG: 20, JUNGLE_LOG: 22, PODZOL: 24, CACTUS: 26,
     RED_SAND: 28, TERRACOTTA: 29, ICE: 32, BIRCH_LOG: 33, ACACIA_LOG: 35,
     MYCELIUM: 53, MUSHROOM_STEM: 54, CAP_RED: 55, CAP_BROWN: 56,
-    CHERRY_LOG: 57, CHERRY_LEAVES: 58, DARK_LEAVES: 59
+    CHERRY_LOG: 57, CHERRY_LEAVES: 58, DARK_LEAVES: 59,
+    // 星海嘉年华
+    PARK_LAWN: 74, CREAM_PAVE: 75, PASTEL_BRICK: 76, CANDY_STRIPE: 77,
+    GOLD_TRIM: 78, LANTERN: 79, RAIL_WHITE: 80, ROOF_BLUE: 81,
+    NEON_PURPLE: 82, NEON_CYAN: 83, BUNTING: 84, RIDE_PAD: 85,
+    CASTLE_PINK: 86, CASTLE_BLUE: 87
   };
 
   var defs = [];
@@ -156,6 +162,15 @@ Voxel.Biomes = (function () {
     mobs: ['sheep', 'pig']
   };
 
+  // 星海嘉年华：欢乐园区地貌——平原暖坡上的嘉年华乐园群。
+  // 植被关闭（plantOn 空），园貌由 Structures 的园区结构负责铺陈；
+  // 保留少量羊/兔子在围栏外的草坪上走动，避免园区死寂。
+  defs[B.PLAYGROUND] = {
+    name: '星海嘉年华', surface: BLK.PARK_LAWN, filler: BLK.DIRT,
+    treeType: null, treeChance: 0, plantOn: [],
+    mobs: ['sheep', 'rabbit']
+  };
+
   // ---- 气候参数点：每个群系在五维气候空间的目标位置 ----
   // 顺序：[温度 T, 湿度 H, 大陆性 C, 侵蚀度 E, 奇异性 W]
   var points = [];
@@ -184,6 +199,10 @@ Voxel.Biomes = (function () {
   points[B.SWAMP] = [0.77, 0.3, -0.53, 0.23, 0.33];           // 暖湿低地沼带
   points[B.CHERRY_GROVE] = [0.93, 0.32, -0.11, 0.9, 0.73];    // 温和湿润的开阔坡地
   points[B.DARK_FOREST] = [0.05, 0.75, -0.05, 0.35, 0.52];    // 凉爽湿润内陆密林
+  // v7：星海嘉年华。气候点取自种子 12345 五维场实测空隙（tools/find_biome_point.js）：
+  // 主活动窗内约 830+ 干地胜出格连片（x[78,144] z[138,285]），高侵蚀=平坦开阔，
+  // 与樱花林/草原吸引域边界清晰；乐园园区结构只落在本群系干地上。
+  points[B.PLAYGROUND] = [0.32, -0.42, 0.12, 0.9, 0.82];
 
   // ---- 气候采样器：低频噪声通道，输出归一化到 [-1,1] ----
   // 世界仅 256×256，频率相对 MC 压缩以保证一张图内出现多样群系。

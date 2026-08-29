@@ -4,6 +4,14 @@ window.Voxel = window.Voxel || {};
 Voxel.World = (function () {
   var CFG = Voxel.Config;
   var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D, CS = CFG.CHUNK;
+  // 生成包络：地形密度循环只扫到此处（上方零初始化即空气，与旧实现逐位一致）
+  var ENVELOPE = Math.min(H, CFG.GEN_ENVELOPE_TOP || H);
+  // 地形一致性契约：装饰器世界顶判定曾为旧限高 H=64，世界抬升后钉住字面量
+  // （test/terrain_parity_test.js 守护）。
+  var GEN_TOP = 64;
+  // 自然与结构内容封顶（含乐园结构最高 ≈108 与余量）；玩家建造经
+  // set/applyEdits 抬升。只升不降（移除方块后多扫几行无害且正确）。
+  var NATURAL_TOP = Math.min(H - 1, CFG.CONTENT_NATURAL_TOP || 95);
   var WATER = CFG.WATER_LEVEL;
   var SNOW_LEVEL = CFG.SNOW_LEVEL;
 
@@ -24,6 +32,10 @@ Voxel.World = (function () {
 
   // ---- 光照：skyL 天光 / blkL 块光（火把），0-15 ----
   var skyL = null, blkL = null, lightReady = false;
+  // 每列"内容顶"：之上保证纯空气（光照快路径的前提）。初始为自然生成封顶，
+  // 玩家放置更高的方块时经 set/applyEdits/applyInfrastructure 抬升；只升不降
+  // （移除方块后多扫几行无害且正确）。
+  var colTop = null;
   var LIGHT_RANGE = 15;  // 光最大传播距离（衰减 1/格）
 
   function opq(id) { return Voxel.Blocks.isOpaque(id); }
@@ -90,11 +102,14 @@ Voxel.World = (function () {
         }
       }
 
-    // 天光：列扫描自顶向下
+    // 天光：列扫描自顶向下；colTop（内容顶）以上恒为纯空气，整段批量写 15，
+    // 只有内容顶以下做逐格不透明度/水面衰减扫描——限高 256 后的关键加速。
     for (var x2 = rx0; x2 <= rx1; x2++)
       for (var z2 = rz0; z2 <= rz1; z2++) {
+        var ct = colTop[x2 + W * z2];
+        for (var yT = ct + 1; yT < H; yT++) skyL[idx(x2, yT, z2)] = 15;
         var l = 15;
-        for (var y2 = H - 1; y2 >= 0; y2--) {
+        for (var y2 = ct; y2 >= 0; y2--) {
           var id = data[idx(x2, y2, z2)];
           if (opq(id)) l = 0;
           else if (id === 7 && l > 0) l = Math.max(0, l - 2);
@@ -106,10 +121,12 @@ Voxel.World = (function () {
     seedSky(skyQ, rx0, rx1, rz0, rz1);
 
     // 块光种子：区域内发光方块（火把/荧光菌伞等） + 边界导入
+    // （colTop 以上无内容：放置操作会抬升所在列的内容顶）
     var LIGHT_EMIT = Voxel.Blocks.LIGHT;
     for (var x3 = rx0; x3 <= rx1; x3++)
-      for (var z3 = rz0; z3 <= rz1; z3++)
-        for (var y3 = 0; y3 < H; y3++) {
+      for (var z3 = rz0; z3 <= rz1; z3++) {
+        var ct3 = colTop[x3 + W * z3];
+        for (var y3 = 0; y3 <= ct3; y3++) {
           var i3 = idx(x3, y3, z3);
           var emitL = LIGHT_EMIT ? LIGHT_EMIT[data[i3]] : 0;
           if (emitL) {
@@ -117,6 +134,7 @@ Voxel.World = (function () {
             blkQ.push(i3);
           }
         }
+      }
     seedBlk(blkQ, rx0, rx1, rz0, rz1);
 
     bfsFill(skyL, bucket(skyQ, skyL), rx0, rx1, rz0, rz1);
@@ -139,16 +157,19 @@ Voxel.World = (function () {
     if (arr[i] > 1) q.push(i);
   }
 
-  // 挑出区域内所有可传播的天光亮格：自身 skyL>1 且存在更暗的可通行邻居
+  // 挑出区域内所有可传播的天光亮格：自身 skyL>1 且存在更暗的可通行邻居。
+  // colTop 以上的纯空气域全为 15、无可传播对象，直接跳过。
   function seedSky(q, rx0, rx1, rz0, rz1) {
     for (var x = rx0; x <= rx1; x++)
-      for (var z = rz0; z <= rz1; z++)
-        for (var y = 0; y < H; y++) {
+      for (var z = rz0; z <= rz1; z++) {
+        var ct = colTop[x + W * z];
+        for (var y = ct; y >= 0; y--) {
           var i = idx(x, y, z);
           var v = skyL[i];
           if (v <= 1) continue;
           if (canSpread(skyL, x, y, z, v, rx0, rx1, rz0, rz1)) q.push(i);
         }
+      }
     // 区域外边界一格的光照导入
     importBorder(q, skyL, rx0, rx1, rz0, rz1);
   }
@@ -189,6 +210,7 @@ Voxel.World = (function () {
 
   function initLight() {
     if (!skyL) { skyL = new Uint8Array(W * H * D); blkL = new Uint8Array(W * H * D); }
+    if (!colTop) colTop = new Int16Array(W * D);
     lightReady = true;
     relightRegion(0, W - 1, 0, D - 1);
     // 顶点光在建网格时烘焙；任何全核心重光后都必须让全部核心区块重建。
@@ -273,7 +295,7 @@ Voxel.World = (function () {
     var th = shaper.sampleTh(lat, lx, lz);
 
     var topSolid = -1, i;
-    for (var y = 0; y < H; y++) {
+    for (var y = 0; y < ENVELOPE; y++) {
       i = idx(x, y, z);
       // 基岩层（带随机起伏）
       if (y === 0 || (y === 1 && noise.hash3(x, y, z) < 0.55) ||
@@ -460,7 +482,7 @@ Voxel.World = (function () {
     var ci = x + W * z;
     if (heights[ci + 1] !== h || heights[ci + W] !== h || heights[ci + W + 1] !== h) return false;
     var th = 16 + ((r * 100000) | 0) % 9;
-    if (h + th + 3 >= H) th = H - 4 - h;
+    if (h + th + 3 >= GEN_TOP) th = GEN_TOP - 4 - h;
     if (th < 10) return false;
     for (var y = 1; y <= th; y++)
       for (var dx = 0; dx <= 1; dx++)
@@ -497,7 +519,7 @@ Voxel.World = (function () {
     var ci = x + W * z;
     if (heights[ci + 1] !== h || heights[ci + W] !== h || heights[ci + W + 1] !== h) return false;
     var th = 24 + ((r * 100000) | 0) % 8;
-    if (h + th + 4 >= H) th = H - 5 - h;
+    if (h + th + 4 >= GEN_TOP) th = GEN_TOP - 5 - h;
     if (th < 14) return false;
     for (var y = 1; y <= th; y++)
       for (var dx = 0; dx <= 1; dx++)
@@ -553,7 +575,7 @@ Voxel.World = (function () {
     var rr = (r * 100000) | 0;
     var cap = (rr % 5 === 0) ? 56 : 55;
     var th = 9 + rr % 3 * 3;
-    if (h + th + 4 >= H) th = H - 7 - h;
+    if (h + th + 4 >= GEN_TOP) th = GEN_TOP - 7 - h;
     if (th < 6) return;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 54;
     for (var dx = -5; dx <= 5; dx++)
@@ -574,7 +596,7 @@ Voxel.World = (function () {
     var rr = (r * 100000) | 0;
     var th = 8 + ((r * 100000) | 0) % 5;
     var sx = ((rr >> 2) & 1) ? 1 : -1;
-    if (h + th + 3 >= H) return;
+    if (h + th + 3 >= GEN_TOP) return;
     for (var y = 1; y <= th; y++) data[idx(x + (y > th - 3 ? sx : 0), h + y, z)] = 57;
     var tx = x + sx;
     for (var dx = -3; dx <= 3; dx++)
@@ -595,7 +617,7 @@ Voxel.World = (function () {
   function darkOakTree(x, h, z, r) {
     var rr = (r * 100000) | 0;
     var th = 9 + ((rr >> 1) % 6);
-    if (h + th + 3 >= H) return;
+    if (h + th + 3 >= GEN_TOP) return;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
     for (var ly = th - 3; ly <= th + 1; ly++) {
       var rad = ly >= th ? 1 : (ly === th - 1 ? 2 : 3);
@@ -613,7 +635,7 @@ Voxel.World = (function () {
   function swampOakTree(x, h, z, r) {
     var rr = (r * 100000) | 0;
     var th = 5 + (rr >> 3) % 4;
-    if (h + th + 3 >= H) return;
+    if (h + th + 3 >= GEN_TOP) return;
     for (var y = 1; y <= th; y++) data[idx(x, h + y, z)] = 4;
     ring(x, h + th - 1, z, 3, 5);
     data[idx(x, h + th - 1, z)] = 4;
@@ -692,6 +714,7 @@ Voxel.World = (function () {
     if (x < 0 || x >= W || y < 0 || y >= H || z < 0 || z >= D) return;
     data[idx(x, y, z)] = id;
     edits[x + ',' + y + ',' + z] = id;
+    if (id !== 0 && colTop && y > colTop[x + W * z]) colTop[x + W * z] = Math.min(H - 1, y);
     // 方块被清空时其元数据（熔炉/箱子内容等）一并清除
     if (id === 0) delete meta[x + ',' + y + ',' + z];
     if (lightReady) {
@@ -731,6 +754,7 @@ Voxel.World = (function () {
       data[idx(v.x, v.y, v.z)] = v.id;
       edits[v.x + ',' + v.y + ',' + v.z] = v.id;
       if (v.id === 0) delete meta[v.x + ',' + v.y + ',' + v.z];
+      else if (v.y > colTop[v.x + W * v.z]) colTop[v.x + W * v.z] = Math.min(H - 1, v.y);
     }
     if (lightReady) {
       var R = LIGHT_RANGE;
@@ -766,6 +790,8 @@ Voxel.World = (function () {
     data = new Uint8Array(W * H * D);
     heights = new Int16Array(W * D);
     biomes = new Uint8Array(W * D);
+    if (!colTop || colTop.length !== W * D) colTop = new Int16Array(W * D);
+    colTop.fill(NATURAL_TOP);
     edits = {};
     meta = {};
     dirty = {};
@@ -912,6 +938,7 @@ Voxel.World = (function () {
         data[idx(x, y, z)] = id;
         // 回放的修改仍属于当前世界的增量账本；否则下一次保存会把旧建筑忘掉。
         edits[x + ',' + y + ',' + z] = id;
+        if (id !== 0 && y > colTop[x + W * z]) colTop[x + W * z] = Math.min(H - 1, y);
         any = true;
         if (x < bx0) bx0 = x;
         if (x > bx1) bx1 = x;

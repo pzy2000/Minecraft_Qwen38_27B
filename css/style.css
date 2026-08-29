@@ -4989,3 +4989,25 @@ body[data-game-state="paused"] #tutorial-card { opacity: .78; }
   #ach-toast { transition: opacity .2s ease; transform: translate(-50%, 0); }
   .ach-progress-fill { transition: none; }
 }
+
+/* 星海嘉年华：乘坐浮钮（触屏） */
+#ride-btn {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 18px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 118px);
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,224,138,.85);
+  background: rgba(216,87,79,.88);
+  color: #fff8ec;
+  font: 700 14px/64px "PingFang SC", "Microsoft YaHei", sans-serif;
+  text-align: center;
+  letter-spacing: 2px;
+  box-shadow: 0 6px 18px rgba(216,87,79,.45), inset 0 -3px 0 rgba(0,0,0,.18);
+  display: none;
+  z-index: 40;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+#ride-btn:active { transform: scale(.94); }

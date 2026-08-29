@@ -6,7 +6,7 @@ Voxel.ShipFlight = (function () {
 
   var VERSION = 1;
   var MAX_XZ = 30000000;
-  var MAX_Y = 120;
+  var MAX_Y = 250;
   var MAX_SPEED = 64;
   var MAX_DT = 0.1;
   var DEFAULTS = {

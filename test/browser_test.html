@@ -362,8 +362,8 @@
   var featuredGridForObserver = doc.getElementById('featured-grid');
   if (featuredGridForObserver)
     featuredObserver.observe(featuredGridForObserver, { subtree: true, attributes: true, attributeFilter: ['src'] });
-  check('菜单ready时23张精选卡片已构建但缩略图尚未请求',
-    initialFeaturedCards.length === 23 && initialFeaturedImages.length === 23 &&
+  check('菜单ready时24张精选卡片已构建但缩略图尚未请求',
+    initialFeaturedCards.length === 24 && initialFeaturedImages.length === 24 &&
     initialFeaturedImages.every(function (img) { return !img.hasAttribute('src'); }) &&
     featuredResourceCount() === 0);
 
@@ -2711,11 +2711,11 @@
           var firstOpenImages = Array.prototype.slice.call(doc.querySelectorAll('.featured-thumb img'));
           check('featured初始焦点首卡且menu背景inert', Voxel.Game.state === 'featured' &&
             doc.activeElement === card && doc.getElementById('overlay-start').inert === true);
-          check('首次打开精选面板才为23张缩略图注入唯一src', firstOpenImages.length === 23 &&
+          check('首次打开精选面板才为24张缩略图注入唯一src', firstOpenImages.length === 24 &&
             firstOpenImages.every(function (img) {
               return img.hasAttribute('src') && /\/screenshots\/biomes\//.test(img.getAttribute('src'));
-            }) && new Set(firstOpenImages.map(function (img) { return img.src; })).size === 23 &&
-            featuredSrcMutations === 23);
+            }) && new Set(firstOpenImages.map(function (img) { return img.src; })).size === 24 &&
+            featuredSrcMutations === 24);
 
           // 先关闭再打开一次，验证沿用同一批卡片与图片，不重新挂 src/发请求。
           press(card, 'Escape', 'Escape');
@@ -2727,9 +2727,9 @@
               var resourcesAfterSecondOpen = featuredResourceCount();
               card = doc.querySelector('.featured-card');
               check('重复打开精选面板复用卡片且不重复注入/请求缩略图',
-                secondOpenCards.length === 23 && secondOpenCards.every(function (node, index) {
+                secondOpenCards.length === 24 && secondOpenCards.every(function (node, index) {
                   return node === firstOpenCards[index] && node === initialFeaturedCards[index];
-                }) && featuredSrcMutations === 23 &&
+                }) && featuredSrcMutations === 24 &&
                 resourcesAfterSecondOpen === resourcesAfterFirstOpen &&
                 resourcesAfterFirstOpen - resourcesBeforeFeatured <= 23);
               check('重复打开后精选卡片焦点与按钮语义仍正常', Voxel.Game.state === 'featured' &&

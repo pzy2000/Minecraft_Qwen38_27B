@@ -155,7 +155,10 @@ function fingerprintWorld(profile) {
   }
   for (const [x, z] of points) {
     mix(x); mix(z); mix(V.World.biomeAt(x, z)); mix(V.World.surfaceAt(x, z));
-    for (let y = 0; y < V.Config.WORLD_H; y++) mix(V.World.get(x, y, z));
+    // 地形一致性契约：黄金值生成于旧限高 H=64，采样域必须钉住旧内容域，
+    // 否则限高提升后新增的纯空气行会改变摘要（内容本身仍逐位一致）。
+    const LEGACY_DOMAIN_H = 64;
+    for (let y = 0; y < Math.min(LEGACY_DOMAIN_H, V.Config.WORLD_H); y++) mix(V.World.get(x, y, z));
   }
   return hash.toString(16).padStart(8, '0');
 }

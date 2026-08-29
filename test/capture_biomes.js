@@ -251,7 +251,9 @@ async function waitPlaying(page) {
     { name: 'mushroom-fields', opts: { biome: 'MUSHROOM_FIELDS', preferSurf: 53, height: 12, wide: true, wideStrict: true } },
     { name: 'swamp',           opts: { biome: 'SWAMP', height: 14, wide: true, wideStrict: true } },
     { name: 'cherry-grove',    opts: { biome: 'CHERRY_GROVE', height: 13, purity: 0.95 } },
-    { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12, wide: true, wideStrict: true } }
+    { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12, wide: true, wideStrict: true } },
+    // v7 星海嘉年华（新增群系，取景点常在核心窗外，走宽域搜索）
+    { name: 'playground',      opts: { biome: 'PLAYGROUND', height: 14, wide: true, wideStrict: true } }
   ];
 
   // 可传名称过滤：node test/capture_biomes.js [chrome路径] [shot名...]

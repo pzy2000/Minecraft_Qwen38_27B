@@ -17,6 +17,8 @@ window.Voxel = window.Voxel || {};
   var W = CFG.WORLD_W, H = CFG.WORLD_H, D = CFG.WORLD_D, CS = CFG.CHUNK;
   var WATER = CFG.WATER_LEVEL, SNOW_LEVEL = CFG.SNOW_LEVEL;
   var CORE_CX = W / CS, CORE_CZ = D / CS;
+  // 自然与结构内容封顶；玩家建造经 setInChunk 抬升。与 world.js FiniteWorld colTop 同一契约。
+  var NATURAL_TOP = Math.min(H - 1, CFG.CONTENT_NATURAL_TOP || H - 1);
   var RENDER_RADIUS = Math.max(2, (CFG.STREAM_RENDER_RADIUS || 6) | 0);
   var DATA_RADIUS = Math.max(RENDER_RADIUS + 1, (CFG.STREAM_DATA_RADIUS || (RENDER_RADIUS + 1)) | 0);
   var KEEP_RADIUS = Math.max(DATA_RADIUS + 1, (CFG.STREAM_KEEP_RADIUS || (DATA_RADIUS + 2)) | 0);
@@ -70,6 +72,8 @@ window.Voxel = window.Voxel || {};
 
   function setInChunk(ch, x, y, z, id) {
     ch.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] = id;
+    // 内容顶只升不降：光照快路径假设其上为纯空气（自然生成封顶以下）
+    if (id !== 0 && y > ch.contentTop) ch.contentTop = Math.min(H - 1, y);
   }
 
   function newChunk(cx, cz) {
@@ -81,6 +85,9 @@ window.Voxel = window.Voxel || {};
       sky: new Uint8Array(CS * H * CS),
       blk: new Uint8Array(CS * H * CS),
       baseReady: false, ready: false, lit: false, dirty: true, meshed: false,
+      // 自然内容封顶：含巨树树冠峰值 ~92 与余量；玩家建造经 setInChunk 抬升。
+      // 与 world.js 的 FiniteWorld colTop 同一契约值。
+      contentTop: NATURAL_TOP,
       emit: null,
       shell: null, decorated: false,
       mesh: null, wmesh: null, fmesh: null
@@ -150,9 +157,16 @@ window.Voxel = window.Voxel || {};
     var blkQ = [];
     var emitList = [];
     var LIGHT = Voxel.Blocks.LIGHT;
+    var top = ch.contentTop;
+    // 内容顶以上恒为纯空气：按 lz 板块批量写满天光。
+    // 存储布局 idx=lx+CS*(y+H*lz) 下，固定 lz 的 (x,y) 段连续，fill 一次成型。
+    if (top + 1 < H) {
+      for (var lz0 = 0; lz0 < CS; lz0++)
+        ch.sky.fill(15, CS * H * lz0 + CS * (top + 1), CS * H * (lz0 + 1));
+    }
     for (var lx = 0; lx < CS; lx++) for (var lz = 0; lz < CS; lz++) {
       var light = 15;
-      for (var y = H - 1; y >= 0; y--) {
+      for (var y = top; y >= 0; y--) {
         var i = chunkIndex(lx, y, lz), id = ch.blocks[i];
         if (Voxel.Blocks.isOpaque(id)) light = 0;
         else if (id === 7 && light > 0) light = Math.max(0, light - 2);

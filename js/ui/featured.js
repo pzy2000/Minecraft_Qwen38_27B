@@ -31,7 +31,8 @@ Voxel.Featured = (function () {
     { name: '蘑菇林',     desc: '菌丝大地上的巨型红菇',     img: 'screenshots/biomes/mushroom-fields.png', seed: SEED, biome: 'MUSHROOM_FIELDS', color: '#9c86a4' },
     { name: '沼泽',       desc: '低地湿原与虬曲老橡树',     img: 'screenshots/biomes/swamp.png',           seed: SEED, biome: 'SWAMP',          color: '#5a7247' },
     { name: '樱花树林',   desc: '粉色花团掩映的山麓坡地',   img: 'screenshots/biomes/cherry-grove.png',    seed: SEED, biome: 'CHERRY_GROVE',   color: '#e49bb8' },
-    { name: '黑森林',     desc: '暗叶密林与苔石巨砾',       img: 'screenshots/biomes/dark-forest.png',     seed: SEED, biome: 'DARK_FOREST',    color: '#3c5a38' }
+    { name: '黑森林',     desc: '暗叶密林与苔石巨砾',       img: 'screenshots/biomes/dark-forest.png',     seed: SEED, biome: 'DARK_FOREST',    color: '#3c5a38' },
+    { name: '星海嘉年华', desc: '摩天轮·过山车·光轮乐园',   img: 'screenshots/biomes/playground.png',      seed: SEED, biome: 'PLAYGROUND', parkSpawn: true, color: '#d8a13c' }
   ];
 
   function show() {
