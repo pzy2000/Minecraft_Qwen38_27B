@@ -647,12 +647,15 @@ Voxel.Structures = (function () {
 
   // ---------- 园区构件（全部只依赖 park / L / 常量） ----------
 
-  // 找平地基：柱脚从真实地表逐列垫到平台高（确定性读 surfaceAt）
+  // 找平地基：低于找平面逐列垫实到平台高；高于找平面的天然土柱整段削除
+  // （'overwrite' 仅豁免基岩），保证行走面完全平坦、无棋盘坑与绊脚凸起。
   function foundation(writer, park, x, z, topY, baseId) {
+    var base = baseId === undefined ? PK.LAWN : baseId;
     var gs = ctx ? ctx.surfaceAt(x, z) : park.ah;
-    var start = Math.min(gs + 1, topY);
-    for (var y = start; y <= topY; y++) writer(x, y, z, baseId === undefined ? PK.LAWN : baseId, 'force');
-    if (gs > topY) writer(x, topY, z, baseId === undefined ? PK.LAWN : baseId, 'force');
+    var y;
+    for (y = gs + 1; y <= topY; y++) writer(x, y, z, base, 'force');
+    writer(x, topY, z, base, 'force');
+    for (y = topY + 1; y <= gs; y++) writer(x, y, z, 0, 'overwrite');
   }
 
   function box(writer, park, x0, z0, x1, z1, y0, y1, id, mode) {
@@ -699,9 +702,11 @@ Voxel.Structures = (function () {
       if (deep) writer(p[0], ah + top, p[1], id, 'force');
     }
 
-    // ---- 1. 广场找平 + 铺装主环 ----
-    for (var px = -70; px <= 74; px += 2) {
-      for (var pz = -74; pz <= 74; pz += 2) {
+    // ---- 1. 全园找平（逐格无洞）：整个椭圆统一垫到锚点地表高 ----
+    // 此前按 2 格步进跳列铺装，露出的原始地形形成"隔块下陷"的棋盘坑，
+    // 玩家行走绊倒摔伤——必须逐格覆盖，保证整园通行面完全平坦。
+    for (var px = -70; px <= 74; px++) {
+      for (var pz = -74; pz <= 74; pz++) {
         var d2 = px * px * 0.85 + pz * pz;
         if (d2 > 92 * 92) continue;
         var gp = S(px, pz);
@@ -788,11 +793,17 @@ Voxel.Structures = (function () {
           for (var w = -1; w <= 1; w++) {
             fCol(Math.round(wx - nz * w * 1.4), Math.round(wz + nx * w * 1.4), 0, PK.CREAM);
           }
-          if (sIdx % 5 === 2) {                                     // 灯柱：糖果杆+灯球
-            var lx = Math.round(wx + nz * 3), lz = Math.round(wz - nx * 3);
-            var lp = S(lx, lz);
-            foundation(writer, park, lp[0], lp[1], ah, PK.LAWN);
-            F(lx, lz, 1, PK.CANDY); F(lx, lz, 2, PK.CANDY); F(lx, lz, 3, PK.LANTERN);
+          // 大道双侧交错路灯（糖果杆托暖黄灯球，左右每 5 步错开一根）
+          if (sIdx % 5 === 0 || sIdx % 5 === 3) {
+            var side = (sIdx % 5 === 0) ? -1 : 1;
+            var lx = Math.round(wx + nz * side * 3);
+            var lz = Math.round(wz - nx * side * 3);
+            var le2 = lx * lx * 0.85 + lz * lz;
+            if (le2 <= 88 * 88) {
+              var lp = S(lx, lz);
+              fCol(lx, lz, 0, PK.LAWN, true);
+              F(lx, lz, 1, PK.CANDY); F(lx, lz, 2, PK.CANDY); F(lx, lz, 3, PK.LANTERN);
+            }
           }
         }
       }

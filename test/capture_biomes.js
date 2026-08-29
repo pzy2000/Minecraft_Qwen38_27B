@@ -50,6 +50,14 @@ async function waitPlaying(page) {
   const outDir = path.join(root, 'screenshots', 'biomes');
   fs.mkdirSync(outDir, { recursive: true });
 
+  // 可传名称过滤：node test/capture_biomes.js [chrome路径] [shot名...]
+  const onlyNames = process.argv.slice(3);
+  // 园区结构只在精选世界入口（galaxy v2 流程）下启用，裸 v1 存档不会生成；
+  // 这些镜头必须在清档后走 btn-featured → startFeatured 启动。
+  const FEATURED_SHOTS = ['playground'];
+  const featuredMode = onlyNames.length > 0 &&
+    onlyNames.every(n => FEATURED_SHOTS.indexOf(n) >= 0);
+
   const browser = await puppeteer.launch({
     executablePath: execPath,
     headless: 'new',
@@ -68,6 +76,12 @@ async function waitPlaying(page) {
 
   const url = 'file://' + path.join(root, 'index.html');
   await page.goto(url, { waitUntil: 'load' });
+  // 园区镜头（parkGate）必须走精选世界入口：裸 v1 存档会被判为旧世界
+  // （terrainVersion=1），结构系统不启用，乐园设施根本不生成。
+  if (featuredMode) {
+    await page.evaluate(() => localStorage.removeItem(window.Voxel.Config.SAVE_KEY));
+    await page.reload({ waitUntil: 'load' });
+  } else {
   // 写入当前版本存档键（config.SAVE_KEY），固定种子与空白背包
   await page.evaluate((seed) => {
     var inv = [];
@@ -83,12 +97,25 @@ async function waitPlaying(page) {
     }));
   }, SEED);
   await page.reload({ waitUntil: 'load' });
+  }
 
   await page.addStyleTag({
-    content: '#lock-hint,#toast,#error-banner,#use-hint{display:none!important}'
+    content: '#lock-hint,#toast,#error-banner,#use-hint,#tutorial-card{display:none!important}'
   });
 
-  await page.click('#btn-start');
+  if (featuredMode) {
+    await page.click('#btn-featured');
+    await page.waitForFunction(() =>
+      window.Voxel && Voxel.Featured && Voxel.Featured.WORLDS &&
+      Voxel.Featured.WORLDS.findIndex(w => w.parkSpawn) >= 0,
+      { timeout: 30000, polling: 200 });
+    const cardIdx = await page.evaluate(() =>
+      Voxel.Featured.WORLDS.findIndex(w => w.parkSpawn));
+    console.log('进入精选世界：星海嘉年华（卡片 ' + cardIdx + '）');
+    await page.evaluate((i) => { Voxel.Game.startFeatured(i); }, cardIdx);
+  } else {
+    await page.click('#btn-start');
+  }
   console.log('等待世界生成（种子 ' + SEED + '）…');
   await waitPlaying(page);
   await sleep(2500);
@@ -191,7 +218,21 @@ async function waitPlaying(page) {
     }
     window.__biomeShot = function (opts) {
       var b = opts.biome;
-      var spot = opts.fixed ? { x: opts.fixed.x, z: opts.fixed.z }
+      // 星海嘉年华：与精选世界同一事实源——直接落位最近园区大门，
+      // 面向园内取景（否则拍到的只是群系地貌，没有摩天轮等设施）。
+      var yawOverride = null;
+      var parkBaseY = null;
+      if (opts.parkGate) {
+        var pk = Voxel.Structures && Voxel.Structures.enabled()
+          ? Voxel.Structures.nearestParkTo(0, 0, 6) : null;
+        var gt = pk ? Voxel.Structures.parkGateSpawn(pk) : null;
+        if (!gt) return null;
+        spot = { x: Math.floor(gt.x), z: Math.floor(gt.z), fx: pk.ax, fz: pk.az };
+        yawOverride = gt.yaw;
+        // 园区上空俯瞰：以锚点地表为基准抬升，越过门墙看到整园
+        parkBaseY = pk.ah + (opts.parkElev || 0);
+      }
+      if (!spot) spot = opts.fixed ? { x: opts.fixed.x, z: opts.fixed.z }
         : opts.overview
           ? { x: 128, z: 128 }
           : opts.wide
@@ -199,11 +240,13 @@ async function waitPlaying(page) {
             : findSpot(Voxel.Biomes.B[b], opts.preferSurf, opts.openSurf, opts.purity);
       if (!spot) return null;
       var g = groundAt(spot.x, spot.z);
-      var baseY = g.y > 0 ? g.y : 30;
+      var baseY = parkBaseY !== null ? parkBaseY : (g.y > 0 ? g.y : 30);
       var camY = baseY + (opts.height || 12);
       var pitch = opts.pitch !== undefined ? opts.pitch : -0.26;
       var yaw;
-      if (opts.overview) {
+      if (yawOverride !== null) {
+        yaw = yawOverride;
+      } else if (opts.overview) {
         camY = 92; pitch = -1.15; yaw = 0.75;
       } else if (opts.fixed && opts.fixed.yaw !== undefined) {
         yaw = opts.fixed.yaw;
@@ -217,8 +260,10 @@ async function waitPlaying(page) {
       Voxel.Weather.update(12);
       Voxel.Player.init(new THREE.Vector3(spot.x + 0.5, camY, spot.z + 0.5), yaw, pitch);
       Voxel.Player.setFlying(true);
-      Voxel.World.setFocus(spot.x, spot.z);
-      Voxel.World.buildMeshes(64, Voxel.Game.scene);
+      // 聚焦点取园区锚点（大门离设施最远 ~113 格），保证整园流式生成 + 建网格
+      Voxel.World.setFocus(spot.fx !== undefined ? spot.fx : spot.x,
+                           spot.fz !== undefined ? spot.fz : spot.z);
+      Voxel.World.buildMeshes(opts.meshR || 64, Voxel.Game.scene);
       return spot;
     };
   });
@@ -252,24 +297,25 @@ async function waitPlaying(page) {
     { name: 'swamp',           opts: { biome: 'SWAMP', height: 14, wide: true, wideStrict: true } },
     { name: 'cherry-grove',    opts: { biome: 'CHERRY_GROVE', height: 13, purity: 0.95 } },
     { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12, wide: true, wideStrict: true } },
-    // v7 星海嘉年华（新增群系，取景点常在核心窗外，走宽域搜索）
-    { name: 'playground',      opts: { biome: 'PLAYGROUND', height: 14, wide: true, wideStrict: true } }
+    // v7 星海嘉年华：走精选世界入口（galaxy v2 流程）+ parkGateSpawn 落位
+    // 园门口，再升到园区上空俯瞰喷泉广场/摩天轮/城堡全景
+    { name: 'playground',      opts: { biome: 'PLAYGROUND', height: 28, pitch: -0.34, parkGate: true, parkElev: -6, meshR: 140 } }
   ];
 
-  // 可传名称过滤：node test/capture_biomes.js [chrome路径] [shot名...]
-  const onlyNames = process.argv.slice(3);
+  // 名称过滤已在 IIFE 顶部声明（onlyNames）
   const filtered = onlyNames.length
     ? shots.filter(s => onlyNames.indexOf(s.name) >= 0)
-    : shots;
-
-  for (const s of filtered) {
+    : shots;  for (const s of filtered) {
     const info = await page.evaluate((o) => window.__biomeShot(o), s.opts);
     if (!info) { console.log('跳过 ' + s.name + '（未找到合适位置）'); continue; }
     // 等待取景点周围 7×7 区块全部生成完毕（宽域点离核心远，流式生成
     // 每帧只推进少量区块），再留出网格构建缓冲，避免拍到大片未加载石料。
     await page.waitForFunction((spt) => {
       const CS = window.Voxel.Config.CHUNK, R = 3;
-      const cx = Math.floor(spt.x / CS), cz = Math.floor(spt.z / CS);
+      // 园区镜头聚焦在锚点（fx/fz），等聚焦点周围区块就绪
+      const fx = spt.fx !== undefined ? spt.fx : spt.x;
+      const fz = spt.fz !== undefined ? spt.fz : spt.z;
+      const cx = Math.floor(fx / CS), cz = Math.floor(fz / CS);
       for (let dx = -R; dx <= R; dx++)
         for (let dz = -R; dz <= R; dz++)
           if (!Voxel.World.isChunkLoaded(cx + dx, cz + dz)) return false;
