@@ -3071,20 +3071,20 @@ Voxel.Game = (function () {
     Voxel.Controls.setPitch(Voxel.Controls.pitch() * 0.86);
   }
 
-  // riding 态每帧：相机接管（基向位姿 + ±60° 自由环视 + FOV 冲击）
+  // riding 态每帧：相机接管（基向位姿 + 近全向自由环视 + FOV 冲击）。
+  // 无自动回中：环视保持玩家所转到的方向，与地面行走相同的"零阻力"手感。
   function applyRideCamera(dt) {
     if (!camera) return;
     var nowS = performance.now() / 1000;
     var pose = Voxel.Amusement ? Voxel.Amusement.riderState(nowS) : null;
     if (!pose) return;
-    var sens = 0.0026;
+    var sens = 0.0032;
     ride.lookYaw += (Voxel.Controls._rideMouseDX || 0) * sens;
     ride.lookPitch += (Voxel.Controls._rideMouseDY || 0) * sens;
     Voxel.Controls._rideMouseDX = 0; Voxel.Controls._rideMouseDY = 0;
-    var LIM = Math.PI / 3;
+    var LIM = 1.48;                                  // ±85°，几乎全向
     ride.lookYaw = Math.max(-LIM, Math.min(LIM, ride.lookYaw));
-    ride.lookPitch = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, ride.lookPitch));
-    ride.lookYaw *= 0.985; ride.lookPitch *= 0.985;
+    ride.lookPitch = Math.max(-1.22, Math.min(1.22, ride.lookPitch));
     camera.position.copy(pose.pos);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = pose.yaw + ride.lookYaw;

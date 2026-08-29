@@ -719,15 +719,15 @@ Voxel.Sound = (function () {
   // 链式提升"咔哒"（过山车爬坡的金属棘轮）
   function rideClank(v) {
     if (v <= 0) return;
-    noiseHit(1900 + Math.random() * 320, 3.2, 0.05, 0.2 * v);
-    tone('square', 220, 165, 0.055, 0.08 * v);
+    noiseHit(1900 + Math.random() * 320, 3.2, 0.05, 0.62 * v);
+    tone('square', 220, 165, 0.055, 0.26 * v);
   }
 
   // 风啸（俯冲/高速段，宽带噪声短扫）
   function rideWhoosh(v) {
     if (v <= 0) return;
-    noiseHit(420 + v * 900, 0.8, 0.26, 0.16 * v);
-    noiseHit(1400 + v * 1200, 1.6, 0.14, 0.07 * v);
+    noiseHit(420 + v * 900, 0.8, 0.28, 0.5 * v);
+    noiseHit(1400 + v * 1200, 1.6, 0.15, 0.22 * v);
   }
 
   // 跳楼机自由坠呼啸（下滑锯齿 + 噪声），着陆闷响单独一击
@@ -735,13 +735,13 @@ Voxel.Sound = (function () {
     if (v <= 0) return;
     var c = ac();
     if (!c) return;
-    toneVib('sawtooth', 640, 170, 0.55, 0.11 * v, 7, 26, 900);
-    noiseHit(1100, 0.7, 0.5, 0.15 * v);
+    toneVib('sawtooth', 640, 170, 0.58, 0.3 * v, 7, 30, 1100);
+    noiseHit(1100, 0.7, 0.52, 0.36 * v);
   }
   function dropThud(v) {
     if (v <= 0) return;
-    noiseHit(160, 0.9, 0.18, 0.32 * v);
-    tone('sine', 92, 46, 0.16, 0.22 * v);
+    noiseHit(160, 0.9, 0.18, 0.55 * v);
+    tone('sine', 92, 46, 0.16, 0.4 * v);
   }
 
   // 旋转木马八音盒音符（C 大调琶音循环，triangle+sine 双层）
@@ -750,15 +750,15 @@ Voxel.Sound = (function () {
     if (v <= 0) return;
     var f = CAROUSEL_NOTES[((step % CAROUSEL_NOTES.length) + CAROUSEL_NOTES.length) %
       CAROUSEL_NOTES.length];
-    tone('sine', f, f, 0.3, 0.055 * v);
-    tone('triangle', f * 2, f * 2, 0.18, 0.022 * v);
+    tone('sine', f, f, 0.32, 0.14 * v);
+    tone('triangle', f * 2, f * 2, 0.2, 0.06 * v);
   }
 
   // 摩天轮低位换向轻响（每 1/4 圈一次的机械呼吸感）
   function ferrisCreak(v) {
     if (v <= 0) return;
-    noiseHit(300, 1.6, 0.09, 0.06 * v);
-    tone('sine', 130, 108, 0.1, 0.04 * v);
+    noiseHit(300, 1.6, 0.1, 0.16 * v);
+    tone('sine', 130, 108, 0.11, 0.11 * v);
   }
 
   // 烟花：升空哨 + 爆裂闷响 + 碎裂嘶声（v 为距离衰减 0..1）

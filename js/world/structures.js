@@ -827,10 +827,12 @@ Voxel.Structures = (function () {
     // ---- 5. 摩天轮（体素部分：A 架/座舱臂站台/围栏；轮体运行时网格）----
     (function () {
       var fc = L.ferris.c, fx = fc[0], fz = fc[1];
-      // A 字腿：沿局部 x 向展宽、向上收拢直达轮毂（前后双柱形成立体门架）
+      // A 字腿：沿局部 x 向展宽、向上收拢至 2/3 轮高（不顶满轮毂），避免
+      // 座舱/乘客视线在高位时贴上门柱石头；顶端以金饰压顶 + 灯球收束
       var HUB_Y = 30;
-      for (var legY = 1; legY <= HUB_Y - 2; legY++) {
-        var spread = Math.max(1, Math.round((HUB_Y - 2 - legY) * 0.52));
+      var LEG_TOP = 20;
+      for (var legY = 1; legY <= LEG_TOP; legY++) {
+        var spread = Math.max(2, Math.round((LEG_TOP - legY) * 0.65));
         [[fx - spread, fz], [fx + spread, fz]].forEach(function (lg) {
           var p = S(lg[0], lg[1]);
           foundation(writer, park, p[0], p[1], ah, PK.LAWN);
@@ -847,10 +849,33 @@ Voxel.Structures = (function () {
           }
         }
       }
-      // 中轴轮毂
+      // 双柱头金饰 + 灯球
+      [[-12, fz], [12, fz]].forEach(function (cap) {
+        var cp = S(fx + cap[0], cap[1]);
+        foundation(writer, park, cp[0], cp[1], ah + LEG_TOP + 1, PK.STONE);
+        writer(cp[0], ah + LEG_TOP + 2, cp[1], PK.GOLD, 'force');
+        writer(cp[0], ah + LEG_TOP + 3, cp[1], PK.LANTERN, 'air');
+      });
+      // 中轴轮毂（十字环）：中心留空，避免乘员视线左右掠过时贴上实心石芯
       var hp = S(fx, fz);
-      box(writer, park, hp[0] - 1, hp[1] - 1, hp[0] + 1, hp[1] + 1, ah + 26, ah + 34, PK.STONE);
-      writer(hp[0], ah + 30, hp[1], PK.GOLD, 'force');
+      for (var hx = -1; hx <= 1; hx++)
+        for (var hz2 = -1; hz2 <= 1; hz2++) {
+          if (Math.abs(hx) !== 1 && Math.abs(hz2) !== 1) continue;
+          writer(hp[0] + hx, ah + 27, hp[1] + hz2, PK.STONE, 'force');
+          writer(hp[0] + hx, ah + 33, hp[1] + hz2, PK.STONE, 'force');
+        }
+      for (var hy = 28; hy <= 32; hy++) {
+        [[-1, 0], [1, 0]].forEach(function (o) {
+          var p2 = S(fx + o[0], fz);
+          writer(p2[0], ah + hy, p2[1], PK.STONE, 'force');
+        });
+        [[0, -1], [0, 1]].forEach(function (o) {
+          var p3 = S(fx, fz + o[1]);
+          foundation(writer, park, p3[0], p3[1], ah, PK.LAWN);
+          writer(p3[0], ah + hy, p3[1], PK.STONE, 'force');
+        });
+      }
+      writer(S(fx, fz)[0], ah + 30, S(fx, fz)[1], PK.GOLD, 'force');
       // 顶部检修灯球（体素发光，运行时灯圈另建）
       writer(hp[0], ah + 35, hp[1], PK.LANTERN, 'air');
       // 底座装饰环 + 轮轴基台
@@ -913,14 +938,31 @@ Voxel.Structures = (function () {
           F(dx2 + o[0] * (shrunken ? 1 : 2), dz2 + o[1] * (shrunken ? 1 : 2), ty, PK.STONE);
         });
         if (ty % 6 === 0) {
-          box(writer, park, S(dx2 - 2, dz2)[0], S(dx2, dz2 - 2)[1],
-            S(dx2 + 2, dz2)[0], S(dx2, dz2 + 2)[1], ah + ty, ah + ty, PK.GOLD);
+          // 横箍只铺外环（中空留出轿厢升降的十字通道）
+          var bx0 = S(dx2 - 2, dz2)[0], bz0 = S(dx2, dz2 - 2)[1];
+          var bx1 = S(dx2 + 2, dz2)[0], bz1 = S(dx2, dz2 + 2)[1];
+          var cxg = S(dx2, dz2);
+          for (var hx = bx0; hx <= bx1; hx++)
+            for (var hz = bz0; hz <= bz1; hz++) {
+              var edgeX = Math.abs(hx - cxg[0]) === 2;
+              var edgeZ = Math.abs(hz - cxg[1]) === 2;
+              if (!edgeX && !edgeZ) continue;   // 中线 3×3 保持通透
+              writer(hx, ah + ty, hz, PK.GOLD, 'force');
+            }
         }
       }
-      // 塔冠 + 信标灯
+      // 塔冠（外环）+ 信标灯：中央留孔让轿厢最高点穿过
       var dp = S(dx2, dz2);
-      box(writer, park, dp[0] - 2, dp[1] - 2, dp[0] + 2, dp[1] + 2, ah + th + 1, ah + th + 1, PK.GOLD);
-      writer(dp[0], ah + th + 2, dp[1], PK.LANTERN, 'air');
+      for (var cxr = -2; cxr <= 2; cxr++)
+        for (var czr = -2; czr <= 2; czr++) {
+          if (Math.abs(cxr) !== 2 && Math.abs(czr) !== 2) continue;
+          writer(dp[0] + cxr, ah + th + 1, dp[1] + czr, PK.GOLD, 'force');
+        }
+      // 冠檐四角立柱撑起信标
+      [[-2, -2], [2, -2], [-2, 2], [2, 2]].forEach(function (c) {
+        writer(dp[0] + c[0], ah + th + 2, dp[1] + c[1], PK.GOLD, 'force');
+      });
+      writer(dp[0], ah + th + 3, dp[1], PK.LANTERN, 'air');
       // 乘坐台
       var drpad = S(L.drop.board[0], L.drop.board[1]);
       fCol(L.drop.board[0], L.drop.board[1], 0, PK.CREAM, true);
@@ -1008,11 +1050,15 @@ Voxel.Structures = (function () {
           // 弧顶盖板
           if (w <= 2) F(gx, gz2, 7 - (w === 1 ? 1 : 0), PK.BLUE);
         }
-        // 入口门框强化
+        // 入口门框强化（中线 ±1 留作进出通道：只挂顶部霓虹饰带，不落墙体，
+        // 否则会把通道口和下面的 PAD 乘坐台一起封死）
         if (gx === T2.gx0 || gx === T2.gx1) {
           for (var fr = T2.gz - 4; fr <= T2.gz + 4; fr++) {
+            var lane = Math.abs(fr - T2.gz) <= 1;
             fCol(gx, fr, 0, PK.BLUE, true);
-            for (var fy2 = 1; fy2 <= 7; fy2++) F(gx, fr, fy2, PK.BLUE);
+            if (!lane) {
+              for (var fy2 = 1; fy2 <= 7; fy2++) F(gx, fr, fy2, PK.BLUE);
+            }
             F(gx, fr, 8, PK.NEON_P);
           }
         }

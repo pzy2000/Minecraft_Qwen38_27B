@@ -154,7 +154,9 @@ Voxel.Amusement = (function () {
   function sndVol(px, pz, x, z, range) {
     var dx = x - px, dz = z - pz;
     var d = Math.sqrt(dx * dx + dz * dz);
-    return d > (range || 70) ? 0 : 1 - d / (range || 70);
+    // 近处不衰减（乘坐者/站在台旁必得全音量），只做远端衰减
+    return d > (range || 70) ? 0 : Math.min(1, d / (range || 70)) <= 0.12
+      ? 1 : 1 - (d / (range || 70) - 0.12) / 0.88;
   }
 
   // ---------- 设施构建 ----------
@@ -225,6 +227,12 @@ Voxel.Amusement = (function () {
 
     return {
       group: g, kind: 'ferris',
+      setVehicleHidden: function (h) {
+        // 相机贴着轮缘圆周运动，乘坐期间隐去轮体/座舱/灯珠，视野完全敞开
+        wheelFrame.visible = !h;
+        cabins.forEach(function (c) { c.visible = !h; });
+        bulbs.visible = !h;
+      },
       tick: function (now) {
         var omega = (Math.PI * 2) / st.periodS;
         var theta = reducedMotion ? 0 : omega * (now - (st._t0 || now));
@@ -252,6 +260,10 @@ Voxel.Amusement = (function () {
         _pose.pos.copy(g.position)
           .add(_v1.set(Math.cos(a) * st.R, Math.sin(a) * st.R, 0)
             .applyQuaternion(_q1.copy(wheelFrame.quaternion)));
+        // 眼位：沿轮法线外偏（脱离轮缘/辐条所在平面）+ 抬出座舱顶
+        _v2.crossVectors(horiz, axleY).normalize();
+        _pose.pos.addScaledVector(_v2, -2.6);
+        _pose.pos.y += 2.2;
         _pose.yaw = faceYaw; _pose.pitch = 0; _pose.fovOff = 0;
         return _pose;
       },
@@ -312,7 +324,7 @@ Voxel.Amusement = (function () {
         var theta = reducedMotion ? 0 : omega * (now - (st._t0 || now));
         var ha = theta;                                     // 第 0 匹马
         _pose.pos.set(g.position.x + Math.cos(ha) * 4.2,
-          g.position.y + 1.6 + (reducedMotion ? 0 : Math.sin(now * 2.1) * 0.34) + 0.9,
+          g.position.y + 1.6 + (reducedMotion ? 0 : Math.sin(now * 2.1) * 0.34) + 2.3,
           g.position.z + Math.sin(ha) * 4.2);
         _pose.yaw = -(ha + Math.PI / 2); _pose.pitch = 0; _pose.fovOff = 0;
         return _pose;
@@ -360,7 +372,7 @@ Voxel.Amusement = (function () {
         var u = this.phase(now);
         var frac = reducedMotion ? 0 : dropProfile(u);
         var topY = st.baseY + st.towerH + 1.5;
-        var y = st.baseY + 2.2 + (topY - st.baseY - 2.2) * frac;
+        var y = st.baseY + 2.2 + (topY - st.baseY - 2.2) * frac + 1.9; // 眼位抬出吊舱
         // FOV 冲击：下落速度 ∝ |d(frac)/dt|，坠段归一化斜率 0..1 → 最多 +12°
         var fovOff = 0;
         if (!reducedMotion && u > 0.58 && u < 0.78) {
@@ -371,6 +383,10 @@ Voxel.Amusement = (function () {
         _pose.pitch = reducedMotion ? 0 : -(frac > 0.9 ? -0.5 : 0.25);
         _pose.fovOff = fovOff;
         return _pose;
+      },
+      // 乘坐中隐藏吊舱总成（相机嵌在其中，任何固定偏移都会被彩色舱体糊脸）
+      setVehicleHidden: function (h) {
+        carriage.visible = !h;
       }
     };
   }
@@ -382,14 +398,17 @@ Voxel.Amusement = (function () {
   }
 
   function makeCurve(points, closed) {
+    // x/z 居中偏移由调用方负责（过山车控制点为整数格需 +0.5；光轮锚点已含）
     var vts = [];
     for (var i = 0; i < points.length; i++)
-      vts.push(new THREE.Vector3(points[i][0] + 0.5, points[i][1] + 1.4, points[i][2] + 0.5));
+      vts.push(new THREE.Vector3(points[i][0], points[i][1] + 1.4, points[i][2]));
     return new THREE.CatmullRomCurve3(vts, !!closed, 'catmullrom', 0.5);
   }
 
   function buildCoaster(st, dis, nowSec) {
-    var curve = makeCurve(st.path, true);
+    // 控制点为整数格坐标：居中 +0.5
+    var centered = st.path.map(function (p) { return [p[0] + 0.5, p[1], p[2] + 0.5]; });
+    var curve = makeCurve(centered, true);
     var g = new THREE.Group();
     // 轨道：主梁 + 顶层金轨各 1 Mesh
     g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 120, 0.16, 6, true),
@@ -416,6 +435,9 @@ Voxel.Amusement = (function () {
 
     return {
       group: g, kind: 'coaster', curve: curve,
+      setVehicleHidden: function (h) {
+        cars.forEach(function (c) { c.visible = !h; });
+      },
       tick: function (now) {},
       cars: cars,
       trainPose: function (now, out) {
@@ -459,7 +481,6 @@ Voxel.Amusement = (function () {
   function buildTron(st, dis, nowSec) {
     scratch();
     var ax = _v1.set(st.g1[0] - st.g0[0], 0, st.g1[1] - st.g0[1]).normalize().clone();
-    var side = _v2.crossVectors(new THREE.Vector3(0, 1, 0), ax).normalize().clone();
     var y0 = st.baseY + 2.2, loopR = (st.loopTopY - st.baseY) / 2 + 2;
     var exitP = new THREE.Vector3(st.g1[0] + 0.5, y0, st.g1[1] + 0.5);
     var entryBack = new THREE.Vector3(st.g0[0] + 0.5, y0, st.g0[1] + 0.5)
@@ -473,17 +494,22 @@ Voxel.Amusement = (function () {
       pts.push([st.g0[0] + 0.5 + (st.g1[0] - st.g0[0]) * f, y0,
         st.g0[1] + 0.5 + (st.g1[1] - st.g0[1]) * f]);
     pts.push([st.g1[0] + 0.5, y0, st.g1[1] + 0.5]);
-    // 出口高架直立回环（垂直面内圆）
-    var circCx = exitP.clone().add(ax.clone().multiplyScalar(loopR * 1.05));
+    // 出口高架直立回环：真·垂直面内圆，整圈位于出口外净空区（圆内缘与门框
+    // 留 4 格余量）。锚点不重复（li 只到 NLP-1，closed 曲线自动闭合圈尾）。
+    var CIRC_CLEAR = loopR + 4;
+    var circCx = exitP.clone().add(ax.clone().multiplyScalar(CIRC_CLEAR));
     var NLP = 9;
-    for (var li = 0; li <= NLP; li++) {
+    for (var li = 0; li < NLP; li++) {
       var aa = Math.PI / 2 - li / NLP * Math.PI * 2;
       var cp = circCx.clone()
-        .add(side.clone().multiplyScalar(Math.cos(aa) * loopR))
+        .add(ax.clone().multiplyScalar(Math.cos(aa) * loopR))
         .add(new THREE.Vector3(0, Math.sin(aa) * loopR, 0));
       pts.push([cp.x, Math.max(st.baseY + 1.4, cp.y), cp.z]);
     }
-    pts.push([entryBack.x, y0, entryBack.z]);
+    // 回程经屋顶上方过渡点缓降；closed 曲线自动回绕到入口外下潜点
+    var roofMidX = (st.g1[0] + st.g0[0]) / 2 + 0.5;
+    var roofMidZ = (st.g1[1] + st.g0[1]) / 2 + 0.5;
+    pts.push([roofMidX, st.loopTopY + 10, roofMidZ]);
     var curve = makeCurve(pts, true);
 
     var g = new THREE.Group();
@@ -507,6 +533,10 @@ Voxel.Amusement = (function () {
 
     return {
       group: g, kind: 'tron', curve: curve, neonMat: neonMat,
+      setVehicleHidden: function (h) {
+        podGrp.visible = !h;
+        // 隐身时弹舱也不再随 riderPose 更新位置（可见性由外部 update 恢复）
+      },
       tick: function (now) {
         if (!reducedMotion) {
           var pulse = 0.55 + 0.45 * Math.sin(now * 9);
@@ -647,6 +677,10 @@ Voxel.Amusement = (function () {
     var AMP = 0.96; // 摆幅 55°
     return {
       group: g, kind: 'pirate',
+      setVehicleHidden: function (h) {
+        // 相机坐在船中排，摆动时船舷/座椅会糊脸；乘坐期间隐去摆体
+        swingMesh.visible = !h;
+      },
       tick: function (now) {
         var omega = (Math.PI * 2) / st.periodS;
         var th = reducedMotion ? 0 : Math.sin(omega * (now - (st._t0 || now))) * AMP;
@@ -661,10 +695,11 @@ Voxel.Amusement = (function () {
       riderPose: function (now) {
         var omega = (Math.PI * 2) / st.periodS;
         var th = reducedMotion ? 0 : Math.sin(omega * (now - (st._t0 || now))) * AMP;
-        // 船中心 = 轴心 + R*[sinθ, -cosθ]（局部 x-y 平面），随 g 的 yaw0 旋转到世界
+        // 船中心 = 轴心 + R*[sinθ, -cosθ]（局部 x-y 平面），随 g 的 yaw0 旋转到世界；
+        // 眼位再抬出船舷与吊梁
         scratch();
         _pose.pos.set(g.position.x + Math.sin(th) * Larm,
-          g.position.y + H - Math.cos(th) * Larm + 0.4,
+          g.position.y + H - Math.cos(th) * Larm + 2.3,
           g.position.z);
         _pose.pos.applyAxisAngle(_v1.set(0, 1, 0), yaw0);
         _pose.yaw = -th * 0.55;                   // 随摆轻甩头
@@ -933,10 +968,12 @@ Voxel.Amusement = (function () {
           }
         }
         if (piece.kind === 'tron') {
-          var rp = piece.riderPose(nowSec);
-          piece.pod.position.copy(rp.pos);
-          piece.pod.rotation.y = rp.yaw;
-          piece.pod.rotation.x = rp.pitch;
+          if (piece.pod.visible) {
+            var rp = piece.riderPose(nowSec);
+            piece.pod.position.copy(rp.pos);
+            piece.pod.rotation.y = rp.yaw;
+            piece.pod.rotation.x = rp.pitch;
+          }
         }
       }
       driveSounds(dt, nowSec, px, pz);
@@ -984,10 +1021,17 @@ Voxel.Amusement = (function () {
         st._t0 = nowSec - bestU * T;
       }
       _ridingKind = kind;
+      // 相机嵌在载具体内的设施：乘员在车上时把车体隐藏，避免遮挡视线
+      if (piece.setVehicleHidden) piece.setVehicleHidden(true);
       return true;
     },
 
-    endRide: function () { _ridingKind = null; },
+    endRide: function () {
+      if (_ridingKind && active && active.pieces[_ridingKind] &&
+        active.pieces[_ridingKind].setVehicleHidden)
+        active.pieces[_ridingKind].setVehicleHidden(false);
+      _ridingKind = null;
+    },
 
     // 乘坐中每帧的眼睛位姿（pos/yaw/pitch + fovOff FOV 增量）
     riderState: function (nowSec) {
