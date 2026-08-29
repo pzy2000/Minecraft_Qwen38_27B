@@ -84,7 +84,7 @@ found.forEach(function (p) {
   var park = V.Structures.cellPark(p.cx, p.cz);
   var st = V.Structures.parkStations(park);
   var boards = V.Structures.boardPositions(park);
-  if (st.length !== 6 || boards.length !== 5)
+  if (st.length !== 7 || boards.length !== 6)
     throw new Error('站点数量异常: stations=' + st.length + ' boards=' + boards.length);
   st.forEach(function (s) {
     if (s.kind !== 'castle') {

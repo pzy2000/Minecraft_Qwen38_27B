@@ -511,6 +511,7 @@ Voxel.Structures = (function () {
       carousel: { c: [14, -10], board: [14, -2], R: 5 },
       drop: { c: [34, 26], board: [27, 26], towerH: 54 },
       castle: { c: [-46, -44] },
+      pirate: { c: [-28, 34], board: [-21, 34], R: 13, axleY: 15 },
       coaster: {
         c: [16, -52],
         board: [10, -30],
@@ -544,6 +545,8 @@ Voxel.Structures = (function () {
     for (var i = 0; i < L.coaster.controls.length; i++)
       ctr.push(X([L.coaster.controls[i][0], L.coaster.controls[i][1]])
         .concat([ah + L.coaster.controls[i][2]]));
+    var pirC = X(L.pirate.c);
+    var pirB = X(L.pirate.board);
     return [
       {
         kind: 'ferris', name: '摩天轮',
@@ -561,6 +564,12 @@ Voxel.Structures = (function () {
         kind: 'drop', name: '跳楼机',
         cx: drop[0], cz: drop[1], baseY: ah, towerH: L.drop.towerH, periodS: 22,
         board: { x: drBoard[0], y: ah + 1, z: drBoard[1] }
+      },
+      {
+        kind: 'pirate', name: '海盗船',
+        cx: pirC[0], cz: pirC[1], baseY: ah,
+        R: L.pirate.R, axleY: L.pirate.axleY, periodS: 14,
+        board: { x: pirB[0], y: ah + 1, z: pirB[1] }
       },
       {
         kind: 'coaster', name: '矿山过山车',
@@ -1087,6 +1096,30 @@ Voxel.Structures = (function () {
       });
     })();
 
+    // ---- 10b. 海盗船基座（A 架/吊臂为运行时组件；体素部分做底座装饰）----
+    (function () {
+      var pc2 = L.pirate.c;
+      // 底座圆角矩形垫层 + 糖果描边
+      for (var qx2 = pc2[0] - 9; qx2 <= pc2[0] + 9; qx2++)
+        for (var qz2 = pc2[1] - 4; qz2 <= pc2[1] + 4; qz2++) {
+          var inside = Math.abs(qx2 - pc2[0]) <= 8 && Math.abs(qz2 - pc2[1]) <= 3;
+          if (!inside) continue;
+          var ringEdge = Math.abs(qx2 - pc2[0]) === 8 || Math.abs(qz2 - pc2[1]) === 3;
+          fCol(qx2, qz2, 0, ringEdge ? PK.CANDY : PK.CREAM, true);
+        }
+      // 两侧配重块（金饰顶）
+      [[-8, 0], [8, 0]].forEach(function (cw) {
+        var cxp = S(pc2[0] + cw[0], pc2[1]);
+        foundation(writer, park, cxp[0], cxp[1], ah, PK.LAWN);
+        writer(cxp[0], ah + 1, cxp[1], PK.STONE, 'force');
+        writer(cxp[0], ah + 2, cxp[1], PK.GOLD, 'force');
+      });
+      // 挂旗彩旗串（横跨 A 架顶）
+      var flagP = S(pc2[0], pc2[1] - 3);
+      foundation(writer, park, flagP[0], flagP[1], ah, PK.LAWN);
+      writer(flagP[0], ah + 17, flagP[1], PK.BUNTING, 'air');
+    })();
+
     // ---- 11. 外围白栏杆 + 彩旗串边界（缝隙入口已由大门方向留出）----
     (function () {
       for (var ang = 0; ang < 128; ang++) {
@@ -1122,7 +1155,7 @@ Voxel.Structures = (function () {
     // ---- 12. 统一放置乘坐台（最后写入：放射步道/站台铺装不得覆盖 PAD）----
     (function () {
       var padSpots = [L.ferris.board, L.carousel.board, L.drop.board,
-        L.coaster.board, L.tron.board];
+        L.pirate.board, L.coaster.board, L.tron.board];
       padSpots.forEach(function (bpos) {
         var pb = S(bpos[0], bpos[1]);
         foundation(writer, park, pb[0], pb[1], ah, PK.LAWN);

@@ -591,6 +591,215 @@ Voxel.Amusement = (function () {
         snd.creakQ = q;
       } else snd.creakQ = -1;
     }
+    piece = active.pieces.pirate;
+    if (piece && active.boardPos.pirate) {
+      var vP = sndVol(px, pz, active.boardPos.pirate.x, active.boardPos.pirate.z, 60);
+      var vel = piece.vel(nowSec);
+      if (vP > 0 && vel > 0.62 && nowSec - (snd.pirWhooshAt || 0) > 0.45) {
+        snd.pirWhooshAt = nowSec;
+        S.rideWhoosh(vP * Math.min(1, vel * 0.7));
+      }
+    }
+  }
+
+  function buildPirate(st, dis, nowSec) {
+    scratch();
+    var g = new THREE.Group();
+    g.position.set(st.cx + 0.5, st.baseY + 0.5, st.cz + 0.5);
+    // 朝向：rot 奇偶决定摆动平面法线（与摩天轮同规则）
+    var yaw0 = ((st.rotHint & 1) === 1) ? Math.PI / 2 : 0;
+    g.rotation.y = yaw0;
+
+    // 支架 + 轴：合并 1 Mesh（A 架双三角 + 顶轴）
+    var H = st.axleY, Larm = st.R;
+    var psb = new PartBuilder();
+    // 前后两片 A 架（沿 z ±1.4）：腿斜率使顶点汇聚于 (0,H,±1.4)
+    for (var fz = -1; fz <= 1; fz += 2) {
+      var legLen = Math.sqrt(H * H + 6 * 6) + 1;
+      psb.box(0x8a4a34, [0.7, legLen, 0.7], [-3, H / 2, fz * 1.4], [0, 0, -Math.atan2(6, H)]);
+      psb.box(0x8a4a34, [0.7, legLen, 0.7], [3, H / 2, fz * 1.4], [0, 0, Math.atan2(6, H)]);
+      psb.box(0x6e3a28, [7, 0.5, 0.6], [0, 0.4, fz * 1.4]);      // 底梁
+      psb.box(0xdca843, [6.2, 0.4, 0.5], [0, H * 0.55, fz * 1.4]); // 金饰横撑
+    }
+    psb.cyl(0xc79a38, 0.45, 0.45, 3.6, 12, [0, H, 0], [Math.PI / 2, 0, 0]); // 轴
+    g.add(new THREE.Mesh(psb.merge(dis), dis(mat(0xffffff, { vertexColors: true }))));
+
+    // 摆臂 + 船体：合并 1 Mesh，挂在摆动组（枢轴=轴心）
+    var swing = new THREE.Group();
+    swing.position.set(0, H, 0);
+    var psw = new PartBuilder();
+    psw.box(0x5c4632, [0.5, Larm * 2 - 3, 0.5], [0, 0, 0]);       // 主吊臂
+    psw.box(0xdca843, [1.6, 0.5, 0.8], [0, -Larm + 1.2, 0]);      // 船梁吊点
+    // 船体（船头 -x）：底舱 + 两舷 + 船头艏柱 + 乘客排
+    psw.box(0x7a4a2e, [7.4, 1.0, 2.4], [0, -Larm - 0.4, 0]);
+    psw.box(0x8a5a38, [7.4, 0.5, 0.4], [0, -Larm + 0.15, 1.1]);
+    psw.box(0x8a5a38, [7.4, 0.5, 0.4], [0, -Larm + 0.15, -1.1]);
+    psw.box(0xdca843, [0.6, 1.6, 0.6], [-3.9, -Larm + 0.6, 0]);   // 艏柱
+    psw.cone(0xd8574f, 0.5, 1.1, 4, [-3.9, -Larm + 1.7, 0], [0, Math.PI / 4, 0.9]);
+    for (var row = -1; row <= 2; row++) {
+      psw.box(0xe4797d, [0.7, 0.5, 2.0], [row * 1.8, -Larm + 0.55, 0]); // 座椅排
+    }
+    var swingMesh = new THREE.Mesh(psw.merge(dis),
+      dis(mat(0xffffff, { vertexColors: true })));
+    swing.add(swingMesh);
+    g.add(swing);
+
+    var AMP = 0.96; // 摆幅 55°
+    return {
+      group: g, kind: 'pirate',
+      tick: function (now) {
+        var omega = (Math.PI * 2) / st.periodS;
+        var th = reducedMotion ? 0 : Math.sin(omega * (now - (st._t0 || now))) * AMP;
+        swing.rotation.z = th;
+        return th;
+      },
+      vel: function (now) {                       // 角速度（√ 比例用于音效/FOV）
+        var omega = (Math.PI * 2) / st.periodS;
+        return reducedMotion ? 0 :
+          Math.abs(Math.cos(omega * (now - (st._t0 || now))) * AMP * omega);
+      },
+      riderPose: function (now) {
+        var omega = (Math.PI * 2) / st.periodS;
+        var th = reducedMotion ? 0 : Math.sin(omega * (now - (st._t0 || now))) * AMP;
+        // 船中心 = 轴心 + R*[sinθ, -cosθ]（局部 x-y 平面），随 g 的 yaw0 旋转到世界
+        scratch();
+        _pose.pos.set(g.position.x + Math.sin(th) * Larm,
+          g.position.y + H - Math.cos(th) * Larm + 0.4,
+          g.position.z);
+        _pose.pos.applyAxisAngle(_v1.set(0, 1, 0), yaw0);
+        _pose.yaw = -th * 0.55;                   // 随摆轻甩头
+        _pose.pitch = -th * 0.8;
+        _pose.fovOff = reducedMotion ? 0 :
+          Math.min(9, this.vel(now) * 16);
+        return _pose;
+      }
+    };
+  }
+
+  // ---------- 城堡探照灯束（纯非体素，随 root 卸载） ----------
+  function buildSearchlights(st, dis, nowSec) {
+    var g = new THREE.Group();
+    // 城堡尖塔顶（castle station: c=局部转全局, baseY=ah）
+    g.position.set(st.c[0] + 0.5, st.baseY + 55, st.c[1] + 0.5);
+    var beamMat = dis(mat(0xfff3c8, {
+      transparent: true, opacity: 0.16, depthWrite: false,
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+    }));
+    var beamLen = 64, beamRad = 9;
+    for (var i = 0; i < 4; i++) {
+      var holder = new THREE.Group();
+      holder.rotation.y = i / 4 * Math.PI * 2;
+      var cone = new THREE.Mesh(new THREE.ConeGeometry(beamRad, beamLen, 12, 1, true), beamMat);
+      cone.rotation.z = Math.PI / 2 + 0.5;             // 外倾约 29°
+      cone.position.set(beamLen / 2 + 2, 0, 0);
+      holder.add(cone);
+      g.add(holder);
+    }
+    // 尖顶信标光球（缓慢脉动）
+    var beaconMat = dis(mat(0xffe08a, { transparent: true, opacity: 0.9 }));
+    var beacon = new THREE.Mesh(new THREE.SphereGeometry(1.4, 10, 8), beaconMat);
+    beacon.position.y = -1;
+    g.add(beacon);
+
+    return {
+      group: g, kind: 'lights',
+      tick: function (now) {
+        if (!reducedMotion) g.rotation.y = now * 0.13;
+        beacon.material.opacity = reducedMotion ? 0.85 :
+          0.65 + 0.35 * Math.sin(now * 1.7);
+        var bs = 1.2 + 0.35 * (reducedMotion ? 0 : Math.sin(now * 1.7));
+        beacon.scale.set(bs, bs, bs);
+      }
+    };
+  }
+
+  // ---------- 夜间烟花（粒子迸裂，仅夜间/园区活跃时） ----------
+  var FW = { bursts: [], nextAt: 0, launchAt: 0, pending: null, colors: [
+    0xffd27a, 0xff8fb4, 0x8fe8ff, 0xc7a6ff, 0xa5f27a] };
+
+  function spawnFirework(origin) {
+    scratch();
+    var n = 64;
+    var pos = new Float32Array(n * 3);
+    var vel = [];
+    var color = FW.colors[(Math.random() * FW.colors.length) | 0];
+    for (var i = 0; i < n; i++) {
+      pos[i * 3] = origin.x; pos[i * 3 + 1] = origin.y; pos[i * 3 + 2] = origin.z;
+      // 均匀球面方向 × 随机速率
+      var th = Math.random() * Math.PI * 2;
+      var ph = Math.acos(2 * Math.random() - 1);
+      var sp = 7 + Math.random() * 5;
+      vel.push(new THREE.Vector3(
+        Math.sin(ph) * Math.cos(th) * sp,
+        Math.cos(ph) * sp,
+        Math.sin(ph) * Math.sin(th) * sp));
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    var pmat = new THREE.PointsMaterial({
+      color: color, size: 0.42, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: true
+    });
+    var points = new THREE.Points(geo, pmat);
+    points.frustumCulled = false;
+    root.add(points);
+    FW.bursts.push({ points: points, vel: vel, life: 0, ttl: 1.7,
+      geo: geo, mat: pmat });
+  }
+
+  function updateFireworks(dt, nowSec, px, pz) {
+    // 触发调度：夜间 + 园区活跃，间隔 90–150s；升空哨 → 0.9s 后爆裂
+    var castlePiece = active.pieces.lights;
+    if (castlePiece) {
+      var S = Voxel.Sound;
+      var night = Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight();
+      if (!night) { FW.nextAt = nowSec + 45; FW.pending = null; }
+      else if (!FW.pending && nowSec >= FW.nextAt) {
+        scratch();
+        _v3.copy(castlePiece.group.position);
+        _v3.y += 6;
+        _v3.x += (Math.random() - 0.5) * 24;
+        _v3.z += (Math.random() - 0.5) * 24;
+        FW.pending = { at: nowSec + 0.9, origin: _v3.clone() };
+        FW.launchAt = nowSec;
+        if (S && S.fireworkLaunch) {
+          var d0 = Math.sqrt((_ppx - _v3.x) * (_ppx - _v3.x) + (_ppz - _v3.z) * (_ppz - _v3.z));
+          S.fireworkLaunch(Math.max(0, 1 - d0 / 90));
+        }
+      } else if (FW.pending && nowSec >= FW.pending.at) {
+        spawnFirework(FW.pending.origin);
+        if (S && S.fireworkBoom) {
+          var o = FW.pending.origin;
+          var d1 = Math.sqrt((_ppx - o.x) * (_ppx - o.x) + (_ppz - o.z) * (_ppz - o.z));
+          S.fireworkBoom(Math.max(0, 1 - d1 / 110));
+        }
+        FW.pending = null;
+        FW.nextAt = nowSec + 90 + Math.random() * 60;
+      }
+    }
+    // 活跃迸裂推进
+    for (var i = FW.bursts.length - 1; i >= 0; i--) {
+      var b = FW.bursts[i];
+      b.life += dt;
+      var arr = b.geo.attributes.position.array;
+      for (var k = 0; k < b.vel.length; k++) {
+        var vv = b.vel[k];
+        vv.y -= 9.5 * dt;                      // 重力
+        vv.multiplyScalar(1 - 1.4 * dt);       // 空气阻尼
+        arr[k * 3] += vv.x * dt;
+        arr[k * 3 + 1] += vv.y * dt;
+        arr[k * 3 + 2] += vv.z * dt;
+      }
+      b.geo.attributes.position.needsUpdate = true;
+      var k2 = Math.max(0, 1 - b.life / b.ttl);
+      b.mat.opacity = k2;
+      b.mat.size = 0.42 * (0.5 + 0.5 * k2);
+      if (b.life >= b.ttl) {
+        root.remove(b.points);
+        b.geo.dispose(); b.mat.dispose();
+        FW.bursts.splice(i, 1);
+      }
+    }
   }
 
   // ---------- 载入/卸载 ----------
@@ -605,6 +814,12 @@ Voxel.Amusement = (function () {
     active.disposables.forEach(function (d) {
       try { d.obj.dispose && d.obj.dispose(); } catch (e) { /* 忽略重复释放 */ }
     });
+    // 烟花迸裂对象不进 disposables（自带生命周期），这里显式清理
+    FW.bursts.forEach(function (b) {
+      try { b.geo.dispose(); b.mat.dispose(); } catch (e) { }
+    });
+    FW.bursts.length = 0;
+    FW.pending = null;
     active = null;
   }
   var _lastDispose = null, _ppx = null, _ppz = null;
@@ -630,13 +845,22 @@ Voxel.Amusement = (function () {
         case 'ferris': built = buildFerris(st, dis, performance.now() / 1000); break;
         case 'carousel': built = buildCarousel(st, dis, performance.now() / 1000); break;
         case 'drop': built = buildDrop(st, dis, performance.now() / 1000); break;
+        case 'pirate': built = buildPirate(st, dis, performance.now() / 1000); break;
         case 'coaster': built = buildCoaster(st, dis, performance.now() / 1000); break;
         case 'tron': built = buildTron(st, dis, performance.now() / 1000); break;
-        default: return;    // castle 为纯静态体素，无动态组件
+        default: return;    // castle 体素主体为静态；动态部分单独建探照灯
       }
       pieces[st.kind] = built;
       if (built.group) root.add(built.group);
     });
+    // 城堡探照灯束（挂在 castle 站点位形上）
+    var castleSt = null;
+    stations.forEach(function (s) { if (s.kind === 'castle') castleSt = s; });
+    if (castleSt) {
+      var lights = buildSearchlights(castleSt, dis, performance.now() / 1000);
+      pieces.lights = lights;
+      root.add(lights.group);
+    }
 
     active.park = park;
     active.stations = stations;
@@ -716,6 +940,7 @@ Voxel.Amusement = (function () {
         }
       }
       driveSounds(dt, nowSec, px, pz);
+      updateFireworks(dt, nowSec, px, pz);
     },
 
     // 最近的乘坐台（供提示/上车判定）。radius 内返回。
@@ -772,8 +997,11 @@ Voxel.Amusement = (function () {
     },
 
     ridingKind: function () { return _ridingKind; },
+    // 测试钩子：强制下一帧放一发烟花（并立即进入夜间调度分支）
+    _fwForce: function () { FW.nextAt = 0; FW.pending = null; },
     _debug: function () { return { lastDispose: _lastDispose,
-      attached: root && root.parent === sceneRef }; },
+      attached: root && root.parent === sceneRef,
+      fwBursts: FW.bursts.length, fwPending: !!FW.pending }; },
     // 当前活跃园区中心（发现档案用；无园区返回 null）
     parkCenter: function () {
       if (!active) return null;

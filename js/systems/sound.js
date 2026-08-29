@@ -761,6 +761,18 @@ Voxel.Sound = (function () {
     tone('sine', 130, 108, 0.1, 0.04 * v);
   }
 
+  // 烟花：升空哨 + 爆裂闷响 + 碎裂嘶声（v 为距离衰减 0..1）
+  function fireworkLaunch(v) {
+    if (v <= 0) return;
+    tone('sine', 320, 980, 0.65, 0.05 * v);
+  }
+  function fireworkBoom(v) {
+    if (v <= 0) return;
+    noiseHit(170, 0.7, 0.5, 0.26 * v);
+    tone('sine', 66, 34, 0.4, 0.2 * v);
+    noiseHit(2600, 0.9, 0.22, 0.05 * v);
+  }
+
   function musicStateSnapshot() {
     var chunkId = musicName === 'music_day' ? 'music-day' :
       musicName === 'music_night' ? 'music-night' : '';
@@ -869,6 +881,8 @@ Voxel.Sound = (function () {
     dropThud: dropThud,
     carouselNote: carouselNote,
     ferrisCreak: ferrisCreak,
+    fireworkLaunch: fireworkLaunch,
+    fireworkBoom: fireworkBoom,
     flightAudioSnapshot: flightAudioSnapshot,
     musicStateSnapshot: musicStateSnapshot,
     matFreq: matFreq,

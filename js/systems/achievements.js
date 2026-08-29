@@ -135,8 +135,8 @@ Voxel.Achievements = (function () {
       prog: function () {
         var set = P().rideSet ? P().rideSet() : {};
         var n = 0;
-        ['ferris', 'carousel', 'drop', 'coaster', 'tron'].forEach(function (k) { if (set[k]) n++; });
-        return [n, 5];
+        ['ferris', 'carousel', 'drop', 'pirate', 'coaster', 'tron'].forEach(function (k) { if (set[k]) n++; });
+        return [n, 6];
       } }
   ];
 
