@@ -1496,6 +1496,19 @@ body[data-touch-mode="true"][data-save-health="unsaved"] .touch-btn-top.pause::a
 .craft-btn:disabled { background: #4a4a4a; opacity: 0.5; cursor: default; }
 .craft-btn:disabled:hover { filter: none; }
 
+/* 手册图标悬浮名称提示 */
+.manual-tip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 5px 10px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(10, 16, 26, 0.92);
+  border: 1px solid #7ec850;
+  white-space: nowrap;
+}
+
 #use-hint {
   position: absolute; left: 50%; top: 58%;
   transform: translateX(-50%);

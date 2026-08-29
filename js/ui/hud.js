@@ -208,6 +208,7 @@ Voxel.HUD = (function () {
         note.textContent = '任意位置';
         left.appendChild(note);
         (function (cv, id) { drawIcon(cv, id); })(ic, firstInput(r.alts ? r.alts[0] : r.inputs));
+        bindManualTip(ib, Voxel.Blocks.name(firstInput(r.alts ? r.alts[0] : r.inputs)));
       } else {
         left.className = 'recipe-grid';
         for (var k = 0; k < 9; k++) {
@@ -218,6 +219,7 @@ Voxel.HUD = (function () {
             cv.width = 44; cv.height = 44;
             cell.appendChild(cv);
             (function (c2, id) { drawIcon(c2, id); })(cv, r.grid[k]);
+            (function (box, id) { bindManualTip(box, Voxel.Blocks.name(id)); })(cell, r.grid[k]);
           }
           left.appendChild(cell);
         }
@@ -288,6 +290,7 @@ Voxel.HUD = (function () {
         sib.appendChild(sic);
         sl.appendChild(sib);
         drawIcon(sic, +sid);
+        bindManualTip(sib, Voxel.Blocks.name(+sid));
         srow.appendChild(sl);
         var sar = document.createElement('div');
         sar.className = 'recipe-arrow';
@@ -319,6 +322,34 @@ Voxel.HUD = (function () {
       manualBtns[i].textContent = n > 0 ? '合成 ×' + n : '材料不足';
       manualBtns[i].disabled = n <= 0;
     }
+  }
+
+  // 手册图标悬浮提示：跟随鼠标显示物品名称
+  var manualTipEl = null;
+  function manualTipText(el) {
+    if (!manualTipEl) {
+      manualTipEl = document.createElement('div');
+      manualTipEl.className = 'manual-tip';
+      manualTipEl.setAttribute('aria-hidden', 'true');
+      el.appendChild(manualTipEl);
+    }
+    return manualTipEl;
+  }
+  function bindManualTip(el, name) {
+    var tip = null;
+    el.addEventListener('pointerenter', function (e) {
+      if (e.pointerType !== 'mouse') return;
+      tip = manualTipText(document.body);
+      tip.textContent = name;
+    });
+    el.addEventListener('pointermove', function (e) {
+      if (!tip || e.pointerType !== 'mouse') return;
+      tip.style.left = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 4) + 'px';
+      tip.style.top = Math.max(e.clientY - tip.offsetHeight - 8, 4) + 'px';
+    });
+    el.addEventListener('pointerleave', function () {
+      tip = null;
+    });
   }
 
   function firstInput(inputs) {
