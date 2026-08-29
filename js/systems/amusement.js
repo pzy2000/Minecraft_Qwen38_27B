@@ -22,6 +22,8 @@ Voxel.Amusement = (function () {
   var root = null;
   var active = null;          // { worldId, park, stations, pieces, disposables }
   var reducedMotion = false;
+  var _speedMul = 1;          // 加速模式倍率（售票亭兑换 buff，>1 时全设施提速）
+  var _clock = 0;             // 设施动画时钟：按 _speedMul 步进，tick/riderPose 相位源
   var _searchCd = 0;
 
   // ---- 帧内 scratch（避免每帧 new Vector3 造成 GC 抖动）----
@@ -955,12 +957,14 @@ Voxel.Amusement = (function () {
         }
       }
       if (!active) return;
-      // 动画推进
+      // 设施动画时钟（加速模式生效处）：真实 dt × 倍率
+      _clock += dt * _speedMul;
+      // 动画推进（tick/trainPose/riderPose 全部消费 _clock，保证载具与乘员相机同相位）
       for (var k in active.pieces) {
         var piece = active.pieces[k];
-        if (piece.tick) piece.tick.call(piece, nowSec);
+        if (piece.tick) piece.tick.call(piece, _clock);
         if (piece.kind === 'coaster') {
-          var poses = piece.trainPose(nowSec, _carPoses);
+          var poses = piece.trainPose(_clock, _carPoses);
           for (var c = 0; c < piece.cars.length; c++) {
             piece.cars[c].position.copy(poses[c].pos);
             piece.cars[c].rotation.y = poses[c].yaw;
@@ -969,7 +973,7 @@ Voxel.Amusement = (function () {
         }
         if (piece.kind === 'tron') {
           if (piece.pod.visible) {
-            var rp = piece.riderPose(nowSec);
+            var rp = piece.riderPose(_clock);
             piece.pod.position.copy(rp.pos);
             piece.pod.rotation.y = rp.yaw;
             piece.pod.rotation.x = rp.pitch;
@@ -1004,10 +1008,10 @@ Voxel.Amusement = (function () {
       if (!piece) return false;
       active.stations.forEach(function (s) { if (s.kind === kind) st = s; });
       if (!st) return false;
-      var t0 = nowSec;
-      st._t0 = t0;
+      // _t0 与设施动画时钟(_clock)同源：加速模式切换不跳相
+      st._t0 = _clock;
       if (piece.curve) {
-        // 样条类把起点吸附到"乘车站台"附近：取最接近站台时相 u 并让 now 反推
+        // 样条类把起点吸附到"乘车站台"附近：取最接近站台时相 u 并让时钟反推
         scratch();
         _v2.set(st.board.x + 0.5, st.board.y + (kind === 'coaster' ? 2.4 : 3.2), st.board.z + 0.5);
         var bestU = 0, bestD = Infinity;
@@ -1018,7 +1022,7 @@ Voxel.Amusement = (function () {
           if (d2 < bestD) { bestD = d2; bestU = uTest; }
         }
         var T = st.periodS;
-        st._t0 = nowSec - bestU * T;
+        st._t0 = _clock - bestU * T;
       }
       _ridingKind = kind;
       // 相机嵌在载具体内的设施：乘员在车上时把车体隐藏，避免遮挡视线
@@ -1036,13 +1040,38 @@ Voxel.Amusement = (function () {
     // 乘坐中每帧的眼睛位姿（pos/yaw/pitch + fovOff FOV 增量）
     riderState: function (nowSec) {
       if (!_ridingKind || !active || !active.pieces[_ridingKind]) return null;
-      var pose = active.pieces[_ridingKind].riderPose.call(active.pieces[_ridingKind], nowSec);
+      // 乘员相机消费设施时钟（与载具动画严格同相位，加速模式下不脱节）
+      var pose = active.pieces[_ridingKind].riderPose.call(active.pieces[_ridingKind], _clock);
       return pose;
     },
 
     ridingKind: function () { return _ridingKind; },
     // 测试钩子：强制下一帧放一发烟花（并立即进入夜间调度分支）
     _fwForce: function () { FW.nextAt = 0; FW.pending = null; },
+    // 售票亭「加速模式」：全设施转速倍率（1 = 常速）
+    setSpeedMul: function (v) {
+      var nv = Math.max(0.25, Math.min(4, +v || 1));
+      if (nv === _speedMul) return;
+      // 相位连续：等比缩放各站 _t0（theta = omega·(clock-_t0) 不跳变）
+      var r = _speedMul / nv;
+      if (active) active.stations.forEach(function (s) {
+        if (s._t0 !== undefined) s._t0 = _clock - (_clock - s._t0) * r;
+      });
+      _speedMul = nv;
+    },
+    speedMul: function () { return _speedMul; },
+    // 烟花棒：在指定世界坐标放一发单发烟花（含升空哨已由客户端自理，直接爆裂）
+    launchFirework: function (origin) {
+      if (!active || !root || !origin) return false;
+      scratch();
+      _v3.copy(origin);
+      spawnFirework(_v3);
+      if (Voxel.Sound && Voxel.Sound.fireworkBoom) {
+        var d1 = Math.sqrt((_ppx - _v3.x) * (_ppx - _v3.x) + (_ppz - _v3.z) * (_ppz - _v3.z));
+        Voxel.Sound.fireworkBoom(Math.max(0, 1 - d1 / 110));
+      }
+      return true;
+    },
     _debug: function () { return { lastDispose: _lastDispose,
       attached: root && root.parent === sceneRef,
       fwBursts: FW.bursts.length, fwPending: !!FW.pending }; },

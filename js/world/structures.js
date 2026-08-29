@@ -25,7 +25,7 @@ Voxel.Structures = (function () {
   var ITEM = {
     COAL: 107, IRON_PICK: 103, IRON_SWORD: 106,
     COOKED_PORK: 110, COOKED_CHICKEN: 112, COOKED_RABBIT: 114,
-    WARP_CELL: 122
+    WARP_CELL: 122, PARK_TOKEN: 132
   };
 
   // ---- 巨型植物：每类行星一种招牌种，限定群系白名单 ----
@@ -602,6 +602,16 @@ Voxel.Structures = (function () {
       .map(function (s) { return { kind: s.kind, name: s.name, x: s.board.x, y: s.board.y, z: s.board.z }; });
   }
 
+  // 售票亭交互点（左右亭门前各一）：票券经济兑换面板的接近判定源
+  function parkBooths(park) {
+    if (!park) return [];
+    var L = parkLayout();
+    return [L.boothL, L.boothR].map(function (b) {
+      var p = PX(park, b[0], b[1]);
+      return { x: p[0], y: park.ah + 1, z: p[1] };
+    });
+  }
+
   // 精选世界出生点：大门外 5 格的干燥安全列，面向园内（穿过拱廊即见喷泉广场）。
   function parkGateSpawn(park) {
     if (!park || !ctx) return null;
@@ -655,6 +665,7 @@ Voxel.Structures = (function () {
     put(ITEM.COAL, 4 + ((roll(2) * 6) | 0));
     var crys = CRYSTAL_ITEM[typeKeyOf()] || CRYSTAL_ITEM.lush;
     put(crys, 2 + ((roll(3) * 4) | 0));
+    put(ITEM.PARK_TOKEN, 3 + ((roll(6) * 4) | 0));   // 乐园代币 3–6 枚
     if (roll(4) < 0.4) put(ITEM.IRON_PICK, 1, Math.max(1, Math.round(251 * (0.55 + roll(5) * 0.45))));
     else put(ITEM.WARP_CELL, 1);
     return items;
@@ -1237,6 +1248,7 @@ Voxel.Structures = (function () {
     parkLayout: parkLayout,
     parkStations: parkStations,
     boardPositions: boardPositions,
+    parkBooths: parkBooths,
     parkGateSpawn: parkGateSpawn,
     nearestParkTo: nearestParkTo,
     parkChests: parkChests,

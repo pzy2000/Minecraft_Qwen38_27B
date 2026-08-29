@@ -46,7 +46,8 @@ Voxel.Blocks = (function () {
     PARK_LAWN_TOP: 117, PARK_LAWN_SIDE: 118, CREAM_PAVE: 119, PASTEL_BRICK: 120,
     CANDY_STRIPE: 121, GOLD_TRIM: 122, LANTERN: 123, RAIL_WHITE: 124,
     ROOF_BLUE: 125, NEON_PURPLE: 126, NEON_CYAN: 127, BUNTING: 128,
-    RIDE_PAD: 129, CASTLE_PINK: 130, CASTLE_BLUE: 131
+    RIDE_PAD: 129, CASTLE_PINK: 130, CASTLE_BLUE: 131,
+    TOKEN: 132, FW_ROD: 133
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -355,6 +356,15 @@ Voxel.Blocks = (function () {
     defs[131] = { name: '防寒服', item: true, solid: false, opaque: false,
       tiles: [T.SUIT_COLD, T.SUIT_COLD, T.SUIT_COLD], sound: 'wool', color: 0x2e4460,
       gearSlot: 'body', maxDur: 320, maxStack: 1, icon: T.SUIT_COLD };
+    // ---- 星海嘉年华经济物品（稳定 ID 132..133）----
+    // 乐园代币：宝箱/套圈产出，售票亭兑换加速模式与烟花棒
+    defs[132] = { name: '乐园代币', item: true, solid: false, opaque: false,
+      tiles: [T.TOKEN, T.TOKEN, T.TOKEN], sound: 'stone', color: 0xf5d442,
+      maxStack: 99, icon: T.TOKEN };
+    // 烟花棒：手持右键放单发烟花（消耗品）
+    defs[133] = { name: '烟花棒', item: true, solid: false, opaque: false,
+      tiles: [T.FW_ROD, T.FW_ROD, T.FW_ROD], sound: 'wood', color: 0xd8574f,
+      maxStack: 16, icon: T.FW_ROD };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -1444,6 +1454,40 @@ Voxel.Blocks = (function () {
       if (joint) return [58 + v, 76 + v, 116];
       var hi = ((x * 3 + y * 7) % 37) === 0;
       return hi ? [126 + v, 152 + v, 200] : [96 + v, 120 + v, 168];
+    });
+    drawTile(T.TOKEN, function (x, y, r) {
+      // 乐园代币：金色圆币 + 摩天轮压印 + 高光弧，透明底
+      var dx = x - 7.5, dy = y - 7.5;
+      var d2 = dx * dx + dy * dy;
+      if (d2 > 30) return;
+      var v = n(r, 0, 10);
+      if (d2 > 24) return [172 + v, 128 + v, 38];               // 币缘
+      if (d2 < 3) return [255, 244, 190];                        // 中心高光
+      // 摩天轮压印：圆环 + 四根辐条 + 中点
+      var ring = Math.abs(Math.sqrt(d2) - 4.6) < 0.9;
+      var spoke = (Math.abs(dx) < 0.9 || Math.abs(dy) < 0.9 ||
+        Math.abs(Math.abs(dx) - Math.abs(dy)) < 1.1) && Math.sqrt(d2) < 4.2;
+      if (ring || spoke) return [196 + v, 148 + v, 46];
+      return [238 + v, 196 + v, 74];                             // 币面
+    });
+    drawTile(T.FW_ROD, function (x, y, r) {
+      // 烟花棒：斜握纸棒 + 顶端星形药花 + 火花点，透明底
+      // 棒体：左下→右上对角带
+      var d = Math.abs((x - 3) * 0.72 - (12.2 - y));
+      if (d < 1.35 && x >= 2 && x <= 12 && y >= 4 && y <= 13) {
+        var v = n(r, 0, 8);
+        var stripe = ((x + y) % 5 < 2);
+        return stripe ? [238 + v, 238 + v, 232] : [216 + v, 87 + v, 79];
+      }
+      // 顶端药花：右上角星形 + 火花
+      var dx = x - 11.5, dy = y - 3.5;
+      var dd = Math.sqrt(dx * dx + dy * dy);
+      if (dd < 1.2) return [255, 240, 170];
+      var star = Math.abs(dx) < 0.8 || Math.abs(dy) < 0.8 ||
+        (Math.abs(Math.abs(dx) - Math.abs(dy)) < 0.7 && dd < 3.4);
+      if (star && dd < 3.4) return [255, 196 + n(r, 0, 30), 96];
+      if (dd < 4.6 && r() < 0.10) return [255, 170 + n(r, 0, 40), 80]; // 火花点
+      return;
     });
 
     ctx.putImageData(img, 0, 0);

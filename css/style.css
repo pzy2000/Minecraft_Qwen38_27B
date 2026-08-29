@@ -5011,3 +5011,29 @@ body[data-game-state="paused"] #tutorial-card { opacity: .78; }
   touch-action: none;
 }
 #ride-btn:active { transform: scale(.94); }
+
+/* ---- 售票亭兑换面板（票券经济） ---- */
+.booth-panel {
+  min-width: 300px; max-width: 360px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+#booth-balance {
+  margin: 0; font-weight: 700; color: #f5d442;
+  font-variant-numeric: tabular-nums;
+}
+.booth-actions { display: flex; flex-direction: column; gap: 8px; }
+.booth-actions .btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left; line-height: 1.35;
+}
+.booth-actions .btn small { opacity: .75; font-weight: 400; font-size: .82em; }
+.booth-note { margin: 0; font-size: .85em; opacity: .65; }
+#booth-buff {
+  position: absolute; top: 64px; right: 12px;
+  padding: 4px 10px; border-radius: 10px;
+  background: rgba(20, 26, 38, .82); color: #f5d442;
+  font: 700 12px/1.4 var(--ui-font, sans-serif);
+  border: 1px solid rgba(245, 212, 66, .5);
+  pointer-events: none; z-index: 30;
+  font-variant-numeric: tabular-nums;
+}

@@ -101,7 +101,7 @@ Voxel.Game = (function () {
     'inventory', 'crafting', 'furnace', 'chest', 'manual',
     'overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-featured',
     'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'rotate-hint',
-    'overlay-achievements', 'overlay-codex', 'tutorial-card'
+    'overlay-achievements', 'overlay-codex', 'tutorial-card', 'overlay-booth'
   ];
 
   // 成长系统事件分发：Progress 只负责计数与广播，Tutorial/Achievements 自行判定。
@@ -411,7 +411,7 @@ Voxel.Game = (function () {
     manualOpen = false;
     manualCraftStop();
     clearModalLayers();
-    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'overlay-warp', 'rotate-hint', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
+    ['overlay-start', 'overlay-pause', 'overlay-dead', 'overlay-loading', 'overlay-featured', 'overlay-world-replace', 'overlay-starmap', 'overlay-discovery', 'overlay-settings', 'overlay-warp', 'overlay-booth', 'rotate-hint', 'inventory', 'crafting', 'furnace', 'chest', 'manual'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
@@ -1611,6 +1611,8 @@ Voxel.Game = (function () {
 
   function doAct(btn) {
     if (state !== 'playing') return;
+    // 烟花棒：手持右键优先于攻击/挖掘
+    if (btn === 2 && inv[sel] === FW_ROD_ID) { useFireworkRod(); return; }
     var o = Voxel.Player.eyePos();
     var d = Voxel.Player.lookDir();
     var hit = Voxel.Raycaster.cast(o, d, C.REACH);
@@ -4067,6 +4069,8 @@ Voxel.Game = (function () {
         if (Voxel.SpaceTravel && Voxel.SpaceTravel.canBoardShip && Voxel.SpaceTravel.canBoardShip()) {
           boardShip();
         } else if (Voxel.SpaceTravel && Voxel.SpaceTravel.canOpenMap()) { openStarMap(); }
+        // 售票亭附近：打开兑换面板（优先于乘坐/背包）
+        else if (nearBoothPos()) { openBooth(); }
         // 星海嘉年华乘坐台附近：长按上车（由 tickRideHold 计时），松开未达阈值照旧开背包
         else if (nearRideBoard()) {
           ride.pending = true; ride.holdT = 0; ride.fired = false;
@@ -4112,6 +4116,9 @@ Voxel.Game = (function () {
       // KeyE 不在这里处理：轻按下车由 riderFixedUpdate 按固定步判定。
       if (code === 'Escape' || code === 'KeyP') exitRide();
       else if (code === 'F3') debug = !debug;
+    } else if (state === 'booth') {
+      if (code === 'KeyE' || code === 'Escape') closeBooth();
+      else if (code === 'KeyP') closeBooth();
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape') resume();
       else if (code === 'KeyM') openManual();
@@ -4255,6 +4262,136 @@ Voxel.Game = (function () {
     }
   }
 
+  // ---------- 售票亭：票券经济（代币 132 兑换加速模式/烟花棒 133） ----------
+
+  var TOKEN_ID = 132, FW_ROD_ID = 133;
+  var COST_SPEED = 5, COST_ROD = 3, BUFF_S = 90, SPEED_MUL = 1.6;
+  var buffLeft = 0;          // 加速模式剩余秒（会话内有效）
+  var fwRodCd = 0;           // 烟花棒冷却
+
+  function invCount(id) {
+    var n = 0;
+    for (var i = 0; i < 36; i++) if (inv[i] === id) n += cnt[i];
+    return n;
+  }
+  function invDec(id, n) {
+    for (var i = 0; i < 36 && n > 0; i++) {
+      if (inv[i] !== id || !cnt[i]) continue;
+      var take = Math.min(n, cnt[i]);
+      cnt[i] -= take; n -= take;
+      if (!cnt[i]) { inv[i] = 0; dur[i] = null; }
+    }
+    if (n === 0) refreshInv();
+    return n === 0;
+  }
+
+  // 最近的售票亭交互点（null = 不在范围内）
+  function nearBoothPos() {
+    if (!Voxel.Structures || !Voxel.Structures.parkBooths || !Voxel.Amusement) return null;
+    var pc = Voxel.Amusement.parkCenter();
+    if (!pc) return null;
+    var park = Voxel.Structures.findParkNear(pc.x, pc.z, 0);
+    if (!park) return null;
+    var p = Voxel.Player.pos();
+    var booths = Voxel.Structures.parkBooths(park);
+    var best = null, bestD = 36;             // 6 格内
+    for (var i = 0; i < booths.length; i++) {
+      var b = booths[i];
+      var dx = b.x + 0.5 - p.x, dy = b.y - p.y, dz = b.z + 0.5 - p.z;
+      var d2 = dx * dx + dz * dz;
+      if (d2 < bestD && Math.abs(dy) < 5) { bestD = d2; best = b; }
+    }
+    return best;
+  }
+
+  function openBooth() {
+    var bal = document.getElementById('booth-balance');
+    if (bal) bal.textContent = '代币余额：' + invCount(TOKEN_ID);
+    openModalLayer({
+      id: 'overlay-booth', state: 'booth', returnState: 'playing',
+      initialFocus: '#btn-booth-speed',
+      closeKeys: ['KeyE'],
+      onEscape: closeBooth
+    });
+    Voxel.Sound.select();
+  }
+  function closeBooth() {
+    closeModalLayer('overlay-booth', true);
+    Voxel.Sound.select();
+  }
+  function boothBusyHint(msg) {
+    Voxel.HUD.toast(msg);
+    Voxel.Sound.select();
+  }
+  function buySpeed() {
+    if (buffLeft > 0) { boothBusyHint('加速模式进行中，稍后再来'); return; }
+    if (!invDec(TOKEN_ID, COST_SPEED)) { boothBusyHint('代币不足（需要 ' + COST_SPEED + ' 枚）'); return; }
+    buffLeft = BUFF_S;
+    if (Voxel.Amusement) Voxel.Amusement.setSpeedMul(SPEED_MUL);
+    var chip = document.getElementById('booth-buff');
+    if (chip) { chip.hidden = false; chip.textContent = '⚡ 加速 ' + buffLeft + 's'; }
+    Voxel.HUD.toast('⚡ 加速模式开启：全场设施提速 60%，持续 ' + BUFF_S + ' 秒');
+    if (Voxel.Progress) Voxel.Progress.track('booth', { item: 'speed' });
+    closeBooth();
+  }
+  function buyRod() {
+    if (!invDec(TOKEN_ID, COST_ROD)) { boothBusyHint('代币不足（需要 ' + COST_ROD + ' 枚）'); return; }
+    var got = addInv(FW_ROD_ID, 1);
+    if (!got) { // 背包满：退回代币
+      addInv(TOKEN_ID, COST_ROD);
+      boothBusyHint('背包已满');
+      return;
+    }
+    Voxel.HUD.toast('🎆 烟花棒 ×1（手持右键发射）');
+    if (Voxel.Progress) Voxel.Progress.track('booth', { item: 'rod' });
+    var bal = document.getElementById('booth-balance');
+    if (bal) bal.textContent = '代币余额：' + invCount(TOKEN_ID);
+    Voxel.Sound.select();
+  }
+
+  function tickBooth(dt) {
+    // 加速 buff 倒计时
+    if (buffLeft > 0) {
+      buffLeft -= dt;
+      var chip = document.getElementById('booth-buff');
+      if (chip) {
+        if (buffLeft > 0) chip.textContent = '⚡ 加速 ' + Math.ceil(buffLeft) + 's';
+        else { chip.hidden = true; }
+      }
+      if (buffLeft <= 0) {
+        buffLeft = 0;
+        if (Voxel.Amusement) Voxel.Amusement.setSpeedMul(1);
+        Voxel.HUD.toast('加速模式结束');
+      }
+    }
+    if (fwRodCd > 0) fwRodCd -= dt;
+  }
+
+  // 烟花棒：手持右键单发烟花（升空小哨声由粒子爆发代替，直接爆裂 + 响声）
+  function useFireworkRod() {
+    if (fwRodCd > 0) return true;
+    var o = Voxel.Player.eyePos();
+    var d = Voxel.Player.lookDir();
+    var target = new THREE.Vector3(o.x + d.x * 6, Math.max(o.y + d.y * 6, o.y + 5), o.z + d.z * 6);
+    if (Voxel.Amusement && Voxel.Amusement.launchFirework &&
+      Voxel.Amusement.launchFirework(target)) {
+      decSel();
+      fwRodCd = 1;
+      return true;
+    }
+    return false;
+  }
+
+  // 售票亭面板按钮 + 关闭接线（DOM 在 index.html，此处只绑事件）
+  (function wireBooth() {
+    var close = document.getElementById('btn-booth-close');
+    if (close) close.addEventListener('click', closeBooth);
+    var bs = document.getElementById('btn-booth-speed');
+    if (bs) bs.addEventListener('click', buySpeed);
+    var br = document.getElementById('btn-booth-rod');
+    if (br) br.addEventListener('click', buyRod);
+  })();
+
   // ---------- 主循环 ----------
 
   function updateHighlight() {
@@ -4295,6 +4432,10 @@ Voxel.Game = (function () {
       if (hitEl.textContent !== spaceHint) hitEl.textContent = spaceHint;
       hitEl.dataset.kind = spaceHintKind ||
         (currentWorld && currentWorld.kind === 'station' ? 'terminal' : 'ship');
+      hitEl.style.display = 'block';
+    } else if (nearBoothPos()) {
+      hitEl.textContent = isTouch ? '轻点打开售票亭' : '按 E 打开售票亭';
+      hitEl.dataset.kind = 'booth';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 15) {
       hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
@@ -4622,9 +4763,10 @@ Voxel.Game = (function () {
     var frozen = state === 'paused';
     var nowS = performance.now() / 1000;
     if (mouseDown[0] && !frozen && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
-    if (!frozen && mouseDown[2]) tickDig(step);
+    if (!frozen && mouseDown[2] && inv[sel] !== FW_ROD_ID) tickDig(step); // 烟花棒不挖矿
     else if (digT || digProg) stopDig();
     if (!frozen && state === 'playing') tickRideHold(step);   // 长按 E 上车计时
+    if (!frozen) tickBooth(step);      // 票券经济：buff 倒计时/烟花棒 CD（暂停不走表）
     Voxel.Player.update(step);
     if (state === 'playing' || state === 'paused') tickEnvironment(step);
     if (!currentWorld || currentWorld.kind !== 'station') Voxel.Mobs.update(step);
@@ -5994,6 +6136,25 @@ Voxel.Game = (function () {
 
   Game.init = init;
   Game._frame = frame; // 测试钩子：手动驱动一帧
+  // 经济系统测试钩子（合并进 Game._test 而不是覆盖它）
+  var _econTest = {
+    give: addInv,
+    econCount: invCount,
+    booth: {
+      near: nearBoothPos,
+      open: openBooth,
+      buySpeed: buySpeed,
+      buyRod: buyRod
+    },
+    buffLeft: function () { return buffLeft; },
+    selectAndHold: function (id) {
+      inv[sel] = id; cnt[sel] = 1; dur[sel] = null; refreshInv();
+    },
+    heldId: function () { return inv[sel]; }
+  };
+  for (var ek in _econTest) {
+    if (!Game._test[ek]) Game._test[ek] = _econTest[ek];
+  }
   return Game;
 })();
 
