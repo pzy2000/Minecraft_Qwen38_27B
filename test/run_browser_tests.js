@@ -54,6 +54,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/featured_lazy_ui_test.html', re: '^FEATURED-LAZY-UI-PASS', viewport: { width: 160, height: 284, deviceScaleFactor: 2 } },
     { file: 'test/featured_lazy_ui_test.html', re: '^FEATURED-LAZY-UI-PASS', viewport: { width: 284, height: 160, deviceScaleFactor: 2 } },
     { file: 'test/browser_test.html', re: '^TEST-PASS' },
+    { file: 'test/park_ride_test.html', re: '^PARK-RIDE-PASS' },
     { file: 'test/atmosphere_test.html', re: '^ATMOSPHERE-PASS' },
     { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS' },
     { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS', reducedMotion: true },

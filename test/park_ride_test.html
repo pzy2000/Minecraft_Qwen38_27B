@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>VOXEL BROWSER TEST</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>body { background: #222; } #results { white-space: pre-wrap; color: #7f7; font: 12px monospace; }</style>
+</head>
+<body data-game-state="loading">
+<canvas id="game" width="640" height="480"></canvas>
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="debug"></div>
+  <canvas id="oxygen" width="212" height="20" role="meter" aria-label="氧气" aria-valuemin="0" aria-valuemax="10" aria-valuenow="10"></canvas>
+  <canvas id="hunger" width="212" height="20" role="meter" aria-label="饥饿值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+  <canvas id="health" width="212" height="20" role="meter" aria-label="生命值" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20"></canvas>
+  <div id="environment-meter" role="meter" aria-label="环境危害暴露" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="环境稳定 0%" data-hazard="none" data-level="safe" data-active="false" data-protected="true"><span class="environment-icon" aria-hidden="true">◇</span><span class="environment-copy"><strong id="environment-label">环境稳定</strong><small id="environment-detail">防护 · 环境稳定</small></span><span id="environment-intensity" aria-hidden="true"></span><span class="environment-track" aria-hidden="true"><i id="environment-fill"></i></span><span id="environment-value" aria-hidden="true">0%</span></div>
+  <div id="hotbar" role="toolbar" aria-label="快捷栏"></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="use-hint" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="lock-hint"></div>
+  <div id="save-health" data-state="idle" aria-live="off" hidden>存档状态尚未验证</div>
+  <div id="error-banner" role="alert" aria-live="assertive" aria-atomic="true"></div>
+  <div id="dmg-flash"></div>
+  <div id="dmg-dir"><i></i></div>
+  <div id="sleep-fade"></div>
+  <div id="space-hud">
+    <div id="world-name">◆ 航行数据同步中</div>
+    <div id="world-coord">星图坐标待同步</div>
+    <div id="warp-fuel">跃迁待命</div>
+  </div>
+  <button id="btn-starmap-hud" type="button" aria-label="打开星图">星图</button>
+  <aside id="scan-terminal" role="region" aria-labelledby="scan-terminal-title"
+    aria-hidden="true" data-status="offline" data-target-kind="none">
+    <div id="scan-terminal-title">遥测终端</div>
+    <div id="scan-world">世界数据待同步</div>
+    <div id="scan-position">位置数据待同步</div>
+    <div id="scan-biome">地表数据待同步</div>
+    <div id="scan-environment">环境数据待同步</div>
+    <div id="scan-target">无锁定目标</div>
+    <div id="scan-distance">—</div>
+  </aside>
+  <div id="scan-active-controls" role="group" data-state="idle" aria-label="主动扫描与发现控制">
+    <div class="scan-active-actions">
+      <button id="btn-scan-hud" type="button" aria-label="启动主动扫描" aria-keyshortcuts="G"
+        aria-pressed="false" aria-controls="scan-active-status scan-progress scan-result">
+        <span class="scan-active-icon" aria-hidden="true">◎</span><span class="scan-active-label">扫描</span>
+      </button>
+      <button id="btn-discovery-log" type="button" aria-label="打开发现档案"
+        aria-haspopup="dialog" aria-controls="overlay-discovery">
+        <span aria-hidden="true">▤</span><span class="scan-active-label">档案</span>
+      </button>
+    </div>
+    <div class="scan-active-readout">
+      <div id="scan-active-status" role="status" aria-live="polite" aria-atomic="true">主动扫描待机</div>
+      <div id="scan-progress" role="progressbar" aria-label="主动扫描进度"
+        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
+      <div id="scan-result">按 G 或触摸“扫描”发射探索脉冲</div>
+    </div>
+  </div>
+</div>
+<div id="save-failure-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
+<div id="save-recovery-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="inventory" class="hidden"><div class="panel inv-panel" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
+  <div class="panel-titlebar"><div id="inventory-title" class="inv-title">背包</div><button id="btn-inv-close" class="panel-close" aria-label="关闭背包">×</button></div>
+  <div class="craft-row"><div id="inv-craft-grid"></div><div class="craft-arrow">→</div><div id="inv-craft-result" class="slot result"></div></div>
+  <div id="inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="inv-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+</div></div>
+<div id="crafting" class="hidden"><div class="panel craft-panel" role="dialog" aria-modal="true" aria-labelledby="crafting-title">
+  <div class="panel-titlebar"><div id="crafting-title" class="inv-title">工作台</div><button id="btn-craft-close" class="panel-close" aria-label="关闭工作台">×</button></div>
+  <div class="craft-row"><div id="craft-grid"></div><div class="craft-arrow">→</div><div id="craft-result" class="slot result"></div></div>
+  <div id="craft-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="craft-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+  <button id="btn-manual" class="btn">查看合成手册</button>
+</div></div>
+<div id="manual" class="hidden"><div class="panel manual-panel" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+  <div class="panel-titlebar"><div id="manual-title" class="inv-title">合成手册</div><button id="btn-manual-close" class="panel-close" aria-label="关闭合成手册">×</button></div><div id="manual-list"></div><div class="inv-tip"></div>
+</div></div>
+<div id="furnace" class="hidden"><div class="panel furnace-panel" role="dialog" aria-modal="true" aria-labelledby="furnace-title">
+  <div class="panel-titlebar"><div id="furnace-title" class="inv-title">熔炉</div><button id="btn-furnace-close" class="panel-close" aria-label="关闭熔炉">×</button></div>
+  <div class="furnace-row">
+    <div class="furnace-col">
+      <div id="fur-in" class="slot"></div>
+      <div id="fur-flame" role="meter" aria-label="燃料余量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i aria-hidden="true"></i></div>
+      <div id="fur-fuel" class="slot"></div>
+    </div>
+    <div class="furnace-arrow"><span aria-hidden="true">➜</span><div class="fur-track" role="progressbar" aria-label="烧制进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fur-prog" aria-hidden="true"></i></div></div>
+    <div id="fur-out" class="slot result"></div>
+  </div>
+  <div id="fur-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="fur-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+</div></div>
+<div id="chest" class="hidden"><div class="panel chest-panel" role="dialog" aria-modal="true" aria-labelledby="chest-title">
+  <div class="panel-titlebar"><div id="chest-title" class="inv-title">箱子</div><button id="btn-chest-close" class="panel-close" aria-label="关闭箱子">×</button></div>
+  <div id="chest-grid"></div>
+  <div id="chest-inv-grid"></div>
+  <div class="inv-held-row">手持：<canvas id="chest-held" width="44" height="44"></canvas></div>
+  <div class="inv-tip"></div>
+</div></div>
+<div id="overlay-start" class="overlay start-overlay hidden"><div class="panel start-panel">
+  <header class="start-brand">
+    <div class="start-kicker">EXO-ARK // WAKE SEQUENCE</div>
+    <h1>星海方舟</h1><div class="sub">STARBOUND VOXEL</div>
+    <p class="start-tagline">启动方舟导航核，重连深空航路。</p>
+    <div class="start-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  </header>
+  <div class="start-actions" aria-label="世界启动选项">
+    <button id="btn-start" class="btn primary"></button>
+    <button id="btn-new" class="btn">新世界</button>
+    <button id="btn-featured" class="btn">精选世界</button>
+    <button id="btn-restore-backup" class="btn restore hidden"></button>
+    <div class="seed-row"><label class="sr-only" for="seed-input">星系种子</label>
+      <input id="seed-input" type="text" value="12345"><button id="btn-seed-random" class="btn small" type="button">随机</button></div>
+    <button id="btn-settings-menu" class="btn">设置</button>
+    <div id="start-hint" class="hint"></div>
+  </div>
+  <details class="start-brief"><summary><span class="start-brief-code">MISSION // DEEP SPACE</span><strong>展开航行简报</strong></summary>
+    <div class="start-brief-body"><p>探索种子星系，穿越传送门并驾驶飞船。</p><div class="controls"><div><b>WASD</b> 移动 · <b>H</b> 星图</div></div></div>
+  </details>
+</div></div>
+<div id="overlay-world-replace" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="world-replace-title" aria-describedby="world-replace-message world-replace-note" aria-busy="false">
+  <h2 id="world-replace-title"></h2><p id="world-replace-message"></p><div id="world-replace-note"></div>
+  <div id="world-replace-error" class="hidden"></div>
+  <button id="btn-world-replace-cancel"></button><button id="btn-world-replace-confirm"></button>
+</div></div>
+<div id="overlay-featured" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="featured-title">
+  <h2 id="featured-title">精选世界</h2><div id="featured-grid"></div><button id="btn-featured-back"></button>
+</div></div>
+<div id="overlay-starmap" class="overlay hidden"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="starmap-title">
+  <h2 id="starmap-title">星系航行图</h2><div id="starmap-status"></div><div id="starmap-grid"></div>
+</div></div>
+<div id="overlay-discovery" class="overlay discovery-overlay hidden"><div class="panel discovery-panel" role="dialog" aria-modal="true"
+  aria-labelledby="discovery-title" aria-describedby="discovery-reward">
+  <div class="panel-titlebar discovery-titlebar"><div class="discovery-heading">
+    <div class="discovery-kicker">EXPLORATION ARCHIVE // LOCAL GALAXY</div><h2 id="discovery-title">发现档案</h2>
+  </div><button id="btn-discovery-close" class="panel-close" type="button" aria-label="关闭发现档案">×</button></div>
+  <section class="discovery-goal" aria-labelledby="discovery-goal-title">
+    <div class="discovery-goal-copy"><span class="discovery-section-label">CURRENT OBJECTIVE</span>
+      <h3 id="discovery-goal-title">启动主动扫描，记录当前天体</h3>
+      <p id="discovery-reward">完成环境、资源与生命记录可获得探索点及跃迁能量。</p>
+    </div><strong id="discovery-goal-progress" aria-label="当前探索目标进度">0 / 3</strong>
+  </section>
+  <div class="discovery-stats" role="group" aria-label="发现统计">
+    <div><span>探索点</span><strong id="discovery-points">0</strong></div>
+    <div><span>已访天体</span><strong id="discovery-worlds">0</strong></div>
+    <div><span>生物群系</span><strong id="discovery-biomes">0</strong></div>
+    <div><span>资源样本</span><strong id="discovery-resources">0</strong></div>
+    <div><span>生命记录</span><strong id="discovery-fauna">0</strong></div>
+  </div>
+  <div id="discovery-world-list" aria-label="天体发现记录"><div class="discovery-empty">尚无发现记录</div></div>
+</div></div>
+<div id="overlay-warp" class="overlay hidden" data-mode="ship" data-phase="ignition" style="--warp-progress:0%">
+  <div id="warp-title"></div><div id="warp-origin"></div><div id="warp-destination"></div><div id="warp-sub"></div>
+  <div id="warp-phase-code"></div><div id="warp-phase-label"></div>
+  <div id="warp-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+  <div id="warp-eta"></div><button id="btn-warp-skip"></button>
+  <button id="btn-disembark" hidden disabled aria-disabled="true"></button>
+</div>
+<div id="travel-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="overlay-pause" class="overlay hidden"><div class="panel pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-save-status pause-save-feedback pause-autosave-hint"><h2 id="pause-title">游戏暂停</h2>
+  <div id="pause-save-status" class="pause-save-status" data-state="idle" role="status" aria-live="off" aria-atomic="true"><strong>存档待验证</strong><span>本次会话尚未完成已验证写入。</span></div>
+  <div id="pause-save-feedback" class="pause-save-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+  <button id="btn-resume"></button><button id="btn-fullscreen"></button><button id="btn-save" aria-describedby="pause-save-status">立即存档</button><button id="btn-settings"></button><button id="btn-menu" aria-describedby="pause-save-status"></button>
+  <div id="pause-autosave-hint" class="hint"></div>
+</div></div>
+<div id="overlay-dead" class="overlay hidden"><div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="dead-title" aria-describedby="death-cause"><h2 id="dead-title" class="dead">你死了</h2><div id="death-cause" class="hint"></div><button id="btn-respawn"></button></div></div>
+<div id="overlay-settings" class="overlay hidden"><div class="panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="panel-titlebar"><h2 id="settings-title">设置</h2><button id="btn-settings-close" class="panel-close" aria-label="关闭设置">×</button></div>
+  <label for="set-sens">鼠标灵敏度</label><input id="set-sens" type="range" min="0.3" max="3" step="0.05" aria-describedby="set-sens-v"><output id="set-sens-v" for="set-sens"></output>
+  <label for="set-volume">音量</label><input id="set-volume" type="range" min="0" max="1" step="0.05" aria-describedby="set-volume-v"><output id="set-volume-v" for="set-volume"></output>
+  <label for="set-fov">视场角</label><input id="set-fov" type="range" min="60" max="100" step="1" aria-describedby="set-fov-v"><output id="set-fov-v" for="set-fov"></output>
+  <label for="set-fog">雾距</label><input id="set-fog" type="range" min="0.5" max="2" step="0.05" aria-describedby="set-fog-v"><output id="set-fog-v" for="set-fog"></output>
+  <label for="set-tsens">触摸灵敏度</label><input id="set-tsens" type="range" min="0.4" max="3" step="0.05" aria-describedby="set-tsens-v"><output id="set-tsens-v" for="set-tsens"></output>
+  <label for="set-res">渲染分辨率</label><input id="set-res" type="range" min="0.35" max="1" step="0.05" aria-describedby="set-res-v"><output id="set-res-v" for="set-res"></output>
+  <span id="fps-cap-label" class="set-label">帧率上限</span><div class="btn-row" id="fps-cap-row" role="group" aria-labelledby="fps-cap-label"><button class="btn small" data-fps="0" aria-pressed="false">原生</button><button class="btn small" data-fps="30" aria-pressed="false">30</button><button class="btn small" data-fps="60" aria-pressed="false">60</button></div>
+  <label for="set-particleDensity">粒子密度</label><input id="set-particleDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-particleDensity-v"><output id="set-particleDensity-v" for="set-particleDensity"></output>
+  <label for="set-rainDensity">雨滴密度</label><input id="set-rainDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-rainDensity-v"><output id="set-rainDensity-v" for="set-rainDensity"></output>
+  <label for="set-mobDensity">生物数量</label><input id="set-mobDensity" type="range" min="0.25" max="1" step="0.05" aria-describedby="set-mobDensity-v"><output id="set-mobDensity-v" for="set-mobDensity"></output>
+  <span id="perf-preset-label" class="set-label">性能预设</span><div class="btn-row" id="perf-preset-row" role="group" aria-labelledby="perf-preset-label"><button class="btn small" data-preset="smooth" aria-pressed="false">流畅</button><button class="btn small" data-preset="balanced" aria-pressed="false">均衡</button><button class="btn small" data-preset="high" aria-pressed="false">高画质</button></div>
+  <button id="btn-set-close" class="btn"></button>
+</div></div>
+<div id="rotate-hint" class="hidden"><div class="rh-box" role="dialog" aria-modal="true" aria-labelledby="rotate-title"><div id="rotate-title">建议横屏游玩</div><button id="btn-rotate-ok"></button></div></div>
+<div id="overlay-loading" class="overlay hidden" aria-labelledby="loading-title" aria-describedby="loading-text"><div class="panel"><h2 id="loading-title">方块世界</h2>
+  <div id="loading-text"></div><div class="bar"><div id="loading-bar" role="progressbar" aria-label="世界生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
+</div></div>
+<pre id="results">RUNNING...</pre>
+
+<script src="../vendor/three.min.js"></script>
+<script src="../js/config.js"></script>
+<script>
+// 每个页面用例独立管理主/备份槽，避免 file:// 同源页面之间串档。
+(function () {
+  try {
+    var k = Voxel.Config.SAVE_KEY;
+    localStorage.removeItem(k);
+    localStorage.removeItem(k + '_backup');
+    localStorage.removeItem(k + '_backup_swap');
+  } catch (e) { }
+})();
+</script>
+<script src="../js/assets.js"></script>
+<script src="../js/world/seed.js"></script>
+<script src="../js/world/universe.js"></script>
+<script src="../js/world/galaxy.js"></script>
+<script src="../js/systems/atmosphere_profiles.js"></script>
+<script src="../js/world/noise.js"></script>
+<script src="../js/world/biomes.js"></script>
+<script src="../js/world/planet_rules.js"></script>
+<script src="../js/world/shaper.js"></script>
+<script src="../js/world/gen_core.js"></script>
+<script src="../js/world/structures.js"></script>
+<script src="../js/blocks.js"></script>
+<script src="../js/systems/discovery.js"></script>
+<script src="../js/systems/progress.js"></script>
+<script src="../js/systems/tutorial.js"></script>
+<script src="../js/systems/achievements.js"></script>
+<script src="../js/crafting.js"></script>
+<script src="../js/world/world.js"></script>
+<script src="../js/world/infinite.js"></script>
+<script src="../js/world/mesh.js"></script>
+<script src="../js/systems/shadow.js"></script>
+<script src="../js/player/physics.js"></script>
+<script src="../js/player/controls.js"></script>
+<script src="../js/player/player.js"></script>
+<script src="../js/interact/raycast.js"></script>
+<script src="../js/systems/settings.js"></script>
+<script src="../js/systems/environment.js"></script>
+<script src="../js/systems/ship_flight.js"></script>
+<script src="../js/systems/flight_sequence.js"></script>
+<script src="../js/systems/atmosphere.js"></script>
+<script src="../js/systems/daynight.js"></script>
+<script src="../js/systems/weather.js"></script>
+<script src="../js/systems/sound.js"></script>
+<script src="../js/systems/furnace.js"></script>
+<script src="../js/systems/particles.js"></script>
+<script src="../js/ui/galaxy_map.js"></script>
+<script src="../js/systems/space_travel.js"></script>
+<script src="../js/entities/mobs.js"></script>
+<script src="../js/entities/drops.js"></script>
+<script src="../js/systems/save.js"></script>
+<script src="../js/ui/handitem.js"></script>
+<script src="../js/systems/amusement.js"></script>
+<script src="../js/ui/featured.js"></script>
+<script src="../js/ui/hud.js"></script>
+<script>window.requestAnimationFrame = function () { return 0; };</script>
+<script>
+// 模拟浏览器刷新前保存的临时交互状态，main.init 必须从真实 localStorage 恢复。
+(function () {
+  var galaxy = Voxel.Galaxy.create('12345');
+  var first = galaxy.catalog[0];
+  var inv = new Array(36).fill(0), cnt = new Array(36).fill(0), dur = new Array(36).fill(null);
+  var fixture = {
+    v: 5,
+    seed: first.seed,
+    time: 0.3,
+    weather: 'clear',
+    player: null,
+    inv: inv,
+    cnt: cnt,
+    held: 102,
+    heldCnt: 1,
+    heldDur: 29,
+    // 同时注入工具/非法 ID：载入层必须过滤，不得让不持久 dur 的物品进合成格。
+    craftGrid: [10, 102, 9999, 0, 16, -1, 0, 0, 0],
+    invCraftGrid: [4, 101, 9999, 20],
+    bed: null,
+    dur: dur,
+    meta: {},
+    edits: {},
+    galaxy: galaxy
+  };
+  localStorage.setItem(Voxel.Config.SAVE_KEY, JSON.stringify(fixture));
+  window.__transientSaveFixture = fixture;
+  window.__transientExpectedCraft = [10, 0, 0, 0, 16, 0, 0, 0, 0];
+  window.__transientExpectedInvCraft = [4, 0, 0, 20];
+})();
+</script>
+<script src="../js/ui/codex.js"></script>
+<script src="../js/main.js"></script>
+<script>
+// ---- 星海嘉年华乘坐回归：六设施登乘 + 相机高度包络 + 正前遮挡 ----
+// 防复发守卫：过山车 Y↔Z 轴序互换曾致曲线飞上 450m 虚空（cam.y 远超 ah+60）
+(function () {
+  // 无头 profile 常带残留存档 → 会触发存档保护对话框阻塞世界创建；
+  // 测试环境一律从干净存档开始（与真实玩家 file:// 隐身会话等价）
+  try { localStorage.clear(); } catch (e) { }
+  var doc = document;
+  var out = [];
+  var finished = false;
+  var glErrors = 0;
+  var origErr = console.error;
+  console.error = function () {
+    var s = [].map.call(arguments, function (a) { return String(a); }).join(' ');
+    if (/WebGL/i.test(s) && !/Performance/i.test(s)) glErrors++;
+    origErr.apply(console, arguments);
+  };
+  function check(name, cond) { out.push((cond ? 'ok   ' : 'FAIL ') + name); }
+  function report() {
+    if (finished) return;
+    finished = true;
+    check('WebGL 控制台无报错(' + glErrors + ' 条)', glErrors === 0);
+    var fail = out.filter(function (s) { return s.indexOf('FAIL') === 0; }).length;
+    doc.getElementById('results').textContent =
+      '=== ' + (fail === 0 ? 'ALL PASS' : fail + ' FAILED') + ' ===\n' + out.join('\n');
+    doc.title = fail === 0 ? 'PARK-RIDE-PASS' : 'PARK-RIDE-FAIL';
+  }
+  window.addEventListener('error', function (e) {
+    out.push('FAIL PAGE_ERROR ' + e.message + ' @' + (e.lineno || '?'));
+  });
+  Voxel.Controls.requestLock = function () { return true; };
+  Voxel.Controls.exitLock = function () { };
+  // 与 browser_test 同策略：跳过真实 WebGL 渲染（软件渲染过慢）；
+  // 乘坐曲线/射线均为数据层计算，不依赖渲染管线
+  THREE.WebGLRenderer.prototype.render = function () { };
+  // 无头环境 rAF 可能不推进：手动驱动游戏主循环
+  var frameErr = 0;
+  setInterval(function () {
+    try { Voxel.Game._frame(performance.now()); } catch (e) { if (++frameErr <= 3) out.push('FRAME_ERR ' + e.message); }
+  }, 16);
+
+  // 精选世界（index 23 星海嘉年华，parkSpawn 直达乐园门口）
+  // 无头 profile 可能带残留存档 → 弹出存档保护对话框，点「备份并创建」放行
+  var waitMenu = 0;
+  (function pollMenu() {
+    var rep = doc.getElementById('overlay-world-replace');
+    if (rep && !rep.classList.contains('hidden')) {
+      var cf = doc.getElementById('btn-world-replace-confirm');
+      if (cf) cf.click();
+    }
+    var cards = doc.querySelectorAll('.featured-card');
+    if (cards.length > 23) { cards[23].click(); return pollPlaying(); }
+    if (++waitMenu > 200) { check('精选菜单出现', false); return report(); }
+    setTimeout(pollMenu, 100);
+  })();
+
+  function pollPlaying() {
+    var n = 0;
+    (function poll() {
+      var rep = doc.getElementById('overlay-world-replace');
+      if (rep && !rep.classList.contains('hidden')) {
+        var cf = doc.getElementById('btn-world-replace-confirm');
+        if (cf && !cf.disabled) cf.click();
+      }
+      if (Voxel.Game.state === 'playing') return parkReady();
+      if (++n > 1800) { check('进入 playing(state=' + Voxel.Game.state + ')', false); return report(); }
+      setTimeout(poll, 100);
+    })();
+  }
+
+  function parkReady() {
+    // 等待世界网格与园区 mesh 就绪（出生即门口，园区应已流式建好）
+    var n = 0;
+    (function poll() {
+      var pc = Voxel.Amusement && Voxel.Amusement.parkCenter ? Voxel.Amusement.parkCenter() : null;
+      if (pc && Voxel.World.isReady()) return runRides(pc);
+      if (++n > 600) { check('园区锚点就绪', false); return report(); }
+      setTimeout(poll, 200);
+    })();
+  }
+
+  var RIDE_KINDS = ['ferris', 'carousel', 'drop', 'pirate', 'coaster', 'tron'];
+
+  // 合成键盘事件（真实事件路径：keydown → Game.onKey → ride.pending 布防）
+  function pressE() {
+    doc.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', bubbles: true }));
+  }
+  function releaseE() {
+    doc.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', bubbles: true }));
+  }
+
+  function runRides(pc) {
+    var park = Voxel.Structures.findParkNear(pc.x, pc.z, 0);
+    if (!park) { check('找到园区', false); return report(); }
+    var ah = park.ah;
+    var stations = Voxel.Structures.parkStations(park);
+    var idx = 0;
+
+    function next() {
+      if (idx >= RIDE_KINDS.length) { finishAll(); return; }
+      var kind = RIDE_KINDS[idx++];
+      var st = null;
+      stations.forEach(function (s) { if (s.kind === kind) st = s; });
+      if (!st || !st.board) { check(kind + ' 站台存在', false); return setTimeout(next, 50); }
+
+      // 站上乘坐台
+      Voxel.Player.init(new THREE.Vector3(st.board.x + 1.2, st.board.y + 1.15, st.board.z + 0.8),
+        Math.PI / 2, 0);
+      Voxel.Player.setFlying(false);
+      // 真实按键流：keydown 布防 ride.pending → 持续按住 1.2s → tickRideHold 触发上车
+      pressE();
+      var holdN = 0;
+      (function hold() {
+        if (Voxel.Game.state === 'riding') {
+          releaseE();
+          return sampleRide(kind, ah);
+        }
+        if (++holdN > 40) { // 4s 未上车
+          releaseE();
+          check(kind + ' 长按 E 上车(state=' + Voxel.Game.state + ')', false);
+          return setTimeout(next, 50);
+        }
+        setTimeout(hold, 100);
+      })();
+    }
+
+    function sampleRide(kind, ah) {
+      // 采样一整段乘坐：相机高度 + 正前射线遮挡
+      // 过山车必须覆盖完整 52s 周期（埋山段曾被 8s 短采样漏掉）
+      var full = kind === 'coaster';
+      var camYs = [];
+      var fwdBlocked = 0, fwdTotal = 0, minDist = 99;
+      var samples = full ? 130 : (kind === 'carousel' ? 40 : (kind === 'ferris' || kind === 'drop' ? 60 : 80));
+      var iv = full ? 420 : 100;
+      var i = 0;
+      (function step() {
+        var cam = Voxel.Game.camera;
+        camYs.push(cam.position.y);
+        // 正前遮挡探针（与视线一致的短射线；天空 id 0 忽略）
+        var dir = new THREE.Vector3(0, 0, -1).applyEuler(cam.rotation);
+        var h = Voxel.Raycaster.cast(cam.position, dir, 5);
+        if (h) {
+          fwdTotal++;
+          if (h.dist < minDist) minDist = h.dist;
+          if (h.dist < 1.2 && h.id !== 0) fwdBlocked++;
+        }
+        if (++i >= samples) return evalRide(kind, ah, camYs, fwdBlocked, fwdTotal, minDist);
+        setTimeout(step, iv);
+      })();
+    }
+
+    function evalRide(kind, ah, camYs, fwdBlocked, fwdTotal, minDist) {
+      var yMin = Math.min.apply(null, camYs), yMax = Math.max.apply(null, camYs);
+      check(kind + ' 相机高度包络 ah±[' + (yMin - ah).toFixed(1) + ',' + (yMax - ah).toFixed(1) + ']',
+        yMin > ah - 4 && yMax < ah + 64);
+      // 过山车专项：曾经 Y↔Z 互换飞到 450m
+      if (kind === 'coaster')
+        check('过山车高度未脱轨(yMax-ah=' + (yMax - ah).toFixed(1) + ' < 40)', yMax - ah < 40);
+      check(kind + ' 正前遮挡 ' + fwdBlocked + '/' + fwdTotal + ' (minDist ' + minDist.toFixed(2) + ')',
+        fwdBlocked === 0);
+      // 下车：轻按 E（keydown+keyup 释放沿）
+      pressE();
+      setTimeout(function () {
+        releaseE();
+        setTimeout(function () {
+          check(kind + ' 轻按 E 下车(state=' + Voxel.Game.state + ')', Voxel.Game.state === 'playing');
+          setTimeout(next, 300);
+        }, 250);
+      }, 200);
+    }
+
+    function finishAll() {
+      report();
+    }
+
+    next();
+  }
+
+  setTimeout(function () {
+    if (!finished) { check('测试在 300 秒内完成(state=' + Voxel.Game.state + ')', false); report(); }
+  }, 300000);
+})();
+</script>
+</body>
+</html>

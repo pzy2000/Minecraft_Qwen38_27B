@@ -516,12 +516,17 @@ Voxel.Structures = (function () {
         c: [16, -52],
         board: [10, -30],
         peakY: 30,
+        // 螺旋爬升贴台地：各环表面 dy=0/7/14/21/27，轨道控制 y 须保持
+        // 环上 ≥ dy+1、翻墙段中点曲线高 ≥ 上层 dy（否则列车埋进山体）
         controls: [
-          [10, -30, 0], [14, -26, 1], [22, -33, 4], [30, -44, 8],
-          [30, -56, 12], [20, -62, 16], [10, -58, 20], [6, -46, 23],
-          [12, -40, 25], [16, -52, 28], [26, -56, 26], [36, -50, 20],
-          [42, -40, 14], [44, -28, 8], [40, -14, 5], [30, -6, 3], [18, -14, 1],
-          [10, -26, 0]
+          [10, -30, 0], [14, -26, 1], [22, -32, 7],    // 草坪爬升（c2 外移抬高：出发段即越环1界时保持 eye≥ah+9）
+          [33, -43, 12], [34, -52, 12],                // 环1（表面 ah+7，翻墙段抬高防 Catmull 下沉切 riser）
+          [30, -58, 17], [20, -62, 17], [12, -60, 22], // 环2（表面 ah+14）→ 翻环3墙
+          [8, -52, 24], [10, -44, 24],                 // 环3（表面 ah+21）
+          [16, -52, 28],                               // 峰顶（台面 ah+27）
+          [26, -56, 23], [36, -50, 12], [42, -40, 8],  // 外侧俯冲（c8 抬高跨环3台面）
+          [44, -28, 6], [40, -14, 4], [30, -6, 3],
+          [18, -14, 3], [7, -24, 3], [10, -26, 1], [10, -30, 0] // 回站：西绕跨灯柱（顶ah+3）→ 雨棚北沿已降至 eye<ah+4，沿 x=10 中线低穿（立柱在 x8/x14）
         ]
       },
       tron: { gx0: 42, gx1: 84, gz: 6, board: [46, 6], loopTopY: 22 }
@@ -542,9 +547,10 @@ Voxel.Structures = (function () {
     var cBoard = X(L.coaster.board);
     var tBoard = X(L.tron.board);
     var ctr = [];
-    for (var i = 0; i < L.coaster.controls.length; i++)
-      ctr.push(X([L.coaster.controls[i][0], L.coaster.controls[i][1]])
-        .concat([ah + L.coaster.controls[i][2]]));
+    for (var i = 0; i < L.coaster.controls.length; i++) {
+      var cp = X(L.coaster.controls[i]);
+      ctr.push([cp[0], ah + L.coaster.controls[i][2], cp[1]]); // [x, y, z]
+    }
     var pirC = X(L.pirate.c);
     var pirB = X(L.pirate.board);
     return [
@@ -994,10 +1000,11 @@ Voxel.Structures = (function () {
             foundation(writer, park, gp2[0], gp2[1], ah + lyr.dy, li % 2 === 0 ? PK.STONE : PK.SANDSTONE);
             if (li > 0 && lyr.dy > 0) writer(gp2[0], ah + lyr.dy, gp2[1], PK.GRASS, 'force');
           }
-        // 山腰树带（松矮林点缀）
+        // 山腰树带（松矮林点缀）：只植南侧（z < ccst），北侧是轨道爬升走廊，
+        // 且轨道俯冲段掠过南侧外缘——树顶 ah+dy+3 与轨面保持 ≥2 格净空
         if (li >= 1 && li <= 2) {
           for (var tX = ccst[0] - lyr.rx + 3; tX <= ccst[0] + lyr.rx - 3; tX += 7) {
-            var tz1 = ccst[1] + (li % 2 ? 1 : -1) * (lyr.rz - 4);
+            var tz1 = ccst[1] - (lyr.rz - 4);
             var tp = S(tX, tz1);
             var gsy = ctx ? ctx.surfaceAt(tp[0], tp[1]) : ah;
             if (Math.abs(gsy - (ah + lyr.dy)) > 4) continue;
@@ -1007,10 +1014,10 @@ Voxel.Structures = (function () {
           }
         }
       });
-      // 山峰旗杆
-      var flag = S(ccst[0], ccst[1]);
-      writer(flag[0], ah + 30, flag[1], PK.CANDY, 'force');
-      writer(flag[0], ah + 31, flag[1], PK.BUNTING, 'air');
+      // 山峰旗杆：立在西北肩 (8,-56)（环3 台面），峰顶正中是轨道最高点
+      var flag = S(8, -56);
+      writer(flag[0], ah + 22, flag[1], PK.CANDY, 'force');
+      writer(flag[0], ah + 23, flag[1], PK.BUNTING, 'air');
       // ---- 过山车站台（平台与雨棚）----
       var sbx = L.coaster.board;
       for (var sx2 = sbx[0] - 2; sx2 <= sbx[0] + 4; sx2++)
