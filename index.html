@@ -4,7 +4,7 @@
 <meta charset="UTF-8" data-page-node-id="6Ed83fwTlNwCvfhCh5cepy">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" data-page-node-id="SNwk9ypjhepsOzcFx5FVtv">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=aa0c00a643df43ce3b85803f44cd479b4504e96a69f0f40d734edd13ae8f5c25" data-page-node-id="CxIEjnWZTBu2DDZuWYtQrJ">
+<link rel="stylesheet" href="css/style.css?v=70a08068db581422f5e43a6c6ad481763779c3e21706475db5c3180b24ecd066" data-page-node-id="CxIEjnWZTBu2DDZuWYtQrJ">
 </head>
 <body data-game-state="loading" data-page-node-id="wlwVJajMNWaMffHiK8RDyL">
 <canvas id="game" data-page-node-id="Wki7bx67oRCSr5vkdCFyDe"></canvas>
@@ -26,6 +26,7 @@
     <span id="environment-value" aria-hidden="true" data-page-node-id="ZaSBoV0yWHYcvXiilcDRBQ">0%</span>
   </div>
   <div id="hotbar" role="toolbar" aria-label="快捷栏" data-page-node-id="euwFD20gEPOzz766GN6Pkf"></div>
+  <div id="gear-bar" role="group" aria-label="装备栏" data-page-node-id="gX7bV2mQ8nKeUuYtWpRzLc"></div>
   <div id="toast" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="fmq8P6FPdAf9HknwukU2DT"></div>
   <div id="use-hint" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="vu1jU6NYNsY7UG0ZkTGeFf"></div>
   <div id="lock-hint" data-page-node-id="E0BANGvb30lTheZPJAlHii">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
@@ -629,16 +630,16 @@
 <script src="js/systems/atmosphere_profiles.js?v=20260824m"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
 <script src="js/world/biomes.js?v=20260827b"></script>
-<script src="js/world/planet_rules.js?v=20260824o"></script>
+<script src="js/world/planet_rules.js?v=20260830a"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
 <script src="js/world/structures.js?v=20260826a"></script>
 <script src="js/world/gen_core.js?v=20260829"></script>
-<script src="js/blocks.js?v=20260829a"></script>
+<script src="js/blocks.js?v=20260830a"></script>
 <script src="js/systems/discovery.js?v=20260826a"></script>
 <script src="js/systems/progress.js?v=20260828a"></script>
 <script src="js/systems/tutorial.js?v=20260828a"></script>
 <script src="js/systems/achievements.js?v=20260828a"></script>
-<script src="js/crafting.js?v=20260825a"></script>
+<script src="js/crafting.js?v=20260830a"></script>
 <script src="js/world/world.js?v=20260827b"></script>
 <script src="js/world/infinite.js?v=20260827b"></script>
 <script src="js/world/mesh.js?v=20260829a"></script>
@@ -648,7 +649,7 @@
 <script src="js/player/player.js?v=5b1e96d6718a1d8a830f5ae87357fc1f141a3701c0bfe04261bece2499c4922c"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260828a"></script>
-<script src="js/systems/environment.js?v=f5bb638810a2f8a7f3c85bac6ab743f79845340f39ac175dcfdff1dbb038568d"></script>
+<script src="js/systems/environment.js?v=8bf70b6db5dc0505d14ed6d79de466c7140aca91dc8f4e0a72332ebf3bd80ac2"></script>
 <script src="js/systems/ship_flight.js?v=6620cbc652dfa166bad1fabc040d2b196579f5a2ffb62abc3350de8b300548df"></script>
 <script src="js/systems/landing_assist.js?v=c8ad9f9a73e15cd4f8b3ad54337e6c5a3657357f842c4689854908b9c9c14635"></script>
 <script src="js/systems/flight_sequence.js?v=20260824p"></script>
@@ -656,19 +657,19 @@
 <script src="js/systems/daynight.js?v=20260824m"></script>
 <script src="js/systems/weather.js?v=78431820e28f720856a88ad76845d4d24c680f7d6b61b8db29612a8c5d76f40b"></script>
 <script src="js/systems/sound.js?v=11de5822ce7f7eaf974f99c28657e1da6c81145d18c2e550783543d971df2ad7"></script>
-<script src="js/systems/furnace.js?v=20260824i"></script>
+<script src="js/systems/furnace.js?v=20260830a"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
 <script src="js/ui/galaxy_map.js?v=20260825a"></script>
 <script src="js/systems/space_travel.js?v=20260829a"></script>
 <script src="js/systems/bloom.js?v=20260828b"></script>
 <script src="js/entities/mobs.js?v=c74ecbe4682aba983e4d7b090da2661b024f41b2d38f6eb45981355a273f7ff7"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
-<script src="js/systems/save.js?v=b47975758c7713f3521487a32ce25e48dce7c0079f7007de52655f69bfb3fd5b"></script>
+<script src="js/systems/save.js?v=587daeee5841bd5b584d9934ebcff88a9d3de14c39198108374c260297b49374"></script>
 <script src="js/ui/handitem.js?v=3bbb6d458732035d4ea791b5a8494ecd5d3974925a30d3b8778cce723d3c4343"></script>
 <script src="js/ui/featured.js?v=5ba412f27c992e53a810a041a9eef280621058aeb18365c1ed71b597b9f17012"></script>
 <script src="js/ui/touch.js?v=2aa0796fe55f76eb93014e83b8fbe903167abb3dc40d19447d74f1eefed7f701"></script>
-<script src="js/ui/hud.js?v=20260824r"></script>
+<script src="js/ui/hud.js?v=20260830a"></script>
 <script src="js/ui/codex.js?v=20260829a"></script>
-<script src="js/main.js?v=29628aebdad45683ebc7f8c24870370605d1380ddb754ffb9c1c1372932eb9e0"></script>
+<script src="js/main.js?v=834db93ba9228af28fb428f4751ede58171c7e8d9ec9ba9717d14aa59ad6375e"></script>
 </body>
 </html>

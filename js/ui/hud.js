@@ -6,6 +6,7 @@ Voxel.HUD = (function () {
   var slots = [], invSlots = [], craftSlots = [], craftInvSlots = [], invCraftSlots = [];
   var furInSlot = null, furFuelSlot = null, furOutSlot = null, furInvSlots = [];
   var chestSlots = [], chestInvSlots = [], chestHeldCanvas = null;
+  var gearHeadSlot = null, gearBodySlot = null, gearChargeSlot = null;
   var manualBtns = [];
   var healthCtx, debugEl, toastEl, heldCanvas, craftHeldCanvas, furHeldCanvas;
   var environmentEl = null, environmentFillEl = null, environmentLabelEl = null;
@@ -273,7 +274,7 @@ Voxel.HUD = (function () {
     if (FS && FS.SMELT_TABLE) {
       var sh = document.createElement('div');
       sh.className = 'manual-obtain';
-      sh.innerHTML = '<b>烧炼（熔炉）</b><br>· 8 块<b>石头</b>合成熔炉，对准按 E 打开<br>· <b>燃料</b>：煤炭（可烧 8 件）/ 木板 / 木棍 / 原木';
+      sh.innerHTML = '<b>烧炼（熔炉）</b><br>· 8 块<b>石头</b>合成熔炉，对准按 E 打开<br>· <b>燃料</b>：煤炭/木炭（各可烧 8 件）/ 木板 / 木棍 / 原木<br>· <b>木炭</b>：任意原木烧制而成，也是防毒面具的滤芯材料';
       list.appendChild(sh);
       for (var sid in FS.SMELT_TABLE) {
         var srow = document.createElement('div');
@@ -452,6 +453,18 @@ Voxel.HUD = (function () {
       }
     }
 
+    // 装备栏：头部（防毒面具）/ 身体（防寒服）/ 充能槽（木炭/煤炭）
+    var gbar = document.getElementById('gear-bar');
+    if (gbar) {
+      gearHeadSlot = makeSlot('', 'gear', 0, '头部装备槽（防毒面具）');
+      gbar.appendChild(gearHeadSlot.el);
+      gearBodySlot = makeSlot('', 'gear', 1, '身体装备槽（防寒服）');
+      gbar.appendChild(gearBodySlot.el);
+      gearChargeSlot = makeSlot('', 'charge', 0, '充能槽（放入木炭或煤炭为装备充能）');
+      gbar.appendChild(gearChargeSlot.el);
+      setupRoving(gbar, [gearHeadSlot, gearBodySlot, gearChargeSlot], 1, '装备栏', 0);
+    }
+
     setupRoving(hotbarEl, slots, 9, '快捷栏', selectedHotbar);
     setupRoving(grid, invSlots, 9, '背包物品格', 0);
     setupRoving(icgrid, invCraftSlots, 2, '随身合成格', 0);
@@ -579,6 +592,16 @@ Voxel.HUD = (function () {
       if (o) renderSlot(chestSlots[i], o.id, o.n, o.dur, Voxel.Blocks.maxDur(o.id));
       else renderSlot(chestSlots[i], 0);
     }
+  }
+
+  // 装备栏三格（headId/headDur/bodyId/bodyDur + 充能格 chId/chN）
+  function setGear(headId, headDur, bodyId, bodyDur, chId, chN) {
+    if (gearHeadSlot)
+      renderSlot(gearHeadSlot, headId, headId ? 1 : 0, headDur, Voxel.Blocks.maxDur(headId));
+    if (gearBodySlot)
+      renderSlot(gearBodySlot, bodyId, bodyId ? 1 : 0, bodyDur, Voxel.Blocks.maxDur(bodyId));
+    if (gearChargeSlot)
+      renderSlot(gearChargeSlot, chId, chN || 0);
   }
 
   // 火焰余量 burn01 / 烧制进度 prog01（0~1）
@@ -889,6 +912,7 @@ Voxel.HUD = (function () {
     refreshManual: refreshManual,
     setFurnace: setFurnace,
     setFurnaceGauges: setFurnaceGauges,
+    setGear: setGear,
     setEnvironment: setEnvironment,
     setChest: setChest,
     _test: {

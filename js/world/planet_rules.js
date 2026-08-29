@@ -29,32 +29,34 @@ Voxel.PlanetRules = (function () {
   };
 
   // blockId 39..44 / itemId 115..120 是本轮冻结的稳定存档 ID。
+  // goldMultiplier/diamondMultiplier 控制 v2 通道金矿石(72)/钻石矿石(73)的
+  // 世界稀有度（基数 gold 0.0035、diamond 0.0012；station 恒 0 不出矿）。
   var RESOURCE = {
     lush: {
-      coalMultiplier: 1.00, ironMultiplier: 1.00,
+      coalMultiplier: 1.00, ironMultiplier: 1.00, goldMultiplier: 1.00, diamondMultiplier: 1.00,
       exclusive: { key: 'verdant_crystal', blockId: 39, itemId: 115, minY: 8, maxY: 42, chance: 0.0024, tier: 1 }
     },
     arid: {
-      coalMultiplier: 1.35, ironMultiplier: 1.60,
+      coalMultiplier: 1.35, ironMultiplier: 1.60, goldMultiplier: 1.60, diamondMultiplier: 0.70,
       exclusive: { key: 'silica_crystal', blockId: 40, itemId: 116, minY: 4, maxY: 30, chance: 0.0032, tier: 1 }
     },
     frozen: {
-      coalMultiplier: 0.85, ironMultiplier: 1.15,
+      coalMultiplier: 0.85, ironMultiplier: 1.15, goldMultiplier: 0.90, diamondMultiplier: 1.20,
       exclusive: { key: 'frost_core', blockId: 41, itemId: 117, minY: 10, maxY: 48, chance: 0.0028, tier: 2 }
     },
     toxic: {
-      coalMultiplier: 1.10, ironMultiplier: 0.80,
+      coalMultiplier: 1.10, ironMultiplier: 0.80, goldMultiplier: 0.80, diamondMultiplier: 0.90,
       exclusive: { key: 'spore_crystal', blockId: 42, itemId: 118, minY: 6, maxY: 38, chance: 0.0030, tier: 2 }
     },
     volcanic: {
-      coalMultiplier: 1.50, ironMultiplier: 1.40,
+      coalMultiplier: 1.50, ironMultiplier: 1.40, goldMultiplier: 1.30, diamondMultiplier: 1.40,
       exclusive: { key: 'magma_core', blockId: 43, itemId: 119, minY: 3, maxY: 28, chance: 0.0035, tier: 3 }
     },
     oceanic: {
-      coalMultiplier: 0.75, ironMultiplier: 0.90,
+      coalMultiplier: 0.75, ironMultiplier: 0.90, goldMultiplier: 0.85, diamondMultiplier: 0.80,
       exclusive: { key: 'tidal_crystal', blockId: 44, itemId: 120, minY: 4, maxY: 24, chance: 0.0026, tier: 2 }
     },
-    station: { coalMultiplier: 0, ironMultiplier: 0, exclusive: null }
+    station: { coalMultiplier: 0, ironMultiplier: 0, goldMultiplier: 0, diamondMultiplier: 0, exclusive: null }
   };
 
   // 与 Environment 的 0..100 稳定契约一致。accumulation/recovery 是每秒风险
@@ -161,8 +163,12 @@ Voxel.PlanetRules = (function () {
       typeKey: key,
       coalMultiplier: source.coalMultiplier,
       ironMultiplier: source.ironMultiplier,
+      goldMultiplier: source.goldMultiplier,
+      diamondMultiplier: source.diamondMultiplier,
       coalChance: 0.007 * source.coalMultiplier,
       ironChance: 0.006 * source.ironMultiplier,
+      goldChance: 0.0035 * source.goldMultiplier,
+      diamondChance: 0.0012 * source.diamondMultiplier,
       exclusive: cloneExclusive(source.exclusive)
     };
   }
@@ -178,7 +184,8 @@ Voxel.PlanetRules = (function () {
   }
 
   // 数值核心：生成热路径调用，绝不构造对象/数组，也不调用会克隆配置的公开 API。
-  function oreBlockAt(version, typeKey, y, coalRoll, ironRoll, exclusiveRoll) {
+  // goldRoll/diamondRoll 为可选追加参数（显式 roll 版本），缺省时金/钻通道不激活。
+  function oreBlockAt(version, typeKey, y, coalRoll, ironRoll, exclusiveRoll, goldRoll, diamondRoll) {
     if (normalizeVersion(version, V1) === V1) {
       // v1 只有一个旧hash样本；额外roll必须完全忽略，才能保持旧世界字节一致。
       return legacyOre(y, coalRoll);
@@ -191,12 +198,16 @@ Voxel.PlanetRules = (function () {
       exclusiveRoll < special.chance) return special.blockId;
     if (validRoll(coalRoll) && y < 50 && coalRoll < 0.007 * source.coalMultiplier) return 8;
     if (validRoll(ironRoll) && y < 34 && ironRoll < 0.006 * source.ironMultiplier) return 9;
+    if (validRoll(goldRoll) && y < 28 && goldRoll < 0.0035 * source.goldMultiplier) return 72;
+    if (validRoll(diamondRoll) && y < 16 && diamondRoll < 0.0012 * source.diamondMultiplier) return 73;
     return 0;
   }
 
   function oreDescriptor(blockId, typeKey) {
     if (blockId === 8) return { blockId: 8, itemId: 107, key: 'coal', exclusive: false };
     if (blockId === 9) return { blockId: 9, itemId: 9, key: 'iron', exclusive: false };
+    if (blockId === 72) return { blockId: 72, itemId: 72, key: 'gold', exclusive: false };
+    if (blockId === 73) return { blockId: 73, itemId: 124, key: 'diamond', exclusive: false };
     var key = knownType(typeKey) ? typeKey : 'lush';
     var special = (RESOURCE[key] || RESOURCE.lush).exclusive;
     if (special && blockId === special.blockId)
@@ -204,8 +215,8 @@ Voxel.PlanetRules = (function () {
     return noneOre();
   }
 
-  function oreAt(version, typeKey, y, coalRoll, ironRoll, exclusiveRoll) {
-    return oreDescriptor(oreBlockAt(version, typeKey, y, coalRoll, ironRoll, exclusiveRoll), typeKey);
+  function oreAt(version, typeKey, y, coalRoll, ironRoll, exclusiveRoll, goldRoll, diamondRoll) {
+    return oreDescriptor(oreBlockAt(version, typeKey, y, coalRoll, ironRoll, exclusiveRoll, goldRoll, diamondRoll), typeKey);
   }
 
   function safeHash3(noise, x, y, z) {
@@ -216,13 +227,15 @@ Voxel.PlanetRules = (function () {
     } catch (e) { return NaN; }
   }
 
-  // 固定坐标盐：hash3 自身最终按 int32 混合；三组偏移保证煤/铁/专属矿不共享roll。
+  // 固定坐标盐：hash3 自身最终按 int32 混合；各组偏移保证煤/铁/金/钻/专属矿不共享roll。
   var COAL_SALT_X = 0x13579b, COAL_SALT_Y = 0x02468a, COAL_SALT_Z = 0x1b8735;
   var IRON_SALT_X = 0x51f15e, IRON_SALT_Y = 0x2c1b3c, IRON_SALT_Z = 0x7f4a7c;
   var SPECIAL_SALT_X = 0x6d2b79, SPECIAL_SALT_Y = 0x4cf5ad, SPECIAL_SALT_Z = 0x3c6ef3;
+  var GOLD_SALT_X = 0x27d4eb, GOLD_SALT_Y = 0x165667, GOLD_SALT_Z = 0x09e2fc;
+  var DIAMOND_SALT_X = 0x31f168, DIAMOND_SALT_Y = 0x0b42d3, DIAMOND_SALT_Z = 0x2e8ba1;
 
   function oreBlockTrusted(version, typeKey, x, y, z, noise) {
-    var coalRoll, ironRoll, exclusiveRoll;
+    var coalRoll, ironRoll, exclusiveRoll, goldRoll, diamondRoll;
     if (version !== V2) {
       coalRoll = noise.hash3(x, y, z);
       if (typeof coalRoll !== 'number' || coalRoll < 0 || coalRoll >= 1) return 0;
@@ -247,6 +260,15 @@ Voxel.PlanetRules = (function () {
     ironRoll = noise.hash3(x + IRON_SALT_X, y + IRON_SALT_Y, z + IRON_SALT_Z);
     if (typeof ironRoll === 'number' && ironRoll >= 0 &&
       ironRoll < 0.006 * source.ironMultiplier && y < 34) return 9;
+    // 金（y<28，约铁的一半稀有度）/ 钻石（y<16，最深最稀），各用独立盐。
+    if (y >= 28) return 0;
+    goldRoll = noise.hash3(x + GOLD_SALT_X, y + GOLD_SALT_Y, z + GOLD_SALT_Z);
+    if (typeof goldRoll === 'number' && goldRoll >= 0 &&
+      goldRoll < 0.0035 * source.goldMultiplier) return 72;
+    if (y >= 16) return 0;
+    diamondRoll = noise.hash3(x + DIAMOND_SALT_X, y + DIAMOND_SALT_Y, z + DIAMOND_SALT_Z);
+    if (typeof diamondRoll === 'number' && diamondRoll >= 0 &&
+      diamondRoll < 0.0012 * source.diamondMultiplier) return 73;
     return 0;
   }
 

@@ -37,7 +37,11 @@ Voxel.Blocks = (function () {
     MUSHROOM_CAP_RED: 88, MUSHROOM_CAP_BROWN: 89,
     CHERRY_LOG_SIDE: 90, CHERRY_LOG_TOP: 91, CHERRY_LEAVES: 92, DARK_LEAVES: 93,
     STATION_HULL: 94, STATION_GRATE: 95, STATION_SEAM: 96, STATION_HAZARD: 97,
-    STATION_TRIM: 98, STATION_PORT: 99, STATION_DARK: 100
+    STATION_TRIM: 98, STATION_PORT: 99, STATION_DARK: 100,
+    // 物品/矿物扩展瓦片（稳定序号 106..116，只追加不移动）
+    GOLD_ORE: 106, DIAMOND_ORE: 107, INGOT_GOLD: 108, GEM_DIAMOND: 109,
+    CHARCOAL: 110, PICK_GOLD: 111, PICK_DIAMOND: 112,
+    SWORD_GOLD: 113, SWORD_DIAMOND: 114, MASK_GAS: 115, SUIT_COLD: 116
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -206,6 +210,16 @@ Voxel.Blocks = (function () {
     tiles: [T.BED_TOP_PZ, T.BED_SIDE, T.BED_SIDE], sound: 'wood',
     color: 0xc0504d, hard: 0.8, icon: T.BED_TOP_PZ };
 
+  // ---- 扩展矿物（稳定方块 ID 72..73）----
+  // 只在注册表尾部追加，不得复用/移动旧 ID。金矿石掉自身（同铁矿 9 模式，熔炼得金锭）；
+  // 钻石矿石直接掉钻石 124（同煤矿 8 模式）。自然生成由 PlanetRules v2 通道按行星稀有度决定。
+  defs[72] = { name: '金矿石', solid: true, opaque: true,
+    tiles: [T.GOLD_ORE, T.GOLD_ORE, T.GOLD_ORE], sound: 'stone', color: 0xf5d442,
+    hard: 6, pick: true, tier: 3 };
+  defs[73] = { name: '钻石矿石', solid: true, opaque: true,
+    tiles: [T.DIAMOND_ORE, T.DIAMOND_ORE, T.DIAMOND_ORE], sound: 'stone', color: 0x5ce2da,
+    hard: 6.5, pick: true, tier: 3, drop: 124 };
+
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
   defs[100] = { name: '木棍', item: true, solid: false, opaque: false, tiles: [T.STICK, T.STICK, T.STICK], sound: 'wood', color: 0x9a764a, icon: T.STICK };
@@ -253,6 +267,41 @@ Voxel.Blocks = (function () {
     defs[122] = { name: '曲速电池', item: true, solid: false, opaque: false,
       tiles: [T.WARP_CELL, T.WARP_CELL, T.WARP_CELL], sound: 'glass', color: 0xb08cf0,
       icon: T.WARP_CELL };
+
+    // ---- 物品/装备扩展（稳定物品 ID 123..131）----
+    // 只在尾部追加，不得复用/移动旧 ID。
+    defs[123] = { name: '金锭', item: true, solid: false, opaque: false,
+      tiles: [T.INGOT_GOLD, T.INGOT_GOLD, T.INGOT_GOLD], sound: 'stone', color: 0xf5d442,
+      icon: T.INGOT_GOLD };
+    defs[124] = { name: '钻石', item: true, solid: false, opaque: false,
+      tiles: [T.GEM_DIAMOND, T.GEM_DIAMOND, T.GEM_DIAMOND], sound: 'glass', color: 0x5ce2da,
+      icon: T.GEM_DIAMOND };
+    // 木炭：原木熔炉烧制产物，燃料热值与煤炭等效；也是防毒面具滤芯材料。
+    defs[125] = { name: '木炭', item: true, solid: false, opaque: false,
+      tiles: [T.CHARCOAL, T.CHARCOAL, T.CHARCOAL], sound: 'stone', color: 0x2e2c2b,
+      icon: T.CHARCOAL };
+    // 金质工具：MC 风格——挖掘最快（pickMult 覆盖 PICK_MULT）但极不耐久。
+    defs[126] = { name: '金镐', item: true, solid: false, opaque: false,
+      tiles: [T.PICK_GOLD, T.PICK_GOLD, T.PICK_GOLD], sound: 'stone', color: 0xf5d442,
+      tool: 'pick', tier: 2, pickMult: 12, dmg: 2, maxDur: 33, maxStack: 1, icon: T.PICK_GOLD };
+    defs[127] = { name: '金剑', item: true, solid: false, opaque: false,
+      tiles: [T.SWORD_GOLD, T.SWORD_GOLD, T.SWORD_GOLD], sound: 'stone', color: 0xf5d442,
+      tool: 'sword', dmg: 4, maxDur: 33, maxStack: 1, icon: T.SWORD_GOLD };
+    // 钻石工具：tier 4 终极档。
+    defs[128] = { name: '钻石镐', item: true, solid: false, opaque: false,
+      tiles: [T.PICK_DIAMOND, T.PICK_DIAMOND, T.PICK_DIAMOND], sound: 'stone', color: 0x5ce2da,
+      tool: 'pick', tier: 4, dmg: 5, maxDur: 1561, maxStack: 1, icon: T.PICK_DIAMOND };
+    defs[129] = { name: '钻石剑', item: true, solid: false, opaque: false,
+      tiles: [T.SWORD_DIAMOND, T.SWORD_DIAMOND, T.SWORD_DIAMOND], sound: 'stone', color: 0x5ce2da,
+      tool: 'sword', dmg: 7, maxDur: 1561, maxStack: 1, icon: T.SWORD_DIAMOND };
+    // 功能性装备：gearSlot 指定装备槽（'head' 头部 / 'body' 身体），穿戴后由
+    // Environment 按 context 里的 gear/charge 字段阻断对应环境危害暴露。
+    defs[130] = { name: '防毒面具', item: true, solid: false, opaque: false,
+      tiles: [T.MASK_GAS, T.MASK_GAS, T.MASK_GAS], sound: 'wool', color: 0x8a8a7c,
+      gearSlot: 'head', maxDur: 240, maxStack: 1, icon: T.MASK_GAS };
+    defs[131] = { name: '防寒服', item: true, solid: false, opaque: false,
+      tiles: [T.SUIT_COLD, T.SUIT_COLD, T.SUIT_COLD], sound: 'wool', color: 0x2e4460,
+      gearSlot: 'body', maxDur: 320, maxStack: 1, icon: T.SUIT_COLD };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -361,6 +410,8 @@ Voxel.Blocks = (function () {
 
     drawTile(T.COAL, oreTile([38, 38, 40]));
     drawTile(T.IRON, oreTile([216, 175, 135]));
+    drawTile(T.GOLD_ORE, oreTile([244, 206, 82]));
+    drawTile(T.DIAMOND_ORE, oreTile([96, 224, 214]));
 
     drawTile(T.PLANKS, function (x, y, r) {
       if (y % 4 === 3) return [118 + r() * 10, 92 + r() * 10, 54 + r() * 8];
@@ -667,6 +718,8 @@ Voxel.Blocks = (function () {
     drawTile(T.PICK_WOOD, pickTile([166, 134, 82]));
     drawTile(T.PICK_STONE, pickTile([140, 140, 144]));
     drawTile(T.PICK_IRON, pickTile([216, 175, 135]));
+    drawTile(T.PICK_GOLD, pickTile([244, 206, 82]));
+    drawTile(T.PICK_DIAMOND, pickTile([96, 224, 214]));
 
     function swordTile(bladeColor) {
       return function (x, y, r) {
@@ -684,6 +737,8 @@ Voxel.Blocks = (function () {
     drawTile(T.SWORD_WOOD, swordTile([166, 134, 82]));
     drawTile(T.SWORD_STONE, swordTile([150, 150, 155]));
     drawTile(T.SWORD_IRON, swordTile([220, 220, 226]));
+    drawTile(T.SWORD_GOLD, swordTile([250, 224, 108]));
+    drawTile(T.SWORD_DIAMOND, swordTile([140, 240, 230]));
 
     drawTile(T.TORCH, function (x, y, r) {
       // 木杆
@@ -699,17 +754,22 @@ Voxel.Blocks = (function () {
 
     // ---- 食物 / 铁锭图标 ----
 
-    drawTile(T.INGOT, function (x, y, r) {
-      // 斜置金属条：平行四边形锭身 + 高光边
-      var row = y - 4;
-      if (row < 0 || row > 7) return;
-      var x0 = 3 + ((7 - row) >> 1), x1 = x0 + 9;
-      if (x < x0 || x > x1) return;
-      if (row <= 1 || x === x1) return [240 + r() * 14, 214 + r() * 10, 176];   // 上/右高光
-      if (row >= 7 || x === x0) return [158, 118, 84];                          // 下/左阴影
-      var v = n(r, 0, 12);
-      return [216 + v, 175 + v, 135 + v];
-    });
+    // 斜置金属锭：平行四边形锭身 + 高光边（参数化，铁锭/金锭共用画法）
+    function ingotTile(base, hi, lo) {
+      return function (x, y, r) {
+        var row = y - 4;
+        if (row < 0 || row > 7) return;
+        var x0 = 3 + ((7 - row) >> 1), x1 = x0 + 9;
+        if (x < x0 || x > x1) return;
+        if (row <= 1 || x === x1) return [hi[0] + r() * 14, hi[1] + r() * 10, hi[2]];   // 上/右高光
+        if (row >= 7 || x === x0) return lo;                                            // 下/左阴影
+        var v = n(r, 0, 12);
+        return [base[0] + v, base[1] + v, base[2] + v];
+      };
+    }
+
+    drawTile(T.INGOT, ingotTile([216, 175, 135], [240, 214, 176], [158, 118, 84]));
+    drawTile(T.INGOT_GOLD, ingotTile([244, 206, 82], [255, 238, 150], [172, 128, 38]));
 
     function meatTile(raw, cooked, bone) {
       return function (x, y, r) {
@@ -806,6 +866,66 @@ Voxel.Blocks = (function () {
       }
       var mv = n(r, 0, 12);
       return [168 + mv, 176 + mv, 200 + mv];                       // 金属壳面
+    });
+
+    // ---- 钻石 / 木炭 / 功能装备图标 ----
+
+    drawTile(T.GEM_DIAMOND, function (x, y, r) {
+      // 菱形宝石：上宽冠部 + 下尖亭部，青白渐变 + 描边 + 斜高光
+      if (y < 2 || y > 14) return;
+      var half = (y <= 6) ? (y - 1) * 0.9 + 1 : (14 - y) * 1.05 + 0.6;
+      var dx = Math.abs(x - 7.5);
+      if (dx > half) return;
+      var v = n(r, 0, 14);
+      if (dx > half - 1.1) return [110 + v, 200 + v, 202 + v];            // 描边
+      if (Math.abs((x + y) - 14) < 1.6 && y <= 8) return [228 + v, 252, 252]; // 冠部斜高光
+      if (y <= 6) return [186 + v, 244 + v, 242 + v];                     // 亮冠部
+      return [140 + v, 222 + v, 220 + v];                                 // 亭部
+    });
+
+    drawTile(T.CHARCOAL, function (x, y, r) {
+      // 炭块团：不规则深灰黑块 + 焦褐边缘 + 灰白灰烬点，透明底
+      var dx = x - 8, dy = y - 8;
+      var wob = 1 + 0.06 * Math.sin(x * 2.3 + 1) * Math.cos(y * 1.9);
+      if (dx * dx * 0.11 + dy * dy * 0.13 > wob) return;
+      var v = n(r, 0, 16);
+      if (r() < 0.10) return [98 + v, 90 + v, 80 + v];                    // 灰烬斑
+      if (r() < 0.12) return [66 + v, 46 + v, 34 + v];                    // 焦褐边
+      return [30 + v, 28 + v, 27 + v];                                    // 炭体
+    });
+
+    drawTile(T.MASK_GAS, function (x, y, r) {
+      // 防毒面具：灰绿橡胶罩体 + 双圆目镜 + 下部圆形滤毒罐 + 两侧绑带
+      var dx = x - 8, dy = y - 7.5;
+      if (dx * dx * 0.16 + dy * dy * 0.14 <= 1) {
+        var v = n(r, 0, 12);
+        var e1 = (x - 5) * (x - 5) + (y - 5.5) * (y - 5.5);
+        var e2 = (x - 11) * (x - 11) + (y - 5.5) * (y - 5.5);
+        if (e1 <= 1.2 || e2 <= 1.2) return [152, 222, 232];               // 镜片反光
+        if (e1 <= 2.6 || e2 <= 2.6) return [40, 44, 48];                  // 镜框
+        if (y >= 10 && y <= 14) {                                          // 滤毒罐
+          var fd = (x - 8) * (x - 8) + (y - 11.5) * (y - 11.5);
+          if (fd <= 1.6) return [70, 76, 68];
+          if (fd <= 3.6) return [96, 104, 92];
+        }
+        return [128 + v, 138 + v, 122 + v];                               // 罩体
+      }
+      if ((y === 6 || y === 9) && (x <= 2 || x >= 13)) return [92, 98, 88]; // 绑带
+    });
+
+    drawTile(T.SUIT_COLD, function (x, y, r) {
+      // 防寒服：深蓝躯干 + 白色毛领 + 中央拉链 + 橙色袖标
+      if (x < 2 || x > 13 || y < 2 || y > 14) return;
+      var v = n(r, 0, 12);
+      if (y <= 3) {                                                        // 白色毛领
+        if (r() < 0.3) return [218 + v, 222 + v, 228];
+        return [240, 244, 248];
+      }
+      if (x === 7 || x === 8) return [186 + v, 194 + v, 204 + v];          // 拉链
+      if ((x >= 3 && x <= 4 || x >= 11 && x <= 12) && y >= 6 && y <= 8)
+        return [236, 152, 48];                                             // 橙色缀条
+      if (x === 2 || x === 13 || y === 14) return [28 + v, 44 + v, 66 + v]; // 描边阴影
+      return [46 + v, 68 + v, 96 + v];                                     // 深蓝布面
     });
 
     // ---- 功能方块（熔炉/箱子） ----
@@ -1113,7 +1233,7 @@ Voxel.Blocks = (function () {
 
   // 主动扫描只把自然地质/稀有资源写入档案；普通建筑方块不计数，避免玩家
   // 摆放同一方块刷发现奖励。World.isEdited 会再拒绝被玩家修改过的坐标。
-  var SCANNABLE_RESOURCES = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33, 39, 40, 41, 42, 43, 44];
+  var SCANNABLE_RESOURCES = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33, 39, 40, 41, 42, 43, 44, 72, 73];
   var scannableResourceSet = Object.create(null);
   for (var sri = 0; sri < SCANNABLE_RESOURCES.length; sri++)
     scannableResourceSet[SCANNABLE_RESOURCES[sri]] = true;
@@ -1124,6 +1244,9 @@ Voxel.Blocks = (function () {
     var ld = defs[li];
     if (ld && typeof ld.light === 'number' && ld.light > 0 && ld.light <= 15) LIGHT[li] = ld.light;
   }
+
+  // 镐对可加速方块的倍率（下标=镐等级；金镐用 def.pickMult 单独覆盖）
+  var PICK_MULT = [1, 4, 7, 10, 13];
 
   return {
     defs: defs,
@@ -1180,8 +1303,14 @@ Voxel.Blocks = (function () {
       var d = defs[id];
       return (d && d.maxDur) || 0;
     },
-    // 镐对可加速方块的倍率
-    PICK_MULT: [1, 4, 7, 10],
+    // 镐对可加速方块的倍率（闭包内 PICK_MULT，见上方定义；金镐用 def.pickMult 覆盖）
+    PICK_MULT: PICK_MULT,
+    pickMultOf: function (heldId) {
+      var d = defs[heldId];
+      if (!d || d.tool !== 'pick') return PICK_MULT[0];
+      if (d.pickMult) return d.pickMult;
+      return PICK_MULT[d.tier] || PICK_MULT[0];
+    },
     iconTile: function (id) {
       var d = defs[id];
       if (!d || !d.tiles) return -1;

@@ -15,6 +15,12 @@ Voxel.Game = (function () {
   var dur = [];   // 与 inv 平行：工具耐久（非工具格为 null）
   for (var i0d = 0; i0d < 36; i0d++) dur.push(null);
   var sel = 0, heldItem = 0, heldCnt = 0, heldDur = null;
+  // 装备槽与充能槽（功能性装备系统）
+  var gear = [0, 0];            // [0]=头部（防毒面具130）[1]=身体（防寒服131），0=空
+  var gearDur = [null, null];   // 与 gear 平行的装备耐久
+  var charge = { id: 0, n: 0 }; // 充能槽：单格可堆叠（面具吃木炭125，防寒服吃煤炭107）
+  var GEAR_HEAD_ID = 130, GEAR_BODY_ID = 131, CHARCOAL_ID = 125, COAL_ID = 107;
+  var gearChargeAccum = 0, gearDurAccum = 0, gearHintT = 0;
   var craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];   // 工作台 3x3（每格 1 个）
   var invCraftGrid = [0, 0, 0, 0];               // 背包 2x2（每格 1 个）
   var manualOpen = false, manualReturnState = 'menu';
@@ -771,6 +777,7 @@ Voxel.Game = (function () {
     if (Voxel.Player.setSpawn) Voxel.Player.setSpawn(Voxel.World.spawnPoint());
     craftGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
     invCraftGrid = [0, 0, 0, 0];
+    if (freshRun) { gear = [0, 0]; gearDur = [null, null]; charge = { id: 0, n: 0 }; }
     if (saveData) {
       if (saveData.inv && saveData.inv.length === 36) {
         inv = saveData.inv.slice();
@@ -795,6 +802,7 @@ Voxel.Game = (function () {
         : null;
       craftGrid = restoreCraftGrid(saveData.craftGrid, 9);
       invCraftGrid = restoreCraftGrid(saveData.invCraftGrid, 4);
+      restoreGear(saveData.gear);
       var savedTime = Number(saveData.time);
       Voxel.DayNight.setTime(isFinite(savedTime) ? savedTime : 0.3);
       Voxel.DayNight.update(0);
@@ -1208,6 +1216,7 @@ Voxel.Game = (function () {
         shipFlight: snapshot.shipFlight,
         inv: inv,
         cnt: cnt,
+        gear: gearSnapshot(),
         held: heldItem,
         heldCnt: heldCnt,
         heldDur: heldDur,
@@ -1266,6 +1275,53 @@ Voxel.Game = (function () {
   function refreshInv() {
     syncDur();
     Voxel.HUD.setInv(inv, cnt, dur);
+    refreshGear();
+  }
+
+  // 装备耐久归一化（与 syncDur 同规则）
+  function syncGearDur() {
+    for (var i = 0; i < 2; i++) {
+      if (!gear[i]) { gearDur[i] = null; continue; }
+      var md = Voxel.Blocks.maxDur(gear[i]);
+      if (!md) { gearDur[i] = null; continue; }
+      var d = Number(gearDur[i]);
+      gearDur[i] = isFinite(d) && d > 0 ? Math.max(1, Math.min(md, Math.floor(d))) : md;
+    }
+  }
+
+  // 装备栏 HUD 刷新（三格：头部/身体/充能）
+  function refreshGear() {
+    syncGearDur();
+    if (Voxel.HUD.setGear) Voxel.HUD.setGear(gear[0], gearDur[0], gear[1], gearDur[1], charge.id, charge.n);
+  }
+
+  // 装备/充能槽存档快照与恢复（v6 可选字段，旧档缺失时回落为空装备）
+  function gearSnapshot() {
+    return {
+      head: gear[0] ? { id: gear[0], dur: gearDur[0] } : null,
+      body: gear[1] ? { id: gear[1], dur: gearDur[1] } : null,
+      charge: charge.id ? { id: charge.id, n: charge.n } : null
+    };
+  }
+
+  function restoreGear(g) {
+    gear = [0, 0]; gearDur = [null, null]; charge = { id: 0, n: 0 };
+    if (!g || typeof g !== 'object') return;
+    if (Number(g.head && g.head.id) === GEAR_HEAD_ID) {
+      gear[0] = GEAR_HEAD_ID;
+      var hd = Number(g.head.dur);
+      gearDur[0] = isFinite(hd) && hd > 0 ? hd : Voxel.Blocks.maxDur(GEAR_HEAD_ID);
+    }
+    if (Number(g.body && g.body.id) === GEAR_BODY_ID) {
+      gear[1] = GEAR_BODY_ID;
+      var bd = Number(g.body.dur);
+      gearDur[1] = isFinite(bd) && bd > 0 ? bd : Voxel.Blocks.maxDur(GEAR_BODY_ID);
+    }
+    var chId = Number(g.charge && g.charge.id);
+    if (chId === CHARCOAL_ID || chId === COAL_ID) {
+      var chN = Math.floor(Number(g.charge.n));
+      if (isFinite(chN) && chN > 0) { charge.id = chId; charge.n = Math.min(MAX_STACK, chN); }
+    }
   }
 
   // 手持工具损耗 n 点；归零则损坏消失
@@ -1566,8 +1622,7 @@ Voxel.Game = (function () {
     if (def.hard === Infinity) return Infinity;
     var t = def.hard;
     if (def.pick) {
-      var tier = heldPickTier();
-      if (tier > 0) t /= Voxel.Blocks.PICK_MULT[tier];
+      if (heldPickTier() > 0) t /= Voxel.Blocks.pickMultOf(inv[sel]);
     }
     return Math.max(0.05, t);
   }
@@ -1594,7 +1649,7 @@ Voxel.Game = (function () {
         var nowMs = performance.now();
         if (nowMs - digHintT > 1500) {
           digHintT = nowMs;
-          Voxel.HUD.toast('需要' + ['', '木镐', '石镐', '铁镐'][def.tier] + '才能开采' + Voxel.Blocks.name(hit.id));
+          Voxel.HUD.toast('需要' + ['', '木镐', '石镐', '铁镐', '钻石镐'][def.tier] + '才能开采' + Voxel.Blocks.name(hit.id));
           Voxel.Sound.hit();
         }
         return;
@@ -1856,6 +1911,8 @@ Voxel.Game = (function () {
   // 熔炉三格（fin 原料 / ffuel 燃料 / fout 产物）为对象槽，挂在 curFurnace 上
   function slotGet(loc, i) {
     if (loc === 'inv') return { id: inv[i], n: cnt[i], d: dur[i] };
+    if (loc === 'gear') return { id: gear[i], n: gear[i] ? 1 : 0, d: gearDur[i] };
+    if (loc === 'charge') return { id: charge.id, n: charge.n };
     if (loc === 'icraft') return { id: invCraftGrid[i], n: invCraftGrid[i] ? 1 : 0 };
     if (loc === 'fin' || loc === 'ffuel' || loc === 'fout') {
       var o = curFurnace ? curFurnace[loc.slice(1)] : null;
@@ -1875,6 +1932,14 @@ Voxel.Game = (function () {
       cnt[i] = id ? n : 0;
       dur[i] = (id && typeof d === 'number' && d > 0) ? d : null;
     }
+    else if (loc === 'gear') {
+      gear[i] = id;
+      gearDur[i] = id ? (typeof d === 'number' && d > 0 ? d : (Voxel.Blocks.maxDur(id) || null)) : null;
+    }
+    else if (loc === 'charge') {
+      charge.id = id;
+      charge.n = id ? n : 0;
+    }
     else if (loc === 'icraft') invCraftGrid[i] = id;
     else if (loc === 'fin' || loc === 'ffuel' || loc === 'fout') {
       if (curFurnace) curFurnace[loc.slice(1)] = id ? { id: id, n: n } : null;
@@ -1887,11 +1952,20 @@ Voxel.Game = (function () {
 
   // 可堆叠的格子位置（合成格每格只放 1 个）
   function isStackLoc(loc) {
-    return loc === 'inv' || loc === 'fin' || loc === 'ffuel' || loc === 'chest';
+    return loc === 'inv' || loc === 'fin' || loc === 'ffuel' || loc === 'chest' || loc === 'charge';
   }
 
   function storesDur(loc) {
-    return loc === 'inv' || loc === 'chest';
+    return loc === 'inv' || loc === 'chest' || loc === 'gear';
+  }
+
+  // 装备/充能槽的物品准入校验：头部槽只收防毒面具、身体槽只收防寒服，
+  // 充能槽只收木炭/煤炭。
+  function gearSlotOk(loc, i, id) {
+    if (loc === 'gear')
+      return !!id && !!Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].gearSlot === (i === 0 ? 'head' : 'body');
+    if (loc === 'charge') return id === CHARCOAL_ID || id === COAL_ID;
+    return true;
   }
 
   function isDurableItem(id) {
@@ -1930,6 +2004,10 @@ Voxel.Game = (function () {
     var stackable = isStackLoc(loc);
     if (loc === 'fout' && heldItem) return false;
     if (heldItem && rejectDurabilityLoss(loc, heldItem)) return false;
+    if (heldItem && (loc === 'gear' || loc === 'charge') && !gearSlotOk(loc, i, heldItem)) {
+      Voxel.HUD.toast(loc === 'gear' ? '该装备槽不支持这件物品' : '充能槽只接受木炭或煤炭');
+      return false;
+    }
     if (!heldItem) {
       if (!s.id) changed = false;
       else { // 拾取整格（合成格即 1 个）
@@ -1942,8 +2020,8 @@ Voxel.Game = (function () {
         slotSet(loc, i, heldItem, put, heldDur);
         heldCnt -= put;
         if (heldCnt <= 0) { heldItem = 0; heldCnt = 0; heldDur = null; }
-      } else {              // 合成格只收 1 个，余量留在手上
-        slotSet(loc, i, heldItem, 1);
+      } else {              // 合成格只收 1 个，余量留在手上（gear 槽同路径，携带耐久）
+        slotSet(loc, i, heldItem, 1, heldDur);
         heldCnt--;
         if (heldCnt <= 0) { heldItem = 0; heldCnt = 0; heldDur = null; }
       }
@@ -1984,6 +2062,7 @@ Voxel.Game = (function () {
     var src = slotGet(fl, fi);
     if (!src.id || (fl === tl && fi === ti)) return false;
     if (tl === 'fout') return false;
+    if ((tl === 'gear' || tl === 'charge') && !gearSlotOk(tl, ti, src.id)) return false;
     var dst = slotGet(tl, ti);
     var dstSt = isStackLoc(tl);
     if (rejectDurabilityLoss(tl, src.id)) return false;
@@ -2111,6 +2190,7 @@ Voxel.Game = (function () {
     if (from === 'chest') return state === 'chest';
     if (from === 'icraft') return state === 'inventory';
     if (from === 'craft') return state === 'crafting';
+    if (from === 'gear' || from === 'charge') return state === 'inventory';
     return false;
   }
 
@@ -2155,8 +2235,8 @@ Voxel.Game = (function () {
           slotSet(from, idx, heldItem, s.n + 1, s.d);
         } else return;
       } else {
-        if (s.id) return;              // 合成格只收 1 个且须为空格
-        slotSet(from, idx, heldItem, 1);
+        if (s.id) return;              // 合成格只收 1 个且须为空格（gear 同路径）
+        slotSet(from, idx, heldItem, 1, heldDur);
       }
       heldCnt--;
       if (heldCnt <= 0) { heldItem = 0; heldCnt = 0; heldDur = null; }
@@ -2185,6 +2265,8 @@ Voxel.Game = (function () {
   function slotIndexValid(from, idx) {
     if (idx !== Math.floor(idx) || idx < 0) return false;
     if (from === 'inv') return idx < 36;
+    if (from === 'gear') return idx < 2;
+    if (from === 'charge') return idx === 0;
     if (from === 'craft') return idx < 9;
     if (from === 'icraft') return idx < 4;
     if (from === 'chest') return idx < 27;
@@ -2278,7 +2360,8 @@ Voxel.Game = (function () {
     var parts = spec.split(':');
     var to = parts[0], tIdx = +parts[1];
     if (to !== 'inv' && to !== 'craft' && to !== 'icraft' &&
-      to !== 'fin' && to !== 'ffuel' && to !== 'fout' && to !== 'chest') return;
+      to !== 'fin' && to !== 'ffuel' && to !== 'fout' && to !== 'chest' &&
+      to !== 'gear' && to !== 'charge') return;
     // pointerdown 后面板状态可能已变化；真正写槽前重新验证来源和目标。
     if (!slotStateOk(d.from) || !slotStateOk(to)) return;
     if (d.fromHand) {
@@ -4175,6 +4258,9 @@ Voxel.Game = (function () {
     }
     var waterDepth = headInWater ? Math.max(0, CFG.WATER_LEVEL - (p.y + C.EYE)) : 0;
     var sealedShelter = !!(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard());
+    // 功能装备信号：只有正确佩戴且充能槽有对应消耗品时才视作防护生效
+    var gearHeadId = gear[0] === GEAR_HEAD_ID ? gear[0] : 0;
+    var gearBodyId = gear[1] === GEAR_BODY_ID ? gear[1] : 0;
     return {
       isNight: !!(Voxel.DayNight && Voxel.DayNight.isNight && Voxel.DayNight.isNight()),
       sunlight: Voxel.DayNight && Voxel.DayNight.sunlight ? Voxel.DayNight.sunlight() : 0,
@@ -4190,7 +4276,11 @@ Voxel.Game = (function () {
       waterDepth: waterDepth,
       blockLight: blockLight,
       spawnDistance: spawnDistance,
-      inSpawnSafeZone: spawnDistance !== null && spawnDistance <= 12
+      inSpawnSafeZone: spawnDistance !== null && spawnDistance <= 12,
+      gearHead: gearHeadId,
+      gearBody: gearBodyId,
+      chargeHead: gearHeadId && charge.id === CHARCOAL_ID ? charge.n : 0,
+      chargeBody: gearBodyId && charge.id === COAL_ID ? charge.n : 0
     };
   }
 
@@ -4213,11 +4303,68 @@ Voxel.Game = (function () {
     environmentLastProtected = status.protected !== false;
   }
 
+  // 装备消耗计费：防护生效期间（status.gearCost 非 null）
+  //   · 每 4s 扣 1 个充能物品（面具吃木炭 / 防寒服吃煤炭）
+  //   · 每 8s 扣 1 点装备耐久，归零装备损坏
+  // 离开防护（受遮蔽/水体接管、摘装备、耗尽）时时钟清零。
+  function tickGearCost(step, status) {
+    var slot = status && status.gearCost;
+    if (slot !== 'head' && slot !== 'body') { gearChargeAccum = 0; gearDurAccum = 0; return; }
+    var gi = slot === 'head' ? 0 : 1;
+    var gearId = gear[gi];
+    if (!gearId) { gearChargeAccum = 0; gearDurAccum = 0; return; }
+    var needId = gearId === GEAR_HEAD_ID ? CHARCOAL_ID : COAL_ID;
+    gearChargeAccum += step;
+    if (gearChargeAccum >= 4) {
+      gearChargeAccum -= 4;
+      if (charge.id === needId && charge.n > 0) {
+        charge.n--;
+        if (charge.n <= 0) charge.id = 0;
+      }
+    }
+    gearDurAccum += step;
+    if (gearDurAccum >= 8) {
+      gearDurAccum -= 8;
+      var md = Voxel.Blocks.maxDur(gearId);
+      if (md) {
+        gearDur[gi] = (typeof gearDur[gi] === 'number' && gearDur[gi] > 0 ? gearDur[gi] : md) - 1;
+        if (gearDur[gi] <= 0) {
+          gear[gi] = 0; gearDur[gi] = null;
+          gearChargeAccum = 0; gearDurAccum = 0;
+          Voxel.Sound.pop();
+          Voxel.HUD.toast(Voxel.Blocks.name(gearId) + ' 坏了！');
+          var bp2 = Voxel.Player.pos().clone();
+          bp2.y += 1.4;
+          Voxel.Particles.burst(bp2, 0x8a8a7c, 8);
+        }
+      }
+    }
+    refreshGear();
+  }
+
+  // 装备在但充能耗尽时给节流提示（避免每步刷屏）
+  function gearProtectionHint(status) {
+    if (!status || !status.active || status.protected) return;
+    var gi = -1, label = '';
+    if ((status.hazard === 'toxic' || status.hazard === 'ash') && gear[0] === GEAR_HEAD_ID) { gi = 0; label = '滤芯耗尽'; }
+    else if (status.hazard === 'cold' && gear[1] === GEAR_BODY_ID) { gi = 1; label = '燃料耗尽'; }
+    if (gi < 0) return;
+    var nowMs = performance.now();
+    if (nowMs - gearHintT > 3000) {
+      gearHintT = nowMs;
+      Voxel.HUD.toast(label + '，' + Voxel.Blocks.name(gear[gi]) + '失去防护！');
+    }
+  }
+
   function tickEnvironment(step) {
     if (!Voxel.Environment || !Voxel.Environment.update) return null;
     var result = Voxel.Environment.update(step, environmentContext());
     if (!result || !result.status) return null;
     syncEnvironmentHUD(result.status, false);
+    if (state === 'playing') {
+      tickGearCost(step, result.status);
+      gearProtectionHint(result.status);
+    }
     if (Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard() &&
       Voxel.SpaceTravel.syncCockpit) Voxel.SpaceTravel.syncCockpit(false);
     if (result.damageDue > 0 && Voxel.Player.alive())
@@ -4772,6 +4919,19 @@ Voxel.Game = (function () {
       held: function () { return heldItem; },
       heldCount: function () { return heldCnt; },
       heldDur: function () { return heldDur; },
+      gear: function () { return gear.slice(); },
+      gearDur: function () { return gearDur.slice(); },
+      chargeSlot: function () { return { id: charge.id, n: charge.n }; },
+      setGearSlot: function (i, id) {
+        gear[i] = id || 0;
+        gearDur[i] = id ? Voxel.Blocks.maxDur(id) : null;
+        refreshGear();
+      },
+      setCharge: function (id, n) {
+        charge.id = id || 0;
+        charge.n = id ? Math.max(0, Math.floor(Number(n) || 0)) : 0;
+        refreshGear();
+      },
       setHeld: function (id, n, d) {
         heldItem = id || 0;
         heldCnt = heldItem ? Math.max(1, Math.floor(Number(n) || 1)) : 0;

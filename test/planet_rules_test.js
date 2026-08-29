@@ -310,10 +310,10 @@ const specialCalls = [];
 const positionalSpecial = P.oreBlockForPosition(2, 'volcanic', 12, 12, -7, {
   hash3: function (x, y, z) { specialCalls.push([x, y, z]); return 0; }
 });
-check('oreBlockForPosition v2适用的三组salt互异且专属矿优先短路',
-  positionalNone === 0 && typeof positionalNone === 'number' && v2HashCalls.length === 3 &&
+check('oreBlockForPosition v2适用的五组salt互异且专属矿优先短路',
+  positionalNone === 0 && typeof positionalNone === 'number' && v2HashCalls.length === 5 &&
   positionalSpecial === 43 && specialCalls.length === 1 &&
-  new Set(v2HashCalls.map(call => call.join(','))).size === 3);
+  new Set(v2HashCalls.map(call => call.join(','))).size === 5);
 let highCalls = 0, midCalls = 0, coalHitCalls = 0;
 P.oreBlockForPosition(2, 'volcanic', 1, 50, 2, { hash3: function () { highCalls++; return .5; } });
 P.oreBlockForPosition(2, 'volcanic', 1, 40, 2, { hash3: function () { midCalls++; return .5; } });

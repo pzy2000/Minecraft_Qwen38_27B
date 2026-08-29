@@ -11,7 +11,7 @@ Voxel.Crafting = (function () {
     { name: '工作台', grid: [10, 10, 0, 10, 10, 0, 0, 0, 0], result: 15, count: 1 },
     { name: '床', grid: [16, 16, 16, 10, 10, 10, 0, 0, 0], result: 17, count: 1 },
     { name: '木棍', shapeless: true, inputs: { 10: 2 }, result: 100, count: 4 },
-    { name: '火把', shapeless: true, inputs: { 107: 1, 100: 1 }, result: 19, count: 4 },
+    { name: '火把', shapeless: true, alts: [{ 107: 1, 100: 1 }, { 125: 1, 100: 1 }], result: 19, count: 4 },
     { name: '熔炉', grid: [3, 3, 3, 3, 0, 3, 3, 3, 3], result: 37, count: 1 },
     { name: '箱子', grid: [10, 10, 10, 10, 0, 10, 10, 10, 10], result: 38, count: 1 },
     { name: '木镐', grid: [10, 10, 10, 0, 100, 0, 0, 100, 0], result: 101, count: 1 },
@@ -25,7 +25,16 @@ Voxel.Crafting = (function () {
     { name: '曲速电池', shapeless: true, alts: [
       { 117: 2, 108: 1 }, { 118: 2, 108: 1 },
       { 119: 2, 108: 1 }, { 120: 2, 108: 1 }
-    ], result: 122, count: 1 }
+    ], result: 122, count: 1 },
+    // ---- 物品/装备扩展配方（金/钻工具、功能性装备）----
+    { name: '金镐', grid: [123, 123, 123, 0, 100, 0, 0, 100, 0], result: 126, count: 1 },
+    { name: '金剑', grid: [0, 123, 0, 0, 123, 0, 0, 100, 0], result: 127, count: 1 },
+    { name: '钻石镐', grid: [124, 124, 124, 0, 100, 0, 0, 100, 0], result: 128, count: 1 },
+    { name: '钻石剑', grid: [0, 124, 0, 0, 124, 0, 0, 100, 0], result: 129, count: 1 },
+    // 防毒面具：5 金锭面罩壳 + 1 木炭滤芯；抵御 toxic/volcanic 行星毒性暴露
+    { name: '防毒面具', grid: [108, 108, 108, 108, 0, 108, 0, 125, 0], result: 130, count: 1 },
+    // 防寒服：6 猫毛毡（保温材料）；抵御 frozen 行星低温暴露
+    { name: '防寒服', grid: [45, 0, 45, 45, 45, 45, 0, 0, 0], result: 131, count: 1 }
   ];
 
   // 有方向配方：把配方最小包围盒平移到 size×size 内，其余格子必须为空

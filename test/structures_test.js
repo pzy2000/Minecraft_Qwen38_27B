@@ -247,7 +247,9 @@ Object.keys(expectedBedBlocks).forEach(function (idKey) {
 ok(Voxel.Blocks.defs[67].bed === 'foot' && Voxel.Blocks.defs[67].drop === 17, '床尾半格破坏掉落床物品');
 ok(Voxel.Blocks.isBed(17) && Voxel.Blocks.isBed(71) && !Voxel.Blocks.isBed(72), 'isBed 覆盖 17/67..71');
 ok(Voxel.Blocks.bedHeadId(1, 0) === 69 && Voxel.Blocks.bedHeadId(0, -1) === 70, '床头按延伸方向选型');
-ok(Voxel.Blocks.defs[72] === undefined, 'ID 72 未占用（尾部追加纪律）');
+ok(Voxel.Blocks.defs[72] && Voxel.Blocks.defs[72].name === '金矿石' &&
+  Voxel.Blocks.defs[73] && Voxel.Blocks.defs[73].name === '钻石矿石' &&
+  Voxel.Blocks.defs[74] === undefined, 'ID 72/73 为金/钻矿石，74 起空闲（尾部追加纪律）');
 
 console.log('');
 if (failed) { console.log('失败 ' + failed + ' 项'); process.exit(1); }

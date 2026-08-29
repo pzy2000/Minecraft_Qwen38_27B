@@ -224,6 +224,8 @@ Voxel.Save = (function () {
         shipFlight: extra.shipFlight || null,
         inv: extra.inv,
         cnt: extra.cnt,
+        // 功能装备槽（v6 可选字段；旧调用方缺失时写 null，读档侧兜底为空装备）
+        gear: extra.gear || null,
         held: extra.held,
         heldCnt: extra.heldCnt,
         heldDur: extra.heldDur,

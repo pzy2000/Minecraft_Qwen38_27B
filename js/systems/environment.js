@@ -187,7 +187,14 @@ Voxel.Environment = (function () {
         (finiteNumber(raw.depth) ? clamp(raw.depth, 0, 10000) : 0),
       blockLight: finiteNumber(raw.blockLight) ? clamp(raw.blockLight, 0, 15) : 0,
       spawnSafe: raw.inSpawnSafeZone === true || (spawnDistance !== null && spawnDistance <= SPAWN_SAFE_RADIUS),
-      spawnDistance: spawnDistance
+      spawnDistance: spawnDistance,
+      // 功能性装备信号：gearHead/gearBody 为已穿戴装备物品 id（0=无），
+      // chargeHead/chargeBody 为充能槽内对应消耗品数量。缺失/非法时归零，
+      // 旧调用方（不含这些字段）行为与未穿戴完全一致。
+      gearHead: finiteNumber(raw.gearHead) && raw.gearHead > 0 ? Math.floor(raw.gearHead) : 0,
+      gearBody: finiteNumber(raw.gearBody) && raw.gearBody > 0 ? Math.floor(raw.gearBody) : 0,
+      chargeHead: finiteNumber(raw.chargeHead) && raw.chargeHead > 0 ? Math.min(999, Math.floor(raw.chargeHead)) : 0,
+      chargeBody: finiteNumber(raw.chargeBody) && raw.chargeBody > 0 ? Math.min(999, Math.floor(raw.chargeBody)) : 0
     };
   }
 
@@ -247,12 +254,18 @@ Voxel.Environment = (function () {
       return { active: true, protected: false, reason: '烈日暴晒', profile: profile };
     }
     if (typeKey === 'frozen') {
+      // 防寒服（充能槽有煤炭时）优先于热源/遮蔽判定：直接阻断低温暴露。
+      if (context.gearBody && context.chargeBody > 0)
+        return { active: false, protected: true, reason: '防寒服供热', gearCost: 'body', profile: profile };
       if (context.blockLight >= 10)
         return { active: false, protected: true, reason: '高亮热源', profile: profile };
       if (!context.outdoors) return { active: false, protected: true, reason: '遮蔽保温', profile: profile };
       return { active: true, protected: false, reason: '露天低温', profile: profile };
     }
     if (typeKey === 'toxic' || typeKey === 'volcanic') {
+      // 防毒面具（充能槽有木炭时）优先于水体/遮蔽判定：直接阻断毒性/火山灰暴露。
+      if (context.gearHead && context.chargeHead > 0)
+        return { active: false, protected: true, reason: '防毒面具过滤', gearCost: 'head', profile: profile };
       if (context.inWater)
         return { active: false, protected: true, reason: typeKey === 'toxic' ? '水体隔绝毒气' : '水体隔绝火山灰', profile: profile };
       if (!context.outdoors)
@@ -309,6 +322,7 @@ Voxel.Environment = (function () {
       active: !!condition.active,
       protected: !!condition.protected || graceRemaining > 0,
       sealedShelter: !!(lastContext && lastContext.sealedShelter),
+      gearCost: condition.gearCost || null,
       reason: graceRemaining > 0 && condition.active ? '环境适应期' : condition.reason
     };
   }

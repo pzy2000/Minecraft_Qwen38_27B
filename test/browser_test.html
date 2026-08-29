@@ -1826,8 +1826,8 @@
     check('火把点亮邻格', Voxel.World.getBlk(bxL + 1, byL, bzL) > 0);
     Voxel.World.set(bxL, byL, bzL, 0);
 
-    // 合成手册（14 条配方 + 烧炼章节）
-    check('手册列出 15 条配方', document.querySelectorAll('#manual .recipe-row').length === 20);
+    // 合成手册（21 条配方 + 烧炼章节 11 条）
+    check('手册列出 32 行（配方+烧炼）', document.querySelectorAll('#manual .recipe-row').length === 32);
     check('手册含材料获取与烧炼说明', document.querySelectorAll('#manual .manual-obtain').length >= 2);
 
     var T = Voxel.Game._test;

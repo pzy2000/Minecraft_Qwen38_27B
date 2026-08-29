@@ -294,6 +294,22 @@ body { position: relative; }
 }
 #hotbar .slot { flex: 0 0 auto; pointer-events: auto; cursor: pointer; } /* 可拖拽（仅背包打开时生效） */
 body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩上，可拖拽 */
+
+/* 装备栏：贴在快捷栏左侧的竖排三格（头部/身体/充能） */
+#gear-bar {
+  position: absolute; left: calc(50% - 262px); bottom: 8px;
+  transform: translateX(-100%);
+  display: flex; flex-direction: column; gap: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  z-index: 11;
+}
+#gear-bar .slot { width: 44px; height: 44px; pointer-events: auto; cursor: pointer; }
+body:not(.panel-open) #gear-bar { pointer-events: none; } /* 仅背包打开时可操作，避免误触 */
+@media (max-width: 760px) {
+  #gear-bar { left: 8px; bottom: 68px; transform: none; }
+}
 .slot {
   width: 52px; height: 52px;
   background: rgba(0, 0, 0, 0.45);

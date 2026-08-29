@@ -37,7 +37,8 @@ function check(name, condition, detail) {
 
 const OLD_RESOURCE_IDS = [8, 9, 14, 25, 27, 28, 29, 30, 31, 32, 33];
 const NEW_RESOURCE_IDS = [39, 40, 41, 42, 43, 44];
-const ALL_RESOURCE_IDS = OLD_RESOURCE_IDS.concat(NEW_RESOURCE_IDS);
+const EXPANSION_RESOURCE_IDS = [72, 73];
+const ALL_RESOURCE_IDS = OLD_RESOURCE_IDS.concat(NEW_RESOURCE_IDS, EXPANSION_RESOURCE_IDS);
 const specs = [
   { type: 'lush', block: 39, item: 115, tileKey: 'ACTIVE_CRYSTAL', tile: 71,
     key: 'verdant_crystal', blockName: '活性晶簇', itemName: '活性晶体', tier: 1 },
@@ -57,6 +58,15 @@ console.log('稳定ID与新资源定义');
 check('旧方块/物品ID仍保持原语义',
   Blocks.name(38) === '箱子' && Blocks.name(100) === '木棍' && Blocks.name(114) === '熟兔肉' &&
   Blocks.dropOf(8) === 107 && Blocks.dropOf(9) === 9);
+check('扩展矿物72/73定义/等级/掉落完整',
+  Blocks.name(72) === '金矿石' && Blocks.name(73) === '钻石矿石' &&
+  Blocks.T.GOLD_ORE === 106 && Blocks.T.DIAMOND_ORE === 107 &&
+  Blocks.defs[72].solid && Blocks.defs[72].tier === 3 && !Blocks.defs[72].drop &&
+  Blocks.dropOf(72) === 72 &&
+  Blocks.defs[73].solid && Blocks.defs[73].tier === 3 && Blocks.defs[73].drop === 124 &&
+  Blocks.dropOf(73) === 124 &&
+  Blocks.iconTile(72) === 106 && Blocks.iconTile(73) === 107 &&
+  Blocks.iconTile(124) === Blocks.T.GEM_DIAMOND && Blocks.iconTile(123) === Blocks.T.INGOT_GOLD);
 check('专属资源块/物品ID连续且唯一',
   new Set(specs.map(s => s.block)).size === 6 && new Set(specs.map(s => s.item)).size === 6 &&
   specs.every((s, i) => s.block === 39 + i && s.item === 115 + i));
@@ -88,12 +98,27 @@ for (const spec of specs) {
 }
 
 console.log('单一扫描资源白名单');
+check('金/钻生成规则：基数、乘数与 station 归零',
+  PlanetRules.resourceProfile('lush').goldChance === 0.0035 &&
+  PlanetRules.resourceProfile('lush').diamondChance === 0.0012 &&
+  PlanetRules.resourceProfile('arid').goldChance === 0.0035 * 1.6 &&
+  PlanetRules.resourceProfile('volcanic').diamondChance === 0.0012 * 1.4 &&
+  PlanetRules.resourceProfile('station').goldChance === 0 &&
+  PlanetRules.resourceProfile('station').diamondChance === 0);
+check('oreAt 金/钻通道命中与深度上限（显式roll版）',
+  PlanetRules.oreAt(PlanetRules.V2, 'lush', 27, 0.5, 0.5, 0.9, 0.001, 0.5).blockId === 72 &&
+  PlanetRules.oreAt(PlanetRules.V2, 'lush', 27, 0.5, 0.5, 0.9, 0.001, 0.5).itemId === 72 &&
+  PlanetRules.oreAt(PlanetRules.V2, 'lush', 15, 0.5, 0.5, 0.9, 0.5, 0.0005).blockId === 73 &&
+  PlanetRules.oreAt(PlanetRules.V2, 'lush', 15, 0.5, 0.5, 0.9, 0.5, 0.0005).itemId === 124 &&
+  PlanetRules.oreAt(PlanetRules.V2, 'lush', 28, 0.5, 0.5, 0.9, 0.001, 0.5).blockId === 0 &&
+  PlanetRules.oreAt(PlanetRules.V2, 'lush', 16, 0.5, 0.5, 0.9, 0.5, 0.0005).blockId === 0 &&
+  PlanetRules.oreAt(PlanetRules.V2, 'station', 10, 0.5, 0.5, 0.9, 0.001, 0.0005).blockId === 0);
 check('旧11资源原顺序保留',
   JSON.stringify(Blocks.SCANNABLE_RESOURCES.slice(0, OLD_RESOURCE_IDS.length)) === JSON.stringify(OLD_RESOURCE_IDS));
-check('新6资源追加且完整白名单=17', Blocks.SCANNABLE_RESOURCES.length === 17 &&
+check('扩展2资源追加且完整白名单=19', Blocks.SCANNABLE_RESOURCES.length === 19 &&
   JSON.stringify(Blocks.SCANNABLE_RESOURCES) === JSON.stringify(ALL_RESOURCE_IDS) &&
   new Set(Blocks.SCANNABLE_RESOURCES).size === Blocks.SCANNABLE_RESOURCES.length);
-check('旧+新全17种均可扫描', ALL_RESOURCE_IDS.every(id => Blocks.isScannableResource(id)));
+check('旧+新全19种均可扫描', ALL_RESOURCE_IDS.every(id => Blocks.isScannableResource(id)));
 const invalidIds = [undefined, null, NaN, Infinity, -1, 0, 1, 38, 45, 114, 115, 120, 39.5, '39', {}, []];
 check('物品/普通方块/坏ID不得伪造资源', invalidIds.every(id => !Blocks.isScannableResource(id)));
 
@@ -110,21 +135,21 @@ for (const id of ALL_RESOURCE_IDS) {
   state = result.state;
 }
 let summary = Discovery.worldSummary(state, worldId);
-check('全17种旧+新资源均能建档且不被64条容量截断', allAdded &&
-  summary.counts.resources === 17 && summary.resources.length === 17 && summary.total === 17);
+check('全19种旧+新资源均能建档且不被64条容量截断', allAdded &&
+  summary.counts.resources === 19 && summary.resources.length === 19 && summary.total === 19);
 check('资源档案标签统一来自Blocks名称', summary.resources.every(entry =>
   Discovery.label(entry) === Blocks.name(Number(entry.key))));
 
 const duplicate = Discovery.record(state,
   { worldId, kind: 'resource', key: 39, pos: [1, 2, 3] }, catalog);
 check('同世界同资源去重', duplicate.added === 0 &&
-  Discovery.worldSummary(duplicate.state, worldId).counts.resources === 17);
+  Discovery.worldSummary(duplicate.state, worldId).counts.resources === 19);
 
 let invalidRejected = true;
 for (const bad of [1, 38, 45, 115, 120, 255, -1, NaN, Infinity, '039', 'bad']) {
   const result = Discovery.record(state,
     { worldId, kind: 'resource', key: bad, pos: [0, 10, 0] }, catalog);
-  if (result.added !== 0 || Discovery.worldSummary(result.state, worldId).counts.resources !== 17)
+  if (result.added !== 0 || Discovery.worldSummary(result.state, worldId).counts.resources !== 19)
     invalidRejected = false;
 }
 check('Discovery同样拒绝坏ID/掉落物品ID', invalidRejected);
@@ -142,9 +167,9 @@ Blocks.SCANNABLE_RESOURCES.splice(-3, 3);
 const serialized = JSON.stringify(state);
 const restored = Discovery.hydrate(JSON.parse(serialized), catalog);
 summary = Discovery.worldSummary(restored, worldId);
-check('全17种资源档案JSON往返不丢失', summary.counts.resources === 17 &&
+check('全19种资源档案JSON往返不丢失', summary.counts.resources === 19 &&
   summary.resources.every(entry => ALL_RESOURCE_IDS.indexOf(Number(entry.key)) >= 0));
-check('全局汇总资源种类数=17', Discovery.summary(restored, catalog).resources === 17);
+check('全局汇总资源种类数=19', Discovery.summary(restored, catalog).resources === 19);
 
 // 注入额外键后 hydrate 仅遍历 Blocks 允许键，不会因任意存档键扩容。
 const hostile = JSON.parse(serialized);
@@ -153,8 +178,8 @@ hostile.worlds[worldId].resources['115'] = { worldId, kind: 'resource', key: '11
 hostile.worlds[worldId].resources['255'] = { worldId, kind: 'resource', key: '255', pos: [0, 0, 0] };
 hostile.worlds[worldId].resources['not-a-resource'] = { worldId, kind: 'resource', key: 'bad', pos: [0, 0, 0] };
 const sanitized = Discovery.hydrate(hostile, catalog);
-check('恶意JSON额外键被丢弃，合法全资源上限仍为17',
-  Discovery.worldSummary(sanitized, worldId).counts.resources === 17 &&
+check('恶意JSON额外键被丢弃，合法全资源上限仍为19',
+  Discovery.worldSummary(sanitized, worldId).counts.resources === 19 &&
   Object.keys(sanitized.worlds[worldId].resources).every(key => ALL_RESOURCE_IDS.includes(Number(key))));
 
 if (failures) {
