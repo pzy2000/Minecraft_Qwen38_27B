@@ -4,8 +4,11 @@
 //
 // 设计约束：
 // - 纯视觉动画在渲染帧路径上用 now 秒直接驱动 transform（对齐空间站装饰环模式）；
-// - 尊重 reducedMotion：暂停外观自转，仍保留位置与乘坐功能；
+// - 尊重 reducedMotion：暂停外观自转与音效，仍保留位置与乘坐功能；
 // - 距离预算：玩家 <130 格生成、>150 格释放；跨世界立即释放；
+// - 绘制瘦身：同一动画组内静态部件用顶点色合并为单一 Mesh（见 PartBuilder），
+//   全园 draw call 从 ~200 压到 ~40；帧内热路径复用模块级 scratch 向量；
+// - 音效：按设施相位触发程序化合成提示（Sound.rideXxx），不新增常驻节点；
 // - 不写入任何存档字段（未互动零开销）。
 window.Voxel = window.Voxel || {};
 
@@ -17,14 +20,18 @@ Voxel.Amusement = (function () {
 
   var sceneRef = null;
   var root = null;
-  var active = null;          // { worldId, park, stations, items:[{apply}], groups:[], disposables:[] }
+  var active = null;          // { worldId, park, stations, pieces, disposables }
   var reducedMotion = false;
   var _searchCd = 0;
-  var reducedRef = null;
 
-  function trackDisposables(list, obj, type) {
-    list.push({ obj: obj, type: type });
-    return obj;
+  // ---- 帧内 scratch（避免每帧 new Vector3 造成 GC 抖动）----
+  var _v1, _v2, _v3, _q1;
+  function scratch() {
+    if (!_v1) {
+      _v1 = new THREE.Vector3(); _v2 = new THREE.Vector3();
+      _v3 = new THREE.Vector3(); _q1 = new THREE.Quaternion();
+    }
+    return true;
   }
 
   function mat(color, opts) {
@@ -35,9 +42,85 @@ Voxel.Amusement = (function () {
       transparent: !!opts.transparent,
       opacity: opts.opacity === undefined ? 1 : opts.opacity,
       depthWrite: opts.depthWrite === undefined ? true : !!opts.depthWrite,
-      side: opts.side !== undefined ? opts.side : THREE.FrontSide
+      side: opts.side !== undefined ? opts.side : THREE.FrontSide,
+      vertexColors: !!opts.vertexColors
     });
   }
+
+  // ---------- PartBuilder：几何合并（顶点色） ----------
+  // 用法：pb.box(color,{x,y,z},{w,h,d},rotZ…) / pb.torus(...)…
+  // build() 输出单个 BufferGeometry；材质统一 MeshBasicMaterial({vertexColors})，
+  // 玻璃等透明件用独立透明批次。合并后立即释放源几何。
+  function PartBuilder() {
+    this.parts = [];
+  }
+  PartBuilder.prototype._push = function (geo, hex, x, y, z, rx, ry, rz) {
+    if (rx) geo.rotateX(rx);
+    if (ry) geo.rotateY(ry);
+    if (rz) geo.rotateZ(rz);
+    geo.translate(x || 0, y || 0, z || 0);
+    this.parts.push({ geo: geo, color: hex });
+  };
+  PartBuilder.prototype.box = function (hex, size, t, rot) {
+    var g = new THREE.BoxGeometry(size[0], size[1], size[2]);
+    this._push(g, hex, t[0], t[1], t[2], rot && rot[0], rot && rot[1], rot && rot[2]);
+    return this;
+  };
+  PartBuilder.prototype.cyl = function (hex, r0, r1, h, seg, t, rot) {
+    var g = new THREE.CylinderGeometry(r0, r1 === undefined ? r0 : r1, h, seg || 8);
+    this._push(g, hex, t[0], t[1], t[2], rot && rot[0], rot && rot[1], rot && rot[2]);
+    return this;
+  };
+  PartBuilder.prototype.cone = function (hex, r, h, seg, t, rot) {
+    var g = new THREE.ConeGeometry(r, h, seg || 4);
+    this._push(g, hex, t[0], t[1], t[2], rot && rot[0], rot && rot[1], rot && rot[2]);
+    return this;
+  };
+  PartBuilder.prototype.sphere = function (hex, r, t) {
+    var g = new THREE.SphereGeometry(r, 8, 6);
+    this._push(g, hex, t[0], t[1], t[2], 0, 0, 0);
+    return this;
+  };
+  PartBuilder.prototype.torus = function (hex, R, r, segT, segR, t, rot) {
+    var g = new THREE.TorusGeometry(R, r, segR || 8, segT || 32);
+    this._push(g, hex, t[0], t[1], t[2], rot && rot[0], rot && rot[1], rot && rot[2]);
+    return this;
+  };
+  PartBuilder.prototype.merge = function (dis) {
+    var pos = [], nor = [], uv = [], col = [], idx = [];
+    var c = new THREE.Color();
+    for (var i = 0; i < this.parts.length; i++) {
+      var part = this.parts[i];
+      var g = part.geo;
+      var p = g.attributes.position.array;
+      var n = g.attributes.normal ? g.attributes.normal.array : null;
+      var u = g.attributes.uv ? g.attributes.uv.array : null;
+      var base = pos.length / 3;
+      for (var k = 0; k < p.length; k++) pos.push(p[k]);
+      if (n) for (k = 0; k < n.length; k++) nor.push(n[k]);
+      else for (k = 0; k < p.length; k++) nor.push(0, 1, 0);
+      if (u) for (k = 0; k < u.length; k++) uv.push(u[k]);
+      else for (k = 0; k < p.length / 3 * 2; k++) uv.push(0);
+      c.setHex(part.color);
+      for (k = 0; k < p.length / 3; k++) col.push(c.r, c.g, c.b);
+      if (g.index) {
+        var gi = g.index.array;
+        for (k = 0; k < gi.length; k++) idx.push(gi[k] + base);
+      } else {
+        for (k = 0; k < p.length / 3; k++) idx.push(k + base);
+      }
+      g.dispose();                       // 源几何即刻释放，避免滞留至园区卸载
+    }
+    this.parts.length = 0;
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx);
+    dis(geo);
+    return geo;
+  };
 
   // ---------- 运动曲线 ----------
   function dropProfile(u) {
@@ -63,9 +146,21 @@ Voxel.Amusement = (function () {
     return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
   }
 
+  // ---------- 音效节流状态（update 循环共享） ----------
+  var snd = {
+    clankAt: 0, whooshAt: 0, tWhooshAt: 0,
+    noteStep: 0, noteAt: 0, creakQ: -1
+  };
+  function sndVol(px, pz, x, z, range) {
+    var dx = x - px, dz = z - pz;
+    var d = Math.sqrt(dx * dx + dz * dz);
+    return d > (range || 70) ? 0 : 1 - d / (range || 70);
+  }
+
   // ---------- 设施构建 ----------
 
   function buildFerris(st, dis, nowSec) {
+    scratch();
     var g = new THREE.Group();
     g.position.set(st.cx + 0.5, st.hubY + 0.5, st.cz + 0.5);
     // 轮平面法线：垂直于园区 rot 的水平朝向（rot=0/2 → 法线沿 x；rot=1/3 → 沿 z）
@@ -74,105 +169,96 @@ Voxel.Amusement = (function () {
       ? new THREE.Vector3(0, 0, 1)
       : new THREE.Vector3(1, 0, 0);
 
-    var wheel = new THREE.Group();
-    // 双圈轮缘：亮金主圈 + 内衬暗圈
-    var rimGeo = new THREE.TorusGeometry(st.R, 0.32, 10, 56);
-    var rim = new THREE.Mesh(rimGeo, dis(mat(0xe8b64c)));
-    rim.position.z = 1.15;
-    wheel.add(rim);
-    var rim2 = new THREE.Mesh(new THREE.TorusGeometry(st.R, 0.32, 10, 56), dis(mat(0xcf9a35)));
-    rim2.position.z = -1.15;
-    wheel.add(rim2);
-    var rimIn = new THREE.Mesh(new THREE.TorusGeometry(st.R - 1.1, 0.14, 8, 48), dis(mat(0x9a7526)));
-    wheel.add(rimIn);
-    // 辐条 ×12：细长盒，两片前后错位
-    var spokeMat = dis(mat(0xd8d2c4));
+    // 轮体框架：双圈轮缘 + 内衬圈 + 辐条×24 + 轮毂节点×12 + 中轴 —— 合并为 1 个 Mesh
+    var pb = new PartBuilder();
+    pb.torus(0xe8b64c, st.R, 0.32, 56, 10, [0, 0, 1.15], [0, 0, 0]);
+    pb.torus(0xcf9a35, st.R, 0.32, 56, 10, [0, 0, -1.15], [0, 0, 0]);
+    pb.torus(0x9a7526, st.R - 1.1, 0.14, 48, 8, [0, 0, 0], [0, 0, 0]);
     for (var sIdx = 0; sIdx < 12; sIdx++) {
       var ang = sIdx / 12 * Math.PI * 2;
       for (var zz = -1; zz <= 1; zz += 2) {
-        var sp = new THREE.Mesh(new THREE.BoxGeometry(0.22, st.R * 2 - 1.6, 0.22), spokeMat);
-        sp.rotation.z = ang;
-        sp.position.z = zz * 1.05;
-        wheel.add(sp);
+        pb.box(0xd8d2c4, [0.22, st.R * 2 - 1.6, 0.22], [0, 0, zz * 1.05], [0, 0, ang]);
       }
-      // 轮毂装饰节点
-      var node = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 2.6), dis(mat(0xb98a2e)));
-      node.position.set(Math.cos(ang) * (st.R - 1.1), Math.sin(ang) * (st.R - 1.1), 0);
-      node.rotation.z = ang;
-      wheel.add(node);
+      pb.box(0xb98a2e, [0.7, 0.7, 2.6],
+        [Math.cos(ang) * (st.R - 1.1), Math.sin(ang) * (st.R - 1.1), 0], [0, 0, ang]);
     }
-    // 中轴轮毂
-    var hubMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 3.4, 18), dis(mat(0xc79a38)));
-    hubMesh.rotation.x = Math.PI / 2;
-    wheel.add(hubMesh);
-    wheel.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3().crossVectors(horiz, axleY).normalize());
-    g.add(wheel);
+    pb.cyl(0xc79a38, 1.4, 1.4, 3.4, 18, [0, 0, 0], [Math.PI / 2, 0, 0]);
+    var frameGeo = pb.merge(dis);
+    var wheelFrame = new THREE.Mesh(frameGeo, dis(mat(0xffffff, { vertexColors: true })));
+    wheelFrame.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      _v1.crossVectors(horiz, axleY).normalize());
+    g.add(wheelFrame);
 
-    // 座舱 ×N（不挂进轮组：保持竖直 + 微摆）
+    // 外圈灯珠（独立半透明材质做呼吸脉冲）：第二个同旋 Mesh
+    var pbBulb = new PartBuilder();
+    for (var bi = 0; bi < 24; bi++) {
+      var bAng = bi / 24 * Math.PI * 2;
+      pbBulb.sphere(0xffe08a, 0.28,
+        [Math.cos(bAng) * st.R, Math.sin(bAng) * st.R, 0]);
+    }
+    var bulbGeo = pbBulb.merge(dis);
+    var bulbMat = dis(mat(0xffe08a, { transparent: true, opacity: 0.9 }));
+    var bulbs = new THREE.Mesh(bulbGeo, bulbMat);
+    bulbs.quaternion.copy(wheelFrame.quaternion);
+    g.add(bulbs);
+
+    // 座舱 ×N：每舱合并为 1 个 Mesh（车窗以实体浅蓝烘进顶点色，弃透明省批次）
     var cabins = [];
     var CAB_COLORS = [0xd8574f, 0xf3b13e, 0x59a86b, 0x4f8fd0, 0xdf8fb4];
     for (var ci = 0; ci < st.cabins; ci++) {
-      var cab = new THREE.Group();
       var col = CAB_COLORS[ci % CAB_COLORS.length];
-      var body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.1, 1.7), dis(mat(col)));
-      body.position.y = -1.5;
-      cab.add(body);
-      var roofTop = new THREE.Mesh(new THREE.ConeGeometry(1.75, 0.9, 4), dis(mat(0xefeadf)));
-      roofTop.position.y = -0.25; roofTop.rotation.y = Math.PI / 4;
-      cab.add(roofTop);
-      var hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.2, 6), dis(mat(0x777268)));
-      hanger.position.y = 0.45;
-      cab.add(hanger);
-      var winMat = dis(mat(0xbfe3ee, { transparent: true, opacity: 0.85 }));
-      var glassF = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.8, 0.06), winMat);
-      glassF.position.set(0, -1.55, 0.88);
-      cab.add(glassF);
-      var glassB = glassF.clone();
-      glassB.position.z = -0.88;
-      cab.add(glassB);
-      cab.userData.cabColor = col;
+      var pcb = new PartBuilder();
+      pcb.box(col, [2.4, 2.1, 1.7], [0, -1.5, 0]);
+      pcb.cone(0xefeadf, 1.75, 0.9, 4, [0, -0.25, 0], [0, Math.PI / 4, 0]);
+      pcb.cyl(0x777268, 0.09, 0.09, 1.2, 6, [0, 0.45, 0]);
+      pcb.box(0xbfe3ee, [1.7, 0.8, 0.08], [0, -1.55, 0.88]);
+      pcb.box(0xbfe3ee, [1.7, 0.8, 0.08], [0, -1.55, -0.88]);
+      var cab = new THREE.Mesh(pcb.merge(dis),
+        dis(mat(0xffffff, { vertexColors: true })));
       root.add(cab);
       cabins.push(cab);
     }
 
-    // 外圈装饰灯珠（24 颗小球，夜间泛光主角）
-    var bulbMat = dis(mat(0xffe08a));
-    var bulbs = [];
-    for (var bi = 0; bi < 24; bi++) {
-      var bulb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), bulbMat);
-      bulb.userData.idx = bi;
-      rim.add(bulb);
-      bulbs.push(bulb);
-    }
+    // 面朝角：座舱正面面向轮轴水平切向
+    var faceYaw = Math.atan2(horiz.x, -(horiz.z || 0.0001));
 
     return {
       group: g, kind: 'ferris',
-      tick: function (now, riderPhase) {
+      tick: function (now) {
         var omega = (Math.PI * 2) / st.periodS;
-        var theta = reducedMotion ? 0 : omega * (now - (st._t0 || now)) ;
-        wheel.rotation.z = theta;
+        var theta = reducedMotion ? 0 : omega * (now - (st._t0 || now));
+        wheelFrame.rotation.z = theta;
+        bulbs.rotation.z = theta;
         for (var i = 0; i < st.cabins; i++) {
           var a = theta + i / st.cabins * Math.PI * 2;
-          var px = Math.cos(a) * st.R, py = Math.sin(a) * st.R;
-          var wp = new THREE.Vector3(px, py, 0).applyQuaternion(wheel.quaternion);
-          cabins[i].position.copy(g.position).add(wp);
-          cabins[i].rotation.set(0, Math.atan2(horiz.x, -horiz.z || 0.0001) , 0);
-          cabins[i].rotation.z = reducedMotion ? 0 : Math.sin(a) * 0.08;
+          scratch();
+          _v1.set(Math.cos(a) * st.R, Math.sin(a) * st.R, 0)
+            .applyQuaternion(_q1.copy(wheelFrame.quaternion));
+          cabins[i].position.copy(g.position).add(_v1);
+          cabins[i].rotation.set(0, faceYaw, reducedMotion ? 0 : Math.sin(a) * 0.08);
         }
         // 灯珠呼吸
         var glowP = reducedMotion ? 0.5 : (0.65 + 0.35 * Math.sin(now * 2.2));
         bulbMat.opacity = 0.72 + 0.28 * glowP;
         bulbMat.transparent = true;
+        return theta;
       },
       riderPose: function (now) {
         var omega = (Math.PI * 2) / st.periodS;
         var theta = reducedMotion ? -Math.PI / 2 : omega * (now - (st._t0 || now)) - Math.PI / 2;
         var a = theta;
-        var wp = new THREE.Vector3(Math.cos(a) * st.R, Math.sin(a) * st.R, 0)
-          .applyQuaternion(wheel.quaternion);
-        var p = g.position.clone().add(wp);
-        return { pos: p, yaw: Math.atan2(horiz.x, -horiz.z), pitch: 0 };
+        scratch();
+        _pose.pos.copy(g.position)
+          .add(_v1.set(Math.cos(a) * st.R, Math.sin(a) * st.R, 0)
+            .applyQuaternion(_q1.copy(wheelFrame.quaternion)));
+        _pose.yaw = faceYaw; _pose.pitch = 0; _pose.fovOff = 0;
+        return _pose;
+      },
+      creakPhase: function (now) {
+        var omega = (Math.PI * 2) / st.periodS;
+        var theta = reducedMotion ? 0 : omega * (now - (st._t0 || now));
+        return Math.floor(theta / (Math.PI / 2));
       }
     };
   }
@@ -182,32 +268,29 @@ Voxel.Amusement = (function () {
     g.position.set(st.cx + 0.5, st.baseY + 0.5, st.cz + 0.5);
     var spin = new THREE.Group();
     g.add(spin);
+    // 每匹马合并为 1 个 Mesh（含金色栏杆柱），共 8 draw
     var HORSE_COLORS = [0xf0eee6, 0xd8574f, 0x4f8fd0, 0xf3b13e, 0x8e6cc0, 0x59a86b];
     var seats = [];
     var nHorse = 8;
     for (var i = 0; i < nHorse; i++) {
-      var hg = new THREE.Group();
       var col = HORSE_COLORS[i % HORSE_COLORS.length];
-      var body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.72, 0.62), dis(mat(col)));
-      hg.add(body);
-      var neck = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.66, 0.5), dis(mat(col)));
-      neck.position.set(0.62, 0.5, 0); neck.rotation.z = -0.35;
-      hg.add(neck);
-      var head = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.4, 0.44), dis(mat(col)));
-      head.position.set(0.95, 0.78, 0);
-      hg.add(head);
-      var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 5.4, 8), dis(mat(0xe8c34a)));
-      hg.add(pole);
-      var saddle = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.16, 0.5), dis(mat(0xe4797d)));
-      saddle.position.y = 0.42;
-      hg.add(saddle);
+      var phb = new PartBuilder();
+      phb.box(col, [1.5, 0.72, 0.62], [0, 0, 0]);
+      phb.box(col, [0.42, 0.66, 0.5], [0.62, 0.5, 0], [0, 0, -0.35]);
+      phb.box(col, [0.58, 0.4, 0.44], [0.95, 0.78, 0]);
+      phb.cyl(0xe8c34a, 0.07, 0.07, 5.4, 8, [0, 0.55, 0]);
+      phb.box(0xe4797d, [0.6, 0.16, 0.5], [0, 0.42, 0]);
+      var hg = new THREE.Mesh(phb.merge(dis),
+        dis(mat(0xffffff, { vertexColors: true })));
       spin.add(hg);
       seats.push(hg);
     }
-    // 中央灯柱环绕（转盘顶缘小灯）
-    var trim = new THREE.Mesh(new THREE.TorusGeometry(4.7, 0.09, 6, 40), dis(mat(0xffe08a)));
-    trim.rotation.x = Math.PI / 2;
-    trim.position.y = 1.4;
+    // 转盘顶缘小灯环（static-in-g）
+    var trim = new THREE.Mesh((function () {
+      var pbt = new PartBuilder();
+      pbt.torus(0xffe08a, 4.7, 0.09, 40, 6, [0, 1.4, 0], [Math.PI / 2, 0, 0]);
+      return pbt.merge(dis);
+    })(), dis(mat(0xffe08a)));
     g.add(trim);
 
     return {
@@ -222,17 +305,17 @@ Voxel.Amusement = (function () {
             Math.sin(now * 2.1 + i * 1.7) * 0.34), Math.sin(ha) * 4.2);
           seats[i].rotation.y = -ha;
         }
+        return theta;
       },
       riderPose: function (now) {
         var omega = (Math.PI * 2) / st.periodS;
         var theta = reducedMotion ? 0 : omega * (now - (st._t0 || now));
-        var i = 0;
-        var ha = theta + i / nHorse * Math.PI * 2;
-        var p = new THREE.Vector3(g.position.x + Math.cos(ha) * 4.2,
+        var ha = theta;                                     // 第 0 匹马
+        _pose.pos.set(g.position.x + Math.cos(ha) * 4.2,
           g.position.y + 1.6 + (reducedMotion ? 0 : Math.sin(now * 2.1) * 0.34) + 0.9,
           g.position.z + Math.sin(ha) * 4.2);
-        var faceA = ha + Math.PI / 2;
-        return { pos: p, yaw: -faceA, pitch: 0 };
+        _pose.yaw = -(ha + Math.PI / 2); _pose.pitch = 0; _pose.fovOff = 0;
+        return _pose;
       }
     };
   }
@@ -242,19 +325,20 @@ Voxel.Amusement = (function () {
     g.position.set(st.cx + 0.5, st.baseY + st.towerH + 1.5, st.cz + 0.5);
     var carriage = new THREE.Group();
     g.add(carriage);
-    var ring = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.22, 8, 26), dis(mat(0xe8b64c)));
-    ring.rotation.x = Math.PI / 2;
-    carriage.add(ring);
+    // 吊环 + 8 吊舱 + 8 安全杆 → 单 Mesh
+    var pdb = new PartBuilder();
+    pdb.torus(0xe8b64c, 2.1, 0.22, 26, 8, [0, 0, 0], [Math.PI / 2, 0, 0]);
     var POD_COLORS = [0xd8574f, 0xf3b13e, 0x59a86b, 0x4f8fd0, 0xdf8fb4, 0xefeadf, 0xd8574f, 0x4f8fd0];
     for (var i = 0; i < 8; i++) {
-      var pod = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.5, 0.8), dis(mat(POD_COLORS[i])));
       var pa = i / 8 * Math.PI * 2;
-      pod.position.set(Math.cos(pa) * 2.1, -0.85, Math.sin(pa) * 2.1);
-      carriage.add(pod);
-      var bar = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.9, 0.14), dis(mat(0x777268)));
-      bar.position.set(Math.cos(pa) * 2.1, 0.3, Math.sin(pa) * 2.1);
-      carriage.add(bar);
+      var px2 = Math.cos(pa) * 2.1, pz2 = Math.sin(pa) * 2.1;
+      pdb.box(POD_COLORS[i], [0.9, 1.5, 0.8], [px2, -0.85, pz2]);
+      pdb.box(0x777268, [0.14, 0.9, 0.14], [px2, 0.3, pz2]);
     }
+    carriage.add(new THREE.Mesh(pdb.merge(dis),
+      dis(mat(0xffffff, { vertexColors: true }))));
+    var lastFrac = 0;
+
     return {
       group: g, kind: 'drop',
       tick: function (now) {
@@ -264,19 +348,37 @@ Voxel.Amusement = (function () {
         carriage.position.y = -(g.position.y - (st.baseY + 2.2)) * (1 - frac);
         carriage.rotation.y = reducedMotion ? 0 :
           Math.sin(u * Math.PI * 2 * (st.towerH / 22)) * 0.35;
+        lastFrac = frac;
+        return u;
       },
-      riderPose: function (now) {
+      phase: function (now) {
         var u = ((now - (st._t0 || now)) / st.periodS) % 1;
         if (u < 0) u += 1;
+        return u;
+      },
+      riderPose: function (now) {
+        var u = this.phase(now);
         var frac = reducedMotion ? 0 : dropProfile(u);
         var topY = st.baseY + st.towerH + 1.5;
         var y = st.baseY + 2.2 + (topY - st.baseY - 2.2) * frac;
-        return {
-          pos: new THREE.Vector3(st.cx + 0.5, y, st.cz + 0.5),
-          yaw: 0, pitch: reducedMotion ? 0 : -(frac > 0.9 ? -0.5 : 0.25)
-        };
+        // FOV 冲击：下落速度 ∝ |d(frac)/dt|，坠段归一化斜率 0..1 → 最多 +12°
+        var fovOff = 0;
+        if (!reducedMotion && u > 0.58 && u < 0.78) {
+          fovOff = Math.min(12, dropProfileSlope(u) * 12);
+        }
+        _pose.pos.set(st.cx + 0.5, y, st.cz + 0.5);
+        _pose.yaw = 0;
+        _pose.pitch = reducedMotion ? 0 : -(frac > 0.9 ? -0.5 : 0.25);
+        _pose.fovOff = fovOff;
+        return _pose;
       }
     };
+  }
+  function dropProfileSlope(u) {
+    // 急坠段导数近似（profile 在 u∈(0.62,0.74) 为 1-(du)^2，|slope|max≈2/0.12）
+    var h = 0.004;
+    return Math.abs(dropProfile(u + h) - dropProfile(u - h)) / (2 * h) /
+      (1 / 0.12 * 2);
   }
 
   function makeCurve(points, closed) {
@@ -289,74 +391,90 @@ Voxel.Amusement = (function () {
   function buildCoaster(st, dis, nowSec) {
     var curve = makeCurve(st.path, true);
     var g = new THREE.Group();
-    // 轨道可视化：细管沿样条（TubeGeometry 64 段足够顺滑）
-    var tube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 120, 0.16, 6, true), dis(mat(0x5a4632)));
-    g.add(tube);
+    // 轨道：主梁 + 顶层金轨各 1 Mesh
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 120, 0.16, 6, true),
+      dis(mat(0x5a4632))));
     var railTop = new THREE.Mesh(
       new THREE.TubeGeometry(curve, 120, 0.1, 6, true), dis(mat(0xc9a04a)));
     railTop.scale.set(1, 1.18, 1);
     g.add(railTop);
-    // 列车：头车 + 两节车厢
+    // 列车 3 节，每节合并为 1 Mesh（头车带白鼻锥）
     var cars = [];
     var CAR_COLORS = [0xd8574f, 0xf3b13e, 0x59a86b];
     for (var i = 0; i < 3; i++) {
-      var car = new THREE.Group();
-      var body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.9, 2.1), dis(mat(CAR_COLORS[i])));
-      car.add(body);
-      var nose = new THREE.Mesh(new THREE.ConeGeometry(0.62, 0.9, 4), dis(mat(0xefeadf)));
-      nose.rotation.x = Math.PI / 2;
-      nose.position.set(0, i === 0 ? 0.1 : 0.05, i === 0 ? -1.35 : 0);
-      if (i > 0) nose.visible = false;
-      car.add(nose);
+      var pcb2 = new PartBuilder();
+      pcb2.box(CAR_COLORS[i], [1.3, 0.9, 2.1], [0, 0, 0]);
+      if (i === 0)
+        pcb2.cone(0xefeadf, 0.62, 0.9, 4, [0, 0.1, -1.35], [Math.PI / 2, 0, 0]);
+      var car = new THREE.Mesh(pcb2.merge(dis),
+        dis(mat(0xffffff, { vertexColors: true })));
       root.add(car);
+      car.rotation.order = 'YXZ';
       cars.push(car);
     }
+    var lastTanY = 0;
+
     return {
       group: g, kind: 'coaster', curve: curve,
       tick: function (now) {},
       cars: cars,
-      trainPose: function (now) {
+      trainPose: function (now, out) {
         var T = st.periodS;
         var u0 = reducedMotion ? 0 : ((now - (st._t0 || now)) / T) % 1;
         if (u0 < 0) u0 += 1;
-        var poses = [];
+        if (!tmpA || !tmpB) {
+          ensureShared();
+          _missingTmpWarned === undefined && (
+            (typeof console !== 'undefined') && console.warn('[Amusement] tmp vectors rebuilt'),
+            _missingTmpWarned = true);
+        }
+        var poses = out || [];
+        poses.length = cars.length;
         for (var c = 0; c < cars.length; c++) {
           var uu = (u0 - c * 0.014 + 1) % 1;
-          var pnt = curve.getPointAt(uu);
-          var tan = curve.getTangentAt(uu);
-          var yaw = Math.atan2(-tan.x, -tan.z);
-          var pitch = Math.asin(Math.max(-1, Math.min(1, tan.y))) * -1;
-          poses.push({ pos: pnt, yaw: yaw, pitch: pitch });
+          curve.getPointAt(uu, tmpA);
+          curve.getTangentAt(uu, tmpB);
+          if (!poses[c]) poses[c] = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, tanY: 0 };
+          poses[c].pos.copy(tmpA);
+          poses[c].yaw = Math.atan2(-tmpB.x, -tmpB.z);
+          poses[c].pitch = Math.asin(Math.max(-1, Math.min(1, tmpB.y))) * -1;
+          if (c === 0) poses[c].tanY = lastTanY = tmpB.y;
         }
         return poses;
       },
+      slope: function () { return lastTanY; },
       riderPose: function (now) {
-        var poses = this.trainPose(now);
+        var poses = this.trainPose(now, _carPoses);
         var lead = poses[0];
-        return { pos: lead.pos.clone().add(new THREE.Vector3(0, 1.0, 0)), yaw: lead.yaw, pitch: lead.pitch };
+        _pose.pos.copy(lead.pos); _pose.pos.y += 1.0;
+        _pose.yaw = lead.yaw; _pose.pitch = lead.pitch;
+        // FOV：俯冲越陡越冲（爬坡轻微收窄感可忽略）
+        _pose.fovOff = reducedMotion ? 0 :
+          5 + Math.max(0, -lead.tanY) * 8;
+        return _pose;
       }
     };
   }
 
   function buildTron(st, dis, nowSec) {
-    var ax = new THREE.Vector3(st.g1[0] - st.g0[0], 0, st.g1[1] - st.g0[1]).normalize();
-    var side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), ax).normalize();
+    scratch();
+    var ax = _v1.set(st.g1[0] - st.g0[0], 0, st.g1[1] - st.g0[1]).normalize().clone();
+    var side = _v2.crossVectors(new THREE.Vector3(0, 1, 0), ax).normalize().clone();
     var y0 = st.baseY + 2.2, loopR = (st.loopTopY - st.baseY) / 2 + 2;
     var exitP = new THREE.Vector3(st.g1[0] + 0.5, y0, st.g1[1] + 0.5);
-    var entryBack = new THREE.Vector3(st.g0[0] + 0.5, y0, st.g0[1] + 0.5).sub(ax.clone().multiplyScalar(6));
+    var entryBack = new THREE.Vector3(st.g0[0] + 0.5, y0, st.g0[1] + 0.5)
+      .sub(ax.clone().multiplyScalar(6));
     var pts = [
       [entryBack.x, entryBack.y - 1.2, entryBack.z],
       [entryBack.x + ax.x * 6, y0, entryBack.z + ax.z * 6],
       [st.g0[0] + 0.5, y0, st.g0[1] + 0.5]
     ];
-    var Lg = Math.hypot(st.g1[0] - st.g0[0], st.g1[1] - st.g0[1]);
     for (var f = 0.25; f < 1; f += 0.25)
-      pts.push([st.g0[0] + 0.5 + (st.g1[0] - st.g0[0]) * f, y0, st.g0[1] + 0.5 + (st.g1[1] - st.g0[1]) * f]);
+      pts.push([st.g0[0] + 0.5 + (st.g1[0] - st.g0[0]) * f, y0,
+        st.g0[1] + 0.5 + (st.g1[1] - st.g0[1]) * f]);
     pts.push([st.g1[0] + 0.5, y0, st.g1[1] + 0.5]);
     // 出口高架直立回环（垂直面内圆）
     var circCx = exitP.clone().add(ax.clone().multiplyScalar(loopR * 1.05));
-    var circCy = st.baseY + 2.2 + loopR;
     var NLP = 9;
     for (var li = 0; li <= NLP; li++) {
       var aa = Math.PI / 2 - li / NLP * Math.PI * 2;
@@ -365,33 +483,31 @@ Voxel.Amusement = (function () {
         .add(new THREE.Vector3(0, Math.sin(aa) * loopR, 0));
       pts.push([cp.x, Math.max(st.baseY + 1.4, cp.y), cp.z]);
     }
-    // 回落到入口前的加速段
     pts.push([entryBack.x, y0, entryBack.z]);
     var curve = makeCurve(pts, true);
 
     var g = new THREE.Group();
-    var tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.14, 6, true), dis(mat(0x1d2430)));
-    g.add(tube);
-    var neon = new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.06, 6, true),
-      dis(mat(0x7ef3ff)));
-    neon.material.transparent = true;
-    g.add(neon);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.14, 6, true),
+      dis(mat(0x1d2430))));
+    var neonMat = dis(mat(0x7ef3ff, { transparent: true, opacity: 0.85 }));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.06, 6, true), neonMat));
+    // 弹舱：壳+尾焰合并 1 Mesh + 透明顶棚单独 1 Mesh
     var podGrp = new THREE.Group();
-    var podBody = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.62, 2.6), dis(mat(0x232c44)));
-    podGrp.add(podBody);
-    var canopy = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.5, 1.3), dis(mat(0x39d7ff)));
+    var ppb = new PartBuilder();
+    ppb.box(0x232c44, [1.1, 0.62, 2.6], [0, 0, 0]);
+    ppb.box(0xb06bff, [0.8, 0.3, 0.12], [0, 0.12, 1.36]);
+    podGrp.add(new THREE.Mesh(ppb.merge(dis),
+      dis(mat(0xffffff, { vertexColors: true }))));
+    var canopy = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.5, 1.3),
+      dis(mat(0x39d7ff, { transparent: true, opacity: 0.9 })));
     canopy.position.set(0, 0.5, 0.1);
-    canopy.material.transparent = true;
     podGrp.add(canopy);
-    var tailGlow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 0.12), dis(mat(0xb06bff)));
-    tailGlow.position.set(0, 0.12, 1.36);
-    podGrp.add(tailGlow);
     root.add(podGrp);
+    podGrp.rotation.order = 'YXZ';
 
     return {
-      group: g, kind: 'tron', curve: curve, neonMat: neon.material,
+      group: g, kind: 'tron', curve: curve, neonMat: neonMat,
       tick: function (now) {
-        // 霓虹管流光脉冲
         if (!reducedMotion) {
           var pulse = 0.55 + 0.45 * Math.sin(now * 9);
           this.neonMat.opacity = 0.55 + pulse * 0.45;
@@ -402,39 +518,112 @@ Voxel.Amusement = (function () {
         var T = st.periodS;
         var u = reducedMotion ? 0.12 : ((now - (st._t0 || now)) / T) % 1;
         if (u < 0) u += 1;
-        // 峰值速度集中在回环段：进度重映射 easeInOut 保底 20% 低速爬行
         var pu = u < 0.5 ? u * 1.6 : 0.8 + (u - 0.5) * 0.4;
         pu %= 1;
-        var pnt = curve.getPointAt(pu);
-        var tan = curve.getTangentAt(pu);
-        var yaw = Math.atan2(-tan.x, -tan.z);
-        var pitch = Math.asin(Math.max(-1, Math.min(1, tan.y))) * -1;
-        return {
-          pos: pnt.clone().add(new THREE.Vector3(0, 1.05, 0)),
-          yaw: yaw, pitch: pitch
-        };
+        curve.getPointAt(pu, tmpA);
+        curve.getTangentAt(pu, tmpB);
+        _pose.pos.set(tmpA.x, tmpA.y + 1.05, tmpA.z);
+        _pose.yaw = Math.atan2(-tmpB.x, -tmpB.z);
+        _pose.pitch = Math.asin(Math.max(-1, Math.min(1, tmpB.y))) * -1;
+        _pose.fovOff = reducedMotion ? 0 : 8 + 3 * Math.sin(now * 9);
+        return _pose;
       }
     };
+  }
+
+  // ---------- 音效推进（每次渲染帧） ----------
+  function driveSounds(dt, nowSec, px, pz) {
+    if (reducedMotion) return;
+    var S = Voxel.Sound;
+    if (!S || !S.rideClank || !active.boardPos) return;
+
+    var piece = active.pieces.coaster;
+    if (piece && active.boardPos.coaster) {
+      var v = sndVol(px, pz, active.boardPos.coaster.x, active.boardPos.coaster.z, 60);
+      if (v > 0) {
+        var slope = piece.slope();
+        if (slope > 0.22) {                          // 爬坡链条
+          if (nowSec - snd.clankAt > 0.3) {
+            snd.clankAt = nowSec;
+            S.rideClank(v * Math.min(1, slope * 2.4));
+          }
+        } else if (slope < -0.42) {                  // 陡降风啸
+          if (nowSec - snd.whooshAt > 0.34) {
+            snd.whooshAt = nowSec;
+            S.rideWhoosh(v * Math.min(1, -slope * 1.5));
+          }
+        }
+      }
+    }
+    piece = active.pieces.tron;
+    if (piece && active.boardPos.tron) {
+      var vT = sndVol(px, pz, active.boardPos.tron.x, active.boardPos.tron.z, 46);
+      if (vT > 0 && nowSec - snd.tWhooshAt > 0.52) {
+        snd.tWhooshAt = nowSec;
+        S.rideWhoosh(vT * 0.62);
+      }
+    }
+    piece = active.pieces.drop;
+    if (piece && active.boardPos.drop) {
+      var vD = sndVol(px, pz, active.boardPos.drop.x, active.boardPos.drop.z, 80);
+      if (vD > 0) {
+        var u = piece.phase(nowSec);
+        var pu = snd.prevDropU === undefined ? u : snd.prevDropU;
+        if (pu < 0.615 && u >= 0.615) S.dropFallWhistle(vD);
+        if (pu < 0.76 && u >= 0.76) S.dropThud(vD * 0.85);
+        snd.prevDropU = u;
+      } else snd.prevDropU = undefined;
+    }
+    piece = active.pieces.carousel;
+    if (piece && active.boardPos.carousel) {
+      var vC = sndVol(px, pz, active.boardPos.carousel.x, active.boardPos.carousel.z, 26);
+      if (vC > 0 && nowSec - snd.noteAt > 0.5) {
+        snd.noteAt = nowSec;
+        S.carouselNote(snd.noteStep++, vC * 0.9);
+      }
+    }
+    piece = active.pieces.ferris;
+    if (piece && active.boardPos.ferris) {
+      var vF = sndVol(px, pz, active.boardPos.ferris.x, active.boardPos.ferris.z, 54);
+      if (vF > 0) {
+        var q = piece.creakPhase(nowSec);
+        if (snd.creakQ >= 0 && q !== snd.creakQ) S.ferrisCreak(vF);
+        snd.creakQ = q;
+      } else snd.creakQ = -1;
+    }
   }
 
   // ---------- 载入/卸载 ----------
 
   function disposeActive() {
     if (!active || !root) return;
+    _lastDispose = { t: performance.now(), worldId: active.worldId,
+      pending: _pendingWorldId,
+      dx: Math.abs((_ppx ?? active.park.ax) - active.park.ax),
+      dz: Math.abs((_ppz ?? active.park.az) - active.park.az) };
     root.parent && root.parent.remove(root);
     active.disposables.forEach(function (d) {
       try { d.obj.dispose && d.obj.dispose(); } catch (e) { /* 忽略重复释放 */ }
     });
     active = null;
   }
+  var _lastDispose = null, _ppx = null, _ppz = null;
+
+  // 自愈：任何原因导致 root 脱离场景后，下一帧重新挂回（组内件随根恢复）
+  function ensureAttached() {
+    if (root && sceneRef && root.parent !== sceneRef) sceneRef.add(root);
+  }
 
   function spawnPark(park, worldId) {
     var stations = Voxel.Structures.parkStations(park);
     var dis = function (m) { active.disposables.push(m); return m; };
-    // rot 提示供摩天轮定向使用（wheel 平面必须垂直于园区的旋转朝向）
     stations.forEach(function (s) { s.rotHint = park.rot | 0; });
+    // 音效/查询用的乘坐台坐标索引（kind -> {x,z}）
+    var boardPos = {};
+    stations.forEach(function (s) {
+      if (s.board) boardPos[s.kind] = { x: s.board.x, z: s.board.z };
+    });
     var pieces = {};
-    var items = [];
     stations.forEach(function (st) {
       var built = null;
       switch (st.kind) {
@@ -448,11 +637,10 @@ Voxel.Amusement = (function () {
       pieces[st.kind] = built;
       if (built.group) root.add(built.group);
     });
-    // 过山车车厢加到场景根
-    if (pieces.coaster) pieces.coaster.cars.forEach(function (car) { root.add(car); });
 
     active.park = park;
     active.stations = stations;
+    active.boardPos = boardPos;
     active.pieces = pieces;
     return active;
   }
@@ -481,8 +669,10 @@ Voxel.Amusement = (function () {
     // 每渲染帧调用
     update: function (dt, nowSec, playerPos, worldId) {
       if (!root || !Voxel.Structures.enabled) return;
+      ensureAttached();
       var px = playerPos ? playerPos.x : 1e9;
       var pz = playerPos ? playerPos.z : 1e9;
+      _ppx = px < 1e8 ? px : null; _ppz = pz < 1e8 ? pz : null;
       if (worldId !== undefined) _pendingWorldId = worldId;
 
       // 世界切换或超距离：释放
@@ -496,10 +686,11 @@ Voxel.Amusement = (function () {
         _searchCd -= dt;
         if (_searchCd <= 0) {
           _searchCd = 0.7;
-          var park = findNearestPark(px, pz);
-          if (park && Math.abs(px - park.ax) < SPAWN_R && Math.abs(pz - park.az) < SPAWN_R) {
-            active = { worldId: _pendingWorldId, park: park, disposables: [], groups: [] };
-            spawnPark(park, _pendingWorldId);
+          var parkFound = findNearestPark(px, pz);
+          if (parkFound && Math.abs(px - parkFound.ax) < SPAWN_R &&
+            Math.abs(pz - parkFound.az) < SPAWN_R) {
+            active = { worldId: _pendingWorldId, park: parkFound, disposables: [], groups: [] };
+            spawnPark(parkFound, _pendingWorldId);
             _searchCd = 0;
           }
         }
@@ -510,11 +701,9 @@ Voxel.Amusement = (function () {
         var piece = active.pieces[k];
         if (piece.tick) piece.tick.call(piece, nowSec);
         if (piece.kind === 'coaster') {
-          var poses = piece.trainPose(nowSec);
+          var poses = piece.trainPose(nowSec, _carPoses);
           for (var c = 0; c < piece.cars.length; c++) {
-            var pc = poses[c].pos;
-            piece.cars[c].position.copy(pc);
-            piece.cars[c].rotation.order = 'YXZ';
+            piece.cars[c].position.copy(poses[c].pos);
             piece.cars[c].rotation.y = poses[c].yaw;
             piece.cars[c].rotation.x = poses[c].pitch;
           }
@@ -522,11 +711,11 @@ Voxel.Amusement = (function () {
         if (piece.kind === 'tron') {
           var rp = piece.riderPose(nowSec);
           piece.pod.position.copy(rp.pos);
-          piece.pod.rotation.order = 'YXZ';
           piece.pod.rotation.y = rp.yaw;
           piece.pod.rotation.x = rp.pitch;
         }
       }
+      driveSounds(dt, nowSec, px, pz);
     },
 
     // 最近的乘坐台（供提示/上车判定）。radius 内返回。
@@ -554,25 +743,20 @@ Voxel.Amusement = (function () {
       active.stations.forEach(function (s) { if (s.kind === kind) st = s; });
       if (!st) return false;
       var t0 = nowSec;
-      if (kind === 'ferris' || kind === 'carousel' || kind === 'drop') st._t0 = t0;
-      else st._t0 = t0;
+      st._t0 = t0;
       if (piece.curve) {
         // 样条类把起点吸附到"乘车站台"附近：取最接近站台时相 u 并让 now 反推
-        var target = kind === 'coaster'
-          ? new THREE.Vector3(st.board.x + 0.5, st.board.y + 1.6, st.board.z + 0.5)
-          : new THREE.Vector3(st.board.x + 0.5, st.board.y + 2.2, st.board.z + 0.5);
+        scratch();
+        _v2.set(st.board.x + 0.5, st.board.y + (kind === 'coaster' ? 2.4 : 3.2), st.board.z + 0.5);
         var bestU = 0, bestD = Infinity;
         for (var ui = 0; ui < 64; ui++) {
           var uTest = ui / 64;
-          var d2 = curveDist2(piece.curve.getPointAt(uTest), target);
+          piece.curve.getPointAt(uTest, tmpA);
+          var d2 = tmpA.distanceToSquared(_v2);
           if (d2 < bestD) { bestD = d2; bestU = uTest; }
         }
         var T = st.periodS;
         st._t0 = nowSec - bestU * T;
-        if (kind === 'tron') {
-          // tron 的 riderPose 内部另有进度映射，t0 直接偏移近似即可
-          st._t0 = nowSec - bestU * T;
-        }
       }
       _ridingKind = kind;
       return true;
@@ -580,7 +764,7 @@ Voxel.Amusement = (function () {
 
     endRide: function () { _ridingKind = null; },
 
-    // 乘坐中每帧的眼睛位姿（含视线基向量）
+    // 乘坐中每帧的眼睛位姿（pos/yaw/pitch + fovOff FOV 增量）
     riderState: function (nowSec) {
       if (!_ridingKind || !active || !active.pieces[_ridingKind]) return null;
       var pose = active.pieces[_ridingKind].riderPose.call(active.pieces[_ridingKind], nowSec);
@@ -588,6 +772,13 @@ Voxel.Amusement = (function () {
     },
 
     ridingKind: function () { return _ridingKind; },
+    _debug: function () { return { lastDispose: _lastDispose,
+      attached: root && root.parent === sceneRef }; },
+    // 当前活跃园区中心（发现档案用；无园区返回 null）
+    parkCenter: function () {
+      if (!active) return null;
+      return { x: active.park.ax, y: active.park.ah, z: active.park.az };
+    },
     activeParkName: function () {
       if (!active) return null;
       var names = { 0: '东门', 1: '南门', 2: '西门', 3: '北门' };
@@ -600,6 +791,21 @@ Voxel.Amusement = (function () {
     return dx * dx + dy * dy + dz * dz;
   }
 
+  // 共享临时量：_pose 由 riderState 返回后调用方必须立即拷贝消费（相机/代理均如此）
+  var _pose = null;
+  var tmpA = null, tmpB = null;
+  var _carPoses = [];
+  var _missingTmpWarned;
+
+  function ensureShared() {
+    if (_pose) return;
+    _pose = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, fovOff: 0 };
+    tmpA = new THREE.Vector3(); tmpB = new THREE.Vector3();
+  }
+
   var _pendingWorldId = null;
   var _ridingKind = null;
+
+  // 构建期就绪（builders 依赖 scratch/tmp）
+  scratch(); ensureShared();
 })();

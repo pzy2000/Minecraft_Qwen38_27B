@@ -708,6 +708,59 @@ Voxel.Sound = (function () {
     };
   }
 
+  // ---- 星海嘉年华乘坐音效（程序化合成；v 由调用方按距离预算 0..1） ----
+
+  // 上车双音提示铃（不受距离衰减：玩家刚上车必在场）
+  function rideBell() {
+    tone('sine', 880, 880, 0.16, 0.12);
+    setTimeout(function () { tone('sine', 1174, 1174, 0.24, 0.1); }, 150);
+  }
+
+  // 链式提升"咔哒"（过山车爬坡的金属棘轮）
+  function rideClank(v) {
+    if (v <= 0) return;
+    noiseHit(1900 + Math.random() * 320, 3.2, 0.05, 0.2 * v);
+    tone('square', 220, 165, 0.055, 0.08 * v);
+  }
+
+  // 风啸（俯冲/高速段，宽带噪声短扫）
+  function rideWhoosh(v) {
+    if (v <= 0) return;
+    noiseHit(420 + v * 900, 0.8, 0.26, 0.16 * v);
+    noiseHit(1400 + v * 1200, 1.6, 0.14, 0.07 * v);
+  }
+
+  // 跳楼机自由坠呼啸（下滑锯齿 + 噪声），着陆闷响单独一击
+  function dropFallWhistle(v) {
+    if (v <= 0) return;
+    var c = ac();
+    if (!c) return;
+    toneVib('sawtooth', 640, 170, 0.55, 0.11 * v, 7, 26, 900);
+    noiseHit(1100, 0.7, 0.5, 0.15 * v);
+  }
+  function dropThud(v) {
+    if (v <= 0) return;
+    noiseHit(160, 0.9, 0.18, 0.32 * v);
+    tone('sine', 92, 46, 0.16, 0.22 * v);
+  }
+
+  // 旋转木马八音盒音符（C 大调琶音循环，triangle+sine 双层）
+  var CAROUSEL_NOTES = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25];
+  function carouselNote(step, v) {
+    if (v <= 0) return;
+    var f = CAROUSEL_NOTES[((step % CAROUSEL_NOTES.length) + CAROUSEL_NOTES.length) %
+      CAROUSEL_NOTES.length];
+    tone('sine', f, f, 0.3, 0.055 * v);
+    tone('triangle', f * 2, f * 2, 0.18, 0.022 * v);
+  }
+
+  // 摩天轮低位换向轻响（每 1/4 圈一次的机械呼吸感）
+  function ferrisCreak(v) {
+    if (v <= 0) return;
+    noiseHit(300, 1.6, 0.09, 0.06 * v);
+    tone('sine', 130, 108, 0.1, 0.04 * v);
+  }
+
   function musicStateSnapshot() {
     var chunkId = musicName === 'music_day' ? 'music-day' :
       musicName === 'music_night' ? 'music-night' : '';
@@ -808,6 +861,14 @@ Voxel.Sound = (function () {
     warpSkip: warpSkip,
     warpArrive: warpArrive,
     warpEnd: warpEnd,
+    // 星海嘉年华乘坐音效
+    rideBell: rideBell,
+    rideClank: rideClank,
+    rideWhoosh: rideWhoosh,
+    dropFallWhistle: dropFallWhistle,
+    dropThud: dropThud,
+    carouselNote: carouselNote,
+    ferrisCreak: ferrisCreak,
     flightAudioSnapshot: flightAudioSnapshot,
     musicStateSnapshot: musicStateSnapshot,
     matFreq: matFreq,

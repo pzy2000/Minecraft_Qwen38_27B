@@ -2948,6 +2948,34 @@ Voxel.Game = (function () {
   }
   function rideRadius() { return (CFG.RIDE && CFG.RIDE.RADIUS) || 5.5; }
 
+  // 星海嘉年华·乐园发现档案（对齐遗迹登记；首次靠近自动记录）
+  var parkDiscoverySeen = {};
+  function pollParkDiscovery() {
+    if (!Voxel.Discovery || !galaxyState || !currentWorld ||
+      currentWorld.kind !== 'planet') return;
+    if (!Voxel.Amusement || !Voxel.Amusement.parkCenter) return;
+    var c = Voxel.Amusement.parkCenter();
+    if (!c) return;
+    if (parkDiscoverySeen[currentWorld.id]) return;
+    var p = Voxel.Player.pos();
+    var d = Math.sqrt((p.x - c.x) * (p.x - c.x) + (p.z - c.z) * (p.z - c.z));
+    if (d > 96) return;
+    parkDiscoverySeen[currentWorld.id] = true;
+    var ev = { worldId: currentWorld.id, kind: 'landmark', key: 'park', pos: [c.x, c.y, c.z] };
+    var oldDiscovery = galaxyState.discovery;
+    var recorded = Voxel.Discovery.record(oldDiscovery, ev, galaxyState.catalog);
+    if (!recorded || !recorded.added) return;
+    var oldFuel = galaxyState.ship.fuel;
+    galaxyState.discovery = recorded.state;
+    galaxyState.ship.fuel = Math.min(galaxyState.ship.maxFuel, oldFuel + recorded.fuelAwarded);
+    if (!doSave(true, 'park-discovery')) {
+      galaxyState.discovery = oldDiscovery;
+      galaxyState.ship.fuel = oldFuel;
+      return;
+    }
+    Voxel.HUD.toast('发现地标：星海嘉年华·乐园');
+  }
+
   function nearRideBoard() {
     if (!Voxel.Amusement || !Voxel.Amusement.nearestBoard) return null;
     return Voxel.Amusement.nearestBoard(Voxel.Player.pos(), rideRadius());
@@ -2985,6 +3013,7 @@ Voxel.Game = (function () {
     if (Voxel.Amusement.beginRide(nb.kind, performance.now() / 1000)) {
       setState('riding');
       ride.waitRelease = true;   // 先松开当前按住的 E，之后轻按才下车（对齐座舱语义）
+      if (Voxel.Sound && Voxel.Sound.rideBell) Voxel.Sound.rideBell();
       tryLock();
       Voxel.HUD.toast('长按 E 乘坐 · ' + nb.name + '（提示已上车，轻按 E 下车）');
       Voxel.Progress.track('ride', { kind: nb.kind });
@@ -3042,7 +3071,7 @@ Voxel.Game = (function () {
     Voxel.Controls.setPitch(Voxel.Controls.pitch() * 0.86);
   }
 
-  // riding 态每帧：相机接管（基向位姿 + ±60° 自由环视，缓回中）
+  // riding 态每帧：相机接管（基向位姿 + ±60° 自由环视 + FOV 冲击）
   function applyRideCamera(dt) {
     if (!camera) return;
     var nowS = performance.now() / 1000;
@@ -3061,6 +3090,13 @@ Voxel.Game = (function () {
     camera.rotation.y = pose.yaw + ride.lookYaw;
     camera.rotation.x = Math.max(-1.45, Math.min(1.45, pose.pitch + ride.lookPitch));
     camera.rotation.z = 0;
+    // FOV 冲击：按设施 thrill 输出在基准 FOV 上平滑加冲（俯冲/急坠瞬间视野拉伸）
+    var baseFov = (Voxel.Settings ? Voxel.Settings.get('fov') : 75) || 75;
+    var wantFov = baseFov + Math.max(0, Math.min(14, pose.fovOff || 0));
+    if (Math.abs(camera.fov - wantFov) > 0.05) {
+      camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 6);
+      camera.updateProjectionMatrix();
+    }
   }
 
   // 乘坐浮钮（触屏）：近台显示"乘坐"，乘车中变"下车"
@@ -4880,6 +4916,7 @@ Voxel.Game = (function () {
             Voxel.Player.pos(), currentWorld ? currentWorld.id : null);
         }
         ensureRideButton(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
+        pollParkDiscovery();
         if (rideStarted) showRideHint(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
         else updateHighlight();
 

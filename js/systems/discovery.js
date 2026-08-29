@@ -30,7 +30,8 @@ Voxel.Discovery = (function () {
     ship: '行星飞船',
     'station-terminal': '空间站航行终端',
     portal: '星际传送门',
-    ruin: '远古遗迹'
+    ruin: '远古遗迹',
+    park: '星海嘉年华·乐园'
   };
   var GLOBAL_CLAIMS = ['biomes:3', 'resources:3', 'fauna:2', 'survey-worlds:3'];
 
