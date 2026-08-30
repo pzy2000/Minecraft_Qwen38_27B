@@ -530,8 +530,8 @@ Voxel.Structures = (function () {
         ]
       },
       tron: { gx0: 42, gx1: 84, gz: 6, board: [46, 6], loopTopY: 22 },
-      // 套圈游戏：投掷线南端 (52,24)，目标柱向北 8/11/14（远离步道与拱廊）
-      toss: { cx: 52, cz: 24 }
+      // 套圈游戏：中轴大门正前（10,42）——进门南行即达，路标塔正对大门
+      toss: { cx: 10, cz: 42 }
     };
   }
 
@@ -1417,6 +1417,20 @@ Voxel.Structures = (function () {
       });
       // 投掷线（南缘金饰一行，提示站位）
       for (var lx = T3.cx - 2; lx <= T3.cx + 2; lx++) F(lx, T3.cz + 3, 0, PK.GOLD);
+      // 路标塔：投掷线两角的糖果条纹高柱（6 格）+ 金冠 + 灯球 + 彩旗——
+      // 园内远处可见，指引玩家找到套圈场
+      [[T3.cx - 3, T3.cz + 4], [T3.cx + 3, T3.cz + 4]].forEach(function (tw) {
+        fCol(tw[0], tw[1], 0, PK.CREAM, true);
+        for (var ty = 1; ty <= 6; ty++) F(tw[0], tw[1], ty, (ty % 2) ? PK.CANDY : PK.PINK);
+        F(tw[0], tw[1], 7, PK.GOLD);
+        F(tw[0], tw[1], 8, PK.LANTERN, 'air');
+        F(tw[0], tw[1], 9, PK.BUNTING, 'air');
+      });
+      // 记分牌：两柱之间横幅（金饰梁 + 彩旗）
+      for (var sx8 = T3.cx - 2; sx8 <= T3.cx + 2; sx8++) {
+        F(sx8, T3.cz + 4, 6, PK.GOLD, 'force');
+        if (sx8 % 2 === 0) F(sx8, T3.cz + 4, 5, PK.BUNTING, 'air');
+      }
     })();
 
     // ---- 13. 统一放置乘坐台（最后写入：放射步道/站台铺装不得覆盖 PAD）----
