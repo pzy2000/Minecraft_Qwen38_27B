@@ -453,15 +453,52 @@
     }
 
     function finishAll() {
-      report();
+      // 守卫：跳楼机悬停结束、自由坠启动瞬间必须「呼啸+尖叫」同帧连发。
+      // 用事件序列断言（whistle 后必须紧跟 scream）排除光轮/海盗船的
+      // 零星尖叫干扰。相位推进：每帧把站点 _t0 锚点回拨 6% 周期等价于
+      // 相位快进，无需感知 Amusement 内部时钟绝对值即可保证跨越触发沿。
+      var acts = Voxel.Amusement._stations ? Voxel.Amusement._stations() : null;
+      var adst = null, dst = null;
+      (acts || []).forEach(function (s) { if (s.kind === 'drop') adst = s; });
+      stations.forEach(function (s) { if (s.kind === 'drop') dst = s; });
+      if (!adst || !dst || !dst.board) { check('跳楼机站点可定位', false); return report(); }
+      // 站到跳楼机乘坐台旁（环境氛围音量：非乘坐者也必须听到尖叫）
+      Voxel.Player.init(new THREE.Vector3(dst.board.x + 1.2, dst.board.y + 1.15, dst.board.z + 0.8),
+        Math.PI / 2, 0);
+      Voxel.Player.setFlying(false);
+      var events = [];
+      var origScream = Voxel.Sound.rideScream;
+      var origWhistle = Voxel.Sound.dropFallWhistle;
+      Voxel.Sound.rideScream = function () { events.push('scream'); };
+      Voxel.Sound.dropFallWhistle = function () { events.push('whistle'); };
+      var frames = 0, T = dst.periodS;
+      (function ff() {
+        adst._t0 -= T * 0.06;
+        if (++frames > 300) {
+          Voxel.Sound.rideScream = origScream;
+          Voxel.Sound.dropFallWhistle = origWhistle;
+          var crossings = 0, paired = 0;
+          for (var ei = 0; ei < events.length; ei++) {
+            if (events[ei] === 'whistle') {
+              crossings++;
+              if (events[ei + 1] === 'scream') paired++;
+            }
+          }
+          check('跳楼机急坠沿出现(' + crossings + ' 次/' + frames + ' 帧)', crossings >= 1);
+          check('急坠沿呼啸+尖叫同帧连发(' + paired + '/' + crossings +
+            ')', crossings >= 1 && paired === crossings);
+          return report();
+        }
+        setTimeout(ff, 16);
+      })();
     }
 
     next();
   }
 
   setTimeout(function () {
-    if (!finished) { check('测试在 300 秒内完成(state=' + Voxel.Game.state + ')', false); report(); }
-  }, 300000);
+    if (!finished) { check('测试在 360 秒内完成(state=' + Voxel.Game.state + ')', false); report(); }
+  }, 360000);
 })();
 </script>
 </body>

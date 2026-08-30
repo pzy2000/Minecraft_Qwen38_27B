@@ -251,7 +251,7 @@ ok(Voxel.Blocks.defs[72] && Voxel.Blocks.defs[72].name === '金矿石' &&
   Voxel.Blocks.defs[73] && Voxel.Blocks.defs[73].name === '钻石矿石' &&
   Voxel.Blocks.defs[74] && Voxel.Blocks.defs[74].name === '游乐草坪' &&
   Voxel.Blocks.defs[87] && Voxel.Blocks.defs[87].name === '城堡深蓝墙' &&
-  Voxel.Blocks.defs[88] === undefined, 'ID 72/73 金钻矿 + 74..87 星海嘉年华方块，88 起空闲（尾部追加纪律）');
+  Voxel.Blocks.defs[91] === undefined, 'ID 72/73 金钻矿 + 74..90 嘉年华方块/彩玻，91 起空闲（尾部追加纪律）');
 
 console.log('');
 if (failed) { console.log('失败 ' + failed + ' 项'); process.exit(1); }

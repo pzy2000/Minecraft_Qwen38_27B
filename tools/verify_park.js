@@ -59,7 +59,7 @@ function enumerate(park) {
     ops.push([x, y, z, id]);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z))
       throw new Error('非有限坐标');
-    if (!Number.isInteger(id) || id < 0 || id > 87 || !V.Blocks.defs[id])
+    if (!Number.isInteger(id) || id < 0 || id > 90 || !V.Blocks.defs[id])
       throw new Error('非法方块 ID ' + id);
     if (y <= 0 || y >= V.Config.WORLD_H) throw new Error('越界写入 y=' + y);
     if (y > V.Config.CONTENT_NATURAL_TOP)
@@ -123,6 +123,81 @@ console.log('parkStations/boardPositions 合法 ✓');
   console.log('售票亭宝箱方块:', chestId === 38 ? '箱子 ✓' : 'FAIL id=' + chestId);
   var loot = V.Structures.chestLootAt(chest.x, chest.y, chest.z);
   console.log('宝箱反查战利品:', loot ? loot.filter(Boolean).map(function (it) { return V.Blocks.name(it.id) + 'x' + it.n; }).join(', ') : 'FAIL null');
+
+  // ---- 5. 城堡内装 + 套圈断言（首个园区） ----
+  var park0 = V.Structures.cellPark(found[0].cx, found[0].cz);
+  var L = V.Structures.parkLayout();
+  var PXf = function (park, dx, dz) {
+    switch (park.rot & 3) {
+      case 1: return [park.ax + dz, park.az - dx];
+      case 2: return [park.ax - dx, park.az - dz];
+      case 3: return [park.ax - dz, park.az + dx];
+      default: return [park.ax + dx, park.az + dz];
+    }
+  };
+  var ah0 = park0.ah;
+  var kc = PXf(park0, L.castle.c[0], L.castle.c[1]);
+  var G = function (x, y, z) { return gen.blockAt(x, y, z); };
+  // 正门 3 宽 4 高洞（dz+ 侧，考虑 rot：门开在局部 +z 面即世界面按 rot 旋转）
+  var doorWorld = [
+    PXf(park0, L.castle.c[0] - 1, L.castle.c[1] + 6),
+    PXf(park0, L.castle.c[0], L.castle.c[1] + 6),
+    PXf(park0, L.castle.c[0] + 1, L.castle.c[1] + 6)
+  ];
+  var doorOK = doorWorld.every(function (p) {
+    return G(p[0], ah0 + 1, p[1]) === 0 && G(p[0], ah0 + 2, p[1]) === 0 &&
+      G(p[0], ah0 + 3, p[1]) === 0 && G(p[0], ah0 + 4, p[1]) === 0;
+  });
+  console.log('城堡正门 3×4 洞:', doorOK ? '✓' : 'FAIL');
+  // 彩玻存在（任一彩玻 ID 88/89/90 出现在城堡区）
+  var stainedFound = 0;
+  for (var sx4 = -7; sx4 <= 7; sx4++)
+    for (var sz4 = -7; sz4 <= 7; sz4++)
+      for (var sy4 = 1; sy4 <= 10; sy4++) {
+        var cp = PXf(park0, L.castle.c[0] + sx4, L.castle.c[1] + sz4);
+        var bid = G(cp[0], ah0 + sy4, cp[1]);
+        if (bid === 88 || bid === 89 || bid === 90) stainedFound++;
+      }
+  console.log('彩玻窗块数(≥8):', stainedFound, stainedFound >= 8 ? '✓' : 'FAIL');
+  // 王座金饰（局部 (0,-5) y2..5）
+  var tw = PXf(park0, L.castle.c[0], L.castle.c[1] - 5);
+  var throneOK = [2, 3, 4, 5].every(function (ty) { return G(tw[0], ah0 + ty, tw[1]) === 78; });
+  console.log('王座金饰靠背:', throneOK ? '✓' : 'FAIL ' + G(tw[0], ah0 + 3, tw[1]));
+  // 宽体楼梯可达性：从门内 y0 沿楼梯逐级扫描到观景台 y21
+  var stairReach = (function () {
+    // 简化 BFS：可站 = 目标格空气且脚下实体；起点门内 (0,+5)
+    var start = PXf(park0, L.castle.c[0], L.castle.c[1] + 5);
+    var seen = {};
+    var q = [[start[0], ah0 + 1, start[1]]];
+    var goalY = ah0 + 22, reached = false;   // 观景台地板 y21，站立位 y22
+    var guard = 0;
+    while (q.length && guard++ < 20000) {
+      var cur = q.shift();
+      var kx = cur[0] + ',' + cur[1] + ',' + cur[2];
+      if (seen[kx]) continue;
+      seen[kx] = 1;
+      if (cur[1] >= goalY) { reached = true; break; }
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+        var nx = cur[0] + d[0], nz = cur[2] + d[1];
+        // 平走 / 上 1-2 级 / 下 1-3 级（楼梯语义）
+        [0, 1, 2, -1, -2, -3].forEach(function (dy) {
+          var ny = cur[1] + dy;
+          if (ny > goalY + 2) return;
+          if (G(nx, ny, nz) === 0 && G(nx, ny + 1, nz) === 0 &&
+            G(nx, ny - 1, nz) !== 0) q.push([nx, ny, nz]);
+        });
+      });
+    }
+    return reached;
+  })();
+  console.log('楼梯可达观景台 y21:', stairReach ? '✓' : 'FAIL');
+  // 套圈柱：3 根柱头金饰
+  var toss = V.Structures.parkTossStall(park0);
+  var pegsOK = toss.pegs.every(function (pg) {
+    return G(pg.x, pg.topY, pg.z) === 78;
+  });
+  console.log('套圈 3 柱头金饰:', pegsOK ? '✓' : 'FAIL');
+  if (!doorOK || stainedFound < 8 || !throneOK || !stairReach || !pegsOK) process.exit(1);
 })();
 
 console.log('PARK-VERIFY-PASS');

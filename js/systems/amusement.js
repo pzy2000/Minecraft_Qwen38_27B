@@ -151,7 +151,10 @@ Voxel.Amusement = (function () {
   // ---------- 音效节流状态（update 循环共享） ----------
   var snd = {
     clankAt: 0, whooshAt: 0, tWhooshAt: 0,
-    noteStep: 0, noteAt: 0, creakQ: -1
+    noteStep: 0, noteAt: 0, creakQ: -1,
+    // 尖叫节流：过山车俯冲边沿 + 冷却；光轮随机窗；海盗船每次极速摆一次
+    screamAt: -9, coastPrevSlope: 0,
+    tronScreamAt: -9, tronScreamNext: 2.6, pirScreamAt: -9
   };
   function sndVol(px, pz, x, z, range) {
     var dx = x - px, dz = z - pz;
@@ -532,9 +535,11 @@ Voxel.Amusement = (function () {
     podGrp.add(canopy);
     root.add(podGrp);
     podGrp.rotation.order = 'YXZ';
+    var lastTanY = 0;
 
     return {
       group: g, kind: 'tron', curve: curve, neonMat: neonMat,
+      tanY: function () { return lastTanY; },   // 音效层：|tanY| 大即回环陡立段
       setVehicleHidden: function (h) {
         podGrp.visible = !h;
         // 隐身时弹舱也不再随 riderPose 更新位置（可见性由外部 update 恢复）
@@ -554,6 +559,7 @@ Voxel.Amusement = (function () {
         pu %= 1;
         curve.getPointAt(pu, tmpA);
         curve.getTangentAt(pu, tmpB);
+        lastTanY = tmpB.y;                                  // 音效层消费：回环陡立段判定
         _pose.pos.set(tmpA.x, tmpA.y + 1.05, tmpA.z);
         _pose.yaw = Math.atan2(-tmpB.x, -tmpB.z);
         _pose.pitch = Math.asin(Math.max(-1, Math.min(1, tmpB.y))) * -1;
@@ -585,14 +591,30 @@ Voxel.Amusement = (function () {
             S.rideWhoosh(v * Math.min(1, -slope * 1.5));
           }
         }
-      }
+        // 大俯冲起点边沿（缓坡切入陡降）→ 尖叫一次；冷却防连叫
+        var steepStart = slope <= -0.5 && snd.coastPrevSlope > -0.35;
+        if (steepStart && nowSec - snd.screamAt > 4) {
+          snd.screamAt = nowSec;
+          S.rideScream(v * Math.min(1, -slope));
+        }
+        snd.coastPrevSlope = slope;
+      } else snd.coastPrevSlope = 0;
     }
     piece = active.pieces.tron;
     if (piece && active.boardPos.tron) {
       var vT = sndVol(px, pz, active.boardPos.tron.x, active.boardPos.tron.z, 46);
-      if (vT > 0 && nowSec - snd.tWhooshAt > 0.52) {
-        snd.tWhooshAt = nowSec;
-        S.rideWhoosh(vT * 0.62);
+      if (vT > 0) {
+        if (nowSec - snd.tWhooshAt > 0.52) {
+          snd.tWhooshAt = nowSec;
+          S.rideWhoosh(vT * 0.62);
+        }
+        // 回环陡立段（切向近垂直）+ 随机窗，制造零星尖叫
+        var tTanY = Math.abs(piece.tanY ? piece.tanY() : 0);
+        if (tTanY > 0.55 && nowSec - snd.tronScreamAt > snd.tronScreamNext) {
+          snd.tronScreamAt = nowSec;
+          snd.tronScreamNext = 2.6 + Math.random() * 2.4;
+          S.rideScream(vT * Math.min(1, tTanY + 0.25));
+        }
       }
     }
     piece = active.pieces.drop;
@@ -601,10 +623,28 @@ Voxel.Amusement = (function () {
       if (vD > 0) {
         var u = piece.phase(nowSec);
         var pu = snd.prevDropU === undefined ? u : snd.prevDropU;
-        if (pu < 0.615 && u >= 0.615) S.dropFallWhistle(vD);
+        if (pu < 0.615 && u >= 0.615) {
+          S.dropFallWhistle(vD);
+          S.rideScream(vD);                          // 悬停结束下坠瞬间喊出声
+        }
         if (pu < 0.76 && u >= 0.76) S.dropThud(vD * 0.85);
         snd.prevDropU = u;
       } else snd.prevDropU = undefined;
+    }
+    piece = active.pieces.pirate;
+    if (piece && active.boardPos.pirate) {
+      var vP = sndVol(px, pz, active.boardPos.pirate.x, active.boardPos.pirate.z, 60);
+      var vel = piece.vel(nowSec);
+      if (vP > 0 && vel > 0.62 && nowSec - (snd.pirWhooshAt || 0) > 0.45) {
+        snd.pirWhooshAt = nowSec;
+        S.rideWhoosh(vP * Math.min(1, vel * 0.7));
+      }
+      // 极速摆过最低点 → 尖叫（半摆周期内最多一次）
+      if (vP > 0 && vel > 0.78 &&
+        nowSec - snd.pirScreamAt > piece.periodS * 0.45) {
+        snd.pirScreamAt = nowSec;
+        S.rideScream(vP * Math.min(1, vel * 0.8));
+      }
     }
     piece = active.pieces.carousel;
     if (piece && active.boardPos.carousel) {
@@ -622,15 +662,6 @@ Voxel.Amusement = (function () {
         if (snd.creakQ >= 0 && q !== snd.creakQ) S.ferrisCreak(vF);
         snd.creakQ = q;
       } else snd.creakQ = -1;
-    }
-    piece = active.pieces.pirate;
-    if (piece && active.boardPos.pirate) {
-      var vP = sndVol(px, pz, active.boardPos.pirate.x, active.boardPos.pirate.z, 60);
-      var vel = piece.vel(nowSec);
-      if (vP > 0 && vel > 0.62 && nowSec - (snd.pirWhooshAt || 0) > 0.45) {
-        snd.pirWhooshAt = nowSec;
-        S.rideWhoosh(vP * Math.min(1, vel * 0.7));
-      }
     }
   }
 
@@ -678,7 +709,7 @@ Voxel.Amusement = (function () {
 
     var AMP = 0.96; // 摆幅 55°
     return {
-      group: g, kind: 'pirate',
+      group: g, kind: 'pirate', periodS: st.periodS,
       setVehicleHidden: function (h) {
         // 相机坐在船中排，摆动时船舷/座椅会糊脸；乘坐期间隐去摆体
         swingMesh.visible = !h;
@@ -1154,6 +1185,8 @@ Voxel.Amusement = (function () {
     ridingKind: function () { return _ridingKind; },
     // 测试钩子：强制下一帧放一发烟花（并立即进入夜间调度分支）
     _fwForce: function () { FW.nextAt = 0; FW.pending = null; },
+    // 测试钩子：活跃园区站点数组（含各设施 _t0 相位锚点；无园区返回 null）
+    _stations: function () { return active ? active.stations : null; },
     // 售票亭「加速模式」：全设施转速倍率（1 = 常速）
     setSpeedMul: function (v) {
       var nv = Math.max(0.25, Math.min(4, +v || 1));

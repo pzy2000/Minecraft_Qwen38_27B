@@ -47,7 +47,8 @@ Voxel.Blocks = (function () {
     CANDY_STRIPE: 121, GOLD_TRIM: 122, LANTERN: 123, RAIL_WHITE: 124,
     ROOF_BLUE: 125, NEON_PURPLE: 126, NEON_CYAN: 127, BUNTING: 128,
     RIDE_PAD: 129, CASTLE_PINK: 130, CASTLE_BLUE: 131,
-    TOKEN: 132, FW_ROD: 133
+    TOKEN: 132, FW_ROD: 133,
+    GLASS_RED: 134, GLASS_CYAN: 135, GLASS_GOLD: 136
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -273,6 +274,18 @@ Voxel.Blocks = (function () {
   defs[87] = { name: '城堡深蓝墙', solid: true, opaque: true,
     tiles: [T.CASTLE_BLUE, T.CASTLE_BLUE, T.CASTLE_BLUE], sound: 'stone',
     color: 0x5577b5, hard: 2.5, pick: true };
+  // ---- 城堡彩色玻璃（稳定 ID 88..90）----
+  // stained 标记 → mesher 路由进半透明水材质组（alpha 来自贴图像素），
+  // depthWrite:false 与水面同批次渲染；非透明剔除规则与普通玻璃(id 13)一致
+  defs[88] = { name: '红彩玻璃', solid: true, opaque: false, stained: true,
+    tiles: [T.GLASS_RED, T.GLASS_RED, T.GLASS_RED], sound: 'glass',
+    color: 0xd8574f, hard: 0.4, drop: 0 };
+  defs[89] = { name: '青彩玻璃', solid: true, opaque: false, stained: true,
+    tiles: [T.GLASS_CYAN, T.GLASS_CYAN, T.GLASS_CYAN], sound: 'glass',
+    color: 0x5cc8e0, hard: 0.4, drop: 0 };
+  defs[90] = { name: '金彩玻璃', solid: true, opaque: false, stained: true,
+    tiles: [T.GLASS_GOLD, T.GLASS_GOLD, T.GLASS_GOLD], sound: 'glass',
+    color: 0xf3b13e, hard: 0.4, drop: 0 };
 
   // 物品（item:true 不可放置）：ID 固定 100+，工具/材料
   // 工具 maxDur=耐久上限，maxStack=1 不堆叠；food=恢复饥饿值
@@ -1455,6 +1468,21 @@ Voxel.Blocks = (function () {
       var hi = ((x * 3 + y * 7) % 37) === 0;
       return hi ? [126 + v, 152 + v, 200] : [96 + v, 120 + v, 168];
     });
+    // 彩色玻璃：圣像窗格图案，整体半透明（alpha 入画布 → 透明水材质组混合）
+    function stainedTile(base, light) {
+      return function (x, y, r) {
+        // 铅条骨架：菱形网格 + 边框
+        var edge = x === 0 || y === 0 || x === 15 || y === 15;
+        var dia = Math.abs((x % 8) - 4) + Math.abs((y % 8) - 4);
+        if (edge || dia === 4) return [52, 50, 58, 255];         // 深铅条（不透明）
+        var v = n(r, 0, 14);
+        var glow = dia <= 1 ? light : base;                       // 菱心高光
+        return [glow[0] + v, glow[1] + v, glow[2] + v, 150];      // 半透玻璃体
+      };
+    }
+    drawTile(T.GLASS_RED, stainedTile([216, 87, 79], [248, 168, 150]));
+    drawTile(T.GLASS_CYAN, stainedTile([92, 200, 224], [178, 240, 248]));
+    drawTile(T.GLASS_GOLD, stainedTile([243, 177, 62], [252, 226, 156]));
     drawTile(T.TOKEN, function (x, y, r) {
       // 乐园代币：金色圆币 + 摩天轮压印 + 高光弧，透明底
       var dx = x - 7.5, dy = y - 7.5;

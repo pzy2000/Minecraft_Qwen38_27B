@@ -28,6 +28,9 @@ const CREDITS = [
   { files: 'step_sand_0, step_sand_1, splash_step_0, splash_step_1, sheep_0, sheep_1, sheep_2, sheep_hurt, splash_0',
     source: 'Yo Frankie! game assets via opengameart.org (sfx_step_*/sheep*/watersplash)', license: 'CC-BY 3.0 (Blender Foundation / Apricot project)' },
   { files: 'zombie_0', source: '"Zombie Sound" (opengameart.org/content/zombie-sound)', license: 'CC0 1.0' },
+  { files: 'scream_0', source: '"Girly Scream" by Ferk, performed by Mariel Carmona Varo (opengameart.org/content/girly-scream)', license: 'CC0 1.0' },
+  { files: 'scream_1', source: '"Girl Scream" by tcrocker68 via congusbongus\'s "Female screams" pack (freesound.org/s/235592, opengameart.org/content/female-screams)', license: 'CC0 1.0' },
+  { files: 'scream_2', source: '"human male scream multi" by JohnsonBrandEditing, extracted in congusbongus\'s "Aargh! (male screams)" pack (freesound.org/s/173944, opengameart.org/content/aargh-male-screams)', license: 'CC0 1.0' },
   { files: 'cat_0', source: '"cat meow" by tuberatanka (freesound.org/s/110011)', license: 'CC0 1.0' },
   { files: 'cat_1, cat_hurt (pitch-shifted)', source: '"cat meow short" by skymary (freesound.org/s/412017)', license: 'CC0 1.0' },
   { files: 'cat_2 (pitch-shifted)', source: '"meow51252153" by suicdxsaturday (freesound.org/s/698633)', license: 'CC0 1.0' },
@@ -171,8 +174,8 @@ function generatedFiles() {
   if (assigned.size !== sources.length || chunks.some(chunk => !chunk.entries.length)) {
     throw new Error('音频分块必须完整且互斥');
   }
-  if (chunks[0].entries.length !== 47 || chunks[1].entries.length !== 1 || chunks[2].entries.length !== 1) {
-    throw new Error('音频清单必须为 47 个 SFX、1 首白昼音乐、1 首夜晚音乐');
+  if (chunks[0].entries.length !== 50 || chunks[1].entries.length !== 1 || chunks[2].entries.length !== 1) {
+    throw new Error('音频清单必须为 50 个 SFX、1 首白昼音乐、1 首夜晚音乐');
   }
 
   const outputs = new Map();
@@ -198,7 +201,7 @@ function main() {
   });
   if (check && stale) process.exitCode = 1;
   else if (check) console.log('音频生成物与源文件一致 ✓');
-  else console.log('音频已拆分：47 SFX + 1 day + 1 night');
+  else console.log('音频已拆分：50 SFX + 1 day + 1 night');
 }
 
 if (require.main === module) {
