@@ -115,6 +115,7 @@ Voxel.Config = {
   },
 
   SAVE_KEY: 'starbound_voxel_save_v6', // v6：无限宇宙（银河→恒星系）、跨系曲速电池
+  GEN_WORKER_V: '20260830a',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
   AUTOSAVE_INTERVAL: 30,
 
   // 无限宇宙（Universe 层）：恒星系档案缓存与跨系跃迁成本

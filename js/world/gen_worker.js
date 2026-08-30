@@ -7,6 +7,8 @@
 // 先把 window 指向 WorkerGlobalScope（self），后续 importScripts 即可照常工作。
 var window = self;
 
+// importScripts 带 cache-bust 版本参数（config.js 的 GEN_WORKER_V）：file:// 下
+// Edge/Chrome 会缓存 worker 及其 importScripts 子文件，结构更新后旧脚本仍会被命中。
 importScripts(
   '../config.js',
   'seed.js',
@@ -14,8 +16,8 @@ importScripts(
   'biomes.js',
   'planet_rules.js',
   'shaper.js',
-  '../blocks.js',
-  'structures.js',
+  '../blocks.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
+  'structures.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   'gen_core.js'
 );
 

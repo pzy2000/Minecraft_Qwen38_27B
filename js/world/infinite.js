@@ -458,7 +458,7 @@ window.Voxel = window.Voxel || {};
   function ensureWorker() {
     if (wc || wcFailed || !planetMode || typeof Worker === 'undefined') return;
     try {
-      wc = new Worker('js/world/gen_worker.js');
+      wc = new Worker('js/world/gen_worker.js?v=' + (Voxel.Config.GEN_WORKER_V || 1));
       wc.onmessage = function (e) {
         var m = e.data;
         if (!m) return;
