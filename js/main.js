@@ -1631,11 +1631,64 @@ Voxel.Game = (function () {
     // 方块挖掘：由 tickDig 长按推进
   }
 
+  // ---------- 打击感：顿帧（全局时间冻结）+ 震屏 ----------
+  var hitStopUntil = 0;
+  var shakeT = 0, shakeDur = 0, shakeAmp = 0;
+  var shakeApplied = false;
+  var _shakePosSave = new THREE.Vector3();
+  var _shakeRotZSave = 0;
+
+  // crit：暴击（下落挥击）吃更长顿帧和更大振幅
+  function hitFeedback(crit) {
+    hitStopUntil = performance.now() + (crit ? 90 : 55);
+    shakeT = 0;
+    shakeDur = crit ? 0.26 : 0.15;
+    shakeAmp = crit ? 0.06 : 0.032;
+  }
+
+  function tickHitShake(dt) {
+    if (shakeT < shakeDur) shakeT += dt;
+  }
+
+  // 在最终相机位姿确定后、渲染前叠加高频抖动；渲染完立即还原，
+  // 不污染下一帧的 yaw/pitch/位置基准。
+  function applyHitShake() {
+    if (shakeAmp <= 0 || shakeT >= shakeDur || !camera) return false;
+    var k = 1 - shakeT / shakeDur;
+    k *= k * shakeAmp;
+    shakeApplied = true;
+    _shakePosSave.copy(camera.position);
+    _shakeRotZSave = camera.rotation.z;
+    camera.position.x += (Math.random() - 0.5) * k * 2;
+    camera.position.y += (Math.random() - 0.5) * k * 2;
+    camera.rotation.z += (Math.random() - 0.5) * k * 0.7;
+    return true;
+  }
+
+  function unapplyHitShake() {
+    if (!shakeApplied || !camera) return;
+    shakeApplied = false;
+    camera.position.copy(_shakePosSave);
+    camera.rotation.z = _shakeRotZSave;
+  }
+
   function attack(mob, d) {
     var nowS = performance.now() / 1000;
     if (nowS - lastDig < 0.35) return;
     lastDig = nowS;
-    Voxel.Mobs.damage(mob, Voxel.Blocks.attackDmg(inv[sel]), d);
+    var dmg = Voxel.Blocks.attackDmg(inv[sel]);
+    // 暴击：下落途中挥击（MC 规则），1.5× 伤害 + 金色火花提示
+    var crit = false;
+    var pv = Voxel.Player.vel();
+    if (!Voxel.Player.flying() && !Voxel.Player.onGround() && pv.y < -1 && mob) {
+      crit = true;
+      dmg *= 1.5;
+      Voxel.Particles.burst(
+        new THREE.Vector3(mob.pos.x, mob.pos.y + (mob.h || 1) * 0.9, mob.pos.z),
+        0xffd25e, 10);
+    }
+    Voxel.Mobs.damage(mob, dmg, d);
+    hitFeedback(crit);
     Voxel.Player.addExhaust(C.EXHAUST_ATTACK);
     damageHeldTool(1);   // 攻击损耗武器耐久
     if (Voxel.HandItem) Voxel.HandItem.swing();
@@ -4645,6 +4698,9 @@ Voxel.Game = (function () {
     lastT = now;
     if (!isFinite(dt) || dt < 0) dt = 0;
     if (dt > MAX_FRAME_DT) dt = MAX_FRAME_DT;
+    // 顿帧（打击感）：攻击命中后的短暂全局慢放，只压时钟不压输入，
+    // 冷却计时走 performance.now() 真实时间，不受影响。
+    if (performance.now() < hitStopUntil) dt *= 0.12;
     try {
       frameBody(dt);
     } catch (e) {
@@ -5254,7 +5310,11 @@ Voxel.Game = (function () {
     if (state === 'riding') applyRideCamera(dt);
 
     // Bloom 激活时由 composer 接管渲染（它最后一趟会画到屏幕）；否则走原路径。
+    // 震屏叠加在所有相机覆盖（睡眠/乘坐/座舱）之后、渲染之前，渲染完立刻还原。
+    tickHitShake(dt);
+    var shook = applyHitShake();
     if (!Voxel.Bloom || !Voxel.Bloom.render(dt)) renderer.render(scene, camera);
+    if (shook) unapplyHitShake();
   }
 
   function onResize() {
@@ -5528,11 +5588,13 @@ Voxel.Game = (function () {
     Voxel.HUD.init();
     Voxel.MeshBuilder.init();
 
-    // preserveDrawingBuffer 仅捕获模式开启（测试像素采样）；常驻开启会拖慢移动端合成
+    // preserveDrawingBuffer 仅捕获模式开启（测试像素采样）；常驻开启会拖慢移动端合成。
+    // 捕获模式同时关闭 MSAA：CI 像素采样走 SwiftShader 软件光栅，开 AA 既慢又可能
+    // 让锯齿边界像素与真实 GPU 结果不一致；普通玩家始终享受硬件 MSAA。
     var CAPTURE = !!(window.__CAPTURE__ || /[?&]capture=1/.test(location.search));
     try {
       renderer = new THREE.WebGLRenderer({
-        canvas: canvas, antialias: false, preserveDrawingBuffer: CAPTURE
+        canvas: canvas, antialias: !CAPTURE, preserveDrawingBuffer: CAPTURE
       });
     } catch (glErr) {
       // 无 WebGL 环境（旧设备/企业浏览器禁用硬件加速）在此抛错：后续接线全部不执行，

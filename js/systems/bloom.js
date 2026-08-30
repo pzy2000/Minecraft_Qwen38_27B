@@ -9,8 +9,49 @@
 // 设置面板或 ?bloom=0 手动关。任何一环禁用后都退回原来的 renderer.render。
 window.Voxel = window.Voxel || {};
 
+// 色彩分级收尾 pass：柔和 S 曲线对比 + 饱和度提升 + 高光暖/阴影冷分色 + 暗角。
+// 场景是 LDR 直出的手调颜色，直接套 ACES 会把中调整体压暗，所以这里不用
+// 严格的色调映射，而是只做"收尾"级别的分级：中调几乎不动，黑位和高光
+// 更有层次。挂在 composer 最后（renderToScreen 由 EffectComposer 自动指定），
+// 与 Bloom 同生共死：软件渲染器/初始化失败时一并退回原始直出。
+var ColorGradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uContrast: { value: 0.30 },
+    uSaturation: { value: 1.07 },
+    uSplit: { value: 0.035 },
+    uVignette: { value: 0.22 }
+  },
+  vertexShader: [
+    'varying vec2 vUv;',
+    'void main(){',
+    '  vUv = uv;',
+    '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+    '}'
+  ].join('\n'),
+  fragmentShader: [
+    'uniform sampler2D tDiffuse;',
+    'uniform float uContrast;',
+    'uniform float uSaturation;',
+    'uniform float uSplit;',
+    'uniform float uVignette;',
+    'varying vec2 vUv;',
+    'void main(){',
+    '  vec3 col = texture2D(tDiffuse, vUv).rgb;',
+    '  vec3 sm = col * col * (3.0 - 2.0 * col);', // smoothstep 式 S 曲线
+    '  col = mix(col, sm, uContrast);',
+    '  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));',
+    '  col = mix(vec3(luma), col, uSaturation);',
+    '  col += (luma - 0.55) * vec3(uSplit, uSplit * 0.15, -uSplit);',
+    '  float d = distance(vUv, vec2(0.5));',
+    '  col *= 1.0 - uVignette * smoothstep(0.42, 0.98, d);',
+    '  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
+    '}'
+  ].join('\n')
+};
+
 Voxel.Bloom = (function () {
-  var renderer = null, composer = null, renderPass = null, bloomPass = null, rt = null;
+  var renderer = null, composer = null, renderPass = null, bloomPass = null, gradePass = null, rt = null;
   var enabled = true, available = false, hdr = false, lastReason = '';
 
   // WebGL2 的 RGBA16F 是核心可渲染格式；WebGL1 要靠扩展。
@@ -72,6 +113,10 @@ Voxel.Bloom = (function () {
         hdr ? finiteOption(options.threshold, 1.15, 0, 4) : 0.85
       );
       composer.addPass(bloomPass);
+      if (THREE.ShaderPass) {
+        gradePass = new THREE.ShaderPass(ColorGradeShader);
+        composer.addPass(gradePass);
+      }
       available = true;
       lastReason = '';
       return true;
@@ -114,10 +159,11 @@ Voxel.Bloom = (function () {
 
   function dispose() {
     if (bloomPass && typeof bloomPass.dispose === 'function') bloomPass.dispose();
+    if (gradePass && typeof gradePass.dispose === 'function') gradePass.dispose();
     if (rt && typeof rt.dispose === 'function') rt.dispose();
     if (composer && composer.renderTarget1) composer.renderTarget1.dispose();
     if (composer && composer.renderTarget2) composer.renderTarget2.dispose();
-    renderer = null; composer = null; renderPass = null; bloomPass = null; rt = null;
+    renderer = null; composer = null; renderPass = null; bloomPass = null; gradePass = null; rt = null;
     available = false;
   }
 
