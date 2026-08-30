@@ -1175,14 +1175,14 @@ Voxel.Structures = (function () {
             var cd2 = ddx * ddx + ddz * ddz;
             if (cd2 > 5.2) continue;
             if (cd2 <= 2.2 && ty2 <= 24 && ty2 > 1) continue;       // 中空
-            // 外壳圈（cd2>3）：默认粉墙；正东/西/南/北边缘格作宝蓝竖棱；
-            // y=10/20 两道宝蓝环带；y=26 顶圈收金腰线接锥顶
+            // 外壳圈（cd2>3）：默认粉墙；仅 (±2,0)/(0,±2) 四向中线 1 格作宝蓝竖棱；
+            // y=20 一道宝蓝环带；y=26 顶圈收金腰线接锥顶
             var id = PK.PINK;
             if (cd2 > 3) {
               if (ty2 === 26) id = PK.GOLD;
-              else if (ty2 === 10 || ty2 === 20) id = PK.BLUE;
-              else if (Math.abs(ddx) === 2 && Math.abs(ddz) < 2) id = PK.BLUE;
-              else if (Math.abs(ddz) === 2 && Math.abs(ddx) < 2) id = PK.BLUE;
+              else if (ty2 === 20) id = PK.BLUE;
+              else if ((ddx === 0 && Math.abs(ddz) === 2) ||
+                (ddz === 0 && Math.abs(ddx) === 2)) id = PK.BLUE;
             }
             F(tx3 + ddx, tz3 + ddz, ty2, id);
           }

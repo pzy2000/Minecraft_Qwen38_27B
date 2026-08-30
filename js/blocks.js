@@ -254,8 +254,8 @@ Voxel.Blocks = (function () {
     tiles: [T.RAIL_WHITE, T.RAIL_WHITE, T.RAIL_WHITE], sound: 'wood',
     color: 0xf2ede2, hard: 0.7 };
   defs[81] = { name: '蓝瓦块', solid: true, opaque: true,
-    tiles: [T.ROOF_BLUE, T.ROOF_BLUE, T.ROOF_BLUE], sound: 'stone',
-    color: 0x4e76cc, hard: 2.5, pick: true };
+    tiles: [T.ROOF_BLUE, T.ROOF_BLUE, T.ROOF_BLUE], sound: 'stone', light: 10,
+    color: 0x9ec6f6, hard: 2.5, pick: true };
   defs[82] = { name: '霓虹紫灯带', solid: true, opaque: true,
     tiles: [T.NEON_PURPLE, T.NEON_PURPLE, T.NEON_PURPLE], sound: 'glass', light: 15,
     color: 0xc06bf5, hard: 0.8 };
@@ -269,11 +269,11 @@ Voxel.Blocks = (function () {
     tiles: [T.RIDE_PAD, T.RIDE_PAD, T.RIDE_PAD], sound: 'stone',
     color: 0xd7dee8, hard: 2.5, pick: true };
   defs[86] = { name: '童话粉墙', solid: true, opaque: true,
-    tiles: [T.CASTLE_PINK, T.CASTLE_PINK, T.CASTLE_PINK], sound: 'stone',
-    color: 0xf6c2cd, hard: 2, pick: true };
+    tiles: [T.CASTLE_PINK, T.CASTLE_PINK, T.CASTLE_PINK], sound: 'stone', light: 12,
+    color: 0xfdf5ee, hard: 2, pick: true };
   defs[87] = { name: '城堡宝蓝墙', solid: true, opaque: true,
-    tiles: [T.CASTLE_BLUE, T.CASTLE_BLUE, T.CASTLE_BLUE], sound: 'stone',
-    color: 0x5c84da, hard: 2.5, pick: true };
+    tiles: [T.CASTLE_BLUE, T.CASTLE_BLUE, T.CASTLE_BLUE], sound: 'stone', light: 15,
+    color: 0xb2d0fa, hard: 2.5, pick: true };
   // ---- 城堡彩色玻璃（稳定 ID 88..90）----
   // stained 标记 → mesher 路由进半透明水材质组（alpha 来自贴图像素），
   // depthWrite:false 与水面同批次渲染；非透明剔除规则与普通玻璃(id 13)一致
@@ -1383,15 +1383,15 @@ Voxel.Blocks = (function () {
       return grain ? [228 + v, 222 + v, 206] : [242 + v, 237 + v, 226];
     });
 
-    // 蓝瓦块：宝蓝珐琅鱼鳞瓦行 + 行间深影（迪士尼塔尖色）
+    // 蓝瓦块：亮粉彩宝蓝鱼鳞瓦（着色器 br^1.35 压暗中间调，贴图需给足亮度）
     drawTile(T.ROOF_BLUE, function (x, y, r) {
       var v = n(r, 0, 10);
       var row = (y / 4) | 0;
       var off = row % 2 ? 4 : 0;
       var scaleDip = ((x + off) % 8 === 0) || (y % 4 === 0);
-      if (scaleDip) return [40 + v, 66 + v, 140];
+      if (scaleDip) return [130 + v, 164 + v, 228];
       var scaleHi = ((x + off) % 8 === 1);
-      return scaleHi ? [116 + v, 156 + v, 232] : [78 + v, 118 + v, 204];
+      return scaleHi ? [216 + v, 236 + v, 254] : [180 + v, 208 + v, 250];
     });
 
     // 霓虹紫灯带：哑黑槽壳内嵌亮紫光管
@@ -1447,27 +1447,27 @@ Voxel.Blocks = (function () {
       return wear ? [222 + v, 168 + v, 52] : [246 + v, 194 + v, 62]; // 安全黄
     });
 
-    // 童话粉墙：迪士尼粉嫩雪石砌块 + 细金线顶饰
+    // 童话粉墙：近白暖墙（照片实测阳光面 #f6f3f1）+ 浅玫瑰砖缝点缀 + 金线
     drawTile(T.CASTLE_PINK, function (x, y, r) {
       var v = n(r, 0, 8);
-      if (y === 0) return [246, 224, 176];                          // 金线
+      if (y === 0) return [252, 232, 184];                          // 金线
       var row = (y / 4) | 0;
       var off = row % 2 ? 5 : 0;
       var joint = (y % 4 === 3) || ((x + off) % 10 === 9);
-      if (joint) return [228 + v, 178 + v, 190];                    // 浅玫瑰砖缝
+      if (joint) return [240 + v, 212 + v, 208];                    // 浅玫瑰砖缝
       var hi = ((x * 3 + y * 7) % 37) === 0;
-      return hi ? [255, 232 + v, 236] : [250 + v, 208 + v, 218];
+      return hi ? [255, 255, 254] : [253 + v, 247 + v, 243];
     });
 
-    // 城堡宝蓝墙：饱和宝蓝珐琅砌块 + 收影（塔尖/隅石/环带用色）
+    // 城堡宝蓝墙：高亮粉彩宝蓝（照片实测 #6191cc 经 br^1.35 补偿提亮）
     drawTile(T.CASTLE_BLUE, function (x, y, r) {
       var v = n(r, 0, 9);
       var row = (y / 4) | 0;
       var off = row % 2 ? 5 : 0;
       var joint = (y % 4 === 3) || ((x + off) % 10 === 9);
-      if (joint) return [48 + v, 76 + v, 158];
+      if (joint) return [128 + v, 162 + v, 228];
       var hi = ((x * 3 + y * 7) % 37) === 0;
-      return hi ? [148 + v, 182 + v, 244] : [92 + v, 132 + v, 218];
+      return hi ? [226 + v, 240 + v, 255] : [182 + v, 208 + v, 248];
     });
     // 彩色玻璃：圣像窗格图案，整体半透明（alpha 入画布 → 透明水材质组混合）
     function stainedTile(base, light) {
