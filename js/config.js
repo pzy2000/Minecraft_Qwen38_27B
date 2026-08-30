@@ -79,10 +79,17 @@ Voxel.Config = {
   MOB: {
     SHEEP_TARGET: 8, ZOMBIE_TARGET: 6,
     PIG_TARGET: 5, CHICKEN_TARGET: 5, RABBIT_TARGET: 4, CAT_TARGET: 8,
+    ARCHER_TARGET: 2, BOOMER_TARGET: 2,
     DESPAWN: 52, SPAWN_MIN: 24, SPAWN_MAX: 46,
     ZOMBIE_RANGE: 18, ZOMBIE_DMG: 3,
     ZOMBIE_SPEED: 2.0, SHEEP_SPEED: 1.2,
-    HP_SHEEP: 4, HP_ZOMBIE: 10,
+    // 骷髅弓手：保持距离射击，白天同僵尸一样曝晒燃烧
+    ARCHER_RANGE_MIN: 6, ARCHER_RANGE_MAX: 14, ARCHER_DMG: 3,
+    ARCHER_SPEED: 1.7, ARROW_SPEED: 13, ARROW_CD: 2.2, ARROW_LIFE: 3.5,
+    // 自爆虫：贴近后点燃引信引爆，逃离可中断
+    BOOMER_RANGE: 16, BOOMER_DMG: 7, BOOMER_SPEED: 2.7,
+    FUSE_TIME: 1.15, FUSE_CANCEL: 4.5, EXPLODE_R: 2.4,
+    HP_SHEEP: 4, HP_ZOMBIE: 10, HP_ARCHER: 8, HP_BOOMER: 6,
     HP_PIG: 6, HP_CHICKEN: 3, HP_RABBIT: 3, HP_CAT: 4,
     WOOL_DROP: 1,             // 击杀羊掉落的羊毛数量
     CAT_FUR_DROP: 2,          // 击杀猫掉落的猫毛数量（2 猫毛合成 1 猫毛毡）
@@ -141,7 +148,7 @@ Voxel.Config = {
   },
 
   SAVE_KEY: 'starbound_voxel_save_v6', // v6：无限宇宙（银河→恒星系）、跨系曲速电池
-  GEN_WORKER_V: '20260830a',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
+  GEN_WORKER_V: '20260830b',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
   AUTOSAVE_INTERVAL: 30,
 
   // 无限宇宙（Universe 层）：恒星系档案缓存与跨系跃迁成本

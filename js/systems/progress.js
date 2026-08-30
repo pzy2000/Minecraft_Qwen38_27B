@@ -19,7 +19,8 @@ Voxel.Progress = (function () {
       fauna: {},      // 图鉴生物记录：type -> true
       biomes: {},     // 图 biome idx -> true
       ach: {},        // 成就解锁：achId -> 时间戳
-      tut: { started: false, step: 0, done: false }
+      tut: { started: false, step: 0, done: false },
+      end: { i: 0, done: false }   // 终局任务链（systems/endgame.js）
     };
   }
 
@@ -79,6 +80,11 @@ Voxel.Progress = (function () {
       started: !!(t && t.started),
       step: Math.max(0, Math.min(999, num(t && t.step, 0))),
       done: !!(t && t.done)
+    };
+    var en = raw.end;
+    s.end = {
+      i: num(en && en.i, 0),
+      done: !!(en && en.done)
     };
     state = s;
     return true;

@@ -18,7 +18,8 @@ Voxel.Settings = (function () {
     sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
     sndUi: 1, sndMusic: 1, sndRain: 1, sndThunder: 1,
-    difficulty: 2           // 0=和平 1=简单 2=困难 3=噩梦
+    difficulty: 2,          // 0=和平 1=简单 2=困难 3=噩梦
+    autoPerf: 1             // 自适应降质：持续掉帧时自动按梯度调低画质（可关）
   };
   // 游戏难度（供 UI 与测试使用）
   var DIFFICULTY_LABELS = ['和平', '简单', '困难', '噩梦'];
@@ -43,7 +44,8 @@ Voxel.Settings = (function () {
     sway: [0, 1],
     stream: [2, 16],
     bloom: [0, 1],
-    difficulty: [0, 3]
+    difficulty: [0, 3],
+    autoPerf: [0, 1]
   };
   // 分音效开关均为 0/1
   for (var sndKey in SND_LABELS) LIMITS[sndKey] = [0, 1];

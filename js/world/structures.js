@@ -364,19 +364,40 @@ Voxel.Structures = (function () {
     return items;
   }
 
-  // 反查：给定坐标是否是某遗迹/乐园售票亭的箱子位；是则返回确定性战利品。
+  // 反查：给定坐标是否是某遗迹/村落/地窖/乐园售票亭的箱子位；是则返回确定性战利品。
   function chestLootAt(x, y, z) {
     if (!enabled()) return null;
     var c0x = Math.floor((x - EXTENT) / CELL), c1x = Math.floor((x + EXTENT) / CELL);
     var c0z = Math.floor((z - EXTENT) / CELL), c1z = Math.floor((z + EXTENT) / CELL);
     for (var cx = c0x; cx <= c1x; cx++) {
       for (var cz = c0z; cz <= c1z; cz++) {
+        // 地窖：与遗迹共用 CELL 网格（先于遗迹的 !ruin 早退检查）
+        var dg = cellDungeon(cx, cz);
+        if (dg) {
+          var dchest = dungeonChest(dg);
+          if (dchest.x === x && dchest.y === y && dchest.z === z)
+            return dungeonLootFor(dg);
+        }
         var ruin = cellRuin(cx, cz);
         if (!ruin) continue;
         var chests = ruinChests(ruin);
         for (var i = 0; i < chests.length; i++) {
           if (chests[i].x === x && chests[i].y === y && chests[i].z === z)
             return lootFor(ruin, chests[i].index);
+        }
+      }
+    }
+    // 村落宝箱（cell 更大，扫描窗口独立）
+    var vc0x = Math.floor((x - VILLAGE_EXTENT) / VILLAGE_CELL), vc1x = Math.floor((x + VILLAGE_EXTENT) / VILLAGE_CELL);
+    var vc0z = Math.floor((z - VILLAGE_EXTENT) / VILLAGE_CELL), vc1z = Math.floor((z + VILLAGE_EXTENT) / VILLAGE_CELL);
+    for (var vx2 = vc0x; vx2 <= vc1x; vx2++) {
+      for (var vz2 = vc0z; vz2 <= vc1z; vz2++) {
+        var vil = cellVillage(vx2, vz2);
+        if (!vil) continue;
+        var vchests = villageChests(vil);
+        for (var vi = 0; vi < vchests.length; vi++) {
+          if (vchests[vi].x === x && vchests[vi].y === y && vchests[vi].z === z)
+            return villageLootFor(vil, vchests[vi].index);
         }
       }
     }
@@ -1445,6 +1466,287 @@ Voxel.Structures = (function () {
     })();
   }
 
+  // ================= 村落聚居地（v2 行星地表，密度介于遗迹与园区之间） =================
+
+  var VILLAGE_CELL = 224;     // cell 边长：相邻村落最小间距保证
+  var VILLAGE_EXTENT = 38;    // 村落最大半宽（散布小屋 + 水井 + 农田）
+  var VILLAGE_CELL_CHANCE = 0.35;
+  var VILLAGE_BIOMES = makeSet([
+    B.PLAINS, B.FOREST, B.BIRCH_FOREST, B.SAVANNA, B.TAIGA, B.SNOWY, B.CHERRY_GROVE
+  ]);
+  var VILLAGE_FLAT_SAMPLES = [[0, 0], [26, 0], [-26, 0], [0, 26], [0, -26], [18, 18], [-18, -18]];
+  // 村庄建筑方块（stable ids）：木板10 原木4 石头3 玻璃13 火把19 树叶5 草1 泥土2 水7 箱38
+  var VK = { LOG: 4, PLANKS: 10, STONE: 3, COBBLE: 11, GLASS: 13, TORCH: 19,
+    DIRT: 2, GRASS: 1, WATER: 7, CHEST: 38, LEAVES: 5 };
+
+  function cellVillage(cellX, cellZ) {
+    if (!enabled()) return null;
+    var roll = h2(cellX * 233 + 17, cellZ * 241 + 71);
+    if (roll >= VILLAGE_CELL_CHANCE) return null;
+    var ax = cellX * VILLAGE_CELL + 42 + ((h2(cellX * 37 + 5, cellZ * 43 + 9) * 140) | 0);
+    var az = cellZ * VILLAGE_CELL + 42 + ((h2(cellX * 47 + 3, cellZ * 53 + 27) * 140) | 0);
+    if (!(ax + VILLAGE_EXTENT < 0 || ax - VILLAGE_EXTENT >= W ||
+      az + VILLAGE_EXTENT < 0 || az - VILLAGE_EXTENT >= D)) return null;
+    var ah = ctx.surfaceAt(ax, az);
+    if (ah <= WATER + 2 || ah > PARK_AH_MAX) return null;
+    if (!VILLAGE_BIOMES[ctx.biomeAt(ax, az)]) return null;
+    for (var i = 0; i < VILLAGE_FLAT_SAMPLES.length; i++) {
+      var hs = ctx.surfaceAt(ax + VILLAGE_FLAT_SAMPLES[i][0], az + VILLAGE_FLAT_SAMPLES[i][1]);
+      if (hs <= WATER + 1 || Math.abs(hs - ah) > 4) return null;
+    }
+    return {
+      ax: ax, az: az, ah: ah,
+      variant: (h2(ax * 89 + 41, az * 97 + 23) * 4096) | 0
+    };
+  }
+
+  // 小屋清单（builder 与宝箱反查共用同一份布局事实源）。
+  // 小屋不做随机旋转：门窗/宝箱使用统一朝向的局部坐标映射，
+  // 保证 buildVillage 写入的位置与 villageChests 反查严格一致。
+  var VH = { hw: 2, hd: 2, wallH: 3 };   // 内半宽2（5×5 外圈）、墙高3
+
+  function villageHouseList(v) {
+    var n = 4 + ((v.variant & 3) !== 0 ? 1 : 0) + ((v.variant & 12) !== 0 ? 1 : 0); // 4–6 座
+    var out = [];
+    for (var k = 0; k < n; k++) {
+      var ang = (k / n) * Math.PI * 2 + h2(v.ax * 31 + k * 7, v.az * 37 + k * 11) * 1.1;
+      var dist = 14 + h2(v.ax * 41 + k * 13, v.az * 47 + k * 17) * 12;
+      out.push({
+        x: v.ax + Math.round(Math.cos(ang) * dist),
+        z: v.az + Math.round(Math.sin(ang) * dist),
+        hasChest: (h2(v.ax * 59 + k * 19, v.az * 61 + k * 23) < 0.65)
+      });
+    }
+    return out;
+  }
+
+  // 宝箱固定在屋内东南墙角（局部 (+1,+1)），与 buildVillage 写入一致
+  function villageChests(v) {
+    var houses = villageHouseList(v);
+    var out = [], idx = 0;
+    for (var i = 0; i < houses.length; i++) {
+      if (!houses[i].hasChest) continue;
+      out.push({ x: houses[i].x + 1, y: v.ah + 1, z: houses[i].z + 1, index: idx++ });
+    }
+    return out;
+  }
+
+  // 门前台阶 / 宝箱等邻位换算（dir: 1=朝村心一侧, -1=背离）
+  function villageFront(v, house, dist) {
+    var ang = Math.atan2(v.az - house.z, v.ax - house.x);
+    return {
+      x: house.x + Math.round(Math.cos(ang)) * dist,
+      z: house.z + Math.round(Math.sin(ang)) * dist
+    };
+  }
+
+  function buildVillage(v, writer) {
+    if (!v || typeof writer !== 'function') return;
+    var ah = v.ah;
+    var settleCorner = (v.variant & 8) !== 0;
+
+    function flattenColumn(x, z, topId) {
+      // 找平到锚点高：矮处垫泥土、高处削平；基岩/水/功能方块由写入端护栏兜底
+      var gs = ctx.surfaceAt(x, z);
+      for (var y = gs + 1; y <= ah; y++) writer(x, y, z, VK.DIRT, 'force');
+      writer(x, ah, z, topId, 'force');
+      for (var y2 = ah + 1; y2 <= gs; y2++) writer(x, y2, z, 0, 'overwrite');
+    }
+
+    // 中央水井：石圈托水面，中心火把立柱
+    flattenColumn(v.ax, v.az, VK.WATER);
+    for (var wx = -1; wx <= 1; wx++)
+      for (var wz = -1; wz <= 1; wz++) {
+        if (wx === 0 && wz === 0) continue;
+        flattenColumn(v.ax + wx, v.az + wz, VK.COBBLE);
+      }
+    writer(v.ax, ah + 1, v.az, VK.TORCH, 'force');
+
+    var houses = villageHouseList(v);
+
+    // ---- 标准小屋（轴对齐）：木板墙 + 原木角柱 + 门朝村心 + 板砖四棱顶 ----
+    function buildHouse(house, index) {
+      var hw = VH.hw, hd = VH.hd, wallH = VH.wallH;
+      for (var fx = -hw - 1; fx <= hw + 1; fx++)
+        for (var fz = -hd - 1; fz <= hd + 1; fz++) {
+          var gpx = house.x + fx, gpz = house.z + fz;
+          if (Math.abs(fx) === hw + 1 && Math.abs(fz) === hd + 1 &&
+            h2(gpx * 131 + index, gpz * 137 + index * 5) < 0.35) continue;   // 地基缺角
+          flattenColumn(gpx, gpz,
+            Math.abs(fx) <= hw && Math.abs(fz) <= hd ?
+              (index % 2 === 0 ? VK.PLANKS : VK.STONE) : VK.DIRT);
+        }
+      // 墙体：y1..wallH。门在南边 (+z) 中央 1×2；两侧墙面 y2 嵌玻璃窗
+      for (var wy = 1; wy <= wallH; wy++) {
+        for (var px = -hw - 1; px <= hw + 1; px++) {
+          buildWallCell(px, hd + 1, wy, true);
+          buildWallCell(px, -(hd + 1), wy, false);
+        }
+        for (var pz2 = -hd; pz2 <= hd; pz2++) {
+          buildWallCell(hw + 1, pz2, wy, false);
+          buildWallCell(-(hw + 1), pz2, wy, false);
+        }
+      }
+      function buildWallCell(px, pz, wy, southEdge) {
+        var corner = Math.abs(px) === hw + 1 && Math.abs(pz) === hd + 1;
+        var isDoor = southEdge && px === 0 && wy <= 2;
+        var isWindow = !corner && !isDoor && wy === 2 &&
+          ((Math.abs(px) === hw + 1 && Math.abs(pz) === hd) ||
+            (Math.abs(pz) === hd + 1 && Math.abs(px) === hw));
+        var id = corner ? VK.LOG : (isWindow ? VK.GLASS : VK.PLANKS);
+        if (corner && settleCorner && wy === 1) id = BLK.BRICK_MOSSY;
+        writer(house.x + px, ah + wy, house.z + pz, isDoor ? 0 : id, 'force');
+      }
+      // 四棱锥屋顶（板砖/苔砖交替）
+      roofPyramid(function (x, y, z, rid) { writer(x, y, z, rid, 'force'); },
+        house.x, house.z, ah + wallH + 1, hw + 1, 2,
+        index % 2 === 0 ? BLK.BRICK : BLK.BRICK_MOSSY);
+      // 屋内灯：北角柱旁挂火把（中心留给通行）
+      writer(house.x - 1, ah + 1, house.z - 1, VK.TORCH, 'air');
+      // 宝箱与 villageChests 同一坐标
+      if (house.hasChest) writer(house.x + 1, ah + 1, house.z + 1, VK.CHEST, 'air');
+      // 门前踏步找平
+      var front = villageFront(v, house, hd + 2);
+      flattenColumn(front.x, front.z, VK.DIRT);
+      // 屋旁点景树（15%）
+      if (h2(house.x * 67 + index, house.z * 71 + index * 3) < 0.15) {
+        var txp = house.x + (index % 2 === 0 ? 4 : -4), tzp = house.z + 3;
+        var ty = ctx.surfaceAt(txp, tzp);
+        if (ty > WATER && ty <= ah + 4) {
+          for (var lvy = 1; lvy <= 3; lvy++) writer(txp, ty + lvy, tzp, VK.LOG, 'air');
+          writer(txp, ty + 4, tzp, VK.LEAVES, 'air');
+          writer(txp + 1, ty + 3, tzp, VK.LEAVES, 'air');
+        }
+      }
+    }
+
+    for (var hi = 0; hi < houses.length; hi++) buildHouse(houses[hi], hi);
+
+    // 农田：贴第一座屋东侧的 7×3 木框耕地（中线引水）
+    (function () {
+      var f = houses[0];
+      for (var fx2 = 4; fx2 <= 10; fx2++)
+        for (var fz2 = -1; fz2 <= 1; fz2++) {
+          var gx = f.x + fx2, gz = f.z + fz2;
+          var border = fx2 === 4 || fx2 === 10 || fz2 === -1 || fz2 === 1;
+          flattenColumn(gx, gz, border ? VK.LOG : (fx2 === 7 ? VK.WATER : VK.DIRT));
+        }
+    })();
+
+    // 环村路灯光（对角四向）
+    for (var li = 0; li < 4; li++) {
+      var lang = li * Math.PI / 2 + Math.PI / 4;
+      var lx = v.ax + Math.round(Math.cos(lang) * 24);
+      var lz = v.az + Math.round(Math.sin(lang) * 24);
+      var ly = ctx.surfaceAt(lx, lz);
+      if (ly > WATER && Math.abs(ly - ah) <= 4) writer(lx, ly + 1, lz, VK.TORCH, 'air');
+    }
+  }
+
+  // 村庄战利品：口粮为主 + 工具/燃料，稀有度低于遗迹但高于野外
+  function villageLootFor(v, index) {
+    if (!enabled() || !v) return null;
+    var items = new Array(27).fill(null);
+    var saltBase = v.ax * 7841 + v.az * 65537 + index * 40961;
+    var cursor = 2;
+    function roll(salt) { return h2(saltBase + salt * 7517, v.variant + salt * 20483); }
+    function put(id, n, dur) {
+      for (var guard = 0; guard < 27 && items[cursor]; guard++) cursor = (cursor + 1) % 27;
+      if (!items[cursor]) items[cursor] = { id: id, n: n, dur: dur === undefined ? null : dur };
+      cursor++;
+    }
+    var meats = [ITEM.COOKED_PORK, ITEM.COOKED_CHICKEN, ITEM.COOKED_RABBIT];
+    put(meats[(roll(1) * 3) | 0], 2 + ((roll(2) * 3) | 0));
+    put(ITEM.COAL, 3 + ((roll(3) * 5) | 0));
+    if (roll(4) < 0.30) {
+      var toolId = roll(5) < 0.5 ? ITEM.IRON_PICK : ITEM.IRON_SWORD;
+      var remain = Math.max(1, Math.round(251 * (0.45 + roll(6) * 0.45)));
+      put(toolId, 1, remain);
+    } else if (roll(4) < 0.55) {
+      put(ITEM.WARP_CELL, 1);
+    } else {
+      var crys = CRYSTAL_ITEM[typeKeyOf()] || CRYSTAL_ITEM.lush;
+      put(crys, 1 + ((roll(6) * 3) | 0));
+    }
+    return items;
+  }
+
+  // ================= 地下遗迹地窖（埋藏型，需向下开挖发现） =================
+
+  var DUNGEON_HALF = 4;       // 内室半宽（9×9 含墙）
+  var DUNGEON_H = 4;          // 内室净高
+
+  function cellDungeon(cellX, cellZ) {
+    if (!enabled()) return null;
+    var roll = h2(cellX * 307 + 91, cellZ * 311 + 43);
+    if (roll >= 0.25) return null;
+    var ax = cellX * CELL + 20 + ((h2(cellX * 29 + 61, cellZ * 31 + 7) * 56) | 0);
+    var az = cellZ * CELL + 20 + ((h2(cellX * 7 + 83, cellZ * 11 + 19) * 56) | 0);
+    if (!(ax + EXTENT < 0 || ax - EXTENT >= W || az + EXTENT < 0 || az - EXTENT >= D)) return null;
+    var ah = ctx.surfaceAt(ax, az);
+    if (ah <= WATER + 12) return null;   // 必须有足够厚的地下覆层
+    var ry = Math.max(8, ah - 16);
+    if (ry + DUNGEON_H + 3 >= H) return null;
+    return {
+      ax: ax, az: az, ry: ry,
+      brick: (h2(ax * 101 + 13, az * 103 + 31) < 0.5) ? BLK.BRICK : BLK.BRICK_MOSSY,
+      variant: (h2(ax * 107 + 57, az * 109 + 71) * 1024) | 0
+    };
+  }
+
+  function dungeonChest(dg) {
+    return { x: dg.ax, y: dg.ry + 1, z: dg.az };
+  }
+
+  function buildDungeon(dg, writer) {
+    if (!dg || typeof writer !== 'function') return;
+    var ry = dg.ry;
+    var brick = dg.brick;
+    var H2 = DUNGEON_HALF;
+    // 围壳：全封箱体 + 内部清空（晶簇点缀稀有嵌入墙面）
+    for (var dx = -H2 - 1; dx <= H2 + 1; dx++)
+      for (var dz = -H2 - 1; dz <= H2 + 1; dz++)
+        for (var dy = 0; dy <= DUNGEON_H + 1; dy++) {
+          var shell = Math.abs(dx) === H2 + 1 || Math.abs(dz) === H2 + 1 ||
+            dy === 0 || dy === DUNGEON_H + 1;
+          var x = dg.ax + dx, z = dg.az + dz;
+          var id = shell ? (accentRoll({ variant: dg.variant }, x, ry + dy, z) ?
+            CRYSTAL_BLOCK[typeKeyOf()] : brick) : 0;
+          writer(x, ry + dy, z, id, 'force');
+        }
+    // 集气角落火把 ×2 + 中央战利品箱
+    writer(dg.ax - H2 + 1, ry + 1, dg.az - H2 + 1, BLK.TORCH, 'force');
+    writer(dg.ax + H2 - 1, ry + 1, dg.az + H2 - 1, BLK.TORCH, 'force');
+    var chest = dungeonChest(dg);
+    writer(chest.x, chest.y, chest.z, 38, 'force');
+    // 地表线索：一根 1×3 苔痕砖柱（好奇的玩家会往下挖）
+    var gy = ctx.surfaceAt(dg.ax, dg.az);
+    writer(dg.ax, gy + 1, dg.az, BLK.BRICK_MOSSY, 'air');
+    writer(dg.ax, gy + 2, dg.az, BLK.BRICK_MOSSY, 'air');
+  }
+
+  function dungeonLootFor(dg) {
+    if (!enabled() || !dg) return null;
+    var items = new Array(27).fill(null);
+    var saltBase = dg.ax * 16807 + dg.az * 132721;
+    var cursor = 2;
+    function roll(salt) { return h2(saltBase + salt * 8059, dg.variant + salt * 49999); }
+    function put(id, n, dur) {
+      for (var guard = 0; guard < 27 && items[cursor]; guard++) cursor = (cursor + 1) % 27;
+      if (!items[cursor]) items[cursor] = { id: id, n: n, dur: dur === undefined ? null : dur };
+      cursor++;
+    }
+    put(ITEM.WARP_CELL, 1 + ((roll(1) * 2) | 0));   // 地窖主奖励：电池 ×1-2
+    var crys = CRYSTAL_ITEM[typeKeyOf()] || CRYSTAL_ITEM.lush;
+    put(crys, 3 + ((roll(2) * 5) | 0));
+    var toolId = roll(3) < 0.5 ? ITEM.IRON_PICK : ITEM.IRON_SWORD;
+    put(toolId, 1, Math.max(1, Math.round(251 * (0.62 + roll(4) * 0.34))));
+    put(ITEM.COAL, 6 + ((roll(5) * 6) | 0));
+    var meats = [ITEM.COOKED_PORK, ITEM.COOKED_CHICKEN, ITEM.COOKED_RABBIT];
+    put(meats[(roll(6) * 3) | 0], 2 + ((roll(7) * 2) | 0));
+    return items;
+  }
+
   return {
     CELL: CELL,
     EXTENT: EXTENT,
@@ -1458,6 +1760,15 @@ Voxel.Structures = (function () {
     lootFor: lootFor,
     chestLootAt: chestLootAt,
     findRuinNear: findRuinNear,
+    // 村落聚居地
+    VILLAGE_CELL: VILLAGE_CELL,
+    VILLAGE_EXTENT: VILLAGE_EXTENT,
+    cellVillage: cellVillage,
+    buildVillage: buildVillage,
+    villageChests: villageChests,
+    // 地下遗迹地窖
+    cellDungeon: cellDungeon,
+    buildDungeon: buildDungeon,
     // 星海嘉年华
     PARK_CELL: PARK_CELL,
     PARK_EXTENT: PARK_EXTENT,

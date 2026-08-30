@@ -109,6 +109,8 @@ Voxel.Game = (function () {
     Voxel.Progress.subscribe(function (t, d) { Voxel.Tutorial.onEvent(t, d); });
   if (Voxel.Progress && Voxel.Achievements)
     Voxel.Progress.subscribe(function (t, d) { Voxel.Achievements.onEvent(t, d); });
+  // 终局任务链（教程毕业后的长期目标卡）：自带订阅与 DOM，只需挂载一次。
+  if (Voxel.Progress && Voxel.Endgame && Voxel.Endgame.init) Voxel.Endgame.init();
 
   function modalTop() { return modalStack.length ? modalStack[modalStack.length - 1] : null; }
 
@@ -1053,9 +1055,25 @@ Voxel.Game = (function () {
   }
 
   function failureAnnouncementText(source) {
-    return source === 'external-conflict'
-      ? '存档冲突。其他页面已更新存档，自动写入已暂停。请打开暂停菜单并手动确认存档。'
-      : '存档失败。当前进度尚未安全写入，请立即重试。';
+    if (source === 'external-conflict')
+      return '存档冲突。其他页面已更新存档，自动写入已暂停。请打开暂停菜单并手动确认存档。';
+    var why = saveFailureReasonText();
+    return '存档失败。当前进度尚未安全写入，请立即重试。' + (why ? ' ' + why : '');
+  }
+
+  // 把 Save.lastFailureClass 翻译成面向玩家的补救指引
+  function saveFailureReasonText() {
+    var cls = Voxel.Save && Voxel.Save.lastFailureClass ? Voxel.Save.lastFailureClass() : null;
+    switch (cls) {
+      case 'quota':
+        return '原因：浏览器存储配额已满 —— 建议清理本站点的其他网站数据，或删除不需要的旧存档后再试。';
+      case 'private':
+        return '原因：当前处于隐私/无痕模式或浏览器已禁用站点数据，无法写入任何存档。';
+      case 'verify':
+        return '原因：写入后回读校验不一致（多为瞬时故障），重试通常即可恢复。';
+      default:
+        return '';
+    }
   }
 
   function emitFailureAnnouncement(source) {
@@ -1116,7 +1134,7 @@ Voxel.Game = (function () {
       setTextIfChanged(detail, failed
         ? (conflict
           ? '为避免覆盖另一页面，自动、旅行和返回菜单存档已暂停。请手动确认覆盖并存档。'
-          : '当前进度仍保留在内存中。请立即重试；验证成功前不会返回主菜单。')
+          : '当前进度仍保留在内存中。请立即重试；验证成功前不会返回主菜单。' + saveFailureReasonText())
         : (recovered ? '最近一次重试已完成写入与回读校验。'
           : (saveHealth.state === 'saved' ? '最近一次写入与回读校验均已完成。' : saveHealth.message)));
     }
@@ -1198,12 +1216,16 @@ Voxel.Game = (function () {
   function finishSaveAttempt(ok, silent, source) {
     if (ok && saveConflict && source === 'manual') saveConflict = false;
     reportSaveResult(ok, !ok && saveConflict ? 'external-conflict' : source);
+    if (!ok && source !== 'external-conflict') {
+      var why = saveFailureReasonText();
+      if (why) saveHealth.message = why;
+    }
     if (!silent) Voxel.HUD.toast(ok
       ? '游戏已存档 · 写入校验完成'
       : '存档失败 · 当前进度仍在内存中，请立即重试');
     if (source === 'manual') announcePauseSaveFeedback(ok
       ? '已完成写入与回读校验。'
-      : '仍未写入，请检查浏览器存储空间后再次重试。');
+      : ('仍未写入。' + (saveFailureReasonText() || '请检查浏览器存储空间后再次重试。')));
     return !!ok;
   }
 
@@ -1631,6 +1653,57 @@ Voxel.Game = (function () {
     // 方块挖掘：由 tickDig 长按推进
   }
 
+  // ---------- 自适应降质闭环 ----------
+  // 持续掉帧（EMA < 26fps 满 5 秒）时按"从便宜到贵"的顺序自动降一档：
+  // 阴影 → 粒子 → 雨滴 → 流式预算 → 渲染分辨率。只在 autoPerf 开启且处于
+  // playing 态时工作；玩家手动改任何设置后冷却 60 秒（尊重手动意图）。
+  // 刻意不做自动回升：避免画质振荡，回满配交给玩家在预设里一键完成。
+  var fpsEma = 0, adaptLowT = 0, adaptCool = 0, adaptToastShown = false;
+
+  function adaptStepDown() {
+    var s = Voxel.Settings;
+    if (!s || !s.get('autoPerf')) return null;
+    if (s.get('shadows') > 0) { s.set('shadows', s.get('shadows') - 1); return '阴影质量'; }
+    var pd = Math.max(0.35, Math.round(s.get('particleDensity') * 0.68 * 100) / 100);
+    if (pd < s.get('particleDensity')) { s.set('particleDensity', pd); return '粒子密度'; }
+    var rd = Math.max(0.35, Math.round(s.get('rainDensity') * 0.68 * 100) / 100);
+    if (rd < s.get('rainDensity')) { s.set('rainDensity', rd); return '雨滴密度'; }
+    if (s.get('stream') > 3) { s.set('stream', Math.max(3, s.get('stream') - 2)); return '后台加载预算'; }
+    var rs = Math.max(0.55, Math.round((s.get('res') - 0.15) * 100) / 100);
+    if (rs < s.get('res')) { s.set('res', rs); return '渲染分辨率'; }
+    return null;   // 已到底，等待玩家介入
+  }
+
+  function tickAdaptivePerf(dt) {
+    if (dt <= 0 || !isFinite(dt)) return;
+    fpsEma += (1 / dt - fpsEma) * 0.06;
+    if (fpsEma > 200) fpsEma = 200;   // 首帧/标签页恢复时的尖峰钳制
+    adaptCool -= dt;
+    var active = Voxel.Settings && Voxel.Settings.get('autoPerf') &&
+      state === 'playing' && diffAliveForPerf();
+    if (!active || adaptCool > 0) {
+      if (!active) adaptLowT = 0;
+      return;
+    }
+    if (fpsEma > 0 && fpsEma < 26) adaptLowT += dt;
+    else adaptLowT = Math.max(0, adaptLowT - dt * 2);
+    if (adaptLowT >= 5) {
+      adaptLowT = 0;
+      var what = adaptStepDown();
+      if (what) {
+        adaptCool = 15;
+        Voxel.HUD.toast(adaptToastShown
+          ? '已自动下调' + what + '以维持流畅'
+          : '已自动下调' + what + '以维持流畅 · 可在设置中关闭「自适应降质」');
+        adaptToastShown = true;
+      } else adaptCool = 120;   // 已到梯度底：拉长重试间隔
+    }
+  }
+
+  function diffAliveForPerf() {
+    // 死亡/入睡等非常态画面负载骤降，不作为降级依据
+    return state !== 'sleeping';
+  }
   // ---------- 打击感：顿帧（全局时间冻结）+ 震屏 ----------
   var hitStopUntil = 0;
   var shakeT = 0, shakeDur = 0, shakeAmp = 0;
@@ -4692,6 +4765,8 @@ Voxel.Game = (function () {
       } else lastFrameT = now;
     } else lastFrameT = now;
     framesExecuted++;
+    // 自适应降质：以"实际渲染帧间隔"为样本更新 FPS 指数滑动平均
+    if (lastT !== null) tickAdaptivePerf(Math.min(1, Math.max(0.0005, (now - lastT) / 1000)));
 
     if (lastT === null) lastT = now;
     var dt = (now - lastT) / 1000;
@@ -5022,6 +5097,7 @@ Voxel.Game = (function () {
     if (Voxel.Touch && Voxel.Touch.onFrame) Voxel.Touch.onFrame(state);
     // 教程任务卡可见性（内部带变更检测，避免每帧写 DOM）
     if (Voxel.Tutorial && Voxel.Tutorial.refresh) Voxel.Tutorial.refresh();
+    if (Voxel.Endgame && Voxel.Endgame.refresh) Voxel.Endgame.refresh();
 
     tickFlight(dt);
 
@@ -6076,6 +6152,27 @@ Voxel.Game = (function () {
     }
     if (bloomBtns.length) syncBloomButtons();
 
+    // 自适应降质开关（autoPerf）：掉帧时自动按梯度下调画质
+    var autoPerfBtns = document.querySelectorAll('#autoperf-row button[data-autoperf]');
+    function syncAutoPerfButtons() {
+      var cur = (Voxel.Settings ? Voxel.Settings.get('autoPerf') : 1) > 0 ? 1 : 0;
+      for (var i = 0; i < autoPerfBtns.length; i++) {
+        var on = +autoPerfBtns[i].dataset.autoperf === cur;
+        autoPerfBtns[i].classList.toggle('active', on);
+        autoPerfBtns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+    }
+    for (var abi = 0; abi < autoPerfBtns.length; abi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          Voxel.Settings.set('autoPerf', +btn.dataset.autoperf);
+          if (+btn.dataset.autoperf === 0) adaptLowT = 0;
+          syncAutoPerfButtons();
+        });
+      })(autoPerfBtns[abi]);
+    }
+    if (autoPerfBtns.length) syncAutoPerfButtons();
+
     // 分音效开关（羊叫/猪叫/僵尸等逐项开关）
     var sndToggles = document.querySelectorAll('#snd-toggles input[data-snd]');
     function buildSndToggles() {
@@ -6193,6 +6290,9 @@ Voxel.Game = (function () {
     var booted = false;
     if (Voxel.Settings) {
       Voxel.Settings.onChange(function (k, v) {
+        // 自适应降质避让：用户手动改动任何设置后冷却 60 秒，不与手动意图抢方向盘。
+        // applyAll() 的重放发生在 booted 之前，不会触发这里的暂停逻辑。
+        if (booted) adaptCool = Math.max(adaptCool, 60);
         if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
         else if (k === 'volume' && Voxel.Sound.setVolume) Voxel.Sound.setVolume(v);
         else if (k === 'res') applyRes();

@@ -417,8 +417,8 @@ Voxel.GenCore = (function () {
       s.blocks[i] = id;
     }
 
-    // 遗迹：以 cell 为单位稀疏放置。每个相交区块独立重算同一座遗迹并按 inTarget 裁剪，
-    // 结果与区块加载顺序无关；cell 哈希未命中的区块只有常数开销。
+    // 遗迹/地窖/村落：以 cell 为单位稀疏放置。每个相交区块独立重算同一座结构并按
+    // inTarget 裁剪，结果与区块加载顺序无关；cell 哈希未命中的区块只有常数开销。
     function decorateStructures(s) {
       var S = Voxel.Structures;
       if (!S || !S.enabled()) return;
@@ -435,6 +435,35 @@ Voxel.GenCore = (function () {
           S.buildRuin(ruin, function (x, y, z, id, mode) {
             structSet(s, x, y, z, id, mode);
           });
+        }
+      }
+      // 地下地窖：与遗迹同网格、不同盐
+      for (var cx2 = c0x; cx2 <= c1x; cx2++) {
+        for (var cz2 = c0z; cz2 <= c1z; cz2++) {
+          var dg = S.cellDungeon && S.cellDungeon(cx2, cz2);
+          if (!dg) continue;
+          if (dg.ax + E <= x0 || dg.ax - E >= x0 + CS ||
+            dg.az + E <= z0 || dg.az - E >= z0 + CS) continue;
+          S.buildDungeon(dg, function (x, y, z, id, mode) {
+            structSet(s, x, y, z, id, mode);
+          });
+        }
+      }
+      // 村落：cell 尺寸更大，扫描窗口独立
+      var VE = S.VILLAGE_EXTENT, VC = S.VILLAGE_CELL;
+      if (VE && VC) {
+        var v0x = floorDiv(x0 - VE, VC), v1x = floorDiv(x0 + CS + VE, VC);
+        var v0z = floorDiv(z0 - VE, VC), v1z = floorDiv(z0 + CS + VE, VC);
+        for (var vx = v0x; vx <= v1x; vx++) {
+          for (var vz = v0z; vz <= v1z; vz++) {
+            var vil = S.cellVillage(vx, vz);
+            if (!vil) continue;
+            if (vil.ax + VE <= x0 || vil.ax - VE >= x0 + CS ||
+              vil.az + VE <= z0 || vil.az - VE >= z0 + CS) continue;
+            S.buildVillage(vil, function (x, y, z, id, mode) {
+              structSet(s, x, y, z, id, mode);
+            });
+          }
         }
       }
     }
@@ -484,13 +513,31 @@ Voxel.GenCore = (function () {
       var x0 = s.cx * CS, z0 = s.cz * CS;
       decorateStructures(s);
       var parkFootprints = collectParkFootprints(s);
+      // 村落找平圈（与 Structures.buildVillage 铺装范围一致）：植被锚点同样跳过
+      function collectVillageFootprints() {
+        var S = Voxel.Structures;
+        var out = [];
+        if (!S || !S.enabled() || !S.cellVillage) return out;
+        var VE = S.VILLAGE_EXTENT + 10, VC = S.VILLAGE_CELL;
+        for (var pcx = floorDiv(x0 - VE - FEATURE_RADIUS, VC); pcx <= floorDiv(x0 + CS + VE + FEATURE_RADIUS, VC); pcx++)
+          for (var pcz = floorDiv(z0 - VE - FEATURE_RADIUS, VC); pcz <= floorDiv(z0 + CS + VE + FEATURE_RADIUS, VC); pcz++) {
+            var vil = S.cellVillage(pcx, pcz);
+            if (vil) out.push({ ax: vil.ax, az: vil.az });
+          }
+        return out;
+      }
+      var villageFootprints = collectVillageFootprints();
       // 园区找平椭圆（与 Structures.buildPark 的铺装范围一致）：植被锚点在园内
       // 必须跳过——植被 pass 读的是 base 自然地形，找平后树会穿透铺装长进园里。
-      // 纯函数判定（锚点全局坐标 vs 园区锚点），跨区块结果一致。
-      function inParkFootprint(x, z) {
+      // 纯函数判定（锚点全局坐标 vs 结构锚点），跨区块结果一致。
+      function inStructClearing(x, z) {
         for (var i = 0; i < parkFootprints.length; i++) {
           var dx = x - parkFootprints[i].ax, dz = z - parkFootprints[i].az;
           if (dx * dx * 0.85 + dz * dz <= 8464) return true; // 92² 椭圆
+        }
+        for (var j = 0; j < villageFootprints.length; j++) {
+          var vx2 = x - villageFootprints[j].ax, vz2 = z - villageFootprints[j].az;
+          if (vx2 * vx2 + vz2 * vz2 <= 48 * 48) return true;   // 村庄清景半径
         }
         return false;
       }
@@ -508,7 +555,7 @@ Voxel.GenCore = (function () {
           // 这样既不会改写旧档自然地形，也不会在 0/255 接缝留下被裁掉的半棵树。
           if (x >= -FEATURE_RADIUS && x <= W - 1 + FEATURE_RADIUS &&
             z >= -FEATURE_RADIUS && z <= D - 1 + FEATURE_RADIUS) continue;
-          if (inParkFootprint(x, z)) continue;
+          if (inStructClearing(x, z)) continue;
           var h = baseSurfaceAt(x, z);
           if (h <= WATER + 1 || h > SNOW_LEVEL - 2) continue;
           var biomeId = baseBiomeAt(x, z);

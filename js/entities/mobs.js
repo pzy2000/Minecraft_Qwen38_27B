@@ -137,6 +137,35 @@ Voxel.Mobs = (function () {
       [0.16, 0.55, 0.16, 0.11, 0.28, 0, pants]
     ] };
   }
+  // 骷髅弓手：骨白细长身形 + 弓臂前伸；保持中距离射箭，白天曝晒燃烧
+  function archerBuild() {
+    var bone = 0xd8d4c4, rib = 0xbdb8a5;
+    return { variant: '', w: 0.55, h: 1.75, mainColor: bone, parts: [
+      [0.40, 0.40, 0.40, 0, 1.52, 0, bone],          // 头
+      [0.34, 0.58, 0.22, 0, 1.02, 0, rib],           // 肋骨架（细于僵尸躯干）
+      [0.12, 0.52, 0.12, -0.30, 1.05, 0.24, bone],   // 左臂
+      [0.12, 0.10, 0.72, 0.30, 1.16, 0.36, 0x6e5636],// 右臂横托弓
+      [0.07, 0.62, 0.07, 0.30, 1.18, 0.72, 0xe8dcc0],// 竖弦
+      [0.15, 0.52, 0.15, -0.10, 0.27, 0, bone],      // 腿 ×2
+      [0.15, 0.52, 0.15, 0.10, 0.27, 0, bone]
+    ] };
+  }
+  // 自爆虫：圆润深绿节肢体 + 苦绿色警示斑；贴近点燃引信后膨胀自爆
+  function boomerBuild() {
+    var body = 0x63a83c, blotch = 0x3f7d2a, belly = 0x8cc763;
+    return { variant: '', w: 0.7, h: 1.0, mainColor: body, parts: [
+      [0.66, 0.60, 0.78, 0, 0.48, -0.02, body],
+      [0.20, 0.16, 0.12, -0.14, 0.62, 0.36, 0x101010], // 双眼
+      [0.20, 0.16, 0.12, 0.14, 0.62, 0.36, 0x101010],
+      [0.30, 0.18, 0.16, 0, 0.38, 0.38, belly],        // 嘴部浅色
+      [0.46, 0.10, 0.10, 0, 0.74, -0.06, blotch],      // 背部警示斑 ×2
+      [0.10, 0.10, 0.10, 0, 0.78, -0.14, blotch],
+      [0.14, 0.34, 0.14, -0.22, 0.17, 0.24, blotch],   // 四短足
+      [0.14, 0.34, 0.14, 0.22, 0.17, 0.24, blotch],
+      [0.14, 0.34, 0.14, -0.22, 0.17, -0.28, blotch],
+      [0.14, 0.34, 0.14, 0.22, 0.17, -0.28, blotch]
+    ] };
+  }
   // 猫：纤细身形 + 立耳/圆眼/粉鼻/上翘双段尾；4 种花色（橘猫带背纹、玄猫白尾尖、白猫、重点色布偶）
   // voice 为各品种专属叫声（cat_0~3），size 控制品种体型缩放
   var CAT_VARIANTS = [
@@ -181,17 +210,21 @@ Voxel.Mobs = (function () {
     chicken: { make: chickenBuild, hp: function () { return C.HP_CHICKEN; }, speedMul: 0.75 },
     rabbit:  { make: rabbitBuild,  hp: function () { return C.HP_RABBIT; },  speedMul: 1.35 },
     cat:     { make: catBuild,     hp: function () { return C.HP_CAT; },     speedMul: 1.1 },
-    zombie:  { make: zombieBuild,  hp: function () { return C.HP_ZOMBIE; },  speedMul: 1 }
+    zombie:  { make: zombieBuild,  hp: function () { return C.HP_ZOMBIE; },  speedMul: 1 },
+    archer:  { make: archerBuild,  hp: function () { return C.HP_ARCHER; },  speedMul: 1 },
+    boomer:  { make: boomerBuild,  hp: function () { return C.HP_BOOMER; },  speedMul: 1 }
   };
 
   // 行为表与渲染构建器分离：合批只改变 Mesh 结构，不改变逃跑、声音和掉落语义。
   var PASSIVE = { sheep: true, pig: true, chicken: true, rabbit: true, cat: true };
+  var HOSTILE = { zombie: true, archer: true, boomer: true };
   var KILL_DROPS = {
     sheep: [16, C.WOOL_DROP],
     pig: [109, 1],        // 生猪排
     chicken: [111, 1],    // 生鸡肉
     rabbit: [113, 1],     // 生兔肉
-    cat: [121, C.CAT_FUR_DROP] // 猫毛（2 猫毛 → 1 猫毛毡）
+    cat: [121, C.CAT_FUR_DROP], // 猫毛（2 猫毛 → 1 猫毛毡）
+    archer: [107, 1]      // 煤炭（白骨燃料，产量与骨架同源）
   };
   var VOICE = { sheep: 'sheep', pig: 'pig', chicken: 'chicken', rabbit: 'rabbit', cat: 'cat', zombie: 'zombie' };
   var VOICE_HURT = { sheep: 'sheepHurt', pig: 'pigHurt', chicken: 'chickenHurt', rabbit: 'rabbitHurt', cat: 'catHurt' };
@@ -211,7 +244,9 @@ Voxel.Mobs = (function () {
     chicken: 'CHICKEN_TARGET',
     rabbit: 'RABBIT_TARGET',
     cat: 'CAT_TARGET',
-    zombie: 'ZOMBIE_TARGET'
+    zombie: 'ZOMBIE_TARGET',
+    archer: 'ARCHER_TARGET',
+    boomer: 'BOOMER_TARGET'
   };
 
   // 各被动生物可生成的地表方块 + 是否允许出现在该群系（biomes.js 的 mobs 表）
@@ -247,6 +282,10 @@ Voxel.Mobs = (function () {
       fleeT: 0,                              // 受击逃跑剩余时间
       fleeRepath: 0,                         // 逃跑方向刷新计时
       voiceTimer: 4 + Math.random() * 10,    // 叫声计时
+      // 敌对生物寻路：BFS 航点队列 + 重算计时
+      path: null, pathTimer: 0, pathAge: 0,
+      arrowCd: 1.5,                          // 弓手射击冷却
+      fuse: -1,                              // 自爆引信：<0 未点燃
       dead: false
     };
     group.add(mesh);
@@ -348,9 +387,9 @@ Voxel.Mobs = (function () {
       var z = Math.floor(Pp.z + Math.sin(ang) * dist);
       var y = Voxel.World.surfaceAt(x, z);
       if (y < 3 || y >= H - 4) continue;
-      // 地表方块匹配 + 群系允许该生物
+      // 地表方块匹配 + 群系允许该生物（敌对生物全域出没，不做群系门控）
       if (surfaces && surfaces.indexOf(Voxel.World.get(x, y, z)) < 0) continue;
-      if (type !== 'zombie') {
+      if (PASSIVE[type]) {
         var bd = Voxel.Biomes.def(Voxel.World.biomeAt(x, z));
         if (!bd.mobs || bd.mobs.indexOf(type) < 0) continue;
       }
@@ -373,9 +412,209 @@ Voxel.Mobs = (function () {
     // 和平难度不刷怪；噩梦难度怪物目标 ×1.5
     var diff = diffLevel();
     if (night && diff > 0) {
+      var nightmareMul = diff >= 3 ? 1.5 : 1;
       var zTarget = Math.round(densityTarget('zombie') * (diff >= 3 ? 1.5 : 1));
       if ((counts.zombie || 0) < zTarget) trySpawn('zombie');
+      if ((counts.archer || 0) < Math.round(densityTarget('archer') * nightmareMul)) trySpawn('archer');
+      if ((counts.boomer || 0) < Math.round(densityTarget('boomer') * nightmareMul)) trySpawn('boomer');
     }
+  }
+
+  // ================= 轻量寻路（网格 A*）=================
+  // 视线被遮挡时给敌对生物铺一条绕行航点路。搜索窗口 21×21 列、展开上限
+  // 280 格，每次重算在单帧内完成（~µs 级）；高度查 surfaceAt 局部缓存。
+  var NAV_R = 10, NAV_CAP = 280;
+
+  function navWalkable(mx, mz) {
+    var y = Voxel.World.surfaceAt(mx, mz);
+    if (y < 2 || y >= H - 3) return -1;
+    // 顶部实心且上方两格净空才可通行；水柱顶除外（避免扎进湖心）
+    if (Voxel.World.get(mx, y + 1, mz) !== 0 || Voxel.World.get(mx, y + 2, mz) !== 0) return -1;
+    return y;
+  }
+
+  function planPath(m, tx, tz) {
+    var sx = Math.floor(m.pos.x), sz = Math.floor(m.pos.z);
+    if (Math.abs(tx - sx) > NAV_R * 2 || Math.abs(tz - sz) > NAV_R * 2) return null;
+    var open = [], seen = {}, heights = {};
+    var key = function (x, z) { return x + ',' + z; };
+    var hx = function (x, z) {
+      var k = key(x, z);
+      if (!(k in heights)) heights[k] = navWalkable(x, z);
+      return heights[k];
+    };
+    var sh = hx(sx, sz);
+    if (sh < 0) return null;
+    seen[key(sx, sz)] = true;
+    open.push({ x: sx, z: sz, g: 0, parent: null });
+    var best = null, bestH = Infinity;
+    var tX = Math.floor(tx), tZ = Math.floor(tz);
+    var DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    while (open.length) {
+      // 线性取最小 f（g + 曼哈顿启发）——节点数 ≤280 时比二叉堆更快
+      var bi = 0, bf = Infinity;
+      for (var i = 0; i < open.length; i++) {
+        var f = open[i].g + Math.abs(open[i].x - tX) + Math.abs(open[i].z - tZ);
+        if (f < bf) { bf = f; bi = i; }
+      }
+      var cur = open.splice(bi, 1)[0];
+      var ch = hx(cur.x, cur.z);
+      if (ch >= 0) {
+        var dh = Math.abs(cur.x - tX) + Math.abs(cur.z - tZ);
+        if (dh < bestH) { bestH = dh; best = cur; }
+        if (dh === 0) break;
+      }
+      if (cur.g >= NAV_CAP / 28) continue;   // 深度剪枝：半径内最多走 ~10 步
+      for (var d = 0; d < 4; d++) {
+        var nx = cur.x + DIRS[d][0], nz = cur.z + DIRS[d][1];
+        var k2 = key(nx, nz);
+        if (seen[k2]) continue;
+        seen[k2] = true;
+        var nh = hx(nx, nz);
+        if (nh < 0 || Math.abs(nh - (ch >= 0 ? ch : sh)) > 1) continue;  // 只跨 ≤1 格台阶
+        open.push({ x: nx, z: nz, g: cur.g + 1, parent: cur });
+      }
+    }
+    if (!best) return null;
+    var out = [];
+    for (var p = best; p.parent; p = p.parent) out.unshift({ x: p.x + 0.5, z: p.z + 0.5, y: hx(p.x, p.z) });
+    return out.length ? out : null;
+  }
+
+  function followPath(m, speed) {
+    if (!m.path || !m.path.length) return 0;
+    var wp = m.path[0];
+    var dx = wp.x - m.pos.x, dz = wp.z - m.pos.z;
+    if (dx * dx + dz * dz < 0.30) {
+      m.path.shift();
+      if (!m.path.length) return 0;
+      wp = m.path[0];
+      dx = wp.x - m.pos.x; dz = wp.z - m.pos.z;
+    }
+    m.dir = Math.atan2(-dx, -dz);
+    return speed;
+  }
+
+  // ================= 弓手箭矢 =================
+  var arrows = [];
+  var arrowGeo = null, arrowMat = null;
+
+  function shootArrow(m, Pp) {
+    if (!arrowGeo) arrowGeo = new THREE.BoxGeometry(0.07, 0.07, 0.42);
+    if (!arrowMat) arrowMat = new THREE.MeshBasicMaterial({ color: 0xe8dcc0 });
+    var oy = m.pos.y + m.h * 0.72;
+    var txp = Pp.x, typ = Pp.y + P.EYE * 0.85, tzp = Pp.z;
+    // 预判目标半程位移（0.35 权重足够打中移动中的玩家又不至于无解）
+    var pv = Pl_velSafe();
+    var flyT = Math.sqrt((txp - m.pos.x) * (txp - m.pos.x) + (tzp - m.pos.z) * (tzp - m.pos.z)) / C.ARROW_SPEED;
+    txp += pv.x * flyT * 0.35; tzp += pv.z * flyT * 0.35;
+    var d = new THREE.Vector3(txp - m.pos.x, typ - oy, tzp - m.pos.z);
+    if (d.lengthSq() < 0.01) return;
+    d.normalize();
+    // 小散布，避免每箭必中
+    d.x += (Math.random() - 0.5) * 0.04;
+    d.y += (Math.random() - 0.5) * 0.03 + 0.02;   // 抬一点补偿重力
+    d.z += (Math.random() - 0.5) * 0.04;
+    d.normalize().multiplyScalar(C.ARROW_SPEED);
+    var mesh = new THREE.Mesh(arrowGeo, arrowMat);
+    mesh.position.set(m.pos.x, oy, m.pos.z);
+    mesh.lookAt(mesh.position.x + d.x, oy + d.y, mesh.position.z + d.z);
+    group.add(mesh);
+    arrows.push({
+      pos: mesh.position, vel: d, life: C.ARROW_LIFE,
+      mesh: mesh, stuckT: -1
+    });
+  }
+
+  function Pl_velSafe() {
+    var v = Voxel.Player.vel ? Voxel.Player.vel() : null;
+    return (v && isFinite(v.x)) ? v : { x: 0, y: 0, z: 0 };
+  }
+
+  function updateArrows(dt) {
+    var alive = Voxel.Player.alive();
+    var Pv = Voxel.Player.pos();
+    for (var i = arrows.length - 1; i >= 0; i--) {
+      var a = arrows[i];
+      a.life -= dt;
+      if (a.life <= 0) { group.remove(a.mesh); arrows.splice(i, 1); continue; }
+      if (a.stuckT >= 0) {
+        a.stuckT -= dt;
+        if (a.stuckT <= 0) { group.remove(a.mesh); arrows.splice(i, 1); }
+        continue;
+      }
+      a.vel.y -= 7 * dt;   // 箭矢重力约为方块重力的 1/4
+      var steps = Math.max(1, Math.ceil(a.vel.length() * dt / 0.7));
+      var hitSomething = false;
+      for (var s = 0; s < steps; s++) {
+        var sdt = dt / steps;
+        a.pos.x += a.vel.x * sdt;
+        a.pos.y += a.vel.y * sdt;
+        a.pos.z += a.vel.z * sdt;
+        if (Voxel.Physics.isSolidCell(Math.floor(a.pos.x), Math.floor(a.pos.y), Math.floor(a.pos.z))) {
+          a.stuckT = 0.5; hitSomething = true; break;
+        }
+        if (alive) {
+          var px = Pv.x - a.pos.x, py = (Pv.y + P.EYE * 0.5) - a.pos.y, pz = Pv.z - a.pos.z;
+          if (px * px + pz * pz < 0.36 && Math.abs(py) < 1.1) {
+            Voxel.Player.damage(C.ARCHER_DMG, 'archer', a.pos.x, a.pos.z);
+            if (Voxel.Player.knockback) {
+              var kl = Math.sqrt(px * px + pz * pz) || 1;
+              Voxel.Player.knockback(-px / kl, -pz / kl, 5);
+            }
+            a.stuckT = 0; hitSomething = true; break;
+          }
+        }
+      }
+      if (hitSomething && a.stuckT <= 0) {
+        group.remove(a.mesh); arrows.splice(i, 1); continue;
+      }
+      if (a.stuckT >= 0) a.vel.set(0, 0, 0);
+    }
+  }
+
+  // ================= 自爆虫引爆 =================
+  // 保护基岩与功能方块（契约同 gen_core 的 STRUCT_KEEP）
+  var EXPLODE_GUARD = {
+    12: true, 15: true, 17: true, 37: true, 38: true,
+    67: true, 68: true, 69: true, 70: true, 71: true
+  };
+
+  function detonate(m) {
+    var r = C.EXPLODE_R;
+    var cx = Math.floor(m.pos.x), cy = Math.floor(m.pos.y + m.h * 0.5), cz = Math.floor(m.pos.z);
+    var removed = 0;
+    for (var dx = -Math.ceil(r); dx <= r && removed < 90; dx++)
+      for (var dy = -Math.ceil(r); dy <= r && removed < 90; dy++)
+        for (var dz = -Math.ceil(r); dz <= r && removed < 90; dz++) {
+          if (dx * dx + dy * dy + dz * dz > r * r) continue;
+          var x = cx + dx, y = cy + dy, z = cz + dz;
+          if (y <= 1 || y >= H - 1) continue;
+          var id = Voxel.World.get(x, y, z);
+          if (id === 0 || EXPLODE_GUARD[id]) continue;
+          Voxel.World.set(x, y, z, 0);
+          removed++;
+        }
+    var boomP = m.pos.clone(); boomP.y += m.h * 0.5;
+    Voxel.Particles.burst(boomP, 0x8cc763, 16);
+    Voxel.Particles.burst(boomP, 0x50503c, 14);
+    Voxel.Sound.hit();
+    Voxel.Sound.pop();
+    if (Voxel.Sound.thunder) Voxel.Sound.thunder();
+    var Pv = Voxel.Player.pos();
+    var pdx = Pv.x - m.pos.x, pdz = Pv.z - m.pos.z;
+    var pd = Math.sqrt(pdx * pdx + pdz * pdz + (Pv.y - boomP.y) * (Pv.y - boomP.y));
+    if (pd < r * 2.2 && Voxel.Player.alive() && diffLevel() > 0) {
+      var fall = Math.max(0.25, 1 - pd / (r * 2.2));
+      Voxel.Player.damage(Math.max(1, Math.round(C.BOOMER_DMG * fall)), 'boomer', m.pos.x, m.pos.z);
+      if (Voxel.Player.knockback) {
+        var kl = Math.sqrt(pdx * pdx + pdz * pdz) || 1;
+        Voxel.Player.knockback(pdx / kl, pdz / kl, 11 * fall + 3);
+      }
+    }
+    m.dead = true;
+    var idx = list.indexOf(m);
+    if (idx >= 0) removeAt(idx);   // 不记击杀：自爆属于环境死亡
   }
 
   // 僵尸眼 → 玩家眼 的视线是否无遮挡
@@ -406,6 +645,8 @@ Voxel.Mobs = (function () {
       manage(night);
     }
 
+    updateArrows(dt);
+
     for (var i = list.length - 1; i >= 0; i--) {
       var m = list[i];
       if (m.dead) { removeAt(i); continue; }
@@ -413,29 +654,81 @@ Voxel.Mobs = (function () {
       m.aiTimer -= dt;
       m.moveTime -= dt;
       m.attackCd -= dt;
+      m.arrowCd -= dt;
 
       var speed = 0;
-      if (m.type === 'zombie' && alive) {
-        var px = Pl.pos().x - m.pos.x;
-        var pz = Pl.pos().z - m.pos.z;
+      var Pv = Pl.pos();
+      if (HOSTILE[m.type] && alive && diffLevel() > 0) {
+        var px = Pv.x - m.pos.x;
+        var pz = Pv.z - m.pos.z;
         var dist = Math.sqrt(px * px + pz * pz);
-        if (dist < C.ZOMBIE_RANGE && losClear(m)) {
-          m.dir = Math.atan2(-px, -pz);
-          m.moveTime = 1;
-          // 难度修正：简单 ×0.9，困难 ×1，噩梦速度 +18%
-          var diff = diffLevel();
-          var spdMul = diff <= 1 ? 0.9 : (diff >= 3 ? 1.18 : 1);
-          speed = dist < 8 ? C.ZOMBIE_SPEED * spdMul * 1.35 : C.ZOMBIE_SPEED * spdMul;
-          // 攻击需近距离、高度接近且视线无遮挡；命中带方向指示与击退
-          if (dist < 1.6 && Math.abs(Pl.pos().y - m.pos.y) < 2.4 && m.attackCd <= 0) {
-            m.attackCd = 1.2;
-            // 难度伤害：简单 ×0.7（≈2），困难 ×1（3），噩梦 ×2（6）
-            var dmgMul = diff <= 1 ? 0.7 : (diff >= 3 ? 2 : 1);
-            Pl.damage(Math.max(1, Math.round(C.ZOMBIE_DMG * dmgMul)), 'zombie', m.pos.x, m.pos.z);
-            if (Pl.knockback) {
-              var klen = Math.sqrt(px * px + pz * pz) || 1;
-              Pl.knockback(px / klen, pz / klen, 8);
+        // 难度修正：简单 ×0.9，困难 ×1，噩梦速度 +18%
+        var diff = diffLevel();
+        var spdMul = (diff <= 1 ? 0.9 : (diff >= 3 ? 1.18 : 1)) * m.speedMul;
+        var seesYou = dist < C.ZOMBIE_RANGE && losClear(m);
+
+        // ---- 自爆虫引信：点燃后不因视线中断熄灭；拉开 FUSE_CANCEL 距离则拆除
+        if (m.type === 'boomer') {
+          if (m.fuse < 0 && dist < 2.6 && seesYou) { m.fuse = C.FUSE_TIME; m.path = null; }
+          if (m.fuse >= 0) {
+            m.fuse -= dt;
+            setFlash(m, ((m.fuse * 8) | 0) % 2 === 0);   // 引信闪烁预警
+            if (dist > C.FUSE_CANCEL) { m.fuse = -1; setFlash(m, false); }
+            else if (m.fuse <= 0) { detonate(m); continue; }
+          }
+        }
+
+        // ---- 弓手：中距离风筝射击
+        if (m.type === 'archer' && seesYou && dist <= C.ARCHER_RANGE_MAX &&
+          dist >= C.ARCHER_RANGE_MIN * 0.6) {
+          if (dist < C.ARCHER_RANGE_MIN) {
+            // 贴脸就退（背向玩家走位）
+            m.dir = Math.atan2(-(-px), -(-pz));
+            m.moveTime = Math.max(m.moveTime, 0.4);
+            speed = C.ARCHER_SPEED * spdMul;
+          } else if (m.aiTimer <= 0) {
+            m.aiTimer = 0.8 + Math.random() * 0.9;   // 站桩 + 轻微横移抖动
+            m.dir = Math.atan2(-px, -pz) + (Math.random() - 0.5) * 1.2;
+            m.moveTime = 0.25;
+          } else if (m.moveTime > 0) {
+            speed = C.ARCHER_SPEED * spdMul * 0.5;
+          }
+          if (m.arrowCd <= 0 && losClear(m)) {
+            m.arrowCd = C.ARROW_CD * (diff >= 3 ? 0.72 : 1);
+            shootArrow(m, Pv);
+          }
+        }
+        // ---- 僧尸/未进入射程的弓手/未点燃的自爆虫：追击
+        else if (seesYou || HOSTILE[m.type]) {
+          var chaseSpeed = m.type === 'zombie' ? C.ZOMBIE_SPEED : C[m.type === 'archer' ? 'ARCHER_SPEED' : 'BOOMER_SPEED'];
+          if (seesYou && dist < 10) {
+            // 近距直扑：视线通畅且够近时不绕路
+            m.dir = Math.atan2(-px, -pz);
+            m.moveTime = 1;
+            m.path = null;
+            speed = chaseSpeed * spdMul * (dist < 8 ? 1.35 : 1);
+            // 僵尸近身攻击（命中带方向指示与击退）
+            if (m.type === 'zombie' && dist < 1.6 && Math.abs(Pv.y - m.pos.y) < 2.4 && m.attackCd <= 0) {
+              m.attackCd = 1.2;
+              var dmgMul = diff <= 1 ? 0.7 : (diff >= 3 ? 2 : 1);
+              Pl.damage(Math.max(1, Math.round(C.ZOMBIE_DMG * dmgMul)), 'zombie', m.pos.x, m.pos.z);
+              if (Pl.knockback) {
+                var klen = Math.sqrt(px * px + pz * pz) || 1;
+                Pl.knockback(px / klen, pz / klen, 8);
+              }
             }
+          } else if (dist < C.BOOMER_RANGE + 4) {
+            // 视线受阻或远距离：网格寻路绕行，周期性重算
+            m.pathTimer -= dt;
+            if (!m.path || !m.path.length || m.pathTimer <= 0) {
+              m.path = planPath(m, Pv.x, Pv.z);
+              m.pathTimer = 0.9 + Math.random() * 0.5;
+            }
+            speed = followPath(m, chaseSpeed * spdMul * 1.05);
+            if (speed === 0 && m.moveTime > 0) { /* 航点耗尽，等待下次重算 */ }
+          } else {
+            // 完全跟丢：回退随机游走
+            m.path = null;
           }
         }
       }
@@ -445,7 +738,8 @@ Voxel.Mobs = (function () {
           if (Math.random() < 0.3) { m.moveTime = 0; }
           else { m.dir = Math.random() * Math.PI * 2; m.moveTime = 1.5 + Math.random() * 2; }
         }
-        if (m.moveTime > 0) speed = (m.type === 'zombie' ? C.ZOMBIE_SPEED * 0.7 : C.SHEEP_SPEED) * m.speedMul;
+        if (m.moveTime > 0) speed = (HOSTILE[m.type] ? C.ZOMBIE_SPEED : C.SHEEP_SPEED) *
+          m.speedMul * (HOSTILE[m.type] ? 0.7 : 1);
       }
 
       // 受击逃跑：背向玩家直线狂奔，周期性刷新方向（玩家移动时仍保持远离）
@@ -510,8 +804,9 @@ Voxel.Mobs = (function () {
         m.pos.y + ((speed > 0 && m.onGround) ? Math.sin(t * 9 + i) * 0.03 : 0),
         m.pos.z);
 
-      // 白天烧僵尸（需露天：天光 ≥ 12，洞穴里不烧）
-      if (m.type === 'zombie' && Voxel.DayNight.sunlight() > 0.55 &&
+      // 白天烧僵尸与弓手（需露天：天光 ≥ 12，洞穴里不烧）
+      if ((m.type === 'zombie' || m.type === 'archer') &&
+        Voxel.DayNight.sunlight() > 0.55 &&
         Voxel.World.getSky(Math.floor(m.pos.x), Math.floor(m.pos.y + 1.5), Math.floor(m.pos.z)) >= 12) {
         m.hp -= dt * 4;
         if (Math.random() < 0.25) {
@@ -540,6 +835,8 @@ Voxel.Mobs = (function () {
 
   function clear() {
     for (var i = list.length - 1; i >= 0; i--) removeAt(i);
+    for (var j = arrows.length - 1; j >= 0; j--) { group.remove(arrows[j].mesh); }
+    arrows.length = 0;
     spawnTimer = 1;
   }
 

@@ -14,6 +14,21 @@ Voxel.Save = (function () {
   var LEGACY_KEYS = ['starbound_voxel_save_v5', 'voxelcraft_save_v4', 'voxelcraft_save_v3'];
   var hasOwn = Object.prototype.hasOwnProperty;
 
+  // 最近一次写入失败的分类（供 UI 提示玩家该做什么）：
+  //   quota   = 存储配额已满（应清理旧数据）；private = 隐私模式/禁用站点数据；
+  //   verify  = 写入后回读校验不一致（重试通常可恢复）；unknown/write = 其它 I/O 异常。
+  var lastFailure = null;
+  function lastFailureClass() { return lastFailure ? lastFailure.cls : null; }
+  function clearLastFailure() { lastFailure = null; }
+
+  function classifyStorageError(e) {
+    var name = (e && e.name) || '';
+    if (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      e && e.code === 22 || e && e.code === 1014 || name === 'TransientQuotaError') return 'quota';
+    if (name === 'SecurityError' || e && e.code === 18) return 'private';
+    return 'write';
+  }
+
   function validRaw(raw) {
     if (typeof raw !== 'string' || !raw) return false;
     try {
@@ -51,7 +66,14 @@ Voxel.Save = (function () {
   function writeExact(key, raw, validator) {
     if (typeof raw !== 'string') return false;
     if (validator && !validator(raw)) return false;
-    localStorage.setItem(key, raw);
+    try {
+      localStorage.setItem(key, raw);
+    } catch (e) {
+      // 配额/隐私模式在 setItem 时同步抛出；replaceExact 的兜底 catch 会吞掉它，
+      // 必须在这里先记账，上层 save() 才能拿到真实失败原因。
+      lastFailure = { cls: classifyStorageError(e), key: key };
+      throw e;
+    }
     var written = localStorage.getItem(key);
     return written === raw && (!validator || validator(written));
   }
@@ -210,9 +232,11 @@ Voxel.Save = (function () {
   }
 
   function save(world, extra) {
+    clearLastFailure();
     try {
       if (!recoverSwap().ok) {
         console.warn('尚有未完成的存档恢复事务');
+        lastFailure = { cls: 'blocked', key: KEY };
         return false;
       }
       var obj = {
@@ -248,11 +272,14 @@ Voxel.Save = (function () {
       var raw = JSON.stringify(obj);
       if (!replaceVerified(KEY, raw, true)) {
         console.warn('存档写入后校验失败');
+        if (!lastFailure) lastFailure = { cls: 'verify', key: KEY };  // 无异常但回读不一致
         return false;
       }
+      clearLastFailure();
       return true;
     } catch (e) {
       console.warn('存档失败', e);
+      if (!lastFailure) lastFailure = { cls: classifyStorageError(e), key: KEY };
       return false;
     }
   }
@@ -460,6 +487,7 @@ Voxel.Save = (function () {
   }
 
   return {
+    lastFailureClass: lastFailureClass,
     save: save,
     load: load,
     has: has,
