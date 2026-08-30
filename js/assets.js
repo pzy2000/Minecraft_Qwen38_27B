@@ -20,9 +20,9 @@
     "sfx": {
       "id": "sfx",
       "file": "assets-sfx.js",
-      "hash": "f2b6828b15e622082980781a23d28c4ca1f438c898116d02472c34f64d7fd35d",
-      "payloadHash": "980821b59fe35fbe1f8470138485cecd0ad5a6664b66fb5a6025b0bfdc90ab88",
-      "version": "sha256-f2b6828b15e622082980781a23d28c4ca1f438c898116d02472c34f64d7fd35d",
+      "hash": "90217c45c186ac540939d10a7c6dc203b525177a9c2abcae25111f0b1e83ae10",
+      "payloadHash": "22e3609d257ff6bfb697041c9ce70f0831712798d039baebdee18e396e0b6904",
+      "version": "sha256-90217c45c186ac540939d10a7c6dc203b525177a9c2abcae25111f0b1e83ae10",
       "names": [
         "cat_0",
         "cat_1",
@@ -41,6 +41,9 @@
         "land_0",
         "land_1",
         "land_2",
+        "scream_0",
+        "scream_1",
+        "scream_2",
         "sheep_0",
         "sheep_1",
         "sheep_2",
@@ -72,8 +75,8 @@
         "ui_0",
         "zombie_0"
       ],
-      "count": 47,
-      "bytes": 345308
+      "count": 50,
+      "bytes": 464364
     },
     "music-day": {
       "id": "music-day",
@@ -148,6 +151,9 @@
       "land_0": "sfx",
       "land_1": "sfx",
       "land_2": "sfx",
+      "scream_0": "sfx",
+      "scream_1": "sfx",
+      "scream_2": "sfx",
       "sheep_0": "sfx",
       "sheep_1": "sfx",
       "sheep_2": "sfx",
@@ -209,6 +215,21 @@
       {
         "files": "zombie_0",
         "source": "\"Zombie Sound\" (opengameart.org/content/zombie-sound)",
+        "license": "CC0 1.0"
+      },
+      {
+        "files": "scream_0",
+        "source": "\"Girly Scream\" by Ferk, performed by Mariel Carmona Varo (opengameart.org/content/girly-scream)",
+        "license": "CC0 1.0"
+      },
+      {
+        "files": "scream_1",
+        "source": "\"Girl Scream\" by tcrocker68 via congusbongus's \"Female screams\" pack (freesound.org/s/235592, opengameart.org/content/female-screams)",
+        "license": "CC0 1.0"
+      },
+      {
+        "files": "scream_2",
+        "source": "\"human male scream multi\" by JohnsonBrandEditing, extracted in congusbongus's \"Aargh! (male screams)\" pack (freesound.org/s/173944, opengameart.org/content/aargh-male-screams)",
         "license": "CC0 1.0"
       },
       {

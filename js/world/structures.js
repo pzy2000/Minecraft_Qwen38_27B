@@ -1128,8 +1128,29 @@ Voxel.Structures = (function () {
         for (var ix2 = kcx - 5; ix2 <= kcx + 5; ix2++)
           for (var iz2 = kcz - 5; iz2 <= kcz + 5; iz2++)
             writer(S(ix2, iz2)[0], ah + iy2, S(ix2, iz2)[1], 0, 'force');
-      F(kcx, kcz + 6, 5, 0, 'force'); F(kcx, kcz + 6, 6, 0, 'force');
-      F(kcx - 1, kcz + 6, 5, 0, 'force'); F(kcx + 1, kcz + 6, 5, 0, 'force');
+      // 正门：3 宽×4 高拱门（朝广场 dz+ 侧）+ 两侧彩玻窄窗
+      for (var gdx = -1; gdx <= 1; gdx++) {
+        F(kcx + gdx, kcz + 6, 1, 0, 'force');
+        F(kcx + gdx, kcz + 6, 2, 0, 'force');
+        F(kcx + gdx, kcz + 6, 3, 0, 'force');
+        F(kcx + gdx, kcz + 6, 4, 0, 'force');
+      }
+      F(kcx - 1, kcz + 6, 5, PK.PINK, 'force');       // 拱肩收头
+      F(kcx, kcz + 6, 5, PK.GOLD, 'force');
+      F(kcx + 1, kcz + 6, 5, PK.PINK, 'force');
+      // 大门两侧各 2 扇高窗（红/青/金彩玻，y5-6）
+      [[-6, 88], [-6, 89], [6, 89], [6, 88]].forEach(function (wg, wi) {
+        var wxs = kcx + wg[0];
+        var wzs = kcz - 2 + (wi % 2) * 4;
+        F(wxs, wzs, 5, wg[1], 'force');
+        F(wxs, wzs, 6, wg[1], 'force');
+      });
+      // 北墙（dz-）玫瑰窗：3×3 金彩玻璃拼心
+      for (var rd = -1; rd <= 1; rd++)
+        for (var rz = 0; rz <= 1; rz++) {
+          if (Math.abs(rd) === 1 && rz === 0) continue;   // 十字形
+          F(kcx + rd, kcz - 6, 7 - rz, 90, 'force');
+        }
       // 檐口
       for (var ex3 = kcx - 7; ex3 <= kcx + 7; ex3++)
         for (var ez3 = kcz - 7; ez3 <= kcz + 7; ez3++) {
@@ -1155,8 +1176,11 @@ Voxel.Structures = (function () {
         F(tx3, tz3, 31, PK.LANTERN);
       });
       // 中央尖塔信标：keep 上方 + 上升到 52
+      // 基座不再用实心 box（会埋掉室内回程大楼梯）——改为檐口单环圈边 +
+      // 中央柱本体只占 (0,0)±1，回程梯从其两侧绕行（梯占 x∈[-1,1]，
+      // 与尖塔柱 (0,0) 在 z=+3 级交叠 → 回程梯末段改绕东侧 x=+2 单列）
       for (var sy = 15; sy <= 52; sy++) {
-        var rw = sy < 18 ? 3 : sy < 24 ? 2 : sy < 34 ? 1 : sy < 50 ? 1 : 1;
+        var rw = sy < 18 ? 1 : sy < 24 ? 1 : 1;
         if (sy === 18 || sy === 24 || sy === 34) {
           box(writer, park, S(kcx - rw, kcz)[0], S(kcx, kcz - rw)[1],
             S(kcx + rw, kcz)[0], S(kcx, kcz + rw)[1], ah + sy, ah + sy, PK.GOLD);
@@ -1166,6 +1190,122 @@ Voxel.Structures = (function () {
       }
       F(kcx, kcz, 53, PK.LANTERN);
       F(kcx, kcz, 54, PK.GOLD);
+
+      // ---- 城堡内部装修 ----
+      // 红毯走廊：正门 → 王座（暖黄灯球镶边红毯，PASTEL 作红毯面色）
+      for (var rz2 = 1; rz2 <= 5; rz2++) {
+        F(kcx - 1, kcz + rz2, 0, PK.PASTEL, 'force');
+        F(kcx, kcz + rz2, 0, PK.PASTEL, 'force');
+        F(kcx + 1, kcz + rz2, 0, PK.PASTEL, 'force');
+      }
+      [[-3, 1], [3, 1], [-3, 5], [3, 5]].forEach(function (lp) {
+        F(kcx + lp[0], kcz + lp[1], 1, PK.LANTERN, 'air');
+        F(kcx + lp[0], kcz + lp[1], 2, 0, 'force');        // 廊柱灯座
+      });
+      // 王座：北端高台（2 级台阶）+ 金饰靠背 + 臂灯
+      for (var thx = -2; thx <= 2; thx++) for (var thz = -5; thz <= -4; thz++)
+        F(thx + kcx, thz + kcz, 0, PK.BLUE, 'force');
+      for (var thx2 = -2; thx2 <= 2; thx2++) for (var thz2 = -5; thz2 <= -4; thz2++)
+        F(thx2 + kcx, thz2 + kcz, 1, PK.CREAM, 'force');   // 台面抬 1
+      F(kcx, kcz - 5, 1, 0, 'force');
+      F(kcx, kcz - 5, 2, PK.GOLD, 'force');                // 王座坐面（金）
+      for (var bk = 3; bk <= 5; bk++) F(kcx, kcz - 5, bk, PK.GOLD, 'force'); // 靠背
+      F(kcx - 1, kcz - 5, 3, PK.LANTERN, 'air');           // 臂灯 ×2
+      F(kcx + 1, kcz - 5, 3, PK.LANTERN, 'air');
+      // 大厅吊灯：中轴 3 盏灯球链（从 y8 垂下）
+      for (var cl = 2; cl >= 6; cl++) F(kcx, kcz + 2, cl, 0, 'force'); // 净空
+      F(kcx, kcz + 2, 7, PK.GOLD, 'force');
+      F(kcx, kcz + 2, 6, PK.LANTERN, 'air');
+      // 宽体大楼梯（3 宽直跑）：大厅中央 → 屋顶观景台
+      // 台阶从 (0,-2) 起沿 +z? 不——直跑沿 -z→中央塔基。梯宽 3，每级升 1：
+      // 14 级到檐口层 y15 平台。位置：x∈[-1,1]，z 从 +3 退到 -3 每级进 0.5 不行——
+      // 13×13 内直跑 11 级到 y12，剩余高度走角塔螺旋段。方案：中央大楼梯
+      // 沿 z 轴 11 级（每级 z-1, y+1），到 y12 后接东北角塔内螺旋 12 级到 y24
+      // 观景平台，再经塔顶出屋顶垛口环。
+      (function () {
+        // 大楼梯：z 从 +4 到 -1 共 6 级（y1→y6），止于大厅中段（北端留给王座）
+        for (var stp = 0; stp < 6; stp++) {
+          var sy2 = 1 + stp, sz2 = 4 - stp;
+          for (var sxp = -1; sxp <= 1; sxp++) {
+            F(kcx + sxp, kcz + sz2, sy2, PK.CREAM, 'force');
+            for (var fill = 1; fill < sy2; fill++) F(kcx + sxp, kcz + sz2, fill, PK.BLUE, 'force');
+          }
+        }
+        // 一层衔接：大楼梯末级 y6(z=-1) → 折返梯首级 y7(z=-2) 平走一级，无桥接需求
+        // 二层折返楼梯：z 从 -2 到 +3 共 6 级（y7→y12），3 宽——首级紧邻大楼楼梯
+        // z≥-1 段避开中央尖塔柱：中列 x=0 跳过
+        for (var stp2 = 0; stp2 < 6; stp2++) {
+          var sy3 = 7 + stp2, sz3 = -2 + stp2;
+          for (var sxp2 = -1; sxp2 <= 1; sxp2++) {
+            if (sz3 >= -1 && sxp2 === 0) continue;   // 中央柱让位
+            F(kcx + sxp2, kcz + sz3, sy3, PK.CREAM, 'force');
+            for (var fill2 = 1; fill2 < sy3; fill2++) F(kcx + sxp2, kcz + sz3, fill2, PK.BLUE, 'force');
+          }
+        }
+        // 中段平台（y13）：横贯全厅（z=-5..+3），折返梯末级 y12(z=+3) 接平台
+        for (var lx2 = -5; lx2 <= 5; lx2++) for (var lz2 = -5; lz2 <= 5; lz2++)
+          F(lx2 + kcx, lz2 + kcz, 13, PK.PLANKS, 'force');
+        // 平台净空（y14..16 清空，头顶通行）
+        for (var lx3 = -4; lx3 <= 4; lx3++) for (var lz3 = -4; lz3 <= 4; lz3++)
+          for (var cy9 = 14; cy9 <= 16; cy9++) F(lx3 + kcx, lz3 + kcz, cy9, 0, 'force');
+        // 三层回折梯：z 从 +2 到 -5 共 8 级（y14→y21，末级与观景台面平齐）
+        // （首级从 z=+2 起：折返梯末级 z=+3 → 平台开洞 → 平走上一级；
+        //   末段（z≤-1）避开中央尖塔柱）
+        for (var stp3 = 0; stp3 < 8; stp3++) {
+          var sy4 = 14 + stp3, sz4 = 2 - stp3;
+          for (var sxp3 = -1; sxp3 <= 1; sxp3++) {
+            if (sz4 <= -1 && sxp3 === 0) continue;
+            F(kcx + sxp3, kcz + sz4, sy4, PK.CREAM, 'force');
+          }
+        }
+        // 观景台（y21）：全厅 11×11 木板 + 外缘垛口 + 四角灯
+        for (var vx = -5; vx <= 5; vx++) for (var vz = -5; vz <= 5; vz++) {
+          var rim = Math.abs(vx) === 5 || Math.abs(vz) === 5;
+          if (rim) {
+            F(vx + kcx, vz + kcz, 21, PK.BLUE, 'force');
+            if ((Math.abs(vx) + Math.abs(vz)) % 2 === 0)
+              F(vx + kcx, vz + kcz, 22, PK.PINK, 'force');           // 垛口
+          } else {
+            F(vx + kcx, vz + kcz, 21, PK.PLANKS, 'force');
+          }
+        }
+        [[-4, -4], [4, -4], [-4, 4], [4, 4]].forEach(function (vp) {
+          F(vp[0] + kcx, vp[1] + kcz, 22, PK.LANTERN, 'air');
+        });
+        // 三层梯穿观景台处：末级 y21 与台面平齐（z=-5），前一级 y20(z=-4) 玩家
+        // 跨上台面需台面开洞——在 z=-4..-3、x∈[-1,1] 台面开洞作梯口
+        for (var hw = -4; hw <= -3; hw++)
+          for (var sxp4 = -1; sxp4 <= 1; sxp4++)
+            F(kcx + sxp4, kcz + hw, 21, 0, 'force');
+        // 楼梯全程净空
+        // 折返梯（z=-2..+3）上方：每级清 3 格；z=+3 列只清到平台 y13 上沿，
+        // z=+2 列只清到 y13（三层首级 y14 不得吞）
+        for (var stp5 = 0; stp5 < 6; stp5++) {
+          var sz5 = -2 + stp5;
+          var clearTop = 7 + stp5 + 3;
+          if (sz5 === 3) clearTop = 12;           // 平台之下
+          if (sz5 === 2) clearTop = 13;           // 保留三层首级 y14
+          for (var sxp5 = -1; sxp5 <= 1; sxp5++)
+            for (var cy5 = 7 + stp5 + 1; cy5 <= clearTop; cy5++)
+              F(kcx + sxp5, kcz + sz5, cy5, 0, 'force');
+        }
+        // 三层梯（z=+2..-5）上方：每级清 3 格
+        for (var stp6 = 0; stp6 < 8; stp6++) {
+          var sz6 = 2 - stp6;
+          for (var sxp6 = -1; sxp6 <= 1; sxp6++)
+            for (var cy6 = 14 + stp6 + 1; cy6 <= 14 + stp6 + 3 && cy6 <= 26; cy6++)
+              F(kcx + sxp6, kcz + sz6, cy6, 0, 'force');
+        }
+        // 楼板开洞：折返梯末级（z=+3）穿平台 y13（含头顶 y14 让位三层梯东列）
+        for (var sxp7 = -1; sxp7 <= 1; sxp7++) {
+          F(kcx + sxp7, kcz + 3, 13, 0, 'force');
+        }
+        // 屋顶以上净空（观景台 y22 上清到 y24，中央尖塔柱保留）
+        for (var cx3 = -4; cx3 <= 4; cx3++) for (var cz4 = -4; cz4 <= 4; cz4++)
+          for (var cy7 = 23; cy7 <= 24; cy7++)
+            if (!(cx3 === 0 && cz4 === 0)) F(cx3 + kcx, cz4 + kcz, cy7, 0, 'force');
+      })();
+
       // 前庭台阶
       for (var st2 = 0; st2 <= 2; st2++)
         for (var sw = -(3 - st2); sw <= (3 - st2); sw++)

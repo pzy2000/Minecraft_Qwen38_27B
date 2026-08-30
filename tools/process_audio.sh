@@ -59,6 +59,11 @@ sfxnorm "$DL/freesound/skymary_cat_meow_short.mp3" "cat_hurt" "asetrate=44100*0.
 # UI
 sfx "$DL/kenney/generic_light_000.ogg" "ui_0"
 
+# 嘉年华设施尖叫声（全部 CC0，来源见 dl/oga_scream/license*.txt 与 aargh.txt）
+sfxnorm "$DL/oga_scream/wscream_2.wav" "scream_0"
+sfxnorm "$DL/oga_scream/girl_scream_tcrocker68.ogg" "scream_1"
+sfxnorm "$DL/oga_scream/aargh5_johnsonbrandediting_male.ogg" "scream_2"
+
 # 音乐：跳过开头 6s，截 72s 循环段，立体声 96kbps
 ffmpeg -y -v error -ss 6 -t 72 -i "$DL/oga/music_day.mp3" -codec:a libmp3lame -b:a 96k -ar 44100 "$OUT/music_day.mp3"
 ffmpeg -y -v error -ss 6 -t 72 -i "$DL/oga/music_night.mp3" -codec:a libmp3lame -b:a 96k -ar 44100 "$OUT/music_night.mp3"

@@ -65,14 +65,14 @@ function checkAudioManifest() {
   assert(assets.baseUrl.startsWith('file:'), 'file:// manifest must retain a file base URL');
   assert(assets.baseUrl.endsWith('/js/'), 'baseUrl must name the manifest directory');
   assert.deepStrictEqual(Object.keys(assets.chunks).sort(), ids.slice().sort());
-  assert.strictEqual(assets.chunks.sfx.count, 47);
+  assert.strictEqual(assets.chunks.sfx.count, 50);
   assert.strictEqual(assets.chunks['music-day'].count, 1);
   assert.strictEqual(assets.chunks['music-night'].count, 1);
   assert.deepStrictEqual(Array.from(assets.chunks['music-day'].names), ['music_day']);
   assert.deepStrictEqual(Array.from(assets.chunks['music-night'].names), ['music_night']);
 
   const allNames = ids.flatMap(id => Array.from(assets.chunks[id].names));
-  assert.strictEqual(new Set(allNames).size, 49, 'every source name belongs to exactly one chunk');
+  assert.strictEqual(new Set(allNames).size, 52, 'every source name belongs to exactly one chunk');
   allNames.forEach(name => assert.strictEqual(assets.audioToChunk[name],
     name === 'music_day' ? 'music-day' : name === 'music_night' ? 'music-night' : 'sfx'));
 
@@ -93,7 +93,7 @@ function checkAudioManifest() {
       sum + Buffer.from(assets.audio[name].slice('data:audio/mpeg;base64,'.length), 'base64').length, 0);
     assert.strictEqual(decodedBytes, chunk.bytes);
   });
-  assert.strictEqual(Object.keys(assets.audio).length, 49);
+  assert.strictEqual(Object.keys(assets.audio).length, 52);
 }
 
 function checkStartupBudgets() {

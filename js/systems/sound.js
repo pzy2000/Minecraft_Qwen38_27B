@@ -730,6 +730,26 @@ Voxel.Sound = (function () {
     noiseHit(1400 + v * 1200, 1.6, 0.15, 0.22 * v);
   }
 
+  // 乘客尖叫声池：刺激段一次性触发（跳楼机急坠、过山车大俯冲、光轮回环、海盗船极摆）
+  var SCREAM_POOL = ['scream_0', 'scream_1', 'scream_2'];
+  function rideScream(v) {
+    if (v <= 0) return;
+    var name = pick(SCREAM_POOL);
+    if (play(name, 0.85 * v, 0.9 + Math.random() * 0.24)) {
+      // 概率叠一声不同变体 + 错开时机，营造“一整车人都在喊”的群感
+      if (Math.random() < 0.38) {
+        var other = SCREAM_POOL[(SCREAM_POOL.indexOf(name) + 1 +
+          ((Math.random() * (SCREAM_POOL.length - 1)) | 0)) % SCREAM_POOL.length];
+        setTimeout(function () { play(other, 0.42 * v, 0.94 + Math.random() * 0.18); },
+          70 + Math.random() * 130);
+      }
+      return;
+    }
+    // 程序化兜底：人声感下滑颤音双层
+    toneVib('sawtooth', 800 + Math.random() * 170, 380, 0.52, 0.17 * v, 11, 42, 1550);
+    toneVib('sine', 400 + Math.random() * 90, 190, 0.52, 0.13 * v, 11, 20, 0);
+  }
+
   // 跳楼机自由坠呼啸（下滑锯齿 + 噪声），着陆闷响单独一击
   function dropFallWhistle(v) {
     if (v <= 0) return;
@@ -877,6 +897,7 @@ Voxel.Sound = (function () {
     rideBell: rideBell,
     rideClank: rideClank,
     rideWhoosh: rideWhoosh,
+    rideScream: rideScream,
     dropFallWhistle: dropFallWhistle,
     dropThud: dropThud,
     carouselNote: carouselNote,

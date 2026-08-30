@@ -441,9 +441,10 @@ Voxel.MeshBuilder = (function () {
           var def = B.defs[id];
           if (!def) continue;
           var isWater = id === 7;
+          var isStained = !!def.stained;                 // 彩色玻璃 → 半透明水材质组
           var isBed = !!def.half;
           // 树叶独立组：参与实时阴影投射与顶点风摇
-          var target = (isWater || id === 13) ? w : (def.leaves ? fl : o);
+          var target = (isWater || id === 13 || isStained) ? w : (def.leaves ? fl : o);
 
           // 火把等十字面片：不参与面剔除
           if (def.cross) {
@@ -457,6 +458,7 @@ Voxel.MeshBuilder = (function () {
             var nb = G(nx, ny, nz);
             var show;
             if (isWater) show = (nb === 0 || nb === 13 || nb === 19);
+            else if (isStained) show = (nb !== id && !B.isOpaque(nb));
             else if (isBed) {
               // 床占格子下半：侧面被不透明邻居或相邻床半格遮盖，顶/底面被不透明邻居遮盖
               show = !B.isOpaque(nb) && (f === 2 || f === 3 || !B.isBed(nb));
