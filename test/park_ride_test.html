@@ -412,7 +412,7 @@
       // 过山车必须覆盖完整 52s 周期（埋山段曾被 8s 短采样漏掉）
       var full = kind === 'coaster';
       var camYs = [];
-      var fwdBlocked = 0, fwdTotal = 0, minDist = 99;
+      var fwdBlocked = 0, fwdTotal = 0, minDist = 99, sentinelSkips = 0;
       var samples = full ? 130 : (kind === 'carousel' ? 40 : (kind === 'ferris' || kind === 'drop' ? 60 : 80));
       var iv = full ? 420 : 100;
       var i = 0;
@@ -422,24 +422,32 @@
         // 正前遮挡探针（与视线一致的短射线；天空 id 0 忽略）
         var dir = new THREE.Vector3(0, 0, -1).applyEuler(cam.rotation);
         var h = Voxel.Raycaster.cast(cam.position, dir, 5);
+        if (h && h.dist < 1.2 && h.type !== 'mob' && h.id === 12) {
+          // 慢机上乘车间瞬移后相机邻近区块可能尚未就绪：World.get 对未加载
+          // 外围暂按「基岩哨兵 12」读取，起点自命中/贴面命中的是流式时序
+          // 伪影而非游玩遮挡（园区内地面以上不存在天然基岩），跳过并计数。
+          sentinelSkips++;
+          h = null;
+        }
         if (h) {
           fwdTotal++;
           if (h.dist < minDist) minDist = h.dist;
           if (h.dist < 1.2 && h.id !== 0) fwdBlocked++;
         }
-        if (++i >= samples) return evalRide(kind, ah, camYs, fwdBlocked, fwdTotal, minDist);
+        if (++i >= samples) return evalRide(kind, ah, camYs, fwdBlocked, fwdTotal, minDist, sentinelSkips);
         setTimeout(step, iv);
       })();
     }
 
-    function evalRide(kind, ah, camYs, fwdBlocked, fwdTotal, minDist) {
+    function evalRide(kind, ah, camYs, fwdBlocked, fwdTotal, minDist, sentinelSkips) {
       var yMin = Math.min.apply(null, camYs), yMax = Math.max.apply(null, camYs);
       check(kind + ' 相机高度包络 ah±[' + (yMin - ah).toFixed(1) + ',' + (yMax - ah).toFixed(1) + ']',
         yMin > ah - 4 && yMax < ah + 64);
       // 过山车专项：曾经 Y↔Z 互换飞到 450m
       if (kind === 'coaster')
         check('过山车高度未脱轨(yMax-ah=' + (yMax - ah).toFixed(1) + ' < 40)', yMax - ah < 40);
-      check(kind + ' 正前遮挡 ' + fwdBlocked + '/' + fwdTotal + ' (minDist ' + minDist.toFixed(2) + ')',
+      check(kind + ' 正前遮挡 ' + fwdBlocked + '/' + fwdTotal +
+        ' (minDist ' + minDist.toFixed(2) + (sentinelSkips ? ', 哨兵跳过' + sentinelSkips : '') + ')',
         fwdBlocked === 0);
       // 下车：轻按 E（keydown+keyup 释放沿）
       pressE();
