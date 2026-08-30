@@ -1151,7 +1151,14 @@ Voxel.Structures = (function () {
           if (Math.abs(rd) === 1 && rz === 0) continue;   // 十字形
           F(kcx + rd, kcz - 6, 7 - rz, 90, 'force');
         }
-      // 檐口
+      // 顶带（y14 宝蓝收头，迪士尼式粉墙上缘蓝饰）+ 檐口
+      for (var wy4 = 1; wy4 <= 14; wy4++)
+        for (var fx3 = kcx - 6; fx3 <= kcx + 6; fx3++)
+          for (var fz3 = kcz - 6; fz3 <= kcz + 6; fz3++) {
+            var fe = Math.abs(fx3 - kcx) === 6 || Math.abs(fz3 - kcz) === 6;
+            if (!fe) continue;
+            F(fx3, fz3, 14, PK.BLUE, 'force');
+          }
       for (var ex3 = kcx - 7; ex3 <= kcx + 7; ex3++)
         for (var ez3 = kcz - 7; ez3 <= kcz + 7; ez3++) {
           var ee = Math.abs(ex3 - kcx) === 7 || Math.abs(ez3 - kcz) === 7;
@@ -1160,7 +1167,7 @@ Voxel.Structures = (function () {
           if (inner) continue;
           F(ex3, ez3, 15, PK.GOLD);
         }
-      // 四角塔 Ø5 高 26 + 蓝锥顶
+      // 四角塔 Ø5 高 26：粉墙主体 + 宝蓝竖棱 + 金腰线（上海迪士尼配比）
       [[-6, -6], [6, -6], [-6, 6], [6, 6]].forEach(function (tpos) {
         var tx3 = kcx + tpos[0], tz3 = kcz + tpos[1];
         for (var ty2 = 1; ty2 <= 26; ty2++) {
@@ -1168,7 +1175,16 @@ Voxel.Structures = (function () {
             var cd2 = ddx * ddx + ddz * ddz;
             if (cd2 > 5.2) continue;
             if (cd2 <= 2.2 && ty2 <= 24 && ty2 > 1) continue;       // 中空
-            F(tx3 + ddx, tz3 + ddz, ty2, cd2 > 3 ? PK.BLUE : PK.PINK);
+            // 外壳圈（cd2>3）：默认粉墙；正东/西/南/北边缘格作宝蓝竖棱；
+            // y=10/20 两道宝蓝环带；y=26 顶圈收金腰线接锥顶
+            var id = PK.PINK;
+            if (cd2 > 3) {
+              if (ty2 === 26) id = PK.GOLD;
+              else if (ty2 === 10 || ty2 === 20) id = PK.BLUE;
+              else if (Math.abs(ddx) === 2 && Math.abs(ddz) < 2) id = PK.BLUE;
+              else if (Math.abs(ddz) === 2 && Math.abs(ddx) < 2) id = PK.BLUE;
+            }
+            F(tx3 + ddx, tz3 + ddz, ty2, id);
           }
         }
         roofPyramid(function (x, y, z, id) { writer(x, y, z, id, 'force'); },
