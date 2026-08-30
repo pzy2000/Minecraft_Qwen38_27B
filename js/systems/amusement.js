@@ -852,6 +852,7 @@ Voxel.Amusement = (function () {
       try { d.obj.dispose && d.obj.dispose(); } catch (e) { /* 忽略重复释放 */ }
     });
     // 烟花迸裂对象不进 disposables（自带生命周期），这里显式清理
+    RT.rings.length = 0; RT.stall = null;
     FW.bursts.forEach(function (b) {
       try { b.geo.dispose(); b.mat.dispose(); } catch (e) { }
     });
@@ -908,6 +909,110 @@ Voxel.Amusement = (function () {
 
   function findNearestPark(playerX, playerZ) {
     return Voxel.Structures.findParkNear(Math.floor(playerX), Math.floor(playerZ), 2);
+  }
+
+  // ---------- 套圈迷你游戏 ----------
+  // 免费无限投：投掷点附近右键即投圈，命中金饰柱头得分换代币。
+  // 圈为 Torus 实体 + 手动积分抛物线；命中判定圈心穿过柱头块的 1.2 格球域。
+  var RT = {
+    rings: [],            // { mesh, vel, pos, settled }
+    stall: null,          // parkTossStall 结果（含柱世界坐标）
+    lastThrow: 0,
+    cooldown: 1.2,
+    ringGeo: null
+  };
+
+  function rtFindStall() {
+    if (!active) return null;
+    return Voxel.Structures.parkTossStall(active.park);
+  }
+
+  function rtRingMesh() {
+    if (!RT.ringGeo) {
+      RT.ringGeo = new THREE.TorusGeometry(0.42, 0.09, 8, 20);
+    }
+    var m = new THREE.Mesh(RT.ringGeo, mat(0xf3b13e));
+    if (active) active.disposables.push({ obj: m.material });
+    m.rotation.x = -Math.PI / 2 * 0.62;   // 前倾持圈姿态
+    m.visible = false;
+    root.add(m);
+    return m;
+  }
+
+  // 玩家投掷：从眼睛位置沿视线 + 固定仰角抬升出射
+  function rtThrow(eye, dir) {
+    if (!active || !root) return false;
+    var now = performance.now() / 1000;
+    if (now - RT.lastThrow < RT.cooldown) return true;   // CD 内吞掉（返回 true 表示"已处理"）
+    var stall = rtFindStall();
+    if (!stall) return false;
+    RT.lastThrow = now;
+    var mesh = rtRingMesh();
+    var pos = new THREE.Vector3(eye.x + dir.x * 0.6, eye.y - 0.25, eye.z + dir.z * 0.6);
+    mesh.position.copy(pos);
+    mesh.visible = true;
+    // 真实弹道：vel = 视线方向 × 速度（瞄高飞高，抛物线手感直观）；
+    // 速度按常见站距 10 格、柱高 3-5 格标定：约 45° 仰角时射程 ≈ v²/g
+    var speed = 12.5;
+    var dLen = dir.length() || 1;
+    var vel = new THREE.Vector3(dir.x / dLen * speed, dir.y / dLen * speed + 2.6,
+      dir.z / dLen * speed);
+    RT.rings.push({ mesh: mesh, vel: vel, age: 0, scored: false });
+    if (Voxel.Sound && Voxel.Sound.select) Voxel.Sound.select();
+    return true;
+  }
+
+  function rtHitCheck(pos) {
+    var stall = RT.stall || (RT.stall = rtFindStall());
+    if (!stall) return null;
+    for (var i = 0; i < stall.pegs.length; i++) {
+      var pg = stall.pegs[i];
+      // 套中判定：圈心进入柱头块中心 ±1.15 的立方域（金饰块那格）
+      if (Math.abs(pos.x - (pg.x + 0.5)) < 1.15 &&
+        Math.abs(pos.y - (pg.topY + 0.5)) < 1.15 &&
+        Math.abs(pos.z - (pg.z + 0.5)) < 1.15)
+        return pg;
+    }
+    return null;
+  }
+
+  function updateRingToss(dt) {
+    if (!RT.rings.length) return;
+    for (var i = RT.rings.length - 1; i >= 0; i--) {
+      var r = RT.rings[i];
+      r.age += dt;
+      // 细分积分：帧 dt 在低帧率下可达 0.1s，单步 1.2 格会隧穿柱头判定域
+      var steps = Math.max(1, Math.ceil(dt / 0.016));
+      var sdt = dt / steps;
+      for (var s = 0; s < steps && !r.scored; s++) {
+        r.vel.y -= 14.5 * sdt;
+        r.mesh.position.x += r.vel.x * sdt;
+        r.mesh.position.y += r.vel.y * sdt;
+        r.mesh.position.z += r.vel.z * sdt;
+        // 旋转翻滚（视觉层，整帧一次即可）
+        r.mesh.rotation.x -= sdt * 9;
+        var hit = rtHitCheck(r.mesh.position);
+        if (hit) {
+          r.scored = true;
+          // 得分反馈：圈挂柱头 + 叮声（代币由 main 层记账入包）
+          r.mesh.position.set(hit.x + 0.5, hit.topY + 0.35, hit.z + 0.5);
+          r.mesh.rotation.set(-Math.PI / 2, 0, 0);
+          r.vel.set(0, 0, 0);
+          r.hangUntil = r.age + 1.6;
+          if (Voxel.Sound && Voxel.Sound.rideBell) Voxel.Sound.rideBell();
+          if (Voxel.Progress) Voxel.Progress.track('ringtoss', { score: hit.score });
+          Voxel.Amusement._onRingScore && Voxel.Amusement._onRingScore(hit.score);
+        }
+      }
+      // 落地 / 超时 / 挂柱到期 → 回收
+      var groundY = (RT.stall ? RT.stall.y : 0) + 0.35;
+      if ((!r.scored && (r.mesh.position.y < groundY || r.age > 4)) ||
+        (r.scored && r.age > r.hangUntil)) {
+        root.remove(r.mesh);
+        if (r.mesh.material) { try { r.mesh.material.dispose(); } catch (e) { } }
+        RT.rings.splice(i, 1);
+      }
+    }
   }
 
   // ---------- 公共 API ----------
@@ -982,6 +1087,7 @@ Voxel.Amusement = (function () {
       }
       driveSounds(dt, nowSec, px, pz);
       updateFireworks(dt, nowSec, px, pz);
+      updateRingToss(dt);
     },
 
     // 最近的乘坐台（供提示/上车判定）。radius 内返回。
@@ -1072,6 +1178,14 @@ Voxel.Amusement = (function () {
       }
       return true;
     },
+    // 套圈：投掷（main 层在投掷点范围内拦截右键）。eye=眼睛世界坐标，dir=视线方向
+    ringTossThrow: function (eye, dir) { return rtThrow(eye, dir); },
+    ringTossActive: function () { return RT.rings.length > 0; },
+    ringTossCd: function () {
+      return Math.max(0, RT.cooldown - (performance.now() / 1000 - RT.lastThrow));
+    },
+    // 命中回调（main 层记账换代币）。测试钩子可注入。
+    _onRingScore: null,
     _debug: function () { return { lastDispose: _lastDispose,
       attached: root && root.parent === sceneRef,
       fwBursts: FW.bursts.length, fwPending: !!FW.pending }; },

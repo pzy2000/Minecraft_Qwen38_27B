@@ -1611,6 +1611,12 @@ Voxel.Game = (function () {
 
   function doAct(btn) {
     if (state !== 'playing') return;
+    // 套圈区：右键即投圈（免费无限投，CD 内静默吞掉）
+    if (btn === 2 && nearTossLine()) {
+      var to = Voxel.Player.eyePos(), td = Voxel.Player.lookDir();
+      Voxel.Amusement.ringTossThrow(to, td);
+      return;
+    }
     // 烟花棒：手持右键优先于攻击/挖掘
     if (btn === 2 && inv[sel] === FW_ROD_ID) { useFireworkRod(); return; }
     var o = Voxel.Player.eyePos();
@@ -4367,6 +4373,28 @@ Voxel.Game = (function () {
     if (fwRodCd > 0) fwRodCd -= dt;
   }
 
+  // 套圈：投掷区判定（含柱间走道缓冲）。命中回调里换代币入包。
+  function nearTossLine() {
+    if (!Voxel.Structures || !Voxel.Structures.parkTossStall || !Voxel.Amusement) return null;
+    var pc = Voxel.Amusement.parkCenter();
+    if (!pc) return null;
+    var park = Voxel.Structures.findParkNear(pc.x, pc.z, 0);
+    if (!park) return null;
+    var stall = Voxel.Structures.parkTossStall(park);
+    if (!stall) return null;
+    var p = Voxel.Player.pos();
+    // 投掷线后排 5×4 区 + 前方 1 格助跑余量
+    var dx = p.x - (stall.x + 0.5), dz = p.z - (stall.z + 0.5);
+    if (Math.abs(dx) > 3.4 || dz < -1.6 || dz > 4.4) return null;
+    return stall;
+  }
+
+  if (Voxel.Amusement) Voxel.Amusement._onRingScore = function (score) {
+    var got = addInv(TOKEN_ID, score);
+    Voxel.HUD.toast('🎯 套中！+' + score + ' 代币' +
+      (got ? '' : '（背包已满，奖励遗落了）'));
+  };
+
   // 烟花棒：手持右键单发烟花（升空小哨声由粒子爆发代替，直接爆裂 + 响声）
   function useFireworkRod() {
     if (fwRodCd > 0) return true;
@@ -4436,6 +4464,10 @@ Voxel.Game = (function () {
     } else if (nearBoothPos()) {
       hitEl.textContent = isTouch ? '轻点打开售票亭' : '按 E 打开售票亭';
       hitEl.dataset.kind = 'booth';
+      hitEl.style.display = 'block';
+    } else if (nearTossLine()) {
+      hitEl.textContent = isTouch ? '轻点投圈 · 套柱顶金环得分' : '右键投圈 · 套柱顶金环得分';
+      hitEl.dataset.kind = 'toss';
       hitEl.style.display = 'block';
     } else if (hit && hit.type === 'block' && hit.id === 15) {
       hitEl.textContent = isTouch ? '轻点打开工作台' : '按 E 打开工作台';
@@ -4763,7 +4795,7 @@ Voxel.Game = (function () {
     var frozen = state === 'paused';
     var nowS = performance.now() / 1000;
     if (mouseDown[0] && !frozen && nowS - lastPlace > 0.25) { lastPlace = nowS; doAct(0); }
-    if (!frozen && mouseDown[2] && inv[sel] !== FW_ROD_ID) tickDig(step); // 烟花棒不挖矿
+    if (!frozen && mouseDown[2] && inv[sel] !== FW_ROD_ID && !nearTossLine()) tickDig(step); // 烟花棒/投圈区不挖矿
     else if (digT || digProg) stopDig();
     if (!frozen && state === 'playing') tickRideHold(step);   // 长按 E 上车计时
     if (!frozen) tickBooth(step);      // 票券经济：buff 倒计时/烟花棒 CD（暂停不走表）
@@ -6147,6 +6179,14 @@ Voxel.Game = (function () {
       buyRod: buyRod
     },
     buffLeft: function () { return buffLeft; },
+    ringToss: {
+      near: nearTossLine,
+      throwNow: function () {
+        var t = nearTossLine();
+        if (!t) return false;
+        return Voxel.Amusement.ringTossThrow(Voxel.Player.eyePos(), Voxel.Player.lookDir());
+      }
+    },
     selectAndHold: function (id) {
       inv[sel] = id; cnt[sel] = 1; dur[sel] = null; refreshInv();
     },

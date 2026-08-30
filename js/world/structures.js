@@ -529,7 +529,9 @@ Voxel.Structures = (function () {
           [18, -14, 3], [7, -24, 3], [10, -26, 1], [10, -30, 0] // 回站：西绕跨灯柱（顶ah+3）→ 雨棚北沿已降至 eye<ah+4，沿 x=10 中线低穿（立柱在 x8/x14）
         ]
       },
-      tron: { gx0: 42, gx1: 84, gz: 6, board: [46, 6], loopTopY: 22 }
+      tron: { gx0: 42, gx1: 84, gz: 6, board: [46, 6], loopTopY: 22 },
+      // 套圈游戏：投掷线南端 (52,24)，目标柱向北 8/11/14（远离步道与拱廊）
+      toss: { cx: 52, cz: 24 }
     };
   }
 
@@ -594,6 +596,24 @@ Voxel.Structures = (function () {
         c: PX(park, L.castle.c[0], L.castle.c[1]), baseY: ah
       }
     ];
+  }
+
+  // 套圈游戏站点：投掷点 + 3 目标柱世界坐标（运行时命中判定/verify 断言共用）
+  // 柱在 dz 正方向（园心侧），玩家在投掷线朝 -dz 投
+  function parkTossStall(park) {
+    if (!park) return null;
+    var L = parkLayout();
+    var ah = park.ah;
+    var origin = PX(park, L.toss.cx, L.toss.cz);
+    var pegs = [
+      { dx: 0, dz: 8, h: 2, score: 2 },
+      { dx: -6, dz: 11, h: 3, score: 3 },
+      { dx: 6, dz: 14, h: 4, score: 5 }
+    ].map(function (pg) {
+      var p = PX(park, L.toss.cx + pg.dx, L.toss.cz + pg.dz);
+      return { x: p[0], z: p[1], baseY: ah + 1, topY: ah + 1 + pg.h, score: pg.score };
+    });
+    return { x: origin[0], z: origin[1], y: ah, pegs: pegs };
   }
 
   function boardPositions(park) {
@@ -1216,7 +1236,34 @@ Voxel.Structures = (function () {
       }
     })();
 
-    // ---- 12. 统一放置乘坐台（最后写入：放射步道/站台铺装不得覆盖 PAD）----
+    // ---- 12. 套圈游戏（toss：投掷线 + 3 根分值目标柱，柱体纯体素可断言）----
+    // 目标柱在 dz 正方向（园心侧），玩家站投掷线（dz+3 排）朝 -dz 投——
+    // 任意 rot 下 PX 旋转对称，柱总落在玩家面朝的园内方向。
+    (function () {
+      var T3 = L.toss;
+      // 投掷区：奶油石板 5×4（玩家站南侧后排朝北投）
+      for (var tx = T3.cx - 2; tx <= T3.cx + 2; tx++)
+        for (var tz = T3.cz; tz <= T3.cz + 3; tz++)
+          fCol(tx, tz, 0, PK.CREAM);
+      // 3 根目标柱：距投掷线 8/11/14，糖果柱塔身 + 金饰顶环
+      // 分值 2/3/5：柱高 2/3/4（越远越高越难）
+      var pegs = [
+        { dx: 0, dz: 8, h: 2, score: 2 },
+        { dx: -6, dz: 11, h: 3, score: 3 },
+        { dx: 6, dz: 14, h: 4, score: 5 }
+      ];
+      pegs.forEach(function (pg) {
+        var px2 = T3.cx + pg.dx, pz2 = T3.cz + pg.dz;
+        fCol(px2, pz2, 0, PK.LAWN);
+        for (var hy = 1; hy <= pg.h; hy++) F(px2, pz2, hy, PK.CANDY);
+        F(px2, pz2, pg.h + 1, PK.GOLD);            // 金饰柱头（命中判定块）
+        F(px2 + 1, pz2, 1, PK.LANTERN, 'air');      // 侧灯柱照明
+      });
+      // 投掷线（南缘金饰一行，提示站位）
+      for (var lx = T3.cx - 2; lx <= T3.cx + 2; lx++) F(lx, T3.cz + 3, 0, PK.GOLD);
+    })();
+
+    // ---- 13. 统一放置乘坐台（最后写入：放射步道/站台铺装不得覆盖 PAD）----
     (function () {
       var padSpots = [L.ferris.board, L.carousel.board, L.drop.board,
         L.pirate.board, L.coaster.board, L.tron.board];
@@ -1249,6 +1296,7 @@ Voxel.Structures = (function () {
     parkStations: parkStations,
     boardPositions: boardPositions,
     parkBooths: parkBooths,
+    parkTossStall: parkTossStall,
     parkGateSpawn: parkGateSpawn,
     nearestParkTo: nearestParkTo,
     parkChests: parkChests,
