@@ -2994,7 +2994,8 @@ Voxel.Game = (function () {
     var held = !!Voxel.Controls.keys.KeyE;
     if (!ride.pending) { ride.prevHeld = held; return; }
     if (ride.prevHeld && !held) {
-      // 提前松开（未达长按阈值）：只取消计时；站在台旁时不开背包
+      // 提前松开（未达长按阈值）：只取消计时。保持不开背包——避免"想乘坐
+      // 却手滑短按"误弹面板；需要背包可 Alt+E 或准星对功能方块直接交互。
       ride.pending = false;
       ride.holdT = 0; ride.fired = false;
       return;
@@ -4072,20 +4073,26 @@ Voxel.Game = (function () {
         Voxel.HUD.setSelected(sel);
         Voxel.Sound.select();
       } else if (code === 'KeyE') {
-        if (Voxel.SpaceTravel && Voxel.SpaceTravel.canBoardShip && Voxel.SpaceTravel.canBoardShip()) {
+        // 逃生口：被登舰/乘坐半径劫持时按住 Alt 再按 E 强制开背包
+        if (Voxel.Controls.keys.AltLeft || Voxel.Controls.keys.AltRight) {
+          toggleInv(true);
+        }
+        // 准星命中功能方块 → 直接交互（use-hint 已承诺「按 E 打开」；
+        // 被登舰/乘坐半径覆盖时也要兑现，避免"对准箱子按 E 却没反应"）
+        else if (interactWith(Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH))) { }
+        else if (Voxel.SpaceTravel && Voxel.SpaceTravel.canBoardShip && Voxel.SpaceTravel.canBoardShip()) {
           boardShip();
         } else if (Voxel.SpaceTravel && Voxel.SpaceTravel.canOpenMap()) { openStarMap(); }
         // 售票亭附近：打开兑换面板（优先于乘坐/背包）
         else if (nearBoothPos()) { openBooth(); }
-        // 星海嘉年华乘坐台附近：长按上车（由 tickRideHold 计时），松开未达阈值照旧开背包
+        // 星海嘉年华乘坐台附近：长按上车（由 tickRideHold 计时）。
+        // 提前松手不结算也不开背包；想开背包可 Alt+E 或走出半径。
         else if (nearRideBoard()) {
           ride.pending = true; ride.holdT = 0; ride.fired = false;
         }
-        // 准星对准功能方块交互；否则开背包
+        // 准星未命中任何内容：开背包
         else {
-          var hit = Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH);
-          if (interactWith(hit)) { }
-          else toggleInv(true);
+          toggleInv(true);
         }
       } else if (code === 'KeyF') {
         Voxel.Player.setFlying(!Voxel.Player.flying());

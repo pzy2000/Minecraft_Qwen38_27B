@@ -28,18 +28,21 @@ Voxel.Controls = (function () {
     return !!target.closest('input, textarea, select, button, [contenteditable]:not([contenteditable="false"])');
   }
 
-  function isModifiedCommand(e) {
-    return !!(e.ctrlKey || e.metaKey || e.altKey);
-  }
-
   function init(c) {
     canvas = c;
     if (Voxel.Settings) sensMul = Voxel.Settings.get('sens');
     document.addEventListener('keydown', function (e) {
       // 表单、按钮、可编辑内容、IME 和浏览器快捷键完全保留原生语义。
-      if (isInteractiveTarget(e.target) || e.isComposing || isModifiedCommand(e)) return;
-      keys[e.code] = true;
+      // Ctrl/Meta 组合交还浏览器；纯 Alt 修饰键放行进游戏（Alt+E 强制开背包
+      // 的逃生口需要 keys 里能观察到 AltLeft/AltRight）。
+      if (isInteractiveTarget(e.target) || e.isComposing) return;
+      if (e.ctrlKey || e.metaKey) return;
       var gameplay = Voxel.Game && (Voxel.Game.state === 'playing' || Voxel.Game.state === 'cockpit');
+      if (gameplay && (e.code === 'AltLeft' || e.code === 'AltRight')) {
+        // 独占拦截 Alt：防止 Windows 浏览器在松开时聚焦菜单栏
+        e.preventDefault();
+      }
+      keys[e.code] = true;
       if (gameplay && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0)
         e.preventDefault();
       // repeat 只维持移动 keys；开关/一次性命令每次物理按键最多执行一次。

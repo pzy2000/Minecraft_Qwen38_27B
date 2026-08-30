@@ -2380,7 +2380,7 @@ Voxel.SpaceTravel = (function () {
       return '传送门 → ' + worldText(nearPortal.userData.destination).name + ' · 接触后免费传送';
     if (world.kind === 'station') return '航行终端：' + (Voxel.Controls.touchMode() ? '点右上角「星图」' : '按 H 打开星图');
     if (nearShip) return '飞船舱门已就绪：' + (Voxel.Controls.touchMode()
-      ? '点右上角「登舰」进入密封舱' : '按 E 登舰避难 · H 打开外部星图');
+      ? '点右上角「登舰」进入密封舱' : '按 E 登舰避难 · 准星对箱子等则直接交互 · H 打开外部星图');
     return '';
   }
 
