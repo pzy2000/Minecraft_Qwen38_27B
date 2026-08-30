@@ -452,8 +452,34 @@ window.Voxel = window.Voxel || {};
   var wcPending = Object.create(null);   // jobId -> job
   var wcQueue = [];                      // 待派发任务（受在途上限约束）
   var WC_MAX_INFLIGHT = 4;
+  // 在途任务失联看门狗：worker 侧 GenCore.create 抛错会主动上报 {type:'error'}，
+  // 但若 worker 卡死/静默吞掉 job，槽位永远不会释放且泵不再派发新任务 → 流式停滞。
+  // 超过阈值仍未收到任何结果即整体回退同步生成路径。
+  var WC_JOB_TIMEOUT_MS = 30000;
+  var wcOldestAt = 0;   // 当前在途批次的最早派发时刻（0=无在途）
 
   function wcActive() { return !wcFailed && !!wc && planetMode; }
+
+  function failWorker(why) {
+    // Worker 不可用（file:// / CSP / 加载失败 / init 抛错 / 超时失联）：整体回退同步生成。
+    wcFailed = true;
+    if (why && window.console && console.warn) console.warn('[World] 地形生成线程停用：' + why);
+    var retry = [];
+    for (var id in wcPending) if (own(wcPending, id)) retry.push(wcPending[id]);
+    retry = retry.concat(wcQueue);
+    wcQueue = [];
+    wcPending = Object.create(null);
+    try { wc.terminate(); } catch (e) { }
+    wc = null; wcInflight = 0; wcOldestAt = 0;
+    for (var i = 0; i < retry.length; i++) {
+      var j = retry[i];
+      var k2 = key(j.cx, j.cz);
+      var c2 = extra[k2];
+      if (c2 && c2.baseReady && c2.decorated) continue;
+      genQueued[k2] = true;
+      genQueue.push({ key: k2, cx: j.cx, cz: j.cz, d: j.d || 0 });
+    }
+  }
 
   function ensureWorker() {
     if (wc || wcFailed || !planetMode || typeof Worker === 'undefined') return;
@@ -462,33 +488,23 @@ window.Voxel = window.Voxel || {};
       wc.onmessage = function (e) {
         var m = e.data;
         if (!m) return;
+        // worker 侧 init 失败会主动上报 {type:'error'}；此前该消息被静默丢弃，
+        // inflight 槽被占满后泵永远不再派发 → 区块生成停滞。必须走回退。
+        if (m.type === 'error') { failWorker('初始化失败：' + (m.message || '未知')); return; }
         if (m.type !== 'chunk') return;
         var job = wcPending[m.jobId];
         if (m.epoch !== wcEpoch || !job) {
           if (job) { delete wcPending[m.jobId]; wcInflight--; }
+          if (wcInflight <= 0) { wcInflight = 0; wcOldestAt = 0; }
           return;
         }
         delete wcPending[m.jobId];
         wcInflight--;
+        if (wcInflight <= 0) wcOldestAt = 0;
         installWorkerChunk(job.cx, job.cz, m.blocks, m.heights, m.biomes);
       };
       wc.onerror = function () {
-        // Worker 不可用（file:// / CSP / 加载失败）：整体回退同步生成。
-        wcFailed = true;
-        var retry = [];
-        for (var id in wcPending) if (own(wcPending, id)) retry.push(wcPending[id]);
-        retry = retry.concat(wcQueue);
-        wcQueue = [];
-        wcPending = Object.create(null);
-        wc = null; wcInflight = 0;
-        for (var i = 0; i < retry.length; i++) {
-          var j = retry[i];
-          var k2 = key(j.cx, j.cz);
-          var c2 = extra[k2];
-          if (c2 && c2.baseReady && c2.decorated) continue;
-          genQueued[k2] = true;
-          genQueue.push({ key: k2, cx: j.cx, cz: j.cz, d: j.d || 0 });
-        }
+        failWorker('加载失败');
       };
       wc.postMessage({ type: 'init', epoch: wcEpoch, seed: seed, profile: profile });
     } catch (e) {
@@ -499,11 +515,20 @@ window.Voxel = window.Voxel || {};
 
   function pumpWorkerResults() {
     if (!wcActive()) return;
+    // 看门狗：有在途任务且长时间零回报 → 判定 worker 失联，回退同步路径
+    if (wcInflight > 0) {
+      var nowMs = perfNow();
+      if (!wcOldestAt) wcOldestAt = nowMs;
+      else if (nowMs - wcOldestAt > WC_JOB_TIMEOUT_MS) { failWorker('在途任务超时'); return; }
+    } else if (wcOldestAt) {
+      wcOldestAt = 0;
+    }
     while (wcInflight < WC_MAX_INFLIGHT && wcQueue.length) {
       var job = wcQueue.shift();
       var k = key(job.cx, job.cz);
       var ch = extra[k];
       if (ch && ch.baseReady && ch.decorated) { delete genQueued[k]; continue; }   // 已被同步路径完成
+      if (!wcOldestAt) wcOldestAt = perfNow();
       var id = wcNextId++;
       wcPending[id] = job;
       wcInflight++;
@@ -831,6 +856,7 @@ window.Voxel = window.Voxel || {};
     wcQueue.length = 0;
     wcPending = Object.create(null);
     wcInflight = 0;
+    wcOldestAt = 0;
     if (wc) {
       try { wc.postMessage({ type: 'init', epoch: wcEpoch, seed: seed, profile: worldProfile }); }
       catch (e) { wcFailed = true; wc = null; }

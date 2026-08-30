@@ -1,6 +1,32 @@
 // 全局常量配置
 window.Voxel = window.Voxel || {};
 
+// 全局错误兜底：未捕获异常只进控制台时，玩家面对的往往是"无声冻结"。
+// 这里把异常落到常驻的 #error-banner（textContent 写入，无 XSS 面）。
+// 注意限频：主循环若每帧抛错会持续触发 error 事件，不能刷屏。
+(function () {
+  var lastReport = 0;
+  function report(reason) {
+    var now = (window.performance && performance.now()) || Date.now();
+    if (now - lastReport < 5000) return;
+    lastReport = now;
+    var el = document.getElementById('error-banner');
+    if (!el) return;
+    el.textContent = '发生错误：' + reason;
+    el.style.display = 'block';
+  }
+  // 测试沙箱（node vm）里的 window 可能没有事件 API，守卫后再挂
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('error', function (e) {
+      report((e && e.message) || '脚本执行出错');
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e && e.reason;
+      report((r && (r.message || String(r))) || 'Promise 异常');
+    });
+  }
+})();
+
 Voxel.Config = {
   // 世界
   WORLD_W: 256,        // X 方向方块数

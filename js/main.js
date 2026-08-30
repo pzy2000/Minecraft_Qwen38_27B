@@ -5523,9 +5523,16 @@ Voxel.Game = (function () {
 
     // preserveDrawingBuffer 仅捕获模式开启（测试像素采样）；常驻开启会拖慢移动端合成
     var CAPTURE = !!(window.__CAPTURE__ || /[?&]capture=1/.test(location.search));
-    renderer = new THREE.WebGLRenderer({
-      canvas: canvas, antialias: false, preserveDrawingBuffer: CAPTURE
-    });
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas, antialias: false, preserveDrawingBuffer: CAPTURE
+      });
+    } catch (glErr) {
+      // 无 WebGL 环境（旧设备/企业浏览器禁用硬件加速）在此抛错：后续接线全部不执行，
+      // 必须翻译成可理解的原因，由启动兜底展示降级提示而不是无声黑屏。
+      throw new Error('无法创建 WebGL 渲染器（浏览器不支持或已禁用硬件加速）：' +
+        (glErr && glErr.message ? glErr.message : glErr));
+    }
     // 渲染分辨率：基础 DPR（桌面≤2 / 触屏≤1.5）× 用户缩放（设置滑条）
     var baseDPR = Math.min(window.devicePixelRatio || 1,
       (Voxel.Touch && Voxel.Touch.enabled) ? 1.5 : 2);
@@ -6198,5 +6205,22 @@ Voxel.Game = (function () {
   return Game;
 })();
 
-// 启动
-Voxel.Game.init();
+// 启动。init 里渲染器创建等任何一步失败都会中断界面接线——
+// 此时玩家看到的是黑屏 + 卡在 loading，必须兜底显示可理解的原因。
+// #error-banner 由 config.js 的全局兜底与本处共同使用；init 失败时
+// 帧循环尚未启动、4 秒自动隐藏不会生效，因此提示会一直保留。
+try {
+  Voxel.Game.init();
+} catch (bootErr) {
+  var bootMsg = '游戏初始化失败：' +
+    (bootErr && bootErr.message ? bootErr.message : bootErr) +
+    ' —— 请确认浏览器支持 WebGL（Chrome / Edge / Firefox / Safari），或尝试刷新页面。';
+  try {
+    var banner = document.getElementById('error-banner');
+    if (banner) {
+      banner.textContent = bootMsg;
+      banner.style.display = 'block';
+    }
+  } catch (e2) { /* 无 DOM 环境只留控制台 */ }
+  if (window.console && console.error) console.error('[Voxel] init failed:', bootErr);
+}

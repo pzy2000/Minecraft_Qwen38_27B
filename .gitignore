@@ -1,5 +1,7 @@
 node_modules/
 .DS_Store
 assets_src/dl/
+# 本地测试用浏览器二进制（CI 用 @puppeteer/browsers 动态安装，不进版本库）
+chrome/
 # WorkBuddy 会话记忆/项目笔记（工具生成的本地数据，不该进版本库）
 .workbuddy/

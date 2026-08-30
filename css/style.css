@@ -293,6 +293,10 @@ body { position: relative; }
   border: 2px solid rgba(255, 255, 255, 0.25);
 }
 #hotbar .slot { flex: 0 0 auto; pointer-events: auto; cursor: pointer; } /* 可拖拽（仅背包打开时生效） */
+/* 触控模式下快捷栏必须浮在手势捕获层（z-index:7）之上：
+   否则轻点槽位会被 .touch-capture 截获变成摇杆/转视角手势，
+   结算时还会穿透到快捷栏背后的世界误放方块。 */
+body[data-touch-mode="true"] #hotbar { z-index: 8; }
 body.panel-open #hotbar { z-index: 11; } /* 面板打开时快捷栏浮在遮罩上，可拖拽 */
 
 /* 装备栏：贴在快捷栏左侧的竖排三格（头部/身体/充能） */
@@ -1209,6 +1213,10 @@ body[data-touch-mode="true"][data-save-health="unsaved"] .touch-btn-top.pause::a
 }
 .touch-btn-top.pause { right: calc(64px + env(safe-area-inset-right)); }
 .touch-btn-top.bag { right: calc(12px + env(safe-area-inset-right)); }
+/* 成就（J）/ 图鉴（B）触控入口：排在 pause 左侧同排，缺省规则会让
+   两个绝对定位按钮水平回落到文档流位置而堆叠错位 */
+.touch-btn-top.achlog { right: calc(116px + env(safe-area-inset-right)); }
+.touch-btn-top.codex { right: calc(168px + env(safe-area-inset-right)); }
 
 /* 竖屏提示遮罩 */
 #rotate-hint {
@@ -3693,6 +3701,20 @@ body.scan-scanning #scan-progress i,
     top: max(4px, env(safe-area-inset-top));
     left: max(108px, calc(env(safe-area-inset-left) + 108px));
   }
+  /* 220px 级超窄竖屏放不下四个入口，成就/图鉴换行到第二排 */
+  .touch-btn-top.achlog,
+  .touch-btn-top.codex {
+    top: calc(max(4px, env(safe-area-inset-top)) + 50px);
+    right: auto;
+    width: 44px;
+    height: 44px;
+  }
+  .touch-btn-top.achlog {
+    left: max(58px, calc(env(safe-area-inset-left) + 58px));
+  }
+  .touch-btn-top.codex {
+    left: max(108px, calc(env(safe-area-inset-left) + 108px));
+  }
   .touch-btn-main {
     top: max(108px, calc(env(safe-area-inset-top) + 108px));
     left: max(108px, calc(env(safe-area-inset-left) + 108px));
@@ -3969,6 +3991,14 @@ body.scan-scanning #scan-progress i,
   }
   .touch-btn-top.pause { left: max(180px, calc(env(safe-area-inset-left) + 180px)); }
   .touch-btn-top.bag { left: max(232px, calc(env(safe-area-inset-left) + 232px)); }
+  .touch-btn-top.achlog,
+  .touch-btn-top.codex {
+    right: auto;
+    width: 44px;
+    height: 44px;
+  }
+  .touch-btn-top.achlog { left: max(284px, calc(env(safe-area-inset-left) + 284px)); }
+  .touch-btn-top.codex { left: max(336px, calc(env(safe-area-inset-left) + 336px)); }
   #health,
   #hunger,
   #oxygen {
