@@ -320,7 +320,9 @@ Voxel.Amusement = (function () {
           var ha = i / nHorse * Math.PI * 2;
           seats[i].position.set(Math.cos(ha) * 4.2, 1.6 + (reducedMotion ? 0 :
             Math.sin(now * 2.1 + i * 1.7) * 0.34), Math.sin(ha) * 4.2);
-          seats[i].rotation.y = -ha;
+          // 马头朝行进切向：局部 +x 为马头，rotation.y=φ → 头朝 (cos φ,-sin φ)，
+          // 速度方向 (-sin ha, cos ha) → φ = ha - π/2
+          seats[i].rotation.y = ha - Math.PI / 2;
         }
         return theta;
       },
@@ -331,7 +333,9 @@ Voxel.Amusement = (function () {
         _pose.pos.set(g.position.x + Math.cos(ha) * 4.2,
           g.position.y + 1.6 + (reducedMotion ? 0 : Math.sin(now * 2.1) * 0.34) + 2.3,
           g.position.z + Math.sin(ha) * 4.2);
-        _pose.yaw = -(ha + Math.PI / 2); _pose.pitch = 0; _pose.fovOff = 0;
+        // 乘员视线朝行进切向：yaw ψ → 视线 (-sin ψ,-cos ψ)，速度 (-sin ha,cos ha)
+        // → ψ = π - ha
+        _pose.yaw = Math.PI - ha; _pose.pitch = 0; _pose.fovOff = 0;
         return _pose;
       }
     };
