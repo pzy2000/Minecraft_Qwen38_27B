@@ -3,6 +3,10 @@ window.Voxel = window.Voxel || {};
 
 Voxel.Sound = (function () {
   var ctx = null, master = null, noiseBuffer = null;
+  // 总线扩展：遮挡低通 + 洞窟混响 + 音乐压混（ac() 首次创建）
+  var occlLP = null, occLevel = 0;
+  var convolver = null, reverbWet = null, reverbTarget = 0;
+  var duckG = null, duckTarget = 0;
   var MAX_SOUND_DIST = 34;
   var uwActive = false, muffle = null, uwSrc = null, uwLoopGain = null;
 
@@ -40,19 +44,105 @@ Voxel.Sound = (function () {
       ctx = new AC();
       master = ctx.createGain();
       master.gain.value = userVol;
-      master.connect(ctx.destination);
+      // 遮挡低通总线：所有 sfx/music 都汇入 master，再经 occlLP 出声。
+      // 平时全通（20kHz），世界音源被墙体遮挡时由 spatial() 采样驱动降频。
+      occlLP = ctx.createBiquadFilter();
+      occlLP.type = 'lowpass';
+      occlLP.frequency.value = 20000;
+      occlLP.Q.value = 0.3;
+      master.connect(occlLP);
+      occlLP.connect(ctx.destination);
+      // 洞窟混响发送：busOut 上并联一条卷积混响支路（干湿并行），
+      // 湿度由 setReverb(level) 按玩家是否处于封闭地下空间驱动。
+      try {
+        convolver = ctx.createConvolver();
+        convolver.buffer = makeCaveIR(ctx);
+        reverbWet = ctx.createGain();
+        reverbWet.gain.value = 0;
+        var sendGain = ctx.createGain();
+        sendGain.gain.value = 1;
+        occlLP.disconnect(); occlLP.connect(sendGain);
+        sendGain.connect(ctx.destination);
+        sendGain.connect(convolver);
+        convolver.connect(reverbWet);
+        reverbWet.connect(ctx.destination);
+      } catch (rvErr) { convolver = null; reverbWet = null; }
       musicGain = ctx.createGain();
       musicGain.gain.value = 0;
-      musicGain.connect(master);
+      // 音乐压混（战斗 ducking）：musicGain 之后串一级 duckG
+      duckG = ctx.createGain();
+      duckG.gain.value = 1;
+      musicGain.connect(duckG);
+      duckG.connect(master);
     }
     if (ctx.state === 'suspended') {
       // 某些浏览器在手势已失效时会拒绝 resume；音效仍可继续使用程序化兜底。
       try {
         var resumeResult = ctx.resume();
-        if (resumeResult && resumeResult.catch) resumeResult.catch(function () { });
+        resumeResult && resumeResult.catch && resumeResult.catch(function () { });
       } catch (e) { }
     }
     return ctx;
+  }
+
+  // 生成 2.2s 指数衰减立体声噪声脉冲响应：短促早反射 + 长尾，模拟洞窟混响
+  function makeCaveIR(c) {
+    var len = Math.floor(c.sampleRate * 2.2);
+    var ir = c.createBuffer(2, len, c.sampleRate);
+    for (var ch = 0; ch < 2; ch++) {
+      var d = ir.getChannelData(ch);
+      for (var i = 0; i < len; i++) {
+        var t = i / len;
+        var decay = Math.pow(1 - t, 2.6);
+        d[i] = (Math.random() * 2 - 1) * decay * (i < len * 0.04 ? 1.6 : 0.8);
+      }
+    }
+    return ir;
+  }
+
+  // 世界音源遮挡采样：玩家→音源连线上不透明格占比（0~1，三点采样）。
+  // 由 spatial() 调用并把结果平滑进总线低通频率。
+  function sampleOcc(x, y0, z) {
+    if (!Voxel.World || !Voxel.Player) return 0;
+    try {
+      var p = Voxel.Player.pos();
+      var ay = p.y + 1.4;
+      var by = y0;
+      var hit = 0;
+      for (var k = 1; k <= 3; k++) {
+        var t = k / 4;
+        var sx = Math.floor(p.x + (x - p.x) * t);
+        var sy = Math.floor(ay + (by - ay) * t);
+        var sz = Math.floor(p.z + (z - p.z) * t);
+        if (Voxel.Blocks.isOpaque(Voxel.World.get(sx, sy, sz))) hit++;
+      }
+      return hit / 3;
+    } catch (e) { return 0; }
+  }
+
+  // 音源高度近似：地表系统只拿得到 x/z，取玩家脚底 ±1 格带内采样即可反映隔墙
+  function applyOcclusionToBus(rawOcc) {
+    occLevel += (rawOcc - occLevel) * 0.25;
+    if (!ctx || !occlLP || uwActive) return;   // 水下已有自己的闷音链
+    var f = 20000 - occLevel * occLevel * 18500;
+    if (occLevel > 0.01 && f < 7000) f = Math.max(900, f);
+    occlLP.frequency.setTargetAtTime(f, ctx.currentTime, 0.18);
+  }
+
+  // 洞窟混响湿度（0~1）：main.js 每秒按"头顶实心覆层厚度"回报
+  function setReverb(level) {
+    level = Math.max(0, Math.min(1, level || 0));
+    reverbTarget = level;
+    if (ctx && reverbWet)
+      reverbWet.gain.setTargetAtTime(level * 0.38, ctx.currentTime, 0.6);
+  }
+
+  // 战斗压混音：0=正常音量 1=完全压低。主循环在交战状态切换时调用。
+  function setDuck(amount) {
+    amount = Math.max(0, Math.min(1, amount || 0));
+    duckTarget = amount;
+    if (ctx && duckG)
+      duckG.gain.setTargetAtTime(1 - amount * 0.72, ctx.currentTime, 0.45);
   }
 
   // 用户音量（0~1）
@@ -410,26 +500,28 @@ Voxel.Sound = (function () {
     return spatial(x, z).vol;
   }
 
-  // 距离衰减 + 立体声定位
+  // 距离衰减 + 立体声定位 + 遮挡采样（墙体把声音闷掉）
   function spatial(x, z) {
     if (!Voxel.Player) return { vol: 0, pan: 0 };
     var p = Voxel.Player.pos();
     var dx = x - p.x, dz = z - p.z;
     var d = Math.sqrt(dx * dx + dz * dz);
+    // 三点连线遮挡率进总线低通（世界音源的"隔墙发闷"）
+    applyOcclusionToBus(sampleOcc(x, p.y + Math.min(2.2, Math.max(0.5, d / 4)), z));
     if (d > MAX_SOUND_DIST) return { vol: 0, pan: 0 };
     // 以玩家朝向为参照做左右定位
     var yaw = (Voxel.Controls && Voxel.Controls.yaw()) || 0;
     var sin = Math.sin(yaw), cos = Math.cos(yaw);
     var right = dx * cos - dz * sin;   // 玩家右手方向分量
     var pan = Math.max(-1, Math.min(1, right / 10));
-    return { vol: 1 - d / MAX_SOUND_DIST, pan: pan };
+    return { vol: (1 - d / MAX_SOUND_DIST), pan: pan };
   }
 
   // 水下：master 串入低通闷音 + 持续低频水声
   function setUnderwater(on) {
     if (!!on === uwActive) return;
     var c = ac();
-    if (!c) return;
+    if (!c || !occlLP) { uwActive = !!on; return; }
     uwActive = !!on;
     if (on) {
       if (!muffle) {
@@ -437,20 +529,21 @@ Voxel.Sound = (function () {
         muffle.type = 'lowpass';
         muffle.frequency.value = 750;
       }
-      try { master.disconnect(); } catch (e) { }
-      master.connect(muffle);
+      try { occlLP.disconnect(); } catch (e) { }
+      occlLP.connect(muffle);
       muffle.connect(c.destination);
-      master.gain.setTargetAtTime(Math.min(1, userVol * 1.2), c.currentTime, 0.05);
-      startUwLoop(c);
+      // 水下额外压混响（水介质高吸收）
+      if (reverbWet) reverbWet.gain.setTargetAtTime(0.05, c.currentTime, 0.2);
     } else {
       if (muffle) {
         try { muffle.disconnect(); } catch (e) { }
       }
-      try { master.disconnect(); } catch (e) { }
-      master.connect(c.destination);
-      master.gain.setTargetAtTime(userVol, c.currentTime, 0.05);
-      stopUwLoop(c);
+      try { occlLP.disconnect(); } catch (e) { }
+      occlLP.connect(c.destination);
+      if (reverbWet) reverbWet.gain.setTargetAtTime(reverbTarget * 0.38, c.currentTime, 0.3);
     }
+    master.gain.setTargetAtTime(uwActive ? Math.min(1, userVol * 1.2) : userVol, c.currentTime, 0.05);
+    if (uwActive) startUwLoop(c); else stopUwLoop(c);
   }
 
   function startUwLoop(c) {
@@ -909,6 +1002,8 @@ Voxel.Sound = (function () {
     matFreq: matFreq,
     decodedCount: function () { return Object.keys(buffers).length; },
     setVolume: setVolume,
+    setReverb: setReverb,
+    setDuck: setDuck,
     rainSet: rainSet,
     thunder: thunder,
     dig: function (m) {
@@ -1092,6 +1187,31 @@ Voxel.Sound = (function () {
     },
     // 头部浸水：闷音 + 水下环境声
     setUnderwater: setUnderwater,
+    // 狼嚎（程序化）：低频上滑长音 + 尾音回落
+    wolf: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0));
+      if (v <= 0.02) return;
+      tone('sawtooth', 180, 320, 0.55, v * 0.22);
+      setTimeout(function () { tone('sawtooth', 300, 150, 0.5, v * 0.16); }, 480);
+    },
+    wolfHurt: function (vol, pan) {
+      var v = Math.max(0, Math.min(1, vol || 0)) * 0.8;
+      if (v <= 0.02) return;
+      noiseHit(700, 1.2, 0.09, v * 0.3);
+      toneVib('sawtooth', 260, 120, 0.22, v * 0.32, 14, 22, 900);
+    },
+    // 弓弦释放：短噪声扫频 + 木质感点音
+    bow: function () {
+      if (!catOn('Ui')) return;
+      noiseHit(2400, 2.2, 0.05, 0.18);
+      tone('square', 210, 130, 0.06, 0.12);
+    },
+    // 喂食爱心：两段上行风铃
+    heart: function () {
+      if (!catOn('Ui')) return;
+      tone('sine', 880, 1180, 0.09, 0.14);
+      setTimeout(function () { tone('sine', 1100, 1450, 0.11, 0.13); }, 90);
+    },
     hit: function () {
       if (!catOn('Ui')) return;
       if (play(pick(['land_0', 'land_1']), 0.5, 1.5)) return;

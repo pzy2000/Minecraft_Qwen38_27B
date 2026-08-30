@@ -214,9 +214,9 @@ check(' totalOf 分类统计与全量一致', (function () {
 })());
 
 // ---------- 图鉴逻辑 ----------
-check('图鉴生物档案 6 种且 type 与游戏生物一致', (function () {
-  var types = ['sheep', 'pig', 'chicken', 'rabbit', 'cat', 'zombie'];
-  if (Codex.FAUNA.length !== 6) return false;
+check('图鉴生物档案 7 种且 type 与游戏生物一致', (function () {
+  var types = ['sheep', 'pig', 'chicken', 'rabbit', 'cat', 'zombie', 'wolf'];
+  if (Codex.FAUNA.length !== 7) return false;
   for (var i = 0; i < types.length; i++) {
     var hit = false;
     for (var j = 0; j < Codex.FAUNA.length; j++)
@@ -234,7 +234,8 @@ check('图鉴物品条目覆盖注册表并排除无效项', (function () {
   for (var i = 1; i < defs.length; i++) {
     var d = defs[i];
     if (!d) continue;
-    if (d.tool || d.food || ORE[i] ||
+    // 与 Codex.classify 同口径：仅 pick/sword 计入工具；bow 等其它 item 属"无归属物品"
+    if ((d.tool === 'pick' || d.tool === 'sword') || d.food || ORE[i] ||
       [100, 107, 108, 121, 122].indexOf(i) >= 0 ||
       [15, 17, 19, 37, 38].indexOf(i) >= 0 ||
       [4, 20, 22, 33, 35, 46, 52, 57].indexOf(i) >= 0 ||

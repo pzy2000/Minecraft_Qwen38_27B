@@ -73,7 +73,10 @@ Voxel.Codex = (function () {
       body: '#e0aa6e', belly: '#eeC79a', head: '#e0aa6e', eye: '#4a7d3a', extra: '#b57f43' },
     { type: 'zombie', name: '僵尸', habitat: '夜晚的地表 · 黑暗角落', drops: '腐坏气息',
       behavior: '危险的敌对生物，夜间主动袭击。保持距离或筑起围墙——小心它的拥抱。',
-      body: '#5f8f52', belly: '#4c7042', head: '#74a862', eye: '#1e2a1c', extra: '#37502f' }
+      body: '#5f8f52', belly: '#4c7042', head: '#74a862', eye: '#1e2a1c', extra: '#37502f' },
+    { type: 'wolf', name: '狼', habitat: '森林 · 针叶林 · 黑森林', drops: '箭',
+      behavior: '中立的掠食者，猎捕弱小生物为食。手持生肉喂两次即可驯服——它会跟随并保护你。',
+      body: '#8a8074', belly: '#9a9288', head: '#8a8074', eye: '#f2d84e', extra: '#6b625a' }
   ];
 
   // ---------- 生物像素像 ----------

@@ -441,6 +441,26 @@
   </div>
 </div>
 
+<!-- 村民委托面板（商队旅人） -->
+<div id="overlay-villager" class="overlay hidden">
+  <div class="panel booth-panel" role="dialog" aria-modal="true"
+       aria-labelledby="villager-title" aria-describedby="villager-intro">
+    <div class="panel-titlebar">
+      <div class="discovery-heading">
+        <div class="discovery-kicker">SETTLEMENT TRADE // CARAVAN</div>
+        <h2 id="villager-title">村民委托</h2>
+      </div>
+      <button id="btn-villager-close" class="panel-close" type="button"
+              aria-label="关闭对话" title="关闭对话">×</button>
+    </div>
+    <p id="villager-intro" role="status" aria-live="polite"></p>
+    <div id="villager-quests" class="booth-actions" role="group" aria-label="可交付的委托">
+      <!-- JS 动态填充委托按钮 -->
+    </div>
+    <p class="booth-note">完成委托获得乐园代币 · 同一村庄每项委托只能领取一次</p>
+  </div>
+</div>
+
 <div id="overlay-discovery" class="overlay discovery-overlay hidden" data-page-node-id="pAC2rwfKP6R9ytCXoicCnC">
   <div class="panel discovery-panel" role="dialog" aria-modal="true"
        aria-labelledby="discovery-title" aria-describedby="discovery-reward" data-page-node-id="JyCIsSetnTHYbbUgQOPCrs">
@@ -652,32 +672,32 @@
 <script src="vendor/postprocessing/EffectComposer.js?v=20260828a"></script>
 <script src="vendor/postprocessing/RenderPass.js?v=20260828a"></script>
 <script src="vendor/postprocessing/UnrealBloomPass.js?v=20260828a"></script>
-<script src="js/config.js?v=d23a4a18d22715b85da237dd5cd6cd30a9b867c538d459e8291aacef86605b63"></script>
+<script src="js/config.js?v=78136d807f4aa5f05abd028420de0bc243f38d55318bd80a02376f07f49d3b08"></script>
 <script src="js/assets.js?v=eab5034d9b128a1e02ac417d551fb5263c97c8b1e723d483226baa41d5060c00"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
 <script src="js/world/universe.js?v=20260825b"></script>
 <script src="js/world/galaxy.js?v=20260825c"></script>
 <script src="js/systems/atmosphere_profiles.js?v=20260824m"></script>
 <script src="js/world/noise.js?v=20260823f"></script>
-<script src="js/world/biomes.js?v=20260827b"></script>
+<script src="js/world/biomes.js?v=20260830a"></script>
 <script src="js/world/planet_rules.js?v=20260830a"></script>
 <script src="js/world/shaper.js?v=20260823f"></script>
 <script src="js/world/structures.js?v=20260826a"></script>
 <script src="js/world/gen_core.js?v=20260829"></script>
-<script src="js/blocks.js?v=20260830a"></script>
+<script src="js/blocks.js?v=20260830b"></script>
 <script src="js/systems/discovery.js?v=20260826a"></script>
-<script src="js/systems/progress.js?v=20260828a"></script>
+<script src="js/systems/progress.js?v=20260830a"></script>
 <script src="js/systems/tutorial.js?v=20260828a"></script>
 <script src="js/systems/endgame.js?v=20260830a"></script>
 <script src="js/systems/achievements.js?v=20260828a"></script>
-<script src="js/crafting.js?v=20260830a"></script>
+<script src="js/crafting.js?v=20260830b"></script>
 <script src="js/world/world.js?v=20260827b"></script>
 <script src="js/world/infinite.js?v=20260827b"></script>
 <script src="js/world/mesh.js?v=20260829a"></script>
 <script src="js/systems/shadow.js?v=20260826a"></script>
 <script src="js/player/physics.js?v=20260824c"></script>
 <script src="js/player/controls.js?v=18832de4c5b3f017b9bfd6963888af2bff7a9abdd8b2d1eced7e0072ea4e83b3"></script>
-<script src="js/player/player.js?v=5b1e96d6718a1d8a830f5ae87357fc1f141a3701c0bfe04261bece2499c4922c"></script>
+<script src="js/player/player.js?v=177889586ea9d7058ea3e710a076f461903c79ef130946ffbbf94c4a9356d2c7"></script>
 <script src="js/interact/raycast.js?v=20260823f"></script>
 <script src="js/systems/settings.js?v=20260828a"></script>
 <script src="js/systems/environment.js?v=8bf70b6db5dc0505d14ed6d79de466c7140aca91dc8f4e0a72332ebf3bd80ac2"></script>
@@ -688,20 +708,20 @@
 <script src="js/systems/atmosphere.js?v=20260824m"></script>
 <script src="js/systems/daynight.js?v=20260824m"></script>
 <script src="js/systems/weather.js?v=62b409479c29df608ddf131119b8c557ab16741fe60bdcade8dedd4c41ae151b"></script>
-<script src="js/systems/sound.js?v=db82c5ae22c2778ea2690e8660e3ba475e42b6623a89c148d455031ef7dc92ba"></script>
+<script src="js/systems/sound.js?v=65f47bac4f40e557d16fba7b286ac374612b0f1da5e2be878fae1914e7b19326"></script>
 <script src="js/systems/furnace.js?v=20260830a"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
 <script src="js/ui/galaxy_map.js?v=20260825a"></script>
 <script src="js/systems/space_travel.js?v=20260829a"></script>
 <script src="js/systems/bloom.js?v=20260828b"></script>
-<script src="js/entities/mobs.js?v=e71492aadd892b4d7283893178368c4196912b84650930c66e403dd422fc28e9"></script>
+<script src="js/entities/mobs.js?v=8e83d8c345415e6eab3ba3bc0ff436d9d54669007c089621f0b588f11d9e91c1"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
 <script src="js/systems/save.js?v=cba0c4671eae3b97c885095d44ed85e6997895232fb01db964721a4c5ffd1f3b"></script>
 <script src="js/ui/handitem.js?v=3bbb6d458732035d4ea791b5a8494ecd5d3974925a30d3b8778cce723d3c4343"></script>
 <script src="js/ui/featured.js?v=c3dd8db1be16725eb7292c7232a857816b01abecc2f33c212711d74ffaceb1bd"></script>
 <script src="js/ui/touch.js?v=ac57bb7c7e0c9eb318c44dcf078d059293791d532f6599855f55b120069c75a0"></script>
 <script src="js/ui/hud.js?v=20260830a"></script>
-<script src="js/ui/codex.js?v=20260829a"></script>
-<script src="js/main.js?v=aa17a81513b1537b8c59727a5a1b53722322003e893271c3cb3622707ef9eea2"></script>
+<script src="js/ui/codex.js?v=20260830a"></script>
+<script src="js/main.js?v=207a8d9bdd649de7132a19a2a76c22e94452b87b453c3175ef38edd5f461cec8"></script>
 </body>
 </html>

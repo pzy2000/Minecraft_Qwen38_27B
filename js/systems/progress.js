@@ -20,7 +20,8 @@ Voxel.Progress = (function () {
       biomes: {},     // 图 biome idx -> true
       ach: {},        // 成就解锁：achId -> 时间戳
       tut: { started: false, step: 0, done: false },
-      end: { i: 0, done: false }   // 终局任务链（systems/endgame.js）
+      end: { i: 0, done: false },   // 终局任务链（systems/endgame.js）
+      quests: {}      // 村民委托：questKey -> true（deliverAndClaim 写入）
     };
   }
 
@@ -86,6 +87,7 @@ Voxel.Progress = (function () {
       i: num(en && en.i, 0),
       done: !!(en && en.done)
     };
+    s.quests = cleanBoolMap(raw.quests);
     state = s;
     return true;
   }
@@ -194,6 +196,9 @@ Voxel.Progress = (function () {
         s.rides = s.rides || {};
         if (data.kind) s.rides[String(data.kind)] = true;
         bump(s.c, 'rides', 1);
+        break;
+      case 'quest':      // 村民委托完成
+        bump(s.c, 'quests', 1);
         break;
       default:
         // 非计数事件（如 use_block）仍需广播给订阅者（教程判定用）

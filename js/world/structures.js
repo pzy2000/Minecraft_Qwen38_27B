@@ -1766,6 +1766,7 @@ Voxel.Structures = (function () {
     cellVillage: cellVillage,
     buildVillage: buildVillage,
     villageChests: villageChests,
+    villageHouseList: villageHouseList,
     // 地下遗迹地窖
     cellDungeon: cellDungeon,
     buildDungeon: buildDungeon,

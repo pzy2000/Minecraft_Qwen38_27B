@@ -48,7 +48,10 @@ Voxel.Blocks = (function () {
     ROOF_BLUE: 125, NEON_PURPLE: 126, NEON_CYAN: 127, BUNTING: 128,
     RIDE_PAD: 129, CASTLE_PINK: 130, CASTLE_BLUE: 131,
     TOKEN: 132, FW_ROD: 133,
-    GLASS_RED: 134, GLASS_CYAN: 135, GLASS_GOLD: 136
+    GLASS_RED: 134, GLASS_CYAN: 135, GLASS_GOLD: 136,
+    // 战斗装备瓦片（稳定序号 137..142，只追加不移动）
+    BOW: 137, ARROW: 138, CAP_FELT: 139, TUNIC_FELT: 140,
+    HELM_IRON: 141, CHESTPLATE_IRON: 142
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -378,6 +381,31 @@ Voxel.Blocks = (function () {
     defs[133] = { name: '烟花棒', item: true, solid: false, opaque: false,
       tiles: [T.FW_ROD, T.FW_ROD, T.FW_ROD], sound: 'wood', color: 0xd8574f,
       maxStack: 16, icon: T.FW_ROD };
+
+    // ---- 战斗装备（稳定物品 ID 134..139）----
+    // 只在尾部追加，不得复用/移动旧 ID。
+    // 弓：手持右键发射背包中的箭；远程伤害 6，攻速受独立冷却约束。
+    defs[134] = { name: '弓', item: true, solid: false, opaque: false,
+      tiles: [T.BOW, T.BOW, T.BOW], sound: 'wood', color: 0x8a6a42,
+      tool: 'bow', maxDur: 385, maxStack: 1, icon: T.BOW };
+    // 箭：弓的弹药（石头镞 + 木杆），可堆叠
+    defs[135] = { name: '箭', item: true, solid: false, opaque: false,
+      tiles: [T.ARROW, T.ARROW, T.ARROW], sound: 'wood', color: 0xbdb8a5,
+      maxStack: 64, icon: T.ARROW };
+    // 护甲：gearSlot 接入现有装备槽系统。armor 为物理减伤系数（近战/箭矢/爆炸），
+    // 与环境防护装备（防毒面具/防寒服）互不冲突——同一槽位装哪个由玩家取舍。
+    defs[136] = { name: '毡帽', item: true, solid: false, opaque: false,
+      tiles: [T.CAP_FELT, T.CAP_FELT, T.CAP_FELT], sound: 'wool', color: 0xc4b8a6,
+      gearSlot: 'head', armor: 0.10, maxDur: 160, maxStack: 1, icon: T.CAP_FELT };
+    defs[137] = { name: '毡衣', item: true, solid: false, opaque: false,
+      tiles: [T.TUNIC_FELT, T.TUNIC_FELT, T.TUNIC_FELT], sound: 'wool', color: 0xc4b8a6,
+      gearSlot: 'body', armor: 0.12, maxDur: 220, maxStack: 1, icon: T.TUNIC_FELT };
+    defs[138] = { name: '铁盔', item: true, solid: false, opaque: false,
+      tiles: [T.HELM_IRON, T.HELM_IRON, T.HELM_IRON], sound: 'stone', color: 0xd8d8d8,
+      gearSlot: 'head', armor: 0.22, maxDur: 400, maxStack: 1, icon: T.HELM_IRON };
+    defs[139] = { name: '铁胸甲', item: true, solid: false, opaque: false,
+      tiles: [T.CHESTPLATE_IRON, T.CHESTPLATE_IRON, T.CHESTPLATE_IRON], sound: 'stone',
+      color: 0xd8d8d8, gearSlot: 'body', armor: 0.26, maxDur: 520, maxStack: 1, icon: T.CHESTPLATE_IRON };
 
   var atlasCanvas = null, atlasTexture = null;
   function rng(seed) {
@@ -1518,6 +1546,64 @@ Voxel.Blocks = (function () {
       if (dd < 4.6 && r() < 0.10) return [255, 170 + n(r, 0, 40), 80]; // 火花点
       return;
     });
+
+    // ---- 战斗装备瓦片（透明底物品画）----
+    drawTile(T.BOW, function (x, y, r) {
+      // 弓：右侧竖弦 + 弓身弧线 + 握把缠带
+      var dx = x - 4.5, dy = y - 7.5;
+      var arc = Math.abs(Math.sqrt(dx * dx + dy * dy) - 6.2) < 1.5 &&
+        dx >= -1 && x <= 9 && Math.abs(dy) < 7.5;
+      if (arc) {
+        var v = n(r, 0, 12);
+        var grip = y >= 6 && y <= 9 && x >= 3 && x <= 6;
+        if (grip) return [142 + v, 102 + v, 60];                 // 缠带段
+        return [128 + v, 90 + v, 48];                             // 弓身
+      }
+      if (x === 11 || x === 12) {
+        var sv = n(r, 0, 8);
+        if (y >= 2 && y <= 13) return [232 + sv, 226 + sv, 210]; // 弦
+      }
+      return;
+    });
+    drawTile(T.ARROW, function (x, y, r) {
+      // 箭：石镞头 + 直杆 + 尾羽两撇
+      var d = Math.abs((x - 4) - (y - 3));   // 左上→右下主轴
+      var v = n(r, 0, 8);
+      if (d < 0.9 && x >= 2 && x <= 12) return [150 + v, 146 + v, 132]; // 杆
+      var tipD = Math.abs((x - 9.5) - (y - 3));
+      if ((tipD < 1.6 && x >= 9 && x <= 12 && y >= 2 && y <= 6)) {
+        return [190 + v, 188 + v, 176];                          // 石镞
+      }
+      var fD = Math.abs((x - 2.5) - (y - 9));
+      if (Math.abs(fD - 1.4) < 1.1 && x <= 5 && y >= 7)
+        return [216 + v, 87 + v, 79];                            // 红羽
+      return;
+    });
+    function armorTilePaint(baseRGB, trimRGB, hoodless) {
+      return function (x, y, r) {
+        var v = n(r, 0, 10);
+        var edge = x === 0 || x === 15;
+        var body = y >= (hoodless ? 5 : 3);
+        if (!body) {
+          // 头盔顶弧 / 面甲开口
+          var opening = !hoodless && x >= 5 && x <= 10 && y >= 1;
+          if (opening) return [40 + v, 38 + v, 36];
+          return baseRGB;
+        }
+        if (edge) return trimRGB;                                 // 肩缘强化条
+        if (!hoodless && y <= 5) return baseRGB;                  // 护颈过渡
+        // 身体段：胸口横扣 + 竖缝
+        var buckle = Math.abs(y - 8) < 1 && Math.abs(x - 8) < 2;
+        var seam = x === 8;
+        if (buckle) return trimRGB;
+        if (seam) return [baseRGB[0] - 26 + v, baseRGB[1] - 26 + v, baseRGB[2] - 26 + v];
+        return [baseRGB[0] + v, baseRGB[1] + v, baseRGB[2] + v];
+      };
+    }
+    drawTile(T.CAP_FELT, armorTilePaint([196, 184, 166], [150, 138, 120]));
+    drawTile(T.TUNIC_FELT, armorTilePaint([186, 172, 152], [140, 126, 106]));
+    drawTile(T.HELM_IRON, armorTilePaint([208, 208, 212], [148, 148, 154]));
+    drawTile(T.CHESTPLATE_IRON, armorTilePaint([200, 200, 206], [142, 142, 150]));
 
     ctx.putImageData(img, 0, 0);
 

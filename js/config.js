@@ -90,6 +90,13 @@ Voxel.Config = {
     BOOMER_RANGE: 16, BOOMER_DMG: 7, BOOMER_SPEED: 2.7,
     FUSE_TIME: 1.15, FUSE_CANCEL: 4.5, EXPLODE_R: 2.4,
     HP_SHEEP: 4, HP_ZOMBIE: 10, HP_ARCHER: 8, HP_BOOMER: 6,
+    HP_WOLF: 12, HP_VILLAGER: 20, WOLF_TARGET: 2, VILLAGER_TARGET: 2,
+    // 喂养繁殖：食物偏好表（id 见 blocks.js）；爱心持续 10s，冷却 40s
+    LOVE_TIME: 10, BREED_CD: 40, BABY_SCALE: 0.55, BABY_GROW: 150,
+    // 狼：白天也出没；狩猎范围内最近被动生物为猎物；被激怒后扑咬玩家
+    WOLF_HUNT_RANGE: 15, WOLF_DMG: 3, WOLF_AGGRO_TIME: 9,
+    // 村民对话触发半径
+    TALK_RANGE: 3.2,
     HP_PIG: 6, HP_CHICKEN: 3, HP_RABBIT: 3, HP_CAT: 4,
     WOOL_DROP: 1,             // 击杀羊掉落的羊毛数量
     CAT_FUR_DROP: 2,          // 击杀猫掉落的猫毛数量（2 猫毛合成 1 猫毛毡）

@@ -162,6 +162,26 @@ Voxel.Biomes = (function () {
     mobs: ['sheep', 'pig']
   };
 
+  // ---- 群系视觉身份（P2 深度）：visual = { tint:[r,g,b] 乘性色调, fog 雾距倍率 }。
+  // 缺省 null = 无调整。main.js 逐帧向目标值平滑插值，跨群系边界不跳变；
+  // 与昼夜/天气色调链相乘叠加，只做氛围增益，不改方块贴图本身。
+  function V(tint, fog) { return { tint: tint, fog: fog }; }
+  defs[B.OCEAN].visual = V([1.00, 1.03, 1.08], 0.85);          // 海雾偏青蓝
+  defs[B.SWAMP].visual = V([0.86, 1.02, 0.80], 0.70);          // 沼气绿霾
+  defs[B.DESERT].visual = V([1.07, 1.01, 0.90], 1.15);         // 干热黄沙远目
+  defs[B.SAVANNA].visual = V([1.05, 1.00, 0.92], 1.10);
+  defs[B.BADLANDS].visual = V([1.09, 0.97, 0.88], 1.12);       // 红层暖橙
+  defs[B.SNOWY].visual = V([0.95, 1.02, 1.12], 1.05);          // 冷冽雪光
+  defs[B.FROZEN_PEAKS].visual = V([0.92, 1.02, 1.14], 1.05);
+  defs[B.TAIGA].visual = V([0.93, 1.00, 1.04], 0.88);          // 针叶晨雾
+  defs[B.MEGA_TAIGA].visual = V([0.90, 0.98, 1.00], 0.82);
+  defs[B.CHERRY_GROVE].visual = V([1.09, 0.97, 1.05], 1.02);   // 樱吹雪粉调
+  defs[B.DARK_FOREST].visual = V([0.84, 0.92, 0.82], 0.78);    // 林下暗郁
+  defs[B.MUSHROOM_FIELDS].visual = V([1.05, 0.93, 1.13], 0.85);// 孢子紫霭
+  defs[B.JUNGLE].visual = V([0.92, 1.06, 0.89], 0.90);         // 浓林深翠
+  defs[B.SPARSE_JUNGLE].visual = V([0.96, 1.04, 0.93], 0.96);
+  defs[B.STONY_SHORE].visual = V([0.97, 1.00, 1.02], 0.95);
+
   // 星海嘉年华：欢乐园区地貌——平原暖坡上的嘉年华乐园群。
   // 植被关闭（plantOn 空），园貌由 Structures 的园区结构负责铺陈；
   // 保留少量羊/兔子在围栏外的草坪上走动，避免园区死寂。
@@ -170,6 +190,7 @@ Voxel.Biomes = (function () {
     treeType: null, treeChance: 0, plantOn: [],
     mobs: ['sheep', 'rabbit']
   };
+  defs[B.PLAYGROUND].visual = V([1.04, 1.00, 1.03], 1.08);     // 园区欢快高亮
 
   // ---- 气候参数点：每个群系在五维气候空间的目标位置 ----
   // 顺序：[温度 T, 湿度 H, 大陆性 C, 侵蚀度 E, 奇异性 W]

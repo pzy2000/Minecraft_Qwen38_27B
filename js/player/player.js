@@ -314,6 +314,12 @@ Voxel.Player = (function () {
       if (Voxel.SpaceTravel.registerShieldImpact) Voxel.SpaceTravel.registerShieldImpact(cause || 'impact');
       return false;
     }
+    // 护甲减伤：只作用于物理伤害源（近战/箭矢/爆炸）；
+    // 摔落/溺水/饥饿/环境暴露/雷击不受护甲保护。护甲耐久损耗由 Game 回调结算。
+    var PHYSICAL = { zombie: 1, archer: 1, boomer: 1, wolf: 1, mob: 1 };
+    if (PHYSICAL[cause] && Voxel.Game && Voxel.Game.armorFactor) {
+      n = Math.max(1, Math.round(n * Voxel.Game.armorFactor(cause)));
+    }
     hp -= n;
     if (hp < 0) hp = 0;
     lastCause = cause || 'generic';

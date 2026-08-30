@@ -1742,7 +1742,7 @@ check('石头不是燃料', !FS.isFuel(3));
 console.log('合成配方测试');
 var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
-check('配方数量=21', Craft.recipes.length === 21);
+check('配方数量=27', Craft.recipes.length === 27);
 
 // 猫毛毡：无序配方 2×猫毛(121) → 猫毛毡方块(45)
 g = g9(); g[0] = 121; g[4] = 121;

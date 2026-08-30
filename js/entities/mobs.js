@@ -166,6 +166,49 @@ Voxel.Mobs = (function () {
       [0.14, 0.34, 0.14, 0.22, 0.17, -0.28, blotch]
     ] };
   }
+  // 狼：灰褐捕食者，立耳粗尾；驯服后系红色项圈（variant 'collar' 复用几何缓存）
+  function wolfBuild(collar) {
+    var fur = 0x8a8074, dark = 0x6b625a;
+    var parts = [
+      [0.44, 0.42, 0.72, 0, 0.52, -0.02, fur],        // 躯干
+      [0.32, 0.30, 0.30, 0, 0.62, 0.46, fur],         // 头
+      [0.26, 0.20, 0.18, 0, 0.54, 0.64, 0x9a9288],    // 口鼻
+      [0.07, 0.08, 0.04, 0, 0.56, 0.78, 0x181818],    // 鼻
+      [0.09, 0.11, 0.05, -0.10, 0.82, 0.44, dark],    // 立耳
+      [0.09, 0.11, 0.05, 0.10, 0.82, 0.44, dark],
+      [0.10, 0.10, 0.06, -0.11, 0.66, 0.55, 0xf2d84e],// 黄眼
+      [0.10, 0.10, 0.06, 0.11, 0.66, 0.55, 0xf2d84e],
+      [0.12, 0.34, 0.12, -0.15, 0.15, 0.22, dark],    // 四腿
+      [0.12, 0.34, 0.12, 0.15, 0.15, 0.22, dark],
+      [0.12, 0.34, 0.12, -0.15, 0.15, -0.24, dark],
+      [0.12, 0.34, 0.12, 0.15, 0.15, -0.24, dark],
+      [0.10, 0.10, 0.30, 0, 0.58, -0.40, fur],        // 尾根
+      [0.08, 0.08, 0.24, 0, 0.66, -0.60, dark]        // 尾梢上翘
+    ];
+    var key = collar ? '_c' : '';
+    if (collar) parts.push([0.36, 0.09, 0.36, 0, 0.48, 0.38, 0xc03a3a]); // 红项圈
+    return { variant: key, w: 0.55, h: 0.95, mainColor: fur, parts: parts };
+  }
+  // 村民：长袍商队旅人，头部尖鼻、双臂拢袖；袍色按变体轮换
+  function villagerBuild(vi) {
+    var robes = [
+      { r: 0x7a5c38, trim: 0xa8865a },   // 驼色商队
+      { r: 0x4a6e5c, trim: 0x86b89a }    // 苔绿药草师
+    ];
+    var v = robes[Math.abs((vi | 0) % robes.length)];
+    return { variant: String(Math.abs((vi | 0) % robes.length)), w: 0.55, h: 1.85,
+      mainColor: v.r, parts: [
+      [0.46, 0.46, 0.46, 0, 1.58, 0, 0xd8b088],          // 头
+      [0.10, 0.10, 0.14, 0, 1.50, 0.24, 0xb08858],       // 尖鼻
+      [0.50, 0.70, 0.30, 0, 1.02, 0, v.r],               // 上袍身
+      [0.60, 0.62, 0.42, 0, 0.45, 0, v.r],               // 下摆
+      [0.06, 0.05, 0.05, -0.12, 1.63, 0.235, 0x30302c],  // 双眼
+      [0.06, 0.05, 0.05, 0.12, 1.63, 0.235, 0x30302c],
+      [0.56, 0.10, 0.34, 0, 1.35, 0.02, v.trim],         // 腰带/领饰
+      [0.14, 0.52, 0.16, -0.33, 1.00, 0.02, v.r],        // 拢袖双臂
+      [0.14, 0.52, 0.16, 0.33, 1.00, 0.02, v.r]
+    ] };
+  }
   // 猫：纤细身形 + 立耳/圆眼/粉鼻/上翘双段尾；4 种花色（橘猫带背纹、玄猫白尾尖、白猫、重点色布偶）
   // voice 为各品种专属叫声（cat_0~3），size 控制品种体型缩放
   var CAT_VARIANTS = [
@@ -212,19 +255,33 @@ Voxel.Mobs = (function () {
     cat:     { make: catBuild,     hp: function () { return C.HP_CAT; },     speedMul: 1.1 },
     zombie:  { make: zombieBuild,  hp: function () { return C.HP_ZOMBIE; },  speedMul: 1 },
     archer:  { make: archerBuild,  hp: function () { return C.HP_ARCHER; },  speedMul: 1 },
-    boomer:  { make: boomerBuild,  hp: function () { return C.HP_BOOMER; },  speedMul: 1 }
+    boomer:  { make: boomerBuild,  hp: function () { return C.HP_BOOMER; },  speedMul: 1 },
+    wolf:    { make: function () { return wolfBuild(false); }, hp: function () { return C.HP_WOLF; }, speedMul: 1.15 },
+    villager:{ make: function () { return villagerBuild((Math.random() * 2) | 0); }, hp: function () { return C.HP_VILLAGER; }, speedMul: 0.85 }
   };
 
   // 行为表与渲染构建器分离：合批只改变 Mesh 结构，不改变逃跑、声音和掉落语义。
   var PASSIVE = { sheep: true, pig: true, chicken: true, rabbit: true, cat: true };
   var HOSTILE = { zombie: true, archer: true, boomer: true };
+  // 狼：中立捕食者（可驯服），村民：服务型 NPC（不可喂食/攻击无掉落）
+  var NEUTRAL = { wolf: true };
+  // 捕食链：狼猎食的物种（排除猫——它可能是玩家的伙伴）
+  var PREY_TYPES = ['sheep', 'pig', 'chicken', 'rabbit'];
+  // 喂养食物偏好：命中即可进入求爱状态；wolf 为驯服通道
+  var FEED_FOOD = {
+    sheep: [5],              // 树叶
+    pig: [109], chicken: [111], rabbit: [113],
+    cat: [110, 112],         // 熟肉
+    wolf: [109, 111, 113]    // 生肉 ×2 次驯服
+  };
   var KILL_DROPS = {
     sheep: [16, C.WOOL_DROP],
     pig: [109, 1],        // 生猪排
     chicken: [111, 1],    // 生鸡肉
     rabbit: [113, 1],     // 生兔肉
     cat: [121, C.CAT_FUR_DROP], // 猫毛（2 猫毛 → 1 猫毛毡）
-    archer: [107, 1]      // 煤炭（白骨燃料，产量与骨架同源）
+    archer: [107, 1],     // 煤炭（白骨燃料，产量与骨架同源）
+    wolf: [135, 1]        // 狼牙可削箭杆 → 掉落箭 ×1
   };
   var VOICE = { sheep: 'sheep', pig: 'pig', chicken: 'chicken', rabbit: 'rabbit', cat: 'cat', zombie: 'zombie' };
   var VOICE_HURT = { sheep: 'sheepHurt', pig: 'pigHurt', chicken: 'chickenHurt', rabbit: 'rabbitHurt', cat: 'catHurt' };
@@ -246,7 +303,9 @@ Voxel.Mobs = (function () {
     cat: 'CAT_TARGET',
     zombie: 'ZOMBIE_TARGET',
     archer: 'ARCHER_TARGET',
-    boomer: 'BOOMER_TARGET'
+    boomer: 'BOOMER_TARGET',
+    wolf: 'WOLF_TARGET',
+    villager: 'VILLAGER_TARGET'
   };
 
   // 各被动生物可生成的地表方块 + 是否允许出现在该群系（biomes.js 的 mobs 表）
@@ -255,8 +314,27 @@ Voxel.Mobs = (function () {
     pig: [1, 2, 24],
     chicken: [1, 2, 24],
     rabbit: [1, 2, 6, 18, 24],
-    cat: [1]
+    cat: [1],
+    wolf: [1]
   };
+  // 群系门控类型（trySpawn 检查 biome mobs 表）之外的独立白名单
+  var EXTRA_BIOME_GATE = {
+    wolf: null   // 延迟初始化：Voxel.Biomes.B 引用时机问题
+  };
+  function wolfBiomeSet() {
+    if (!EXTRA_BIOME_GATE.wolf) {
+      var B = Voxel.Biomes.B;
+      EXTRA_BIOME_GATE.wolf = makeLocSet([
+        B.FOREST, B.BIRCH_FOREST, B.TAIGA, B.MEGA_TAIGA, B.SNOWY, B.DARK_FOREST
+      ]);
+    }
+    return EXTRA_BIOME_GATE.wolf;
+  }
+  function makeLocSet(ids) {
+    var out = Object.create(null);
+    for (var i = 0; i < ids.length; i++) out[ids[i]] = true;
+    return out;
+  }
 
   function spawn(type, pos) {
     var b = BUILDERS[type].make();
@@ -286,6 +364,11 @@ Voxel.Mobs = (function () {
       path: null, pathTimer: 0, pathAge: 0,
       arrowCd: 1.5,                          // 弓手射击冷却
       fuse: -1,                              // 自爆引信：<0 未点燃
+      // 喂养繁殖 / 狼驯服 / 幼崽
+      loveT: -1, breedCd: 0,                 // 求爱剩余时间；繁殖冷却
+      baby: false, babyT: 0,                 // 幼崽标志与成长倒计时
+      trust: 0, tamed: false,                // 狼驯服进度（2 次喂食）
+      agroT: 0,                              // 狼被激怒扑咬玩家的剩余时间
       dead: false
     };
     group.add(mesh);
@@ -352,11 +435,18 @@ Voxel.Mobs = (function () {
     if (VOICE_HURT[m.type]) {
       Voxel.Sound[VOICE_HURT[m.type]](sp.vol, sp.pan);
     }
-    // 被动生物受击逃跑：转身背向玩家，加速逃离
-    if (PASSIVE[m.type]) {
+    // 被动生物与村民受击逃跑：转身背向玩家，加速逃离
+    if (PASSIVE[m.type] || m.type === 'villager') {
       m.fleeT = C.FLEE_TIME;
       m.fleeRepath = 0;
       m.moveTime = Math.max(m.moveTime, m.fleeT);
+    }
+    // 狼被激怒：追咬攻击者（驯服狼不受此项影响）
+    if (m.type === 'wolf' && !m.tamed) {
+      m.agroT = C.WOLF_AGGRO_TIME;
+      m.path = null;
+      var wsp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z) : { vol: 1, pan: 0 };
+      Voxel.Sound.wolf(wsp.vol, wsp.pan);
     }
     if (m.hp <= 0) kill(m);
   }
@@ -392,6 +482,8 @@ Voxel.Mobs = (function () {
       if (PASSIVE[type]) {
         var bd = Voxel.Biomes.def(Voxel.World.biomeAt(x, z));
         if (!bd.mobs || bd.mobs.indexOf(type) < 0) continue;
+      } else if (type === 'wolf') {
+        if (!wolfBiomeSet()[Voxel.World.biomeAt(x, z)]) continue;
       }
       if (Voxel.World.get(x, y + 1, z) !== 0 || Voxel.World.get(x, y + 2, z) !== 0) continue;
       return spawn(type, new THREE.Vector3(x + 0.5, y + 1.02, z + 0.5));
@@ -418,6 +510,9 @@ Voxel.Mobs = (function () {
       if ((counts.archer || 0) < Math.round(densityTarget('archer') * nightmareMul)) trySpawn('archer');
       if ((counts.boomer || 0) < Math.round(densityTarget('boomer') * nightmareMul)) trySpawn('boomer');
     }
+    // 狼：昼夜都出没（中立捕食者），和平难度不生成
+    if (diff > 0 && (counts.wolf || 0) < Math.round(densityTarget('wolf') * nightmareMul))
+      trySpawn('wolf');
   }
 
   // ================= 轻量寻路（网格 A*）=================
@@ -617,6 +712,173 @@ Voxel.Mobs = (function () {
     if (idx >= 0) removeAt(idx);   // 不记击杀：自爆属于环境死亡
   }
 
+  // ================= 狼 AI / 喂养繁殖 =================
+
+  // 驯服换项圈几何（variant '_c' 命中同一缓存族）
+  function applyCollarMesh(m) {
+    var b = wolfBuild(true);
+    m.group.geometry = getGeo('wolf' + b.variant, b.parts);
+  }
+
+  // 就近找同类求爱对象
+  function findLovePartner(m) {
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      if (o !== m && !o.dead && !o.baby && o.type === m.type && o.loveT > 0) {
+        var dx = o.pos.x - m.pos.x, dz = o.pos.z - m.pos.z;
+        if (dx * dx + dz * dz < 49) return o;
+      }
+    }
+    return null;
+  }
+
+  function spawnHeartBurst(pos, headH) {
+    var p = pos.clone();
+    p.y += (headH || 1) + 0.4;
+    Voxel.Particles.burst(p, 0xff7fa0, 5);
+  }
+
+  // 喂养入口（main.js 在攻击判定前调用）。返回 'feed'|'tame'|false。
+  function feed(m, itemId) {
+    if (!m || m.dead || m.baby) return false;
+    var foods = FEED_FOOD[m.type];
+    if (!foods || foods.indexOf(itemId | 0) < 0) return false;
+    if (m.loveT > 0 || m.breedCd > 0) return false;   // 吃撑了 / 冷却中不接受
+    spawnHeartBurst(m.pos, m.h);
+    Voxel.Sound.heart();
+    if (m.type === 'wolf' && !m.tamed) {
+      m.trust++;
+      if (m.trust >= 2) {
+        m.tamed = true;
+        applyCollarMesh(m);
+        Voxel.Sound.wolf(1, 0);
+        if (Voxel.HUD && Voxel.HUD.toast) Voxel.HUD.toast('🐺 狼戴上了红项圈 —— 它会跟随并保护你');
+      }
+      return 'tame';
+    }
+    m.loveT = C.LOVE_TIME;
+    return 'feed';
+  }
+
+  function makeBaby(a, b) {
+    var mid = new THREE.Vector3(
+      (a.pos.x + b.pos.x) / 2,
+      Math.max(a.pos.y, b.pos.y),
+      (a.pos.z + b.pos.z) / 2);
+    var y = Voxel.World.surfaceAt(Math.floor(mid.x), Math.floor(mid.z));
+    if (y >= 3) mid.y = y + 1.02;
+    var c = spawn(a.type, mid);
+    c.baby = true;
+    c.babyT = C.BABY_GROW;
+    c.hp = Math.max(1, Math.ceil(BUILDERS[a.type].hp() * 0.5));
+    c.group.scale.setScalar(C.BABY_SCALE);
+    // 幼崽继承双亲的猫叫声品种，避免变声突兀
+    if (a.voiceVariant !== undefined) c.voiceVariant = a.voiceVariant;
+    return c;
+  }
+
+  // 狼行为主循环（驯服跟随/扑咬/狩猎），返回本帧移动速度
+  function wolfAI(m, dt, Pv, mul) {
+    var spd = C.ZOMBIE_SPEED * mul;
+    if (m.tamed) {
+      var pdx = Pv.x - m.pos.x, pdz = Pv.z - m.pos.z;
+      var pd = Math.sqrt(pdx * pdx + pdz * pdz);
+      // 卫士职责：撕咬靠近玩家的敌对生物
+      if (m.attackCd <= 0) {
+        for (var i = 0; i < list.length; i++) {
+          var h = list[i];
+          if (h.dead || !HOSTILE[h.type]) continue;
+          var hx = h.pos.x - Pv.x, hz = h.pos.z - Pv.z;
+          if (hx * hx + hz * hz < 100 && Math.abs(h.pos.y - Pv.y) < 4) {
+            var wdx = h.pos.x - m.pos.x, wdz = h.pos.z - m.pos.z;
+            var wd = Math.sqrt(wdx * wdx + wdz * wdz);
+            if (wd < 1.8) {
+              m.attackCd = 1.0;
+              var kn = Math.sqrt(wdx * wdx + wdz * wdz) || 1;
+              damage(h, C.WOLF_DMG, { x: wdx / kn, z: wdz / kn });
+              break;
+            } else if (wd < 9) {
+              // 追向威胁目标
+              m.dir = Math.atan2(-wdx, -wdz);
+              m.moveTime = Math.max(m.moveTime, 0.5);
+              return spd * 1.15;
+            }
+          }
+        }
+      }
+      // 跟随：远距瞬移保活，中距寻路走位，近距趴窝
+      if (pd > 22) {
+        m.path = null;
+        var sxp = Pv.x - Math.sin(Voxel.Controls.yaw()) * 2;
+        var szp = Pv.z - Math.cos(Voxel.Controls.yaw()) * 2;
+        var sy = Voxel.World.surfaceAt(Math.floor(sxp), Math.floor(szp));
+        if (sy > 3) { m.pos.set(sxp, sy + 1.02, szp); }
+        return 0;
+      }
+      if (pd > 3.5) {
+        m.dir = Math.atan2(-pdx, -pdz);
+        m.moveTime = Math.max(m.moveTime, 0.4);
+        return spd * (pd > 12 ? 1.35 : 1);
+      }
+      m.path = null;
+      return 0;
+    }
+    // 激怒状态：扑咬玩家（近战规则与僵尸一致）
+    if (m.agroT > 0) {
+      m.agroT -= dt;
+      var px = Pv.x - m.pos.x, pz = Pv.z - m.pos.z;
+      var dist = Math.sqrt(px * px + pz * pz);
+      if (dist < C.ZOMBIE_RANGE && losClear(m)) {
+        m.dir = Math.atan2(-px, -pz);
+        m.moveTime = 1;
+        if (dist < 1.6 && Math.abs(Pv.y - m.pos.y) < 2.2 && m.attackCd <= 0) {
+          m.attackCd = 1.1;
+          Voxel.Player.damage(C.WOLF_DMG, 'wolf', m.pos.x, m.pos.z);
+          if (Voxel.Player.knockback)
+            Voxel.Player.knockback(px / (Math.sqrt(px * px + pz * pz) || 1), pz / (Math.sqrt(px * px + pz * pz) || 1), 6);
+        }
+        return spd * 1.2;
+      }
+      m.agroT = Math.min(m.agroT, 0.5);   // 视线丢失后短暂维持再放弃
+      return 0;
+    }
+    // 狩猎：锁定最近的可捕食生物
+    if (m.aiTimer <= 0 || !m.preyRef || m.preyRef.dead ||
+      list.indexOf(m.preyRef) < 0) {
+      m.aiTimer = 1 + Math.random();
+      m.preyRef = null;
+      var bestD = C.WOLF_HUNT_RANGE * C.WOLF_HUNT_RANGE, bestM = null;
+      for (var j = 0; j < list.length; j++) {
+        var q = list[j];
+        if (q.dead || q.baby || PREY_TYPES.indexOf(q.type) < 0) continue;
+        var qx = q.pos.x - m.pos.x, qz = q.pos.z - m.pos.z;
+        var qd = qx * qx + qz * qz;
+        if (qd < bestD) { bestD = qd; bestM = q; }
+      }
+      m.preyRef = bestM;
+      // 空闲时偶尔嚎叫宣示领地
+      if (!bestM && Math.random() < 0.25) {
+        var sp2 = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z) : { vol: 1, pan: 0 };
+        Voxel.Sound.wolf(sp2.vol, sp2.pan);
+      }
+    }
+    if (m.preyRef && !m.preyRef.dead) {
+      var pr = m.preyRef;
+      var rpx = pr.pos.x - m.pos.x, rpz = pr.pos.z - m.pos.z;
+      var rd = Math.sqrt(rpx * rpx + rpz * rpz);
+      if (rd < 1.5 && Math.abs(pr.pos.y - m.pos.y) < 2) {
+        kill(pr);                    // 捕食链一环：狼吃掉猎物（掉落照常发生）
+        m.preyRef = null;
+        m.fleeT = 0;
+        return 0;
+      }
+      m.dir = Math.atan2(-rpx, -rpz);
+      m.moveTime = Math.max(m.moveTime, 0.5);
+      return spd;
+    }
+    return 0;
+  }
+
   // 僵尸眼 → 玩家眼 的视线是否无遮挡
   function losClear(m) {
     var p = Voxel.Player.pos();
@@ -658,7 +920,14 @@ Voxel.Mobs = (function () {
 
       var speed = 0;
       var Pv = Pl.pos();
-      if (HOSTILE[m.type] && alive && diffLevel() > 0) {
+      var pvV = Pl_velSafe();
+      var isWolfHandled = false;
+      if (m.type === 'wolf' && alive && diffLevel() > 0) {
+        // ---- 狼：驯服跟随 / 激怒扑咬 / 狩猎被动生物 ----
+        speed = wolfAI(m, dt, Pv, m.speedMul);
+        isWolfHandled = true;
+      }
+      if (!isWolfHandled && HOSTILE[m.type] && alive && diffLevel() > 0) {
         var px = Pv.x - m.pos.x;
         var pz = Pv.z - m.pos.z;
         var dist = Math.sqrt(px * px + pz * pz);
@@ -740,6 +1009,27 @@ Voxel.Mobs = (function () {
         }
         if (m.moveTime > 0) speed = (HOSTILE[m.type] ? C.ZOMBIE_SPEED : C.SHEEP_SPEED) *
           m.speedMul * (HOSTILE[m.type] ? 0.7 : 1);
+      }
+
+      // ---- 喂养繁殖 / 幼崽成长（村民除外；狼只在未进入其它行为时参与求爱）----
+      m.breedCd -= dt;
+      if (m.baby) {
+        m.babyT -= dt;
+        if (m.babyT <= 0) {
+          m.baby = false;
+          m.hp = BUILDERS[m.type].hp();
+          m.group.scale.setScalar(1);   // 长成成年体型
+        }
+      } else if (m.loveT > 0 && !isWolfHandled && m.type !== 'villager') {
+        m.loveT -= dt;
+        if (Math.random() < dt * 2.5) spawnHeartBurst(m.pos, m.h);   // 心跳粒子限频
+        var partner = findLovePartner(m);
+        if (partner && m.breedCd <= 0 && partner.breedCd <= 0) {
+          m.loveT = -1; partner.loveT = -1;
+          m.breedCd = C.BREED_CD; partner.breedCd = C.BREED_CD;
+          makeBaby(m, partner);
+          Voxel.Sound.heart();
+        }
       }
 
       // 受击逃跑：背向玩家直线狂奔，周期性刷新方向（玩家移动时仍保持远离）
@@ -856,6 +1146,18 @@ Voxel.Mobs = (function () {
     list: list,
     count: function () { return list.length; },
     spawn: spawn,
+    // 喂养入口：返回 'feed'|'tame'|false，调用方决定是否扣物品
+    feed: feed,
+    threatLevel: function () {
+      var Pv = Voxel.Player.pos();
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        if (m.dead || !HOSTILE[m.type]) continue;
+        var dx = m.pos.x - Pv.x, dz = m.pos.z - Pv.z;
+        if (dx * dx + dz * dz < 196 && losClear(m)) return 1;   // 14 格内正被盯上
+      }
+      return 0;
+    },
     _test: {
       densityTarget: densityTarget,
       diffLevel: diffLevel

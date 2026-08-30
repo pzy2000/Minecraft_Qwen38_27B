@@ -67,6 +67,28 @@ Voxel.Game = (function () {
   var uwFade = 0;   // 水下滤镜渐变系数 0~1
   var _uwColor = new THREE.Color(0x14507e);
   var _tint = new THREE.Color(), _sky = new THREE.Color(), _skyTop = new THREE.Color();
+  // 群系视觉身份：当前生效的乘性色调与雾倍率（逐帧向目标平滑插值）
+  var bioTint = new THREE.Color(1, 1, 1), bioTintTarget = null;
+  var bioFog = 1, bioFogTarget = 1;
+  function tickBiomeVisual(dt) {
+    var bd = Voxel.Biomes && Voxel.World && currentWorld
+      ? Voxel.Biomes.def(Voxel.World.biomeAt(Math.floor(Voxel.Player.pos().x), Math.floor(Voxel.Player.pos().z)))
+      : null;
+    var vis = (bd && bd.visual) || null;
+    bioTintTarget = vis ? vis.tint : null;
+    bioFogTarget = vis ? vis.fog : 1;
+    // 平滑逼近：色调快速跟随（0.9s 常数），雾更慢避免边缘穿帮
+    if (bioTintTarget) {
+      bioTint.r += (bioTintTarget[0] - bioTint.r) * Math.min(1, dt * 3);
+      bioTint.g += (bioTintTarget[1] - bioTint.g) * Math.min(1, dt * 3);
+      bioTint.b += (bioTintTarget[2] - bioTint.b) * Math.min(1, dt * 3);
+    } else {
+      bioTint.r += (1 - bioTint.r) * Math.min(1, dt * 3);
+      bioTint.g += (1 - bioTint.g) * Math.min(1, dt * 3);
+      bioTint.b += (1 - bioTint.b) * Math.min(1, dt * 3);
+    }
+    bioFog += (bioFogTarget - bioFog) * Math.min(1, dt * 1.8);
+  }
   var _sunDir = new THREE.Vector3();
   var _cockpitProxy = new THREE.Vector3(), _cockpitVelocity = new THREE.Vector3();
 
@@ -1612,14 +1634,34 @@ Voxel.Game = (function () {
     return false;
   }
 
-  // 轻点（触屏）：攻击生物 / 打开功能方块 / 放置手持方块
+  // 喂养尝试：手持物品命中生物偏好食物表 → 喂食（扣一件）。返回是否消耗。
+  function tryFeedMob(mob) {
+    var held = inv[sel];
+    if (!held || cnt[sel] <= 0) return false;
+    var res = Voxel.Mobs.feed ? Voxel.Mobs.feed(mob, held) : false;
+    if (!res) return false;
+    invDec(held, 1);
+    if (res === 'tame') Voxel.HUD.toast('🐺 狼记住了你的味道…… 再喂一次试试');
+    return true;
+  }
+
+  // touchTap：手持弓时轻点即射击
   function touchTap(nx, ny) {
     if (state !== 'playing') return;
+    if (inv[sel] === BOW_ID) { shootBow(); return; }
     setTouchAim(nx, ny);
     var o = Voxel.Player.eyePos();
     var d = aimDir();
     var hit = Voxel.Raycaster.cast(o, d, C.REACH);
-    if (hit && hit.type === 'mob') attack(hit.mob, d);
+    if (hit && hit.type === 'mob') {
+      if (hit.mob.type === 'villager' &&
+        hit.mob.pos.distanceTo(Voxel.Player.pos()) < C.TALK_RANGE + 2) {
+        openVillager();
+        return;
+      }
+      if (tryFeedMob(hit.mob)) return;
+      attack(hit.mob, d);
+    }
     else if (hit && hit.type === 'block' && !interactWith(hit)) place(hit);
   }
 
@@ -1641,11 +1683,20 @@ Voxel.Game = (function () {
     }
     // 烟花棒：手持右键优先于攻击/挖掘
     if (btn === 2 && inv[sel] === FW_ROD_ID) { useFireworkRod(); return; }
+    // 弓：右键射击（需要背包有箭），不进入放置/挖掘分支
+    if (btn === 2 && inv[sel] === BOW_ID) { shootBow(); return; }
     var o = Voxel.Player.eyePos();
     var d = Voxel.Player.lookDir();
     var hit = Voxel.Raycaster.cast(o, d, C.REACH);
     if (!hit) return;
     if (hit.type === 'mob') {
+      // 村民优先对话；可喂养生物吃掉手持食物；否则挥击
+      if (hit.mob.type === 'villager' &&
+        hit.mob.pos.distanceTo(Voxel.Player.pos()) < C.TALK_RANGE + 2) {
+        openVillager();
+        return;
+      }
+      if (btn === 2 && tryFeedMob(hit.mob)) return;
       if (btn === 2) attack(hit.mob, d);
       return;
     }
@@ -4206,6 +4257,8 @@ Voxel.Game = (function () {
         // 准星命中功能方块 → 直接交互（use-hint 已承诺「按 E 打开」；
         // 被登舰/乘坐半径覆盖时也要兑现，避免"对准箱子按 E 却没反应"）
         else if (interactWith(Voxel.Raycaster.cast(Voxel.Player.eyePos(), aimDir(), C.REACH))) { }
+        // 村民身边：打开委托对话（优先于登舰/星图）
+        else if (nearVillager()) { if (!openVillager()) toggleInv(true); }
         else if (Voxel.SpaceTravel && Voxel.SpaceTravel.canBoardShip && Voxel.SpaceTravel.canBoardShip()) {
           boardShip();
         } else if (Voxel.SpaceTravel && Voxel.SpaceTravel.canOpenMap()) { openStarMap(); }
@@ -4404,6 +4457,99 @@ Voxel.Game = (function () {
   // ---------- 售票亭：票券经济（代币 132 兑换加速模式/烟花棒 133） ----------
 
   var TOKEN_ID = 132, FW_ROD_ID = 133;
+  var BOW_ID = 134, ARROW_ID = 135;
+  var BOW_CD = 0.9, lastBowShot = 0;
+
+  // 物理伤害的护甲减伤系数：躯干 + 头部两件套，armor 系数直接相乘组合。
+  // 同步结算 30% 概率的护甲耐久损耗（命中才磨损，不随时间掉）。
+  function armorFactor() {
+    var mul = 1;
+    for (var g = 0; g < gear.length; g++) {
+      var id = gear[g];
+      var d = Voxel.Blocks.defs[id];
+      if (d && d.armor) {
+        mul *= (1 - d.armor);
+        if (gearDur[g] !== null && Math.random() < 0.3) {
+          gearDur[g]--;
+          if (gearDur[g] <= 0) { gear[g] = 0; gearDur[g] = null; refreshGear(); }
+        }
+      }
+    }
+    return mul;
+  }
+
+  // ---------- 弓箭射击 ----------
+  var playerArrows = [];
+  var pArrowGeo = null, pArrowMat = null;
+
+  function findArrowSlot() {
+    for (var i = 0; i < inv.length; i++)
+      if (inv[i] === ARROW_ID && cnt[i] > 0) return i;
+    return -1;
+  }
+
+  function shootBow() {
+    var nowS = performance.now() / 1000;
+    if (nowS - lastBowShot < BOW_CD) return;
+    var ai = findArrowSlot();
+    if (ai < 0) { Voxel.HUD.toast('没有可用的箭 —— 用石头和木棍合成'); return; }
+    lastBowShot = nowS;
+    cnt[ai]--;
+    if (cnt[ai] <= 0) { inv[ai] = 0; }
+    refreshInv();
+    var o = Voxel.Player.eyePos();
+    var d = aimDir().clone().normalize();
+    if (!pArrowGeo) pArrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.4);
+    if (!pArrowMat) pArrowMat = new THREE.MeshBasicMaterial({ color: 0xe8dcc0 });
+    var mesh = new THREE.Mesh(pArrowGeo, pArrowMat);
+    mesh.position.set(o.x + d.x * 0.6, o.y + d.y * 0.6 - 0.08, o.z + d.z * 0.6);
+    mesh.lookAt(mesh.position.clone().add(d));
+    scene.add(mesh);
+    playerArrows.push({ pos: mesh.position, vel: d.multiplyScalar(24), life: 3.5, mesh: mesh });
+    damageHeldTool(1);
+    Voxel.Sound.bow && Voxel.Sound.bow();
+    if (Voxel.HandItem) Voxel.HandItem.swing();
+  }
+
+  // 每帧推进玩家箭矢；击中生物造成 6 点远程伤害（受击退与闪白反馈一致）
+  function tickPlayerArrows(dt) {
+    for (var i = playerArrows.length - 1; i >= 0; i--) {
+      var a = playerArrows[i];
+      a.life -= dt;
+      if (a.life <= 0) { scene.remove(a.mesh); playerArrows.splice(i, 1); continue; }
+      a.vel.y -= 5 * dt;
+      var steps = Math.max(1, Math.ceil(a.vel.length() * dt / 0.6));
+      var hitSomething = false;
+      for (var s = 0; s < steps; s++) {
+        var sdt = dt / steps;
+        a.pos.x += a.vel.x * sdt;
+        a.pos.y += a.vel.y * sdt;
+        a.pos.z += a.vel.z * sdt;
+        if (Voxel.Physics.isSolidCell(Math.floor(a.pos.x), Math.floor(a.pos.y), Math.floor(a.pos.z))) {
+          hitSomething = true; break;
+        }
+        var mobHit = null, bestD = 0.7 * 0.7;
+        var mobsList = Voxel.Mobs.list;
+        for (var mi = 0; mi < mobsList.length; mi++) {
+          var mm = mobsList[mi];
+          if (mm.dead) continue;
+          var mx = mm.pos.x - a.pos.x, my = (mm.pos.y + mm.h * 0.55) - a.pos.y, mz = mm.pos.z - a.pos.z;
+          var dd = mx * mx + my * my + mz * mz;
+          if (dd < bestD) { bestD = dd; mobHit = mm; }
+        }
+        if (mobHit) {
+          var kn = a.vel.clone(); kn.y = 0;
+          if (kn.lengthSq() > 0.01) kn.normalize(); else kn.set(0, 0, 1);
+          Voxel.Mobs.damage(mobHit, 6, kn);
+          hitSomething = true; break;
+        }
+      }
+      if (hitSomething || a.life <= 0) {
+        scene.remove(a.mesh);
+        playerArrows.splice(i, 1);
+      }
+    }
+  }
   var COST_SPEED = 5, COST_ROD = 3, BUFF_S = 90, SPEED_MUL = 1.6;
   var buffLeft = 0;          // 加速模式剩余秒（会话内有效）
   var fwRodCd = 0;           // 烟花棒冷却
@@ -4457,6 +4603,218 @@ Voxel.Game = (function () {
   function closeBooth() {
     closeModalLayer('overlay-booth', true);
     Voxel.Sound.select();
+  }
+
+  // ---------- 村民委托（商队旅人） ----------
+  var curVillage = null, curVillagerMob = null;
+  var VH_OFFSET = 4;   // 小屋门前台阶格（与 structures.js 的 villageFront 距离一致）
+
+  function questPool() {
+    return [
+      { key: 'wool', title: '纺线短缺', desc: '村庄的织机停了 —— 需要 3 团羊毛', need: { 16: 3 }, token: 3 },
+      { key: 'meal', title: '商队口粮', desc: '明早商队出发，需要 2 份熟猪排', need: { 110: 2 }, token: 3 },
+      { key: 'fuel', title: '窑火将熄', desc: '公共烤炉缺燃料，需要 6 块煤炭', need: { 107: 6 }, token: 4 },
+      { key: 'metal', title: '铁器打制', desc: '铁匠接了大单，需要 3 根铁锭', need: { 108: 3 }, token: 5 },
+      { key: 'arrows', title: '猎手补给', desc: '猎人们要上山防狼，需要 8 支箭', need: { 135: 8 }, token: 4 },
+      { key: 'cells', title: '远行者的行李', desc: '有旅人想跨星系回家，需要 1 枚曲速电池', need: { 122: 1 }, token: 8 }
+    ];
+  }
+
+  // 每个村庄确定性挑 3 项委托；key 绑定锚点坐标 → 每村各领一次
+  function villageQuests(vil) {
+    if (!vil) return [];
+    var pool = questPool();
+    var out = [], start = ((vil.variant % pool.length) + pool.length) % pool.length;
+    for (var k = 0; k < pool.length && out.length < 3; k++) {
+      var q = pool[(start + k * 2) % pool.length];
+      var dup = false;
+      for (var d = 0; d < out.length; d++) if (out[d].key === q.key) dup = true;
+      if (!dup) {
+        out.push({
+          key: q.key,
+          uiKey: 'v' + vil.ax + ',' + vil.az + ':' + q.key,
+          title: q.title, desc: q.desc, need: q.need, token: q.token
+        });
+      }
+    }
+    return out;
+  }
+
+  function questClaimed(uiKey) {
+    var st = Voxel.Progress.state();
+    return !!(st.quests && st.quests[uiKey]);
+  }
+
+  // 就近村民（对话/触屏判定共用）
+  function nearVillager() {
+    if (!Voxel.Mobs || state !== 'playing') return null;
+    var p = Voxel.Player.pos();
+    var best = null, bestD = C.TALK_RANGE * C.TALK_RANGE;
+    var msList = Voxel.Mobs.list;
+    for (var i = 0; i < msList.length; i++) {
+      var m = msList[i];
+      if (m.dead || m.type !== 'villager') continue;
+      var dx = m.pos.x - p.x, dz = m.pos.z - p.z;
+      var d2 = dx * dx + dz * dz;
+      if (d2 < bestD) { bestD = d2; best = m; }
+    }
+    return best;
+  }
+
+  function openVillager() {
+    curVillagerMob = nearVillager();
+    if (!curVillagerMob) return false;
+    curVillage = null;
+    // 反查村民属于哪个村庄（绑委托池）
+    var S = Voxel.Structures;
+    if (S && S.cellVillage) {
+      var vx0 = Math.floor(curVillagerMob.pos.x / S.VILLAGE_CELL);
+      var vz0 = Math.floor(curVillagerMob.pos.z / S.VILLAGE_CELL);
+      for (var dx = -1; dx <= 1 && !curVillage; dx++)
+        for (var dz = -1; dz <= 1 && !curVillage; dz++) {
+          var v = S.cellVillage(vx0 + dx, vz0 + dz);
+          if (v) {
+            var ddx = v.ax - curVillagerMob.pos.x, ddz = v.az - curVillagerMob.pos.z;
+            if (ddx * ddx + ddz * ddz <= 80 * 80) curVillage = v;
+          }
+        }
+    }
+    renderVillagerPanel();
+    openModalLayer({
+      id: 'overlay-villager', state: 'villager', returnState: 'playing',
+      initialFocus: '#villager-quests button:not([disabled])',
+      closeKeys: ['KeyE'],
+      onEscape: closeVillager
+    });
+    return true;
+  }
+
+  function renderVillagerPanel() {
+    var intro = document.getElementById('villager-intro');
+    var listEl = document.getElementById('villager-quests');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (!curVillage) {
+      if (intro) intro.textContent = '"我们只是路过的行脚商…… 等到了村子再来找我们吧。"';
+      return;
+    }
+    var qs = villageQuests(curVillage);
+    var hello = ['"旅行者！帮帮这个村子，代币好说。"',
+      '"你看起来很强壮 —— 有活儿正缺人手。"',
+      '"欢迎来到我们的定居点。生意人最喜欢能干的人。"'];
+    var line = hello[((curVillage.variant >> 3) + qs.length) % hello.length];
+    if (intro) intro.textContent = line;
+    for (var i = 0; i < qs.length; i++) {
+      (function (q) {
+        var btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.type = 'button';
+        var claimed = questClaimed(q.uiKey);
+        var haveAll = true;
+        var parts = [];
+        for (var idk in q.need) {
+          var idN = +idk, needN = q.need[idk];
+          var name = Voxel.Blocks.name(idN);
+          parts.push(name + ' ×' + needN +
+            '（' + Math.min(invCount(idN), needN) + '/' + needN + '）');
+          if (invCount(idN) < needN) haveAll = false;
+        }
+        if (claimed) {
+          btn.disabled = true;
+          btn.innerHTML = '✔ ' + q.title + '<small>已完成 —— 谢谢你的帮助</small>';
+        } else {
+          btn.innerHTML = '📋 ' + q.title + ' · ' + q.token + ' 代币' +
+            '<small>' + q.desc + '<br>' + parts.join(' · ') + '</small>';
+          if (!haveAll) btn.disabled = true;
+          else btn.addEventListener('click', function () { claimQuest(q); });
+        }
+        listEl.appendChild(btn);
+      })(qs[i]);
+    }
+  }
+
+  function claimQuest(q) {
+    if (!curVillage || questClaimed(q.uiKey)) return;
+    for (var idk in q.need) if (invCount(+idk) < q.need[idk]) return;
+    for (var idk2 in q.need) invDec(+idk2, q.need[idk2]);
+    addInv(TOKEN_ID, q.token);
+    var st = Voxel.Progress.state();
+    st.quests[q.uiKey] = true;
+    refreshInv();
+    if (Voxel.Progress.track) Voxel.Progress.track('quest', { key: q.key });
+    Voxel.HUD.toast('🤝 委托完成：' + q.title + ' · 获得乐园代币 ×' + q.token);
+    Voxel.Sound.pop();
+    renderVillagerPanel();   // 就地刷新按钮状态
+  }
+
+  function closeVillager() {
+    closeModalLayer('overlay-villager', true);
+    Voxel.Sound.select();
+  }
+
+  // 村民驻场维护：玩家靠近有效村庄锚点时补齐至 2 名村民（分属两座小屋前）
+  var villagerSvcT = 3;
+  function tickVillagerService(dt) {    if (state !== 'playing') return;
+    villagerSvcT -= dt;
+    if (villagerSvcT > 0) return;
+    villagerSvcT = 4;
+    var S = Voxel.Structures;
+    if (!S || !S.cellVillage || !S.villageHouseList) return;
+    var p = Voxel.Player.pos();
+    var cx = Math.floor(p.x / S.VILLAGE_CELL), cz = Math.floor(p.z / S.VILLAGE_CELL);
+    var vil = null;
+    for (var dx = -1; dx <= 1 && !vil; dx++)
+      for (var dz = -1; dz <= 1 && !vil; dz++) {
+        var v = S.cellVillage(cx + dx, cz + dz);
+        if (v) {
+          var ddx = v.ax - p.x, ddz = v.az - p.z;
+          if (ddx * ddx + ddz * ddz < 72 * 72) vil = v;
+        }
+      }
+    var nearby = 0;
+    var msList = Voxel.Mobs.list;
+    for (var mi = 0; mi < msList.length; mi++) {
+      var mm = msList[mi];
+      if (!mm.dead && mm.type === 'villager') nearby++;
+    }
+    if (!vil || nearby >= 2) return;
+    try {
+      var houses = S.villageHouseList(vil);
+      for (var hi = 0; hi < houses.length && nearby < 2; hi++) {
+        var hp = houses[hi];
+        var hx = hp.x, hz = hp.z + VH_OFFSET;
+        var hy = Voxel.World.surfaceAt(Math.floor(hx), Math.floor(hz));
+        if (hy < 3 || hy >= Voxel.Config.WORLD_H - 5) continue;
+        Voxel.Mobs.spawn('villager', new THREE.Vector3(hx + 0.5, hy + 1.02, hz + 0.5));
+        nearby++;
+      }
+    } catch (e) { /* 结构反查失败静默跳过本周期 */ }
+  }
+
+  // 音频空间氛围轮询（0.5s 周期）：战斗压混音 + 洞窟混响湿度
+  var audioAmbT = 0, audioDuckOn = false;
+  function tickAudioAmbience(dt) {
+    if (!Voxel.Sound || !Voxel.Sound.setDuck) return;
+    audioAmbT -= dt;
+    if (audioAmbT > 0) return;
+    audioAmbT = 0.5;
+    var threat = Voxel.Mobs && Voxel.Mobs.threatLevel ? Voxel.Mobs.threatLevel() : 0;
+    if (!!threat !== audioDuckOn) {
+      audioDuckOn = !!threat;
+      Voxel.Sound.setDuck(audioDuckOn ? 1 : 0);
+    }
+    // 头顶实心覆层厚度 → 洞窟感混响（地表/室内为 0）
+    if (Voxel.Sound.setReverb) {
+      var pp = Voxel.Player.pos();
+      var px = Math.floor(pp.x), pz = Math.floor(pp.z);
+      var headY = Math.floor(pp.y + C.EYE);
+      var cover = 0;
+      for (var dy = 2; dy <= 14; dy++) {
+        if (Voxel.Blocks.isOpaque(Voxel.World.get(px, headY + dy, pz))) cover++;
+        else break;   // 只统计连续覆层
+      }
+      Voxel.Sound.setReverb(Math.min(1, cover / 8));
+    }
   }
   function boothBusyHint(msg) {
     Voxel.HUD.toast(msg);
@@ -4597,6 +4955,10 @@ Voxel.Game = (function () {
     } else if (nearBoothPos()) {
       hitEl.textContent = isTouch ? '轻点打开售票亭' : '按 E 打开售票亭';
       hitEl.dataset.kind = 'booth';
+      hitEl.style.display = 'block';
+    } else if (nearVillager()) {
+      hitEl.textContent = isTouch ? '轻点村民交谈' : '按 E 与村民交谈 · 有委托可接';
+      hitEl.dataset.kind = 'villager';
       hitEl.style.display = 'block';
     } else if (nearTossLine()) {
       hitEl.textContent = isTouch ? '轻点投圈 · 套柱顶金环得分' : '右键投圈 · 套柱顶金环得分';
@@ -5065,7 +5427,7 @@ Voxel.Game = (function () {
           var d2 = ddx * ddx + ddz * ddz + ddy * ddy;
           if (d2 < nearestD2) { nearestD2 = d2; nearest = m; }
         }
-        if (nearest) {
+        if (nearest && nearest.type !== 'villager') {
           Voxel.Progress.track('fauna', { type: nearest.type });
           if (nearest.type === 'cat' && petCooldown <= 0 && nearestD2 <= 3.5 * 3.5) {
             Voxel.Progress.track('pet', { type: 'cat' });
@@ -5239,6 +5601,7 @@ Voxel.Game = (function () {
           Voxel.HandItem.setId(inv[sel]);
           Voxel.HandItem.update(dt, Math.abs(pv.x) + Math.abs(pv.z) > 0.5);
         }
+        tickPlayerArrows(dt);
 
         // 回血属于玩法计时，使用 simulationDt；6 秒受击宽限仍由单调墙钟判定。
         tickRegeneration(simulationDt);
@@ -5246,6 +5609,10 @@ Voxel.Game = (function () {
         tickAutosave(dt);
         // 移动里程/群系踏入等环境观察在正常游玩时同样需要采样。
         tickProgressObserver(dt);
+        // 村民驻场维护（靠近村庄时补齐 NPC）
+        tickVillagerService(dt);
+        // 音频空间状态：战斗压混音 + 洞窟混响湿度（低频轮询，避免每帧调度）
+        tickAudioAmbience(dt);
       }
     }
 
@@ -5258,7 +5625,9 @@ Voxel.Game = (function () {
     if (uwEl) uwEl.classList.toggle('on', uwFade > 0.5);
     var wF = Voxel.Weather.rainFactor();
     var wFlash = Voxel.Weather.flash();
+    tickBiomeVisual(dt);
     _tint.copy(Voxel.DayNight.getTint()).multiply(Voxel.Weather.getTint());
+    _tint.multiply(bioTint);   // 群系身份色调（跨边界平滑）
     Voxel.MeshBuilder.applyTint(_tint);
     Voxel.Particles.applyTint(_tint);
     Voxel.Mobs.applyTint(_tint);
@@ -5282,8 +5651,8 @@ Voxel.Game = (function () {
     renderer.setClearColor(_sky);
     scene.fog.color.copy(_sky).lerp(_uwColor, uwFade * 0.85);
     var fogScale = Voxel.Settings ? Voxel.Settings.get('fog') : 1;
-    var fogNear = (CFG.FOG_NEAR + (CFG.WEATHER.FOG_NEAR_WET - CFG.FOG_NEAR) * wF) * fogScale;
-    var fogFar = (CFG.FOG_FAR + (CFG.WEATHER.FOG_FAR_WET - CFG.FOG_FAR) * wF) * fogScale;
+    var fogNear = (CFG.FOG_NEAR + (CFG.WEATHER.FOG_NEAR_WET - CFG.FOG_NEAR) * wF) * fogScale * bioFog;
+    var fogFar = (CFG.FOG_FAR + (CFG.WEATHER.FOG_FAR_WET - CFG.FOG_FAR) * wF) * fogScale * bioFog;
     // 无限行星只渲染玩家周围的流式工作集：雾尾留出一整个区块的安全边距，
     // 避免高雾距设置透出尚未加载的边缘。有限空间站保留原视距。
     if (currentWorld && currentWorld.kind === 'planet') {
@@ -5406,6 +5775,8 @@ Voxel.Game = (function () {
     state: 'loading',
     scene: null,
     camera: null,
+    // 护甲减伤回调（player.js damage 在物理伤害源上查询）
+    armorFactor: armorFactor,
     onKey: onKey,
     onLockChange: onLockChange,
     onLockError: onLockError,
