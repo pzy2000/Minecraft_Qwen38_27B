@@ -29,6 +29,10 @@ Voxel.SpaceTravel = (function () {
   var flightState = null, flightEvents = [], lastSafeExit = null, lastLandingPose = null;
   var flightRestoreValid = true;
   var landingAssist = null, landingAssistDistance = null;
+  // 召唤飞船：驾驶脑（ShipSummon pilot）+ 专属着陆辅助控制器实例。
+  // 召唤是会话态，不入存档；clear() 时与飞行状态一起作废。
+  var summonPilot = null, summonCtrl = null;
+  var lastSummonTarget = null;
   var arrivalTimer = null;
   var generation = 0;
   var owned = { geometries: [], materials: [], textures: [] };
@@ -374,6 +378,7 @@ Voxel.SpaceTravel = (function () {
 
   function boardShip() {
     if (!canBoardShip() || !flightState) return false;
+    summonCancel('boarded');
     aboardShip = true;
     boardedWorldId = world.id;
     shieldImpactUntil = 0;
@@ -694,6 +699,129 @@ Voxel.SpaceTravel = (function () {
     applyVisualState(visualTime());
     syncCockpit(false);
     return result;
+  }
+
+  // ---- 召唤飞船（无人深空式）：自驾降落 --------------------------------
+  // 玩家在地表用幽灵模型选点确认后，飞船原地起飞→巡航→移交给着陆辅助
+  // 控制器在目标点精确垂直下降。与 updateFlight 平行，但不需要登舰。
+
+  function summonOverrides() {
+    var raw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
+    return Object.assign(landingAssistConfig(), {
+      approachSpeed: raw.SUMMON_APPROACH_SPEED,
+      maxDuration: raw.SUMMON_MAX_DURATION,
+      maxAltitude: raw.SUMMON_MAX_ALT,
+      searchRadius: raw.LANDING_ASSIST_SEARCH_RADIUS
+    });
+  }
+
+  function summonConf() {
+    var raw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
+    var out = {};
+    if (isFinite(raw.SUMMON_APPROACH_SPEED)) out.approachSpeed = raw.SUMMON_APPROACH_SPEED;
+    if (isFinite(raw.SUMMON_HANDOFF_DIST)) out.handoffDist = raw.SUMMON_HANDOFF_DIST;
+    if (isFinite(raw.SUMMON_TAKEOFF_TIMEOUT)) out.takeoffTimeout = raw.SUMMON_TAKEOFF_TIMEOUT;
+    if (isFinite(raw.SUMMON_TRANSIT_TIMEOUT)) out.transitTimeout = raw.SUMMON_TRANSIT_TIMEOUT;
+    return out;
+  }
+
+  // 召唤期间的物理推进：与 updateFlight 相同的事件簿记，但不检查 isAboard。
+  function summonDriveStep(input, dt) {
+    if (!flightState || !Voxel.ShipFlight) return [];
+    var previous = flightState;
+    var result = Voxel.ShipFlight.step(flightState, dt, input, {
+      config: shipFlightConfig(), resolve: resolveFlightMove
+    });
+    flightState = result.state;
+    flightEvents = result.events.slice();
+    if (flightEvents.indexOf('takeoff') >= 0) {
+      lastSafeExit = null;
+      lastLandingPose = [previous.position[0], previous.position[1], previous.position[2], previous.yaw];
+    }
+    if (flightEvents.indexOf('landed') >= 0)
+      lastLandingPose = [flightState.position[0], flightState.position[1], flightState.position[2], flightState.yaw];
+    if (isAboard() && summonPilot && summonPilot.active()) summonPilot.cancel('boarded');
+    return flightEvents;
+  }
+
+  function summonBegin(spot) {
+    if (!world || world.kind !== 'planet' || !ship || !flightState ||
+      !Voxel.ShipFlight || !Voxel.LandingAssist || !Voxel.ShipSummon)
+      return { ok: false, reason: 'state' };
+    if (isAboard()) return { ok: false, reason: 'aboard' };
+    if (summonPilot && summonPilot.active()) return { ok: false, reason: 'busy' };
+    if (!spot || !isFinite(spot.x) || !isFinite(spot.z)) return { ok: false, reason: 'target' };
+
+    var cfgRaw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
+    var api = assistWorldApi();
+    // 移交技巧：begin 用「目标点替换 position」的只读视图让控制器直接
+    // 以已验证着陆点为搜索圆心；tick 始终传真实飞行状态。
+    summonCtrl = Voxel.LandingAssist.create(summonOverrides());
+    var pilotDeps = {
+      step: summonDriveStep,
+      getPos: function () { return [flightState.position[0], flightState.position[1], flightState.position[2]]; },
+      getVel: function () { return flightState.velocity.slice(); },
+      getYaw: function () { return flightState.yaw; },
+      ctrl: {
+        begin: function () {
+          var view = Object.assign({}, flightState, {
+            position: [spot.x, flightState.position[1], spot.z],
+            velocity: [0, 0, 0], landed: false
+          });
+          var r = summonCtrl.begin(view, api);
+          return !!(r && r.ok);
+        },
+        tick: function (dt) { return summonCtrl.tick(flightState, dt, api); },
+        cancel: function (reason) { summonCtrl.cancel(reason); }
+      },
+      target: { x: spot.x, z: spot.z },
+      conf: summonConf()
+    };
+    pilotDeps.cruiseY = Voxel.ShipSummon.planCruiseY(
+      function (x, z) { return Voxel.World.surfaceAt(x, z); },
+      { x: ship.position.x, z: ship.position.z }, { x: spot.x, z: spot.z, y: spot.y },
+      { margin: cfgRaw.SUMMON_CRUISE_MARGIN, cruiseMaxY: cfgRaw.SUMMON_CRUISE_MAX_Y }
+    );
+    summonPilot = Voxel.ShipSummon.createPilot(pilotDeps);
+    if (!summonPilot) return { ok: false, reason: 'pilot' };
+    lastSummonTarget = { x: spot.x, y: spot.y, z: spot.z };
+    announceTravel('飞船召回已确认：自动驾驶启动，正前往指定着陆点。');
+    return { ok: true, target: { x: spot.x, y: spot.y, z: spot.z }, cruiseY: pilotDeps.cruiseY };
+  }
+
+  function summonCancel(reason) {
+    if (!(summonPilot && summonPilot.active())) return false;
+    summonPilot.cancel(String(reason || 'cancelled'));
+    return true;
+  }
+
+  // 固定步驱动：由主循环在 playing 态调用；返回驾驶脑状态供 HUD 轮询。
+  function updateSummon(dt) {
+    if (!summonPilot) return null;
+    if (!flightState || isAboard()) { summonCancel('boarded'); return null; }
+    var st = summonPilot.tick(dt);
+    setRampTarget(0, visualTime());
+    applyVisualState(visualTime());
+    return st;
+  }
+
+  function summonStatus() {
+    if (!summonPilot || !flightState) {
+      return { active: false, phase: 'idle', distance: null,
+        result: summonPilot ? summonPilot.result() : null };
+    }
+    var p = flightState.position;
+    return {
+      active: summonPilot.active(),
+      phase: summonPilot.getPhase(),
+      distance: lastSummonTarget && summonPilot.active()
+        ? Math.hypot(p[0] - lastSummonTarget.x, p[2] - lastSummonTarget.z)
+        : null,
+      // 实时飞船位置：供雷达箭头 / 小地图锁定召回航向
+      shipPos: isFinite(p[0]) ? { x: p[0], y: p[1], z: p[2] } : null,
+      result: summonPilot.result(),
+      target: lastSummonTarget ? Object.assign({}, lastSummonTarget) : null
+    };
   }
 
   function cockpitWorldPosition() {
@@ -1838,6 +1966,38 @@ Voxel.SpaceTravel = (function () {
     return g;
   }
 
+  // 召唤预览的幽灵飞船：深拷贝真船层级（几何共享），全体替换为单一
+  // 半透明自发光材质；valid 合法=青绿 / 非法=警示红。宿主负责 add/remove
+  // 与 dispose()——几何不入释放账本（与真船共享），材质独立随用随建。
+  function buildShipGhost() {
+    if (!ship || typeof ship.clone !== 'function') return null;
+    var root = ship.clone(true);
+    root.name = 'ShipSummonGhost';
+    root.userData.role = 'ghost';
+    root.traverse(function (node) {
+      node.userData.role = 'ghost';
+      if (!node.isMesh) return;
+      node.castShadow = false;
+      node.receiveShadow = false;
+    });
+    var mat = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: reducedMotion ? 0.24 : 0.34,
+      depthWrite: false, side: THREE.DoubleSide
+    });
+    mat.color.setHex(0x39ffb2);
+    root.traverse(function (node) { if (node.isMesh) node.material = mat; });
+    return {
+      root: root,
+      setValid: function (valid) {
+        if (mat) mat.color.setHex(valid ? 0x39ffb2 : 0xff5544);
+      },
+      dispose: function () {
+        if (root.parent) root.parent.remove(root);
+        if (mat) { mat.dispose(); mat = null; }
+      }
+    };
+  }
+
   // 把 #rgb / #rrggbb 之类的强调色转成整数，供合批的分区色 c 使用。
   function accentInt(v) {
     var s = safeAccent(v).slice(1);
@@ -2169,6 +2329,7 @@ Voxel.SpaceTravel = (function () {
     flightState = null; flightEvents.length = 0; lastSafeExit = null; lastLandingPose = null;
     flightRestoreValid = true;
     landingAssist = null; landingAssistDistance = null;
+    summonPilot = null; summonCtrl = null; lastSummonTarget = null;
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false; nearPortal = null;
     shipParts = { engines: [], door: null, ramp: null };
     stationHub = null; stationDock = null; stationTerminal = null;
@@ -3130,6 +3291,11 @@ Voxel.SpaceTravel = (function () {
     engageLandingAssist: engageLandingAssist,
     cancelLandingAssist: cancelLandingAssist,
     landingAssistInfo: landingAssistInfo,
+    summonBegin: summonBegin,
+    summonCancel: summonCancel,
+    updateSummon: updateSummon,
+    summonStatus: summonStatus,
+    buildShipGhost: buildShipGhost,
     applyCockpitCamera: applyCockpitCamera,
     cockpitWorldPosition: cockpitWorldPosition,
     safeExitPosition: safeExitPosition,

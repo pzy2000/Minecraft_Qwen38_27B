@@ -151,7 +151,19 @@ Voxel.Config = {
     // 着陆辅助（长按 E 自动着陆）
     LANDING_ASSIST_MAX_ALT: 24,        // 激活高度上限(相对地面)
     LANDING_ASSIST_SEARCH_RADIUS: 32,  // 着陆点螺旋搜索半径(格)
-    LANDING_ASSIST_HOLD_MS: 600        // 长按 E 触发阈值
+    LANDING_ASSIST_HOLD_MS: 600,       // 长按 E 触发阈值
+    // 召唤飞船（X 键：准星选点 → 幽灵预览 → 确认后自动驾驶降落）
+    SUMMON_AIM_RANGE: 96,              // 放置预览的准星射线投射距离(格)
+    SUMMON_PREVIEW_SEARCH_RADIUS: 10,  // 命中点吸附搜索半径(格)
+    SUMMON_FALLBACK_AHEAD: 10,         // 准星未命中时向前取点的距离
+    SUMMON_APPROACH_SPEED: 24,         // 召唤巡航水平速度(m/s)
+    SUMMON_HANDOFF_DIST: 5,            // 移交精确降落控制的水平距离
+    SUMMON_MAX_ALT: 400,               // 移交着陆辅助时允许的相对高度上限
+    SUMMON_MAX_DURATION: 480,          // 着陆辅助控制器总时长兜底(秒)
+    SUMMON_CRUISE_MARGIN: 20,          // 巡航高度 = 沿途最高地表 + 余量
+    SUMMON_CRUISE_MAX_Y: 230,          // 巡航高度硬上限
+    SUMMON_TAKEOFF_TIMEOUT: 45,        // 起飞+爬升阶段超时(秒)
+    SUMMON_TRANSIT_TIMEOUT: 420        // 跨图巡航阶段超时(秒)
   },
 
   SAVE_KEY: 'starbound_voxel_save_v6', // v6：无限宇宙（银河→恒星系）、跨系曲速电池

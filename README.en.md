@@ -10,6 +10,7 @@ One universe seed recursively derives **infinite galaxies × infinite star syste
 - Six seeded planet classes: lush, arid, frozen, toxic, volcanic, and oceanic.
 - Three or four deterministic portals per planet, including a route to the station.
 - A flyable pixel starship with a transparent real-time cockpit. Press `E` nearby to board; life support scrubs hazard exposure to `0%` and blocks lightning and mob attacks. Mouse/touch steers, `W/S` controls thrust and braking/reverse, `A/D` adds assisted banked turns, and `Space/Shift` controls vertical thrust. Terrain collision is assisted and landing is soft. While airborne, hold `E` for 0.6s below 24 m above ground to engage the landing assist: it finds a flat, dry spot automatically and lands itself (HUD shows `AUTO LAND`); tap `E` after touchdown to disembark. Press `H` in the cockpit for verified interplanetary warp.
+- **Ship summoning (No Man's Sky style)**: press `X` on any planet's surface to place a translucent ghost ship snapped to the nearest valid ground under your crosshair; water canopies and slopes show red and reject confirmation. Once confirmed — no boarding required — the ship takes off, climbs to a terrain-safe cruise altitude sampled along the route, autopilots across the map, then reuses the landing assist logic for a precise vertical descent onto the spot the ghost marked (<1 m accuracy). Summon from anywhere on the map, live distance HUD at the bottom, `X` anytime to abort into a hover. On touch devices a top-right "召舰" button starts the same flow with on-screen confirm/cancel buttons.
 - Distance-based warp energy, discovery tracking, an orbital station, and automatic station refuelling.
 - Save v5 keeps edits and positions separate per world while inventory and ship progress travel with you.
 - The top-right control changes from Star Map to Board in range. Mobile cockpit controls provide steering drag plus Thrust, Brake, Up, Down, Star Map, and Disembark while keeping the WebGL world visible across narrow and low-height viewports.
@@ -88,6 +89,7 @@ python3 -m http.server 8080
 | E | Board the nearby ship / tap in the cockpit to disembark (after landing) · while airborne, hold for 0.6s to engage the **landing assist** (below 24 m above ground it finds a flat, dry spot and lands automatically; any manual input cancels) · near a Starlight Carnival ride platform, **hold E for 0.6s to board the ride, tap E to get off** · elsewhere, open/close inventory (2×2 crafting) · interact with a targeted crafting table, bed, furnace, or chest |
 | F | Toggle flight |
 | H | Open/close the ignitable star map in the cockpit; surface external maps are read-only; available at the station terminal |
+| X | Summon ship (No Man's Sky style): aim the crosshair at the ground and press `X` for a translucent **ghost preview** of the landing spot (green = valid, red = blocked by water/trees/slope). Left-click or `F` confirms, right-click or `X` again cancels. After confirmation the ship takes off and **autopilots** — climb, cruise across the map, then descend vertically onto the chosen spot; HUD shows remaining distance; press `X` mid-flight to abort into a hover |
 | N | Cycle weather (clear → rain → thunderstorm; disabled on the station) |
 | F3 | Show/hide debug overlay |
 | M | Open/close crafting handbook (recipe list + one-click craft; hold to craft continuously) |
@@ -162,6 +164,7 @@ js/
 │   ├── daynight.js   Day/night, gradient sky dome, stars
 │   ├── weather.js    Weather: clear/rain/thunderstorm, raindrops, clouds, lightning, rainbow
 │   ├── amusement.js  Starlight Carnival ride runtime (time-driven registry + distance budgeting)
+│   ├── ship_summon.js  Ship-summoning pure logic (ghost placement / cruise planning / autopilot brain, Node-testable)
 │   ├── sound.js      Audio (samples first + WebAudio fallback, BGM, rain/thunder)
 │   ├── particles.js  Break particles
 │   └── save.js       localStorage saves

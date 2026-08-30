@@ -3133,6 +3133,251 @@ Voxel.Game = (function () {
   }
   function rideRadius() { return (CFG.RIDE && CFG.RIDE.RADIUS) || 5.5; }
 
+  // ---------- 召唤飞船 · 幽灵模型放置预览（X 键，无人深空式） ----------
+
+  var summonPlace = { active: false, ghost: null, target: null, aimRange: 96, searchRadius: 10 };
+  var summonToastKey = '';
+
+  function summonWorldApi() {
+    return {
+      surfaceAt: function (x, z) { return Voxel.World.surfaceAt(x, z); },
+      get: function (x, y, z) { return Voxel.World.get(x, y, z); },
+      isSolid: function (id) { return !!Voxel.Blocks.isSolid(id); }
+    };
+  }
+
+  function showSummonStatus(mode, text) {
+    var el = document.getElementById('summon-status');
+    if (!el) return;
+    if (el.hidden || el.dataset.mode !== mode || el.textContent !== text) {
+      el.hidden = false;
+      el.dataset.mode = mode;
+      el.textContent = text;
+    }
+  }
+
+  function hideSummonStatus() {
+    var el = document.getElementById('summon-status');
+    if (el && !el.hidden) el.hidden = true;
+  }
+
+  function flightSummonActive() {
+    return !!(Voxel.SpaceTravel && Voxel.SpaceTravel.summonStatus &&
+      Voxel.SpaceTravel.summonStatus().active);
+  }
+
+  function startSummonPlacement() {
+    if (summonPlace.active || state !== 'playing') return;
+    if (!currentWorld || currentWorld.kind !== 'planet') {
+      Voxel.HUD.toast('此天体无法召唤飞船');
+      return;
+    }
+    if (Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard()) {
+      Voxel.HUD.toast('你就在飞船上，无需召唤');
+      return;
+    }
+    if (flightSummonActive()) {
+      Voxel.HUD.toast('正在召回中 · 再按 X 取消');
+      return;
+    }
+    var ghost = Voxel.SpaceTravel.buildShipGhost ? Voxel.SpaceTravel.buildShipGhost() : null;
+    if (!ghost) {
+      Voxel.HUD.toast('附近没有可召唤的飞船');
+      return;
+    }
+    var cfg = CFG.SHIP_FLIGHT || {};
+    summonPlace.aimRange = cfg.SUMMON_AIM_RANGE || 96;
+    summonPlace.searchRadius = cfg.SUMMON_PREVIEW_SEARCH_RADIUS || 10;
+    summonPlace.ghost = ghost;
+    summonPlace.target = null;
+    summonPlace.active = true;
+    scene.add(ghost.root);
+    Voxel.Sound.select();
+  }
+
+  // 收起预览：dispose 只释放幽灵专属的半透明材质；几何与真船共享。
+  function endSummonPlacement(inform) {
+    if (!summonPlace.active) return;
+    summonPlace.active = false;
+    if (summonPlace.ghost) { summonPlace.ghost.dispose(); summonPlace.ghost = null; }
+    summonPlace.target = null;
+    hideSummonStatus();
+    syncSummonTouchControls(false);
+    if (inform) Voxel.HUD.toast('已取消召唤');
+  }
+
+  function updateSummonPlacementPreview() {
+    if (!summonPlace.active || !summonPlace.ghost) return;
+    var origin = Voxel.Player.eyePos();
+    var dir = aimDir();
+    var hit = Voxel.Raycaster.cast(origin, dir, summonPlace.aimRange);
+    var pp = Voxel.Player.pos();
+    var hitPoint = null, dirYaw = Math.atan2(-dir.x, -dir.z);
+    if (hit && hit.type === 'block') {
+      hitPoint = {
+        x: hit.x + 0.5 + (hit.nx || 0) * 0.5,
+        y: hit.y + 0.5 + (hit.ny || 0) * 0.5,
+        z: hit.z + 0.5 + (hit.nz || 0) * 0.5
+      };
+    }
+    var spot = Voxel.ShipSummon && Voxel.ShipSummon.aimSpot
+      ? Voxel.ShipSummon.aimSpot(summonWorldApi(), hitPoint,
+        { x: pp.x, y: pp.y, z: pp.z, yaw: dirYaw }, { searchRadius: summonPlace.searchRadius })
+      : null;
+    if (!spot) return;
+    var g = summonPlace.ghost;
+    g.root.position.set(spot.x, spot.y, spot.z);
+    g.root.rotation.set(0, spot.yaw, 0);
+    g.root.visible = true;
+    g.setValid(spot.valid);
+    summonPlace.target = spot.valid ? { x: spot.x, y: spot.y, z: spot.z } : null;
+    showSummonStatus(spot.valid ? 'placing' : 'error',
+      spot.valid ? '召唤落点已选定 · 左键/F 确认 · 右键/X 取消'
+        : '此处无法降落（红 = 受阻）· 右键/X 取消');
+  }
+
+  function confirmSummonPlacement() {
+    if (!summonPlace.active) return;
+    if (!summonPlace.target) {
+      Voxel.HUD.toast('红色区域无法降落：请调整准星选择平整干燥地面');
+      return;
+    }
+    var r = Voxel.SpaceTravel.summonBegin(summonPlace.target);
+    if (!r.ok) {
+      var why = {
+        aboard: '登舰状态下无法召唤',
+        busy: '正在召回中，请等待降落或按 X 取消',
+        state: '当前没有可用的飞船',
+        target: '无效落点'
+      }[r.reason] || '无法召唤';
+      Voxel.HUD.toast(why);
+      return;
+    }
+    endSummonPlacement(false);
+    summonToastKey = '';
+    Voxel.Sound.select();
+    Voxel.HUD.toast('飞船召回中：自动驾驶前往指定着陆点');
+  }
+
+  function cancelActiveSummonFlight() {
+    if (Voxel.SpaceTravel && Voxel.SpaceTravel.summonCancel &&
+      Voxel.SpaceTravel.summonCancel('cancelled')) {
+      Voxel.HUD.toast('召回已取消：飞船将保持悬停');
+      return true;
+    }
+    return false;
+  }
+
+  // 召唤雷达箭头：绕准星旋转指向飞船当前方位（0=屏幕上方/玩家朝向）。
+  var summonDirEl = null;
+
+  function updateSummonRadarArrow(st) {
+    if (!summonDirEl) summonDirEl = document.getElementById('summon-dir');
+    if (!summonDirEl) return;
+    var wantShow = !!(st && st.active && st.shipPos &&
+      !(Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard()));
+    if (!wantShow) {
+      if (summonDirEl.classList.contains('show'))
+        summonDirEl.classList.remove('show');
+      return;
+    }
+    var p = Voxel.Player.pos();
+    var dx = st.shipPos.x - p.x, dz = st.shipPos.z - p.z;
+    // 已在飞船近旁时收起箭头，避免近距离抖动
+    if (dx * dx + dz * dz < 9) { summonDirEl.classList.remove('show'); return; }
+    var yaw = Voxel.Controls.yaw();
+    var fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    var rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    var hLen = Math.sqrt(dx * dx + dz * dz) || 1;
+    var rel = Math.atan2((dx * rx + dz * rz) / hLen, (dx * fx + dz * fz) / hLen);
+    summonDirEl.firstElementChild.style.transform =
+      'translate(-50%,-50%) rotate(' + (rel * 57.2958) + 'deg) translateY(-92px)';
+    if (!summonDirEl.classList.contains('show')) summonDirEl.classList.add('show');
+  }
+
+  // 渲染帧轮询：召唤飞行进度 HUD 与完成/中止一次性播报。
+  function tickSummonFlightHud() {
+    var st = Voxel.SpaceTravel && Voxel.SpaceTravel.summonStatus
+      ? Voxel.SpaceTravel.summonStatus() : null;
+    updateSummonRadarArrow(st);
+    var doneKey = st && !st.active && st.result ? st.result : '';
+    if (doneKey && doneKey !== summonToastKey) {
+      summonToastKey = doneKey;
+      var msg = {
+        completed: '飞船已抵达指定着陆点 · 靠近后按 E 登舰',
+        cancelled: '',
+        expired: '召回中止：自动驾驶超时',
+        blocked: '召回中止：航路上持续受阻',
+        stuck: '召回中止：飞船失去机动能力',
+        nospot: '召回中止：找不到可用着陆点'
+      }[doneKey] || '';
+      if (msg) Voxel.HUD.toast(msg);
+      if (doneKey === 'completed') Voxel.Sound.pop();
+    }
+    if (st && st.active && !summonPlace.active) {
+      var distTxt = typeof st.distance === 'number'
+        ? (st.distance >= 1000
+          ? (st.distance / 1000).toFixed(1) + ' km'
+          : Math.round(st.distance) + ' m')
+        : '--';
+      var brg = Voxel.SpaceTravel.shipBearing ? Voxel.SpaceTravel.shipBearing() : null;
+      showSummonStatus('flight', '召回中 · 方向 ' + (brg ? brg.direction : '--') +
+        ' · 距离 ' + distTxt + ' · X 取消');
+    } else if (!summonPlace.active) hideSummonStatus();
+  }
+
+  // 移动端浮钮：右上「召舰」入口 + 放置模式的确认/取消对。
+  function ensureSummonButtons(isTouch) {
+    var entry = document.getElementById('summon-btn');
+    var showEntry = !!isTouch && state === 'playing' && !summonPlace.active &&
+      currentWorld && currentWorld.kind === 'planet' &&
+      !(Voxel.SpaceTravel && Voxel.SpaceTravel.isAboard && Voxel.SpaceTravel.isAboard()) &&
+      !(Voxel.SpaceTravel.canBoardShip && Voxel.SpaceTravel.canBoardShip());
+    if (!entry) {
+      entry = document.createElement('button');
+      entry.id = 'summon-btn';
+      entry.type = 'button';
+      entry.setAttribute('aria-label', '召唤飞船');
+      entry.textContent = '召舰';
+      document.body.appendChild(entry);
+      entry.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        if (flightSummonActive()) cancelActiveSummonFlight();
+        else onKey('KeyX');
+      }, { passive: false });
+    }
+    var wantDisplay = showEntry ? 'flex' : 'none';
+    if (flightSummonActive() && isTouch) {
+      showEntry = true; // 召唤进行中保留入口作为取消按钮
+      wantDisplay = 'flex';
+      entry.textContent = '取消';
+    } else entry.textContent = '召舰';
+    if (entry.style.display !== (showEntry ? wantDisplay : 'none'))
+      entry.style.display = showEntry ? wantDisplay : 'none';
+    syncSummonTouchControls(isTouch);
+  }
+
+  function syncSummonTouchControls(show) {
+    var box = document.getElementById('summon-place-controls');
+    if (!box) {
+      if (!show) return;
+      box = document.createElement('div');
+      box.id = 'summon-place-controls';
+      box.innerHTML = '<button type="button" data-act="confirm">确认降落</button>' +
+        '<button type="button" data-act="cancel">取消</button>';
+      document.body.appendChild(box);
+      box.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+        if (act === 'confirm') confirmSummonPlacement();
+        else if (act === 'cancel') endSummonPlacement(true);
+      }, { passive: false });
+    }
+    var want = !!show && summonPlace.active;
+    var display = want ? 'flex' : 'none';
+    if (box.style.display !== display) box.style.display = display;
+  }
+
   // 星海嘉年华·乐园发现档案（对齐遗迹登记；首次靠近自动记录）
   var parkDiscoverySeen = {};
   function pollParkDiscovery() {
@@ -4274,8 +4519,12 @@ Voxel.Game = (function () {
           toggleInv(true);
         }
       } else if (code === 'KeyF') {
-        Voxel.Player.setFlying(!Voxel.Player.flying());
-        Voxel.HUD.toast(Voxel.Player.flying() ? '飞行模式：开（空格↑ Shift↓）' : '飞行模式：关');
+        // 召唤放置模式中 F 是确认键，避免误触发飞行开关。
+        if (summonPlace.active) confirmSummonPlacement();
+        else {
+          Voxel.Player.setFlying(!Voxel.Player.flying());
+          Voxel.HUD.toast(Voxel.Player.flying() ? '飞行模式：开（空格↑ Shift↓）' : '飞行模式：关');
+        }
       } else if (code === 'KeyG') {
         startActiveScan();
       } else if (code === 'KeyQ') {
@@ -4297,9 +4546,16 @@ Voxel.Game = (function () {
       else if (code === 'F3') debug = !debug;
       else if (code === 'KeyP') pause();
       else if (code === 'KeyM') openManual();
+      else if (code === 'KeyX') {
+        // 无人深空式召唤：X 开/关幽灵放置预览；召回飞行中按 X 取消。
+        if (flightSummonActive()) cancelActiveSummonFlight();
+        else if (summonPlace.active) endSummonPlacement(true);
+        else startSummonPlacement();
+      }
     } else if (state === 'cockpit') {
       // KeyE 不在这里处理：长按触发着陆辅助、轻按离舰，由 tickCockpitKeyE 按固定步计时。
       if (code === 'KeyH') openStarMap();
+      else if (code === 'KeyX') Voxel.HUD.toast('先离舰再召唤飞船');
       else if (code === 'KeyJ') openAchievements();
       else if (code === 'KeyB') openCodex();
       else if (code === 'KeyP' || code === 'Escape') pause();
@@ -5305,6 +5561,9 @@ Voxel.Game = (function () {
     Voxel.Drops.update(step, { allowPickup: !frozen });
     updateFallers(step);
     tickActiveScan(step);
+    // 召唤飞船：playing 态固定步推进自动驾驶（暂停/座舱冻结时自然停摆）。
+    if (state === 'playing' && Voxel.SpaceTravel && Voxel.SpaceTravel.updateSummon)
+      Voxel.SpaceTravel.updateSummon(step);
   }
 
   function cockpitInput() {
@@ -5460,6 +5719,8 @@ Voxel.Game = (function () {
     // 教程任务卡可见性（内部带变更检测，避免每帧写 DOM）
     if (Voxel.Tutorial && Voxel.Tutorial.refresh) Voxel.Tutorial.refresh();
     if (Voxel.Endgame && Voxel.Endgame.refresh) Voxel.Endgame.refresh();
+    // 召唤放置模式只在 playing 态有效：任何状态迁移（暂停/死亡/传送）立即收尾。
+    if (summonPlace.active && state !== 'playing') endSummonPlacement(false);
 
     tickFlight(dt);
 
@@ -5591,6 +5852,14 @@ Voxel.Game = (function () {
             Voxel.Player.pos(), currentWorld ? currentWorld.id : null);
         }
         ensureRideButton(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
+        // 召唤飞船：放置预览跟随准星 / 飞行进度 HUD / 触屏浮钮。
+        if (summonPlace.active) updateSummonPlacementPreview();
+        tickSummonFlightHud();
+        ensureSummonButtons(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
+        // 小地图（中国版风格）：仅行星地表显示，随主循环节流重绘
+        if (Voxel.MiniMap)
+          Voxel.MiniMap.update(performance.now(),
+            !!(currentWorld && currentWorld.kind === 'planet' && !summonPlace.active));
         pollParkDiscovery();
         if (rideStarted) showRideHint(Voxel.Controls.touchMode && Voxel.Controls.touchMode());
         else updateHighlight();
@@ -6149,6 +6418,13 @@ Voxel.Game = (function () {
       if (state !== 'playing' && state !== 'cockpit') return;
       if (!Voxel.Controls.isLocked()) { tryLock(); return; }
       if (state === 'cockpit') { e.preventDefault(); return; }
+      // 召唤放置模式接管鼠标：左键确认 / 右键取消，不进入挖放管线。
+      if (summonPlace.active) {
+        e.preventDefault();
+        if (e.button === 0) confirmSummonPlacement();
+        else if (e.button === 2) endSummonPlacement(true);
+        return;
+      }
       mouseDown[e.button] = true;
       var nowS = performance.now() / 1000;
       if (e.button === 0) { lastPlace = nowS; doAct(0); }

@@ -4,7 +4,7 @@
 <meta charset="UTF-8" data-page-node-id="6Ed83fwTlNwCvfhCh5cepy">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" data-page-node-id="SNwk9ypjhepsOzcFx5FVtv">
 <title>星海方舟 Starbound Voxel</title>
-<link rel="stylesheet" href="css/style.css?v=2b490a4dee6da49e3008b39d94532e8bcbfc988a3eb729c038ab20e05832ac28" data-page-node-id="CxIEjnWZTBu2DDZuWYtQrJ">
+<link rel="stylesheet" href="css/style.css?v=e94131e8ef1b9fea69f1e4225c844c98bdd522966c84754f44f8c93eee96f55a" data-page-node-id="CxIEjnWZTBu2DDZuWYtQrJ">
 </head>
 <body data-game-state="loading" data-page-node-id="wlwVJajMNWaMffHiK8RDyL">
 <canvas id="game" data-page-node-id="Wki7bx67oRCSr5vkdCFyDe"></canvas>
@@ -28,6 +28,8 @@
   <div id="hotbar" role="toolbar" aria-label="快捷栏" data-page-node-id="euwFD20gEPOzz766GN6Pkf"></div>
   <div id="gear-bar" role="group" aria-label="装备栏" data-page-node-id="gX7bV2mQ8nKeUuYtWpRzLc"></div>
   <div id="toast" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="fmq8P6FPdAf9HknwukU2DT"></div>
+  <div id="summon-status" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  <div id="summon-dir" aria-hidden="true"><i></i></div>
   <div id="use-hint" role="status" aria-live="polite" aria-atomic="true" data-page-node-id="vu1jU6NYNsY7UG0ZkTGeFf"></div>
   <div id="lock-hint" data-page-node-id="E0BANGvb30lTheZPJAlHii">鼠标未锁定 — 点击画面锁定鼠标（Esc 可释放）</div>
   <div id="save-health" data-state="idle" aria-live="off" hidden data-page-node-id="8kAEDQqmYcUEOAUzZrz7Id">存档状态尚未验证</div>
@@ -279,7 +281,7 @@
           <div data-page-node-id="Dla7gmtYj1RPxJn6ERqkml"><b data-page-node-id="eCMaCtmLny9MuB46zsD1zE">WASD</b> 移动 <b data-page-node-id="ZZUFO7HuVojwyG48XBL063">鼠标</b> 视角 <b data-page-node-id="hnm6fHPpkpxwbfYWzQOasn">空格</b> 跳跃 <b data-page-node-id="usZQ3MpPqeHtATG9CMY3Gh">Shift</b> 疾跑</div>
           <div data-page-node-id="4WCkGzucmfbdcA81JFEFJB"><b data-page-node-id="xgQ7cZdEgYXYPGBukkclXc">左键</b> 放置 <b data-page-node-id="NYGYbe7iKzk8oQKRQjt2Q7">右键长按</b> 挖掘/攻击 <b data-page-node-id="Nt0CndZdqFtDQB0qvxD7Yj">中键</b> 吸取方块</div>
           <div data-page-node-id="Sp3qWYaZMLfluWTADCiFHb"><b data-page-node-id="tEp8frnqFz8DxxXYBXGxEW">1-9 / 滚轮</b> 快捷栏 <b data-page-node-id="AFQ7Qiafqc5MNhuXyRycxP">E</b> 交互/背包 · <b data-page-node-id="1kLmR2pWv9XyZ8qA3nBcDd">Alt+E</b> 强制背包 <b data-page-node-id="e5kxKjYLQSzGyPTZajyXjO">G</b> 主动扫描 <b data-page-node-id="8s3hxVqf4SvuLLHxDatdlR">H</b> 飞船星图 <b data-page-node-id="6e9d9gVzheREbdUIBvophA">F</b> 飞行</div>
-          <div data-page-node-id="Q45frlaBK1zqZ2d7dS1W9n"><b data-page-node-id="73GLD9yAZYoumbuBpcko9M">M</b> 合成手册 · <b data-page-node-id="OANO0hxqQSqk9cJJgvIHuf">Q</b> 丢弃 · <b data-page-node-id="iU1rXi4gdr7Evcw0O6Rz3k">R</b> 进食 · <b data-page-node-id="wksbkqph9TV7fbZK0Yp2BG">N</b> 切换天气 · <b data-page-node-id="ZDVe7iV87A9r5lfj53ZFu1">J</b> 成就 · <b data-page-node-id="aJNmMDYImR7YiqWPXKcCzi">B</b> 图鉴</div>
+          <div data-page-node-id="Q45frlaBK1zqZ2d7dS1W9n"><b data-page-node-id="73GLD9yAZYoumbuBpcko9M">M</b> 合成手册 · <b data-page-node-id="OANO0hxqQSqk9cJJgvIHuf">Q</b> 丢弃 · <b data-page-node-id="iU1rXi4gdr7Evcw0O6Rz3k">R</b> 进食 · <b data-page-node-id="wksbkqph9TV7fbZK0Yp2BG">N</b> 切换天气 · <b data-page-node-id="ZDVe7iV87A9r5lfj53ZFu1">J</b> 成就 · <b data-page-node-id="aJNmMDYImR7YiqWPXKcCzi">B</b> 图鉴 · <b data-page-node-id="xKeySummon20260830">X</b> 召唤飞船</div>
           <div data-page-node-id="vGupJ94mNCqMguAAIoHeAa"><b data-page-node-id="SvHkcY2WfAhWnBG4Sf8uCL">F3</b> 调试 <b data-page-node-id="t85tNDeNq8bCFHy3N9enDR">P</b> 暂停 <b data-page-node-id="pc9vmQrZWD6mFUVxDlMVVO">Esc</b> 释放鼠标</div>
         </div>
       </div>
@@ -672,7 +674,7 @@
 <script src="vendor/postprocessing/EffectComposer.js?v=20260828a"></script>
 <script src="vendor/postprocessing/RenderPass.js?v=20260828a"></script>
 <script src="vendor/postprocessing/UnrealBloomPass.js?v=20260828a"></script>
-<script src="js/config.js?v=78136d807f4aa5f05abd028420de0bc243f38d55318bd80a02376f07f49d3b08"></script>
+<script src="js/config.js?v=20260830b"></script>
 <script src="js/assets.js?v=eab5034d9b128a1e02ac417d551fb5263c97c8b1e723d483226baa41d5060c00"></script>
 <script src="js/world/seed.js?v=20260823f"></script>
 <script src="js/world/universe.js?v=20260825b"></script>
@@ -703,6 +705,7 @@
 <script src="js/systems/environment.js?v=8bf70b6db5dc0505d14ed6d79de466c7140aca91dc8f4e0a72332ebf3bd80ac2"></script>
 <script src="js/systems/ship_flight.js?v=2f2bcb9784772dae9786dc42134175dfaa7ba67a8f217399bf3c47d71ce2b4b0"></script>
 <script src="js/systems/landing_assist.js?v=80ff8eb3f0d8fda0cdd5035e040724868adff3d1414babddf6244942d0f96df0"></script>
+<script src="js/systems/ship_summon.js?v=20260830a"></script>
 <script src="js/systems/amusement.js?v=b1d8901312c485b0ff3f7543d06429c4a54f1af6f06580d1df441087c2c5a3f2"></script>
 <script src="js/systems/flight_sequence.js?v=20260824p"></script>
 <script src="js/systems/atmosphere.js?v=20260824m"></script>
@@ -712,7 +715,7 @@
 <script src="js/systems/furnace.js?v=20260830a"></script>
 <script src="js/systems/particles.js?v=20260823f"></script>
 <script src="js/ui/galaxy_map.js?v=20260825a"></script>
-<script src="js/systems/space_travel.js?v=20260829a"></script>
+<script src="js/systems/space_travel.js?v=20260830c"></script>
 <script src="js/systems/bloom.js?v=20260828b"></script>
 <script src="js/entities/mobs.js?v=8e83d8c345415e6eab3ba3bc0ff436d9d54669007c089621f0b588f11d9e91c1"></script>
 <script src="js/entities/drops.js?v=20260824g"></script>
@@ -721,7 +724,8 @@
 <script src="js/ui/featured.js?v=c3dd8db1be16725eb7292c7232a857816b01abecc2f33c212711d74ffaceb1bd"></script>
 <script src="js/ui/touch.js?v=ac57bb7c7e0c9eb318c44dcf078d059293791d532f6599855f55b120069c75a0"></script>
 <script src="js/ui/hud.js?v=20260830a"></script>
+<script src="js/ui/minimap.js?v=6887b22acb17c7f9e58ebd1d9d052176a4b42c8d5744d2f99cb3e95727b61ba3"></script>
 <script src="js/ui/codex.js?v=20260830a"></script>
-<script src="js/main.js?v=207a8d9bdd649de7132a19a2a76c22e94452b87b453c3175ef38edd5f461cec8"></script>
+<script src="js/main.js?v=3a7e3d16c9c23045b233c6e2534c720f76f26828d7156f4e4c4e6e24d7c05e93"></script>
 </body>
 </html>
