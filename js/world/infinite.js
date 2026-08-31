@@ -133,6 +133,8 @@ window.Voxel = window.Voxel || {};
     var g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(gb.pos), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(gb.uv), 2));
+    g.setAttribute('alocal', new THREE.BufferAttribute(new Float32Array(gb.lcl), 2));
+    g.setAttribute('auvo', new THREE.BufferAttribute(new Float32Array(gb.uvo), 2));
     g.setAttribute('acolor', new THREE.BufferAttribute(new Float32Array(gb.col), 3));
     g.setAttribute('alight', new THREE.BufferAttribute(new Float32Array(gb.lgt), 2));
     g.setAttribute('anrm', new THREE.BufferAttribute(new Float32Array(gb.nrm), 3));

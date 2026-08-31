@@ -24,6 +24,13 @@ Voxel.MeshBuilder = (function () {
   // 当前正在发射的方块的面标记（build 每个体素设一次，emit* 系列直接取用）：
   // curEmit=1 表示高发光方块（交给 Bloom 阈值），curWater=1 表示水体。
   var curEmit = 0, curWater = 0;
+  // 当前 tile 的图集采样窗口原点（发射器共用；greedy 平铺属性数据源）
+  var curUvo = [0, 0];
+  function setGreedyTile(tile) {
+    var t = tileOriginUV(tile);
+    curUvo[0] = t[tile * 2];
+    curUvo[1] = t[tile * 2 + 1];
+  }
   // 自发光门槛：只有火把级以上（≥12）才越过 Bloom 阈值，
   // 金饰块(2)/辉光饰条(7) 这类弱发光装饰不参与，否则城堡整体泛光。
   var EMIT_MIN_LIGHT = 12;
@@ -63,6 +70,14 @@ Voxel.MeshBuilder = (function () {
     'attribute vec3 anrm;',
     // x=自发光增益开关(0/1)，y=水面标记(0/1，与玻璃同组但只有水做反射)
     'attribute vec2 aflag;',
+    // greedy meshing（plan 5.1·Step D，仅不透明材质启用）：
+    // alocal=合并矩形内的平铺坐标(0..ru,0..rv)，auvo=图集 tile 原点（半纹素内缩已烘焙）
+    '#ifdef GREEDY_OPAQUE',
+    'attribute vec2 alocal;',
+    'attribute vec2 auvo;',
+    'varying vec2 vLocal;',
+    'varying vec2 vUvO;',
+    '#endif',
     'uniform mat4 uShadowMat;',
     '#ifdef SWAY',
     'uniform float uTime;',
@@ -80,6 +95,9 @@ Voxel.MeshBuilder = (function () {
     'varying vec4 vShadowCoord;',
     'void main(){',
     '  vUv = uv; vCol = acolor; vL = alight; vNrm = anrm; vFlag = aflag;',
+    '  #ifdef GREEDY_OPAQUE',
+    '  vLocal = alocal; vUvO = auvo;',
+    '  #endif',
     '  vec3 p = position;',
     '  #ifdef SWAY',
     '  p += voxelSway(p, uTime, uWind, uSwayAmp);',
@@ -146,6 +164,11 @@ Voxel.MeshBuilder = (function () {
       'varying vec3 vWPos;',
       'varying vec2 vFlag;',
       'varying vec4 vShadowCoord;',
+      '#ifdef GREEDY_OPAQUE',
+      'varying vec2 vLocal;',
+      'varying vec2 vUvO;',
+      'uniform vec2 uUvScale;',
+      '#endif',
       // 深度图 RGBA 三通道打包（WebGL1 兼容，不依赖 depth texture 扩展）
       'float unpackD(vec4 c){ return dot(c, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0)); }',
       // 树叶实时投影：正交深度图 PCF 2×2 软采样
@@ -177,7 +200,14 @@ Voxel.MeshBuilder = (function () {
       FOG_GLSL,
       BLKTINT_GLSL,
       'void main(){',
+      // 平铺采样：fract 取 tile 内局部坐标后走与 legacy 完全相同的
+      // 「半纹素内缩 15px 窗口」映射（uUvScale = 15/图集尺寸）。
+      // mipmap 导数在合并接缝处的轻微扰动是本方案已知代价，像素风 + 高各向异性下不可感知。
+      '#ifdef GREEDY_OPAQUE',
+      '  vec4 tex = texture2D(map, vUvO + fract(vLocal) * uUvScale);',
+      '#else',
       '  vec4 tex = texture2D(map, vUv);',
+      '#endif',
       '  if (tex.a < ' + cut + ') discard;',
       '  float br = max(vL.x * sun, vL.y);',
       // 太阳方向 wrap-diffuse：晨昏侧光明暗（夜晚由 uDirStr 压平为均匀月光感）
@@ -200,9 +230,13 @@ Voxel.MeshBuilder = (function () {
 
   function mkMat(alpha, cut, opts) {
     opts = opts || {};
+    var defines = opts.sway ? { SWAY: '' } : {};
+    if (opts.greedy) defines.GREEDY_OPAQUE = '';
     var m = new THREE.ShaderMaterial({
       uniforms: {
         map: { value: texture },
+        // greedy 平铺步长 = 15 纹素 / 图集尺寸（frag 拼接 vUvO + fract(vLocal)*uUvScale）
+        uUvScale: { value: new THREE.Vector2(15 / (Voxel.Blocks.ATLAS_SIZE || 512), 15 / (Voxel.Blocks.ATLAS_SIZE || 512)) },
         tint: { value: new THREE.Color(1, 1, 1) },
         sun: { value: 1 },
         uFogColor: { value: new THREE.Color(0x87ceeb) },
@@ -232,7 +266,7 @@ Voxel.MeshBuilder = (function () {
       transparent: !!opts.transparent,
       depthWrite: !opts.transparent,
       side: THREE.FrontSide,
-      defines: opts.sway ? { SWAY: '' } : {}
+      defines: defines
     });
     mats.push(m);
     return m;
@@ -397,7 +431,7 @@ Voxel.MeshBuilder = (function () {
     GBlk = Voxel.World.getBlk;
     texture = B.getTexture();
     whiteTex = makeWhiteTex();
-    opaqueMat = mkMat(1, '0.5', {});
+    opaqueMat = mkMat(1, '0.5', { greedy: true });
     waterMat = mkWaterMat();
     foliageMat = mkMat(1, '0.5', { sway: true });
     inited = true;
@@ -439,12 +473,33 @@ Voxel.MeshBuilder = (function () {
     return {
       pos: new TypedBuf(Float32Array, 8192),
       uv: new TypedBuf(Float32Array, 4096),
+      // greedy 平铺属性（仅 o 组被着色器消费；w/fl 组照常填充但不挂 define）
+      lcl: new TypedBuf(Float32Array, 4096),
+      uvo: new TypedBuf(Float32Array, 4096),
       col: new TypedBuf(Float32Array, 8192),
       lgt: new TypedBuf(Float32Array, 4096),
       nrm: new TypedBuf(Float32Array, 8192),
       flg: new TypedBuf(Float32Array, 4096),
       idx: new TypedBuf(Uint32Array, 12288)
     };
+  }
+
+  // 图集 tile → 半纹素内缩采样窗口原点（与 legacy vUv 公式恒等变形，缓存避免逐顶点重算）
+  var uvoCache = null;
+  function tileOriginUV(tile) {
+    if (!uvoCache || uvoCache.length <= tile) {
+      var tpr = Voxel.Blocks.TILES_PER_ROW || 16;
+      var asz = Voxel.Blocks.ATLAS_SIZE || 512;
+      var cap = Math.max(tile + 64, tpr * 4);
+      uvoCache = new Float32Array(cap * 2);
+      for (var i = 0; i < cap; i++) {
+        var c = i % tpr, r = (i / tpr) | 0;
+        uvoCache[i * 2] = (c * 16 + 0.5) / asz;
+        // V 轴翻转：legacy 在 t=1 时取行内最低样点（1-(r16+15.5)/asz），t=0 取最高
+        uvoCache[i * 2 + 1] = 1 - (r * 16 + 0.5 + 15) / asz;
+      }
+    }
+    return uvoCache;
   }
 
   // 单顶点平滑光照：对面朝格 N 及其两个侧邻、角邻共 4 格采样（不透明格不参与平均，
@@ -578,6 +633,7 @@ Voxel.MeshBuilder = (function () {
   // （整块=y..y+1/0..1；床=y..y+0.5/0..1；邻居为床时只发上半面 y+0.5..y+1/0.5..1）
   // ls/lb: 面所朝格子的天光/块光（兜底值）
   function emitFace(t, F, tile, x, y, z, yBot, yTop, uvLo, uvHi, ls, lb) {
+    setGreedyTile(tile);
     var base = t.pos.length / 3;
     var aoArr = [0, 0, 0, 0];
     for (var k = 0; k < 4; k++) {
@@ -601,6 +657,9 @@ Voxel.MeshBuilder = (function () {
       t.col.push(shade, shade, shade);
       t.lgt.push(vl.ls, vl.lb);
       t.flg.push(curEmit, curWater);
+      // 贪心平铺属性：仅不透明目标组消费着色器端，其余组填充但被忽略
+      t.lcl.push(uvx, uvy);
+      t.uvo.push(curUvo[0], curUvo[1]);
     }
     // AO 各向异性：按对角和选择四边形剖分对角线，避免遮蔽插值出现三角面痕迹
     if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
@@ -616,6 +675,7 @@ Voxel.MeshBuilder = (function () {
     var bx0 = b[0], by0 = b[1], bz0 = b[2], bx1 = b[3], by1 = b[4], bz1 = b[5];
     for (var f = 0; f < 6; f++) {
       var F = FACES[f];
+      setGreedyTile(B.tileForFace(id, f));
       var nx = x + F.n[0], ny = y + F.n[1], nz = z + F.n[2];
       // 面位置：沿法线轴的盒边界
       var ext;
@@ -639,22 +699,24 @@ Voxel.MeshBuilder = (function () {
         t.nrm.push(F.n[0], F.n[1], F.n[2]);
 
         var uvx = UVK[k][0], uvy = UVK[k][1];
-        tileUV(tile, uvx, uvy);
-        t.uv.push(tmpUV[0], tmpUV[1]);
+      tileUV(tile, uvx, uvy);
+      t.uv.push(tmpUV[0], tmpUV[1]);
 
-        var au = (uvx ? F.u[0] : -F.u[0]);
-        var av = (uvx ? F.u[1] : -F.u[1]);
-        var aw = (uvx ? F.u[2] : -F.u[2]);
-        var bu = (uvy ? F.v[0] : -F.v[0]);
-        var bv = (uvy ? F.v[1] : -F.v[1]);
-        var bw = (uvy ? F.v[2] : -F.v[2]);
-        var vl = vertexLight(x, y, z, F, au, av, aw, bu, bv, bw);
-        aoArr[k] = vl.ao;
-        var shade = F.b * AO[vl.ao];
-        t.col.push(shade, shade, shade);
-        t.lgt.push(vl.ls, vl.lb);
-        t.flg.push(curEmit, curWater);
-      }
+      var au = (uvx ? F.u[0] : -F.u[0]);
+      var av = (uvy ? F.u[1] : -F.u[1]);
+      var aw = (uvy ? F.u[2] : -F.u[2]);
+      var bu = (uvy ? F.v[0] : -F.v[0]);
+      var bv = (uvy ? F.v[1] : -F.v[1]);
+      var bw = (uvy ? F.v[2] : -F.v[2]);
+      var vl = vertexLight(x, y, z, F, au, av, aw, bu, bv, bw);
+      aoArr[k] = vl.ao;
+      var shade = F.b * AO[vl.ao];
+      t.col.push(shade, shade, shade);
+      t.lgt.push(vl.ls, vl.lb);
+      t.flg.push(curEmit, curWater);
+      t.lcl.push(uvx, uvy);
+      t.uvo.push(curUvo[0], curUvo[1]);
+    }
       if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
         t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
       } else {
@@ -704,6 +766,7 @@ Voxel.MeshBuilder = (function () {
   // 必须无视烘焙光全亮。花草之类不发光的十字块要走正常光照，否则在夜景里
   // 会整片自发光，读起来像噪点地毯。
   function emitCross(t, tile, x, y, z, crossH, selfLit) {
+    setGreedyTile(tile);
     var ls = GSky(x, y, z) / 15;
     var lb = selfLit ? 1 : GBlk(x, y, z) / 15;
     var h = (typeof crossH === 'number') ? crossH : 0.7;
@@ -732,6 +795,8 @@ Voxel.MeshBuilder = (function () {
           t.col.push(1, 1, 1);
           t.lgt.push(ls, lb);
           t.flg.push(curEmit, curWater);
+          t.lcl.push(v[3], v[4]);
+          t.uvo.push(curUvo[0], curUvo[1]);
         }
         if (side === 1) t.idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
         else t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -745,6 +810,10 @@ Voxel.MeshBuilder = (function () {
     var g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(a.pos.slice(), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(a.uv.slice(), 2));
+    // greedy 平铺属性（GREEDY_OPAQUE 材质消费；水/树叶材质声明里没有
+    // 这些 attribute，three 只绑定已启用的顶点属性，多余缓冲无副作用）
+    g.setAttribute('alocal', new THREE.BufferAttribute(a.lcl.slice(), 2));
+    g.setAttribute('auvo', new THREE.BufferAttribute(a.uvo.slice(), 2));
     g.setAttribute('acolor', new THREE.BufferAttribute(a.col.slice(), 3));
     g.setAttribute('alight', new THREE.BufferAttribute(a.lgt.slice(), 2));
     g.setAttribute('anrm', new THREE.BufferAttribute(a.nrm.slice(), 3));
@@ -785,6 +854,8 @@ Voxel.MeshBuilder = (function () {
           if (id === 0) continue;
           var def = B.defs[id];
           if (!def) continue;
+          // 贪心分区：完全规则方块的全部可见面交给 greedy 引擎发射
+          if (isFullyGreedy(x, y, z, id)) continue;
           var isWater = id === 7;
           var isStained = !!def.stained;                 // 彩色玻璃 → 半透明水材质组
           var isBed = !!def.half;
@@ -853,6 +924,9 @@ Voxel.MeshBuilder = (function () {
         }
       }
     }
+    // 贪心引擎补扫（须在 pad 采样器仍激活、且位于全部体素循环之外的 try 域内）
+    sweepOriginX = x0; sweepOriginZ = z0;
+    greedyEmitAll(o, yTop);
     } finally {
       G = gPrev; GSky = gsPrev; GBlk = gbPrev;
     }
@@ -864,9 +938,231 @@ Voxel.MeshBuilder = (function () {
   function toViews(s) {
     return {
       pos: s.pos.view(), uv: s.uv.view(), col: s.col.view(),
-      lgt: s.lgt.view(), nrm: s.nrm.view(), flg: s.flg.view(), idx: s.idx.view()
+      lgt: s.lgt.view(), nrm: s.nrm.view(), flg: s.flg.view(),
+      lcl: s.lcl.view(), uvo: s.uvo.view(), idx: s.idx.view()
     };
   }
+
+  // ============================================================
+  // greedy meshing（plan 5.1 · Step D）
+  //
+  // 分区策略（与 legacy 逐面路径零重叠 / 零遗漏）：
+  //   · 「完全规则方块」＝ 不透明、非树叶/玻璃/半高、无 cross/box/
+  //     connector 形状、且六邻居无床 —— 其全部可见面仅由本引擎发射
+  //   · 其余方块沿用主循环 legacy 发射（床邻接缩面、水面高度等特例）
+  //
+  // 经典贪心：6 朝向 × 法线轴逐层扫掠，层内矩形扩张。合并键 =
+  // 可见 + tile + 四角(ls,lb,AO) 完全一致（保守合并：只有整块键全等
+  // 的相邻面才并入，光照渐变语义与逐面发射等价）。
+  // quad 顶点坐标按 FACES.c 原始偏移做轴跨度缩放（1→w/h），绕序 /
+  // AO 对角剖分与逐面路径一致。
+  // 纹理平铺由着色器端 fract(vLocal) 完成（仅 GREEDY_OPAQUE 材质）；
+  // 合并面不写 uv 属性（legacy vUv 未被该材质采样分支使用）。
+  // ============================================================
+
+  var gEligCache = null;
+  function greedyEligibleId(id) {
+    if (!gEligCache) {
+      gEligCache = new Int8Array(256);
+      for (var i0 = 0; i0 < 256; i0++) gEligCache[i0] = -1;
+    }
+    var v = gEligCache[id];
+    if (v < 0) {
+      var df0 = B.defs[id];
+      v = (df0 && df0.opaque && !df0.leaves && !df0.stained &&
+        !df0.half && !df0.cross && !df0.box && !df0.boxes && !df0.connector) ? 1 : 0;
+      gEligCache[id] = v;
+    }
+    return v === 1;
+  }
+
+  function isFullyGreedy(x, y, z, id) {
+    if (!greedyEligibleId(id)) return false;
+    for (var f = 0; f < 6; f++) {
+      var FN = FACES[f].n;
+      if (B.isBed(G(x + FN[0], y + FN[1], z + FN[2]))) return false;
+    }
+    return true;
+  }
+
+  // 平面键缓存槽位：0=vis(1可见/2已收割) 1=tile 2..9=四角(ls,lb)交替 10=AO打包
+  var GKEY_LEN = 11;
+  var gKeyBuf = null;
+  // 当前区块原点（greedy 扫掠的世界坐标基准；buildArrays 进入时设置）
+  var sweepOriginX = 0, sweepOriginZ = 0;
+
+  // 构建一个平面（法线轴世界坐标=nWorld）的可见性与合并键。
+  // 平面两轴（ua/va）各有自己的跨度：Y 轴 = yTop+1，X/Z 轴 = CS。
+  // nWorld / 枚举坐标全部为世界坐标；buf 下标用局部索引。
+  function buildPlaneKeys(F, fIdx, nAxis, nWorld, ua, va, uaBase, vaBase, lenA, lenB) {
+    var CS = Voxel.Config.CHUNK;
+    var need = lenA * lenB * GKEY_LEN;
+    if (!gKeyBuf || gKeyBuf.length < need) {
+      gKeyBuf = new Float64Array(Math.max(need, 4096 * GKEY_LEN));
+    }
+    var buf = gKeyBuf;
+    var co = [0, 0, 0];
+    var npx = F.n[0], npy = F.n[1], npz = F.n[2];
+    for (var bi = 0; bi < lenB; bi++) {
+      for (var ai = 0; ai < lenA; ai++) {
+        var off = bi * lenA * GKEY_LEN + ai * GKEY_LEN;
+        buf[off] = 0;
+        co[nAxis] = nWorld; co[ua] = uaBase + ai; co[va] = vaBase + bi;
+        var wx = co[0], wy = co[1], wz = co[2];
+        if (wy < 0 || wy >= Voxel.Config.WORLD_H) continue;
+        var id = G(wx, wy, wz);
+        if (id === 0 || !greedyEligibleId(id)) continue;
+        var nb = G(wx + npx, wy + npy, wz + npz);
+        if (B.isOpaque(nb)) continue;       // 与 legacy 通用剔除分支一致
+        if (B.isBed(nb)) continue;          // 床邻接几何特例 → legacy 路径
+        buf[off] = 1;
+        buf[off + 1] = B.tileForFace(id, fIdx);
+        var p = off + 2;
+        var aoBits = 0;
+        for (var k = 0; k < 4; k++) {
+          var uvx = UVK[k][0], uvy = UVK[k][1];
+          var au = (uvx ? F.u[0] : -F.u[0]);
+          var av = (uvx ? F.u[1] : -F.u[1]);
+          var aw = (uvx ? F.u[2] : -F.u[2]);
+          var bu = (uvy ? F.v[0] : -F.v[0]);
+          var bv = (uvy ? F.v[1] : -F.v[1]);
+          var bw = (uvy ? F.v[2] : -F.v[2]);
+          var vl = vertexLight(wx, wy, wz, F, au, av, aw, bu, bv, bw);
+          // 光照按 1/32 步长量化后参与合并键：相邻格光照差异在半步以内时
+          // 视为等值（GPU 插值下不可感知），换取平坦区域的大幅合并率
+          buf[p++] = Math.round(vl.ls * 32);
+          buf[p++] = Math.round(vl.lb * 32);
+          aoBits |= (vl.ao & 3) << (k * 2);
+        }
+        buf[off + 10] = aoBits;
+      }
+    }
+  }
+
+  var gRef = null;
+  function grabRef(buf, a, b, lenA) {
+    var off = b * lenA * GKEY_LEN + a * GKEY_LEN;
+    for (var i = 0; i < GKEY_LEN; i++) gRef[i] = buf[off + i];
+  }
+
+  // 键宽松化（Step D 二阶段）：只要求「可见且同 tile」；光照/AO 数据仍按格
+  // 存储，发射时取矩形四个端点格对应角的值，由 GPU 插值过渡内部微差 ——
+  // 与 Minecraft 贪心网格的光照处理同级，宏观渐变保留、微观抖动平滑。
+  function cellEqualsRef(a, b, lenA, lenB) {
+    if (a < 0 || b < 0 || a >= lenA || b >= lenB) return false;
+    var off = b * lenA * GKEY_LEN + a * GKEY_LEN;
+    if (gKeyBuf[off] !== 1) return false;
+    if (gKeyBuf[off + 1] !== gRef[1]) return false;
+    return true;
+  }
+
+  // 读端点格的角数据：返回该格 slot k 的 (ls,lb,ao)
+  function readCorner(buf, lenA, a, b, k) {
+    var off = b * lenA * GKEY_LEN + a * GKEY_LEN;
+    var aoBits = buf[off + 10] | 0;
+    return [
+      buf[off + 2 + k * 2],
+      buf[off + 2 + k * 2 + 1],
+      (aoBits >> (k * 2)) & 3
+    ];
+  }
+
+  // 发射合并后的矩形 quad；origin 为矩形体素最小角的绝对坐标
+  function emitGreedyQuad(o, F, fIdx, nAxis, ua, va,
+    ox, oy, oz, wA, hB, tile, lenQ, aMin, bMin) {
+    setGreedyTile(tile);
+    curEmit = 0;
+    curWater = 0;
+    var base = o.pos.length / 3;
+    // 四角光照来自矩形四个端点格各自的同名角：GPU 在大 quad 上线性插值，
+    // 平坦区域与逐面发射肉眼无差、斜坡渐变更平滑（微观 AO 抖动被抹平）
+    var cornerData = [];
+    for (var kc = 0; kc < 4; kc++) {
+      var uaSide = UVK[kc][0], vaSide = UVK[kc][1];
+      var ca = aMin + (uaSide ? wA - 1 : 0);
+      var cb = bMin + (vaSide ? hB - 1 : 0);
+      cornerData.push(readCorner(gKeyBuf, lenQ, ca, cb, kc));
+    }
+    var aoArr = [cornerData[0][2], cornerData[1][2], cornerData[2][2], cornerData[3][2]];
+    for (var k = 0; k < 4; k++) {
+      var C = F.c[k];
+      var dx = C[0] === 0 ? 0 : (ua === 0 ? C[0] * wA : (va === 0 ? C[0] * hB : C[0]));
+      var dy = C[1] === 0 ? 0 : (ua === 1 ? C[1] * wA : (va === 1 ? C[1] * hB : C[1]));
+      var dz = C[2] === 0 ? 0 : (ua === 2 ? C[2] * wA : (va === 2 ? C[2] * hB : C[2]));
+      o.pos.push(ox + dx, oy + dy, oz + dz);
+      o.nrm.push(F.n[0], F.n[1], F.n[2]);
+      // 贪心面的纹理寻址走 alocal/auvo；uv 置零（GREEDY_OPAQUE 不读 vUv）
+      o.uv.push(0, 0);
+      o.lcl.push(UVK[k][0] ? wA : 0, UVK[k][1] ? hB : 0);
+      o.uvo.push(curUvo[0], curUvo[1]);
+      var shade = F.b * AO[aoArr[k]];
+      o.col.push(shade, shade, shade);
+      o.lgt.push(cornerData[k][0] / 32, cornerData[k][1] / 32);
+      o.flg.push(0, 0);
+    }
+    if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
+      o.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    } else {
+      o.idx.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+    }
+  }
+
+  // 单方向全平面扫描。法线轴的层坐标 = 该轴的世界区间；
+  // 平面内两轴跨度按轴身份决定（Y = yTop+1，X/Z = CS）。
+  function greedySweepDir(fIdx, o, yTop) {
+    var CFG = Voxel.Config;
+    var CS = CFG.CHUNK;
+    var F = FACES[fIdx];
+    var nAxis = F.n[0] !== 0 ? 0 : (F.n[1] !== 0 ? 1 : 2);
+    var ua = F.u[0] !== 0 ? 0 : (F.u[1] !== 0 ? 1 : 2);
+    var va = F.v[0] !== 0 ? 0 : (F.v[1] !== 0 ? 1 : 2);
+    // 各轴世界基点：X/Z 取区块原点，Y 从 0
+    var baseOf = [sweepOriginX, 0, sweepOriginZ];
+    // 各轴跨度：Y 轴受 yTop 截断，其余为区块宽度
+    function axisLen(idx) { return idx === 1 ? yTop + 1 : CS; }
+    var lenA = axisLen(ua), lenB = axisLen(va);
+
+    var nLo = baseOf[nAxis];
+    var nHi = baseOf[nAxis] + axisLen(nAxis) - 1;
+
+    for (var nWorld = nLo; nWorld <= nHi; nWorld++) {
+      buildPlaneKeys(F, fIdx, nAxis, nWorld, ua, va, baseOf[ua], baseOf[va], lenA, lenB);
+      var buf = gKeyBuf;
+      for (var b = 0; b < lenB; b++) {
+        for (var a = 0; a < lenA; a++) {
+          if (buf[b * lenA * GKEY_LEN + a * GKEY_LEN] !== 1) continue;
+          grabRef(buf, a, b, lenA);
+          var wA = 1;
+          while (a + wA < lenA && cellEqualsRef(a + wA, b, lenA, lenB)) wA++;
+          var hB = 1;
+          expand:
+          while (b + hB < lenB) {
+            for (var i2 = 0; i2 < wA; i2++) {
+              if (!cellEqualsRef(a + i2, b + hB, lenA, lenB)) break expand;
+            }
+            hB++;
+          }
+          for (var bb = b; bb < b + hB; bb++) {
+            for (var aa = a; aa < a + wA; aa++) {
+              buf[bb * lenA * GKEY_LEN + aa * GKEY_LEN] = 2;
+            }
+          }
+          // 矩形体素最小角的世界坐标（按轴分解回填）
+          var co = [0, 0, 0];
+          co[nAxis] = nWorld; co[ua] = baseOf[ua] + a; co[va] = baseOf[va] + b;
+          emitGreedyQuad(o, F, fIdx, nAxis, ua, va,
+            co[0], co[1], co[2], wA, hB, gRef[1], lenA, a, b);
+        }
+      }
+    }
+  }
+
+  function greedyEmitAll(o, yTop) {
+    if (!gRef || gRef.length !== GKEY_LEN) gRef = new Float64Array(GKEY_LEN);
+    for (var f = 0; f < 6; f++) greedySweepDir(f, o, yTop);
+  }
+
+
 
   function build(cx, cz) {
     var r = buildArrays(cx, cz);

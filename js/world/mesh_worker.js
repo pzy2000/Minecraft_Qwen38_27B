@@ -25,8 +25,10 @@ function packGroup(v) {
   if (!v || !v.pos.length) return null;
   // slice 成精确尺寸缓冲，配合 Transferable 零拷贝移交主线程
   return {
-    pos: v.pos.slice(), uv: v.uv.slice(), col: v.col.slice(),
-    lgt: v.lgt.slice(), nrm: v.nrm.slice(), flg: v.flg.slice(), idx: v.idx.slice()
+    pos: v.pos.slice(), uv: v.uv.slice(),
+    lcl: v.lcl.slice(), uvo: v.uvo.slice(),
+    col: v.col.slice(), lgt: v.lgt.slice(), nrm: v.nrm.slice(),
+    flg: v.flg.slice(), idx: v.idx.slice()
   };
 }
 
