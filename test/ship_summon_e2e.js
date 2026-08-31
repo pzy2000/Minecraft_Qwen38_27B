@@ -39,6 +39,8 @@ let browser;
   browser = await puppeteer.launch({
     executablePath,
     headless: 'new',
+    // CI 软件渲染下页面主线程常被游戏循环占满，单次 CDP 求值可能远超默认 180s
+    protocolTimeout: 600000,
     args: ['--no-sandbox', '--disable-gpu', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--window-size=1100,700']
   });
   const page = await browser.newPage();
@@ -143,7 +145,7 @@ let browser;
     await page.waitForFunction(() => {
       const st = Voxel.SpaceTravel.summonStatus();
       return !st.active;
-    }, { timeout: 420000, polling: 500, protocolTimeout: 600000 });
+    }, { timeout: 420000, polling: 500 });
     const finalInfo = await page.evaluate((t) => {
       const snap = Voxel.SpaceTravel.flightSnapshot();
       const st = Voxel.SpaceTravel.summonStatus();

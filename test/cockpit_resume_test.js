@@ -18,6 +18,7 @@ function check(name, ok, detail) { if (!ok) throw new Error('FAIL ' + name + (de
 let browser;
 (async () => {
   browser = await puppeteer.launch({ executablePath, headless: 'new',
+    protocolTimeout: 600000,
     args: ['--no-sandbox','--disable-gpu','--use-gl=swiftshader','--enable-unsafe-swiftshader'] });
   const page = await browser.newPage();
   await page.setViewport({ width: 1100, height: 700 });

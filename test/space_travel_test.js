@@ -32,6 +32,7 @@ let browser;
   browser = await puppeteer.launch({
     executablePath,
     headless: 'new',
+    protocolTimeout: 600000,
     args: ['--no-sandbox', '--disable-gpu', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--window-size=1100,700']
   });
   const page = await browser.newPage();
