@@ -10,6 +10,7 @@ Voxel.Settings = (function () {
     particleDensity: 1.0,
     rainDensity: 1.0,
     mobDensity: 1.0,
+    clouds: 2,              // 块状云层 0=关 1=流畅(平面) 2=高质量(立体)
     shadows: 0,             // 实时树叶阴影 0=关 1=中 2=高（触屏首启默认关）
     sway: 1,                // 树叶风摇强度档 0=关 0.5=弱 1=标准
     stream: 6,              // 后台区块加载的每帧时间预算（毫秒）：越大加载越快、瞬时掉帧越多
@@ -43,6 +44,7 @@ Voxel.Settings = (function () {
     particleDensity: [0.25, 1],
     rainDensity: [0.25, 1],
     mobDensity: [0.25, 1],
+    clouds: [0, 2],
     shadows: [0, 2],
     sway: [0, 1],
     stream: [2, 16],
@@ -59,6 +61,7 @@ Voxel.Settings = (function () {
   var TOUCH_DEFAULTS = {
     fpsCap: 60, res: 0.8,
     particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75,
+    clouds: 1,            // 移动端默认平面云（立体云的填充率在集成 GPU 上不划算）
     bloom: 0,             // 移动端默认关辉光，兼顾性能与续航
     viewBoost: 0          // 移动端不抬流式半径（工作集翻倍会拖垮生成队列）
   };

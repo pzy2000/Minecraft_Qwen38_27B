@@ -22,7 +22,12 @@ Voxel.Weather = (function () {
 
   var rain = null, rainPos = null, dropXZ = null, dropY = null, dropSpd = null;
   var bolt = null, boltGeo = null;
-  var clouds = [];        // { m, baseOp }
+  // 块状云层：占用网格 + 单 Mesh（顶点按绝对云格坐标写入预分配缓冲）
+  var cloudLayer = null, cloudGeo = null, cloudMat = null;
+  var cloudGrid = null, cloudPos = null, cloudShade = null;
+  var cloudVerts = 0, cloudCells = 0;
+  var cloudLevel = 2;     // 云质量档：0=关 1=流畅(平面) 2=高质量(立体)
+  var cloudCi = 0, cloudCj = 0, cloudDirty = true;
   var rainbow = null, rainbowMats = [];
   var tintC = new THREE.Color(1, 1, 1);
   var skyC = new THREE.Color(0x525a63);
@@ -84,22 +89,216 @@ Voxel.Weather = (function () {
     }
   }
 
-  // ---------- 云纹理（程序化软斑点） ----------
+  // ---------- 块状云层（原版：12 格云格 + 4 格厚，面分级明暗） ----------
 
-  function makeCloudTex() {
-    var cv = document.createElement('canvas');
-    cv.width = 128; cv.height = 128;
-    var c2 = cv.getContext('2d');
-    for (var i = 0; i < 14; i++) {
-      var x = 20 + random() * 88, y = 20 + random() * 88, r = 14 + random() * 30;
-      var g = c2.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, 'rgba(255,255,255,0.85)');
-      g.addColorStop(0.7, 'rgba(255,255,255,0.4)');
-      g.addColorStop(1, 'rgba(255,255,255,0)');
-      c2.fillStyle = g;
-      c2.fillRect(0, 0, 128, 128);
+  // 占用网格：矩形团块盖章 + 一次平滑，得到原版 clouds.png 那样的直角团块轮廓。
+  // 只用种子随机（random()），同世界种子必须复现（禁止 Math.random）。
+  function genCloudGrid() {
+    var W = Voxel.Config.WEATHER, G = W.CLOUD_GRID, total = G * G;
+    if (!cloudGrid || cloudGrid.length !== total) cloudGrid = new Uint8Array(total);
+    else for (var z = 0; z < total; z++) cloudGrid[z] = 0;
+    var wrap = function (v) { return ((v % G) + G) % G; };
+    var target = total * W.CLOUD_COVER, filled = 0, guard = 0;
+    while (filled < target && guard++ < 20000) {
+      var cx = Math.floor(random() * G), cz = Math.floor(random() * G);
+      var stamps = 1 + Math.floor(random() * 3);
+      for (var s = 0; s < stamps; s++) {
+        var sw = 3 + Math.floor(random() * 8), sh = 2 + Math.floor(random() * 5);
+        var ox = cx + Math.floor(rand(-4, 5)), oz = cz + Math.floor(rand(-3, 4));
+        for (var i = 0; i < sw; i++) {
+          var gx = wrap(ox + i);
+          for (var j = 0; j < sh; j++) {
+            var idx = wrap(oz + j) * G + gx;
+            if (!cloudGrid[idx]) { cloudGrid[idx] = 1; filled++; }
+          }
+        }
+      }
     }
-    return new THREE.CanvasTexture(cv);
+    // 平滑：去掉孤立单格（雪花感的来源），填掉单格空洞
+    var src = cloudGrid.slice();
+    cloudCells = 0;
+    for (var gz = 0; gz < G; gz++) {
+      for (var gxx = 0; gxx < G; gxx++) {
+        var nb = src[gz * G + wrap(gxx - 1)] + src[gz * G + wrap(gxx + 1)] +
+          src[wrap(gz - 1) * G + gxx] + src[wrap(gz + 1) * G + gxx];
+        var v = src[gz * G + gxx];
+        if (v && nb === 0) v = 0;
+        else if (!v && nb >= 3) v = 1;
+        cloudGrid[gz * G + gxx] = v;
+        cloudCells += v;
+      }
+    }
+  }
+
+  // 占用网格摘要：布局确定性校验用（同种子必须一致）
+  function cloudGridDigest() {
+    if (!cloudGrid) return 0;
+    var h = 0x811c9dc5;
+    for (var i = 0; i < cloudGrid.length; i++)
+      h = (Math.imul(h ^ cloudGrid[i], 16777619) >>> 0);
+    return h;
+  }
+
+  function cellAt(gx, gz) {
+    var G = Voxel.Config.WEATHER.CLOUD_GRID;
+    return cloudGrid[(((gz % G) + G) % G) * G + (((gx % G) + G) % G)];
+  }
+
+  // 四边形：A-B-C + A-C-D（绕序按面法线朝外，配合 FrontSide 剔除背面）
+  function pushQuad(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, shade) {
+    var p = cloudPos, s = cloudShade, n = cloudVerts;
+    if (!p || (n + 6) * 3 > p.length) return;
+    var o = n * 3;
+    p[o] = ax; p[o + 1] = ay; p[o + 2] = az;
+    p[o + 3] = bx; p[o + 4] = by; p[o + 5] = bz;
+    p[o + 6] = cx; p[o + 7] = cy; p[o + 8] = cz;
+    p[o + 9] = ax; p[o + 10] = ay; p[o + 11] = az;
+    p[o + 12] = cx; p[o + 13] = cy; p[o + 14] = cz;
+    p[o + 15] = dx; p[o + 16] = dy; p[o + 17] = dz;
+    s[n] = shade; s[n + 1] = shade; s[n + 2] = shade;
+    s[n + 3] = shade; s[n + 4] = shade; s[n + 5] = shade;
+    cloudVerts = n + 6;
+  }
+
+  // 以相机所在云格 (ci,cj) 为中心重建局部网格：局部原点 = 该云格的西北角。
+  // 顶/底面与 Z 侧面沿 X 做行合并，X 侧面逐格出面。
+  function rebuildCloudMesh(ci, cj) {
+    var W = Voxel.Config.WEATHER;
+    var CELL = W.CLOUD_CELL, TH = W.CLOUD_THICK, R = W.CLOUD_RADIUS;
+    cloudVerts = 0;
+    if (!cloudGrid) genCloudGrid();
+    var flat = cloudLevel < 2;
+    for (var dj = -R; dj <= R; dj++) {
+      var z0 = dj * CELL, z1 = z0 + CELL;
+      var hasRun = false, run = 0;              // 顶/底面行合并
+      var hasN = false, runN = 0;               // -Z 侧面行合并
+      var hasP = false, runP = 0;               // +Z 侧面行合并
+      for (var di = -R; di <= R + 1; di++) {
+        var on = di <= R ? cellAt(ci + di, cj + dj) : 0;
+        var x0 = di * CELL;
+        if (on && !hasRun) { hasRun = true; run = x0; }
+        else if (!on && hasRun) {
+          pushQuad(run, TH, z1, x0, TH, z1, x0, TH, z0, run, TH, z0, 1.0);
+          if (!flat) pushQuad(run, 0, z0, x0, 0, z0, x0, 0, z1, run, 0, z1, 0.7);
+          hasRun = false;
+        }
+        if (!flat) {
+          var openN = on && !cellAt(ci + di, cj + dj - 1);
+          if (openN && !hasN) { hasN = true; runN = x0; }
+          else if (!openN && hasN) {
+            pushQuad(x0, 0, z0, runN, 0, z0, runN, TH, z0, x0, TH, z0, 0.9);
+            hasN = false;
+          }
+          var openP = on && !cellAt(ci + di, cj + dj + 1);
+          if (openP && !hasP) { hasP = true; runP = x0; }
+          else if (!openP && hasP) {
+            pushQuad(runP, 0, z1, x0, 0, z1, x0, TH, z1, runP, TH, z1, 0.9);
+            hasP = false;
+          }
+          if (on) {
+            if (!cellAt(ci + di - 1, cj + dj))
+              pushQuad(x0, 0, z0, x0, 0, z1, x0, TH, z1, x0, TH, z0, 0.8);
+            if (!cellAt(ci + di + 1, cj + dj)) {
+              var x1 = x0 + CELL;
+              pushQuad(x1, 0, z1, x1, 0, z0, x1, TH, z0, x1, TH, z1, 0.8);
+            }
+          }
+        }
+      }
+    }
+    cloudGeo.attributes.position.needsUpdate = true;
+    cloudGeo.attributes.aShade.needsUpdate = true;
+    cloudGeo.setDrawRange(0, cloudVerts);
+    cloudCi = ci; cloudCj = cj; cloudDirty = false;
+  }
+
+  function makeCloudLayer() {
+    var W = Voxel.Config.WEATHER;
+    var cells = (2 * W.CLOUD_RADIUS + 1) * (2 * W.CLOUD_RADIUS + 1);
+    // 行合并后实测约 3 顶点/占用云格（团块内部不出面），取 20 倍余量；
+    // pushQuad 有溢出守卫，极端图案最多截断远处云而不会越界。
+    var maxVerts = cells * 20;
+    cloudPos = new Float32Array(maxVerts * 3);
+    cloudShade = new Float32Array(maxVerts);
+    cloudGeo = new THREE.BufferGeometry();
+    var pAttr = new THREE.BufferAttribute(cloudPos, 3);
+    var sAttr = new THREE.BufferAttribute(cloudShade, 1);
+    if (pAttr.setUsage) pAttr.setUsage(THREE.DynamicDrawUsage);
+    if (sAttr.setUsage) sAttr.setUsage(THREE.DynamicDrawUsage);
+    cloudGeo.setAttribute('position', pAttr);
+    cloudGeo.setAttribute('aShade', sAttr);
+    cloudGeo.setDrawRange(0, 0);
+    cloudMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(0xffffff) },
+        uOpacity: { value: W.CLOUD_ALPHA },
+        uFadeNear: { value: W.CLOUD_FADE_NEAR },
+        uFadeFar: { value: W.CLOUD_FADE_FAR }
+      },
+      vertexShader: [
+        'attribute float aShade;',
+        'uniform float uFadeNear;',
+        'uniform float uFadeFar;',
+        'varying float vShade;',
+        'varying float vFade;',
+        'void main(){',
+        '  vec4 wp = modelMatrix * vec4(position, 1.0);',
+        '  vShade = aShade;',
+        // 水平距离淡出：既是原版的远景消隐，也遮住构建半径的硬边界
+        '  vFade = 1.0 - smoothstep(uFadeNear, uFadeFar, length(wp.xz - cameraPosition.xz));',
+        '  gl_Position = projectionMatrix * viewMatrix * wp;',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform vec3 uColor;',
+        'uniform float uOpacity;',
+        'varying float vShade;',
+        'varying float vFade;',
+        'void main(){',
+        '  float a = uOpacity * vFade;',
+        '  if (a < 0.01) discard;',
+        '  gl_FragColor = vec4(uColor * vShade, a);',
+        '}'
+      ].join('\n'),
+      transparent: true,
+      depthWrite: false,
+      side: THREE.FrontSide
+    });
+    cloudLayer = new THREE.Mesh(cloudGeo, cloudMat);
+    cloudLayer.frustumCulled = false;
+    cloudLayer.position.y = W.CLOUD_Y;
+    return cloudLayer;
+  }
+
+  // 每帧：相机跨过云格边界就重建，其余时间只用小数部分位移（云在世界里连续漂移）
+  function updateCloudLayer() {
+    var W = Voxel.Config.WEATHER, CELL = W.CLOUD_CELL;
+    if (!cloudLayer || !cam) return;
+    if (spaceMode || cloudLevel < 1) { cloudLayer.visible = false; return; }
+    cloudLayer.visible = true;
+    var cu = (cam.position.x - driftX) / CELL, ci = Math.floor(cu);
+    var cv = (cam.position.z - driftZ) / CELL, cj = Math.floor(cv);
+    if (cloudDirty || ci !== cloudCi || cj !== cloudCj) rebuildCloudMesh(ci, cj);
+    cloudLayer.position.set(cam.position.x - (cu - ci) * CELL, W.CLOUD_Y,
+      cam.position.z - (cv - cj) * CELL);
+    // 相机进入云层厚度范围（或平面档）时渲染双面，否则背面剔除
+    var inside = cloudLevel < 2 ||
+      (cam.position.y > W.CLOUD_Y - 2 && cam.position.y < W.CLOUD_Y + W.CLOUD_THICK + 2);
+    var want = inside ? THREE.DoubleSide : THREE.FrontSide;
+    if (cloudMat.side !== want) { cloudMat.side = want; cloudMat.needsUpdate = true; }
+    cloudMat.uniforms.uOpacity.value =
+      W.CLOUD_ALPHA + (W.CLOUD_ALPHA_WET - W.CLOUD_ALPHA) * intensity;
+  }
+
+  function setCloudQuality(level) {
+    var v = Math.max(0, Math.min(2, Math.round(+level || 0)));
+    if (v === cloudLevel) return;
+    cloudLevel = v;
+    cloudDirty = true;
+    if (cloudLayer) {
+      cloudLayer.visible = cloudLevel > 0 && !spaceMode;
+      if (cloudLevel === 0) { cloudVerts = 0; cloudGeo.setDrawRange(0, 0); }
+    }
   }
 
   function resetLayout(seed) {
@@ -115,10 +314,8 @@ Voxel.Weather = (function () {
         dropSpd[i] = W.RAIN_SPEED * rand(0.85, 1.2);
       }
     }
-    for (var c = 0; c < clouds.length; c++) {
-      clouds[c].m.position.set(rand(-330, 330), rand(110, 138), rand(-330, 330));
-      clouds[c].baseOp = rand(0.22, 0.4);
-    }
+    genCloudGrid();
+    cloudDirty = true;
   }
 
   // ---------- 初始化 ----------
@@ -153,21 +350,9 @@ Voxel.Weather = (function () {
     scene.add(rain);
     applyRainDensity();
 
-    // 云层：水平面片 + 程序化纹理，随风漂移
-    var tex1 = makeCloudTex(), tex2 = makeCloudTex();
-    for (var c = 0; c < W.CLOUD_COUNT; c++) {
-      var m = new THREE.Mesh(
-        new THREE.PlaneGeometry(rand(50, 110), rand(30, 65)),
-        new THREE.MeshBasicMaterial({
-          map: (c % 2) ? tex2 : tex1, transparent: true, depthWrite: false,
-          side: THREE.DoubleSide, fog: false, opacity: 0.3, color: 0xffffff
-        })
-      );
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(rand(-330, 330), rand(110, 138), rand(-330, 330));
-      scene.add(m);
-      clouds.push({ m: m, baseOp: rand(0.22, 0.4) });
-    }
+    // 云层：原版块状云（12 格云格 × 4 格厚），跟随相机重建、随风连续漂移
+    genCloudGrid();
+    scene.add(makeCloudLayer());
 
     // 闪电枝：锯齿折线
     boltGeo = new THREE.BufferGeometry();
@@ -270,13 +455,12 @@ Voxel.Weather = (function () {
       rain.visible = false;
       if (bolt) bolt.visible = false;
       if (rainbow) rainbow.visible = false;
-      for (var sc = 0; sc < clouds.length; sc++) clouds[sc].m.visible = false;
+      if (cloudLayer) cloudLayer.visible = false;
       if (Voxel.Sound && Voxel.Sound.rainSet) Voxel.Sound.rainSet(0);
       intensity = 0; target = 0; flash = 0;
       syncVisualState();
       return;
     }
-    for (var vc = 0; vc < clouds.length; vc++) clouds[vc].m.visible = true;
 
     // 风向缓变
     windA += dt * 0.05;
@@ -326,20 +510,8 @@ Voxel.Weather = (function () {
       rain.geometry.attributes.position.needsUpdate = true;
     }
 
-    // 云层：漂移 + 雨天变灰变密（环绕范围相对相机，地图边缘也有云）
-    for (var c = 0; c < clouds.length; c++) {
-      var cl = clouds[c], m = cl.m;
-      m.position.x += wx * dt * 0.45;
-      m.position.z += wz * dt * 0.45;
-      var rx = m.position.x - cam.position.x;
-      if (rx > 340 || rx < -340)
-        m.position.x = cam.position.x + ((((rx + 340) % 680) + 680) % 680) - 340;
-      var rz = m.position.z - cam.position.z;
-      if (rz > 340 || rz < -340)
-        m.position.z = cam.position.z + ((((rz + 340) % 680) + 680) % 680) - 340;
-      m.material.opacity = cl.baseOp + (0.85 - cl.baseOp) * intensity;
-      m.material.color.copy(C_WHITE).lerp(C_CLOUD_GRAY, intensity);
-    }
+    // 云层：跟随相机重建 + 随风连续漂移（雨天变灰变密在 syncVisualState/该函数内）
+    updateCloudLayer();
 
     // 雷暴闪电
     if (state === 'storm' && intensity > 0.4) {
@@ -410,8 +582,11 @@ Voxel.Weather = (function () {
     skyC.copy(C_RAIN_SKY_NIGHT).lerp(C_RAIN_SKY_DAY, sun);
     skyTopC.copy(C_RAIN_TOP_NIGHT).lerp(C_RAIN_TOP_DAY, sun);
     if (rain && rain.material) rain.material.color.copy(C_PRECIP);
-    for (var i = 0; i < clouds.length; i++)
-      clouds[i].m.material.color.copy(C_WHITE).lerp(C_CLOUD_GRAY, intensity);
+    if (cloudMat) {
+      // 亮度随天光走（原版同理）：夜里若保持纯白，0.8 的不透明度会在暗天上发光
+      cloudMat.uniforms.uColor.value.copy(C_WHITE).lerp(C_CLOUD_GRAY, intensity)
+        .multiplyScalar(0.28 + 0.72 * sun);
+    }
   }
 
   function setWorldProfile(profile) {
@@ -498,13 +673,16 @@ Voxel.Weather = (function () {
       if (rain) rain.visible = false;
       if (bolt) bolt.visible = false;
       if (rainbow) rainbow.visible = false;
-      for (var i = 0; i < clouds.length; i++) clouds[i].m.visible = false;
+      if (cloudLayer) cloudLayer.visible = false;
+    } else if (cloudLayer) {
+      cloudLayer.visible = cloudLevel > 0;
     }
     syncVisualState();
   }
 
   return {
     setRainDensity: setRainDensity,
+    setCloudQuality: setCloudQuality,
     setSpaceMode: setSpaceMode,
     setWorldProfile: setWorldProfile,
     syncVisualState: syncVisualState,
@@ -527,7 +705,7 @@ Voxel.Weather = (function () {
     getCloudDrift: function () { return { x: driftX, z: driftZ }; },
     flash: function () { return flash; },
     rainVisible: function () { return rain ? rain.visible : false; },
-    cloudOpacity: function () { return clouds.length ? clouds[0].m.material.opacity : 0; },
+    cloudOpacity: function () { return cloudMat ? cloudMat.uniforms.uOpacity.value : 0; },
     rainbowVisible: function () { return rainbow ? rainbow.visible : false; },
     rainbowOpacity: function () {
       if (rainbowT < 0) return 0;
@@ -557,12 +735,27 @@ Voxel.Weather = (function () {
         var values = [worldProfile && worldProfile.typeKey, windA];
         for (var i = 0; dropY && i < Math.min(8, dropY.length); i++)
           values.push(dropXZ[i * 2], dropXZ[i * 2 + 1], dropY[i], dropSpd[i]);
-        for (var c = 0; c < Math.min(4, clouds.length); c++)
-          values.push(clouds[c].m.position.x, clouds[c].m.position.y,
-            clouds[c].m.position.z, clouds[c].baseOp);
+        values.push(driftX, driftZ, cloudCells, cloudGridDigest());
         return JSON.stringify(values.map(function (v) {
           return typeof v === 'number' ? Math.round(v * 1000000) / 1000000 : v;
         }));
+      },
+      cloudStats: function () {
+        var W = Voxel.Config.WEATHER, G = W.CLOUD_GRID;
+        return {
+          level: cloudLevel,
+          visible: !!(cloudLayer && cloudLayer.visible),
+          vertices: cloudVerts,
+          cells: cloudCells,
+          coverage: cloudCells / (G * G),
+          y: W.CLOUD_Y,
+          digest: cloudGridDigest()
+        };
+      },
+      rebuildClouds: function () {
+        cloudDirty = true;
+        if (cam) updateCloudLayer();
+        else if (cloudLayer && cloudLevel > 0) rebuildCloudMesh(0, 0);
       },
       spaceMode: function () { return spaceMode; }
     }

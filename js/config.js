@@ -119,7 +119,16 @@ Voxel.Config = {
     RAIN_SPEED: 22,                          // 雨滴下落速度
     RAIN_BOX: 60,                            // 雨滴环绕盒半径
     WIND: 3,                                 // 风速(云漂移+雨滴倾斜)
-    CLOUD_COUNT: 16,                         // 云朵数量
+    // 原版风格块状云层：占用网格每格 12×12 格、层厚 4 格，按相机所在云格重建
+    CLOUD_Y: 140,                            // 云层底面高度（高于 CONTENT_NATURAL_TOP，可飞到云上）
+    CLOUD_CELL: 12,                          // 单个云格边长(格)
+    CLOUD_THICK: 4,                          // 云层厚度(格)
+    CLOUD_GRID: 128,                         // 占用网格边长(云格)，即 1536 格的环形周期
+    CLOUD_RADIUS: 40,                        // 以相机云格为中心的构建半径(云格)
+    CLOUD_COVER: 0.45,                       // 目标云量(占用比例)
+    CLOUD_ALPHA: 0.8,                        // 晴天云不透明度(原版值)
+    CLOUD_ALPHA_WET: 0.95,                   // 雨天云不透明度
+    CLOUD_FADE_NEAR: 300, CLOUD_FADE_FAR: 470, // 远距淡出区间(格)，兼作构建边界的遮掩
     LIGHTNING_MIN: 4, LIGHTNING_MAX: 12,     // 雷暴时闪电间隔(秒)
     STRIKE_CHANCE: 0.15,                     // 每次闪电劈中玩家的概率
     STRIKE_RANGE: 14,                        // 落雷距玩家判定范围(格)
@@ -198,9 +207,9 @@ Voxel.Config = {
 
   // 性能预设（设置面板一键应用；键名对应 Voxel.Settings）
   PERF_PRESETS: {
-    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5, shadows: 0, sway: 0, stream: 3, bloom: 0, waterReflect: 0, heightFog: 0, viewBoost: 0 },
-    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75, shadows: 1, sway: 0.75, stream: 6, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 0 },
-    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1, shadows: 2, sway: 1, stream: 12, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 1 }
+    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5, shadows: 0, sway: 0, stream: 3, bloom: 0, waterReflect: 0, heightFog: 0, viewBoost: 0, clouds: 1 },
+    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75, shadows: 1, sway: 0.75, stream: 6, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 0, clouds: 1 },
+    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1, shadows: 2, sway: 1, stream: 12, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 1, clouds: 2 }
   },
 
   // 远景主题的流式半径（按 viewBoost 档位）：北欧峡湾雪脊在 140+ 格外，

@@ -2154,6 +2154,20 @@ check('桌面默认不限帧', V.Settings.defaults.fpsCap === 0);
 check('触屏默认均衡档(60fps/降密度)', V.Settings.touchDefaults.fpsCap === 60 &&
   V.Settings.touchDefaults.res === 0.8);
 check('渲染分辨率下限 0.35', V.Settings.limits.res[0] === 0.35);
+(function () {
+  var W = V.Config.WEATHER;
+  check('块状云层参数完备（12 格云格 / 4 格厚 / 环形网格）',
+    W.CLOUD_CELL === 12 && W.CLOUD_THICK === 4 && W.CLOUD_GRID >= 64 &&
+    W.CLOUD_RADIUS >= 16 && W.CLOUD_COVER > 0.2 && W.CLOUD_COVER < 0.75);
+  check('云层高于自然内容顶（可飞到云上）', W.CLOUD_Y > V.Config.CONTENT_NATURAL_TOP);
+  check('云不透明度雨天更高且淡出半径在构建半径内',
+    W.CLOUD_ALPHA_WET > W.CLOUD_ALPHA && W.CLOUD_ALPHA > 0.5 &&
+    W.CLOUD_FADE_FAR > W.CLOUD_FADE_NEAR &&
+    W.CLOUD_FADE_FAR <= W.CLOUD_RADIUS * W.CLOUD_CELL);
+  check('云质量三档 0/1/2', V.Settings.limits.clouds[0] === 0 &&
+    V.Settings.limits.clouds[1] === 2 && V.Settings.defaults.clouds === 2 &&
+    V.Settings.touchDefaults.clouds === 1);
+})();
 
 console.log('光照系统');var tL0 = Date.now();
 V.World.initLight();

@@ -1833,6 +1833,8 @@ Voxel.Game = (function () {
       s.set('heightFog', 0); return '谷雾';
     }
     if (s.get('waterReflect') > 0) { s.set('waterReflect', 0); return '水面反射'; }
+    // 立体云 → 平面云：省掉侧面与底面的填充率，构图（云的分布）不变
+    if (s.get('clouds') > 1) { s.set('clouds', 1); return '云层质量'; }
     var pd = Math.max(0.35, Math.round(s.get('particleDensity') * 0.68 * 100) / 100);
     if (pd < s.get('particleDensity')) { s.set('particleDensity', pd); return '粒子密度'; }
     var rd = Math.max(0.35, Math.round(s.get('rainDensity') * 0.68 * 100) / 100);
@@ -6340,8 +6342,10 @@ Voxel.Game = (function () {
         Voxel.MeshBuilder.setSunDirection(0.45, 0.78, 0.44, 0.12);
       }
       var drift = Voxel.Weather.getCloudDrift();
-      // 晴天云影斑驳；雨天整体阴沉 → 减弱噪声对比
-      Voxel.MeshBuilder.setCloudShadow(drift.x, drift.z, CFG.SHADOW.CLOUD_SHADOW * (1 - 0.5 * wRain));
+      // 晴天云影斑驳；雨天整体阴沉 → 减弱噪声对比；关掉云层时地面也不该有云影
+      var cloudsOn = Voxel.Settings ? Voxel.Settings.get('clouds') > 0 : true;
+      Voxel.MeshBuilder.setCloudShadow(drift.x, drift.z,
+        cloudsOn ? CFG.SHADOW.CLOUD_SHADOW * (1 - 0.5 * wRain) : 0);
     }
 
     if (state === 'playing' || state === 'cockpit' || state === 'paused') {
@@ -7155,6 +7159,27 @@ Voxel.Game = (function () {
     }
     syncShadowButtons();
 
+    // 云层质量按钮组（关/流畅/高质量）。测试面板副本里没有这一行，用长度守卫。
+    var cloudBtns = document.querySelectorAll('#clouds-row button[data-clouds]');
+    function syncCloudButtons() {
+      var cur = (Voxel.Settings ? Voxel.Settings.get('clouds') : 2) || 0;
+      for (var i = 0; i < cloudBtns.length; i++) {
+        var on = +cloudBtns[i].dataset.clouds === cur;
+        cloudBtns[i].classList.toggle('active', on);
+        cloudBtns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+    }
+    for (var cbi = 0; cbi < cloudBtns.length; cbi++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          Voxel.Settings.set('clouds', +btn.dataset.clouds);
+          syncCloudButtons();
+          syncPresetButtons();
+        });
+      })(cloudBtns[cbi]);
+    }
+    if (cloudBtns.length) syncCloudButtons();
+
     // 能量辉光按钮组（关/开）。测试面板副本里没有这一行，用长度守卫。
     var bloomBtns = document.querySelectorAll('#bloom-row button');
     function syncBloomButtons() {
@@ -7290,6 +7315,7 @@ Voxel.Game = (function () {
       // 预设里含 bloom（"流畅"关、"均衡/高"开），不刷新的话「能量辉光」按钮会停在旧状态：
       // 实测点"流畅"后 setting 已经是 0、Bloom.active() 已经是 false，但按钮仍显示"开"选中。
       syncBloomButtons();
+      syncCloudButtons();
       if (Voxel.HUD && Voxel.HUD.toast) Voxel.HUD.toast('已应用性能预设：' + label);
     }
     syncPresetButtons();
@@ -7324,6 +7350,8 @@ Voxel.Game = (function () {
           Voxel.DayNight.setDensity(v);
         else if (k === 'rainDensity' && Voxel.Weather && Voxel.Weather.setRainDensity)
           Voxel.Weather.setRainDensity(v);
+        else if (k === 'clouds' && Voxel.Weather && Voxel.Weather.setCloudQuality)
+          Voxel.Weather.setCloudQuality(v);
         else if (k === 'mobDensity' && Voxel.Mobs && Voxel.Mobs.setDensity)
           Voxel.Mobs.setDensity(v);
         else if (k === 'shadows' && Voxel.Shadow && Voxel.Shadow.setLevel)
