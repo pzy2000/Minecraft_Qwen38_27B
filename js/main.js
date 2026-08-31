@@ -1812,37 +1812,66 @@ Voxel.Game = (function () {
     // 方块挖掘：由 tickDig 长按推进
   }
 
-  // ---------- 自适应降质闭环 ----------
-  // 持续掉帧（EMA < 26fps 满 5 秒）时按"从便宜到贵"的顺序自动降一档：
-  // 远景视距 → 阴影 → 谷雾 → 水面反射 → 粒子 → 雨滴 → 流式预算 → 渲染分辨率。
+  // ---------- 自适应画质闭环（双向） ----------
+  // 双向闭环：持续掉帧（EMA < 目标帧率 90% 满 5 秒）时按"从便宜到贵"的顺序
+  // 自动降一档：远景视距 → 阴影 → 谷雾 → 水面反射 → 粒子 → 雨滴 → 流式预算
+  // → 渲染分辨率；帧率余量充足（EMA ≥ 目标 115%）且稳定 20 秒后按严格逆序
+  // 逐档回升。目标帧率取 fpsCap 设置（0 表示不限，按 60 处理）。
   // 视距排第一是因为它决定工作集大小（成本远高于后面几项）；谷雾/水面反射
   // 都只是几条 shader 指令，排在粒子之前是为了先保住构图再保观感。
-  // 只在 autoPerf 开启且处于
-  // playing 态时工作；玩家手动改任何设置后冷却 60 秒（尊重手动意图）。
-  // 刻意不做自动回升：避免画质振荡，回满配交给玩家在预设里一键完成。
-  var fpsEma = 0, adaptLowT = 0, adaptCool = 0, adaptToastShown = false;
+  // 回升不弹提示（避免打扰）；每次降档前快照旧值入栈供逆序恢复。
+  // 迟滞保护：回升后 30 秒内又触发降档，说明该档位扛不住 —— 清空回升历史并
+  // 锁定自动回升 10 分钟，防止画质振荡。
+  // 只在 autoPerf 开启且处于 playing 态时工作；玩家手动改任何设置后冷却 60
+  // 秒并清空降档历史（尊重手动意图）。
+  var fpsEma = 0, adaptLowT = 0, adaptHighT = 0, adaptCool = 0;
+  var adaptToastShown = false, adaptLastUpAt = -1e9, adaptLockUntil = 0;
+  var adaptDownStack = [];   // 自动降档前快照 [{key, prev}]，供逆序回升
+  var adaptSelfSet = false;  // 自适应自身触发的设置变更不清空降档历史
+
+  function adaptTargetFps() {
+    var cap = (Voxel.Settings && Voxel.Settings.get('fpsCap')) || 0;
+    return cap > 0 ? cap : 60;
+  }
 
   function adaptStepDown() {
     var s = Voxel.Settings;
     if (!s || !s.get('autoPerf')) return null;
     // 远景视距只在当前天体真的用到时才算作可降项（否则会白降一档）
     var profile = Voxel.DayNight.profile ? Voxel.DayNight.profile() : null;
-    if (s.get('viewBoost') > 0 && profile && profile.viewBoost) { s.set('viewBoost', 0); return '远景视距'; }
-    if (s.get('shadows') > 0) { s.set('shadows', s.get('shadows') - 1); return '阴影质量'; }
+    // 记录旧值入栈再应用，保证 adaptStepUp 能严格逆序还原
+    var apply = function (key, val) {
+      adaptDownStack.push({ key: key, prev: s.get(key) });
+      adaptSelfSet = true;
+      try { s.set(key, val); } finally { adaptSelfSet = false; }
+    };
+    if (s.get('viewBoost') > 0 && profile && profile.viewBoost) { apply('viewBoost', 0); return '远景视距'; }
+    if (s.get('shadows') > 0) { apply('shadows', s.get('shadows') - 1); return '阴影质量'; }
     if (s.get('heightFog') > 0 && profile && profile.heightFog && profile.heightFog.falloff > 0) {
-      s.set('heightFog', 0); return '谷雾';
+      apply('heightFog', 0); return '谷雾';
     }
-    if (s.get('waterReflect') > 0) { s.set('waterReflect', 0); return '水面反射'; }
+    if (s.get('waterReflect') > 0) { apply('waterReflect', 0); return '水面反射'; }
     // 立体云 → 平面云：省掉侧面与底面的填充率，构图（云的分布）不变
-    if (s.get('clouds') > 1) { s.set('clouds', 1); return '云层质量'; }
+    if (s.get('clouds') > 1) { apply('clouds', 1); return '云层质量'; }
     var pd = Math.max(0.35, Math.round(s.get('particleDensity') * 0.68 * 100) / 100);
-    if (pd < s.get('particleDensity')) { s.set('particleDensity', pd); return '粒子密度'; }
+    if (pd < s.get('particleDensity')) { apply('particleDensity', pd); return '粒子密度'; }
     var rd = Math.max(0.35, Math.round(s.get('rainDensity') * 0.68 * 100) / 100);
-    if (rd < s.get('rainDensity')) { s.set('rainDensity', rd); return '雨滴密度'; }
-    if (s.get('stream') > 3) { s.set('stream', Math.max(3, s.get('stream') - 2)); return '后台加载预算'; }
+    if (rd < s.get('rainDensity')) { apply('rainDensity', rd); return '雨滴密度'; }
+    if (s.get('stream') > 3) { apply('stream', Math.max(3, s.get('stream') - 2)); return '后台加载预算'; }
     var rs = Math.max(0.55, Math.round((s.get('res') - 0.15) * 100) / 100);
-    if (rs < s.get('res')) { s.set('res', rs); return '渲染分辨率'; }
+    if (rs < s.get('res')) { apply('res', rs); return '渲染分辨率'; }
     return null;   // 已到底，等待玩家介入
+  }
+
+  // 帧率余量充足时的逆序回升：弹出最近一次自动降档的快照并原值还原。
+  // 成功返回设置键名（用于迟滞计时），无可用回升或 autoPerf 已关返回 null。
+  function adaptStepUp() {
+    var s = Voxel.Settings;
+    if (!s || !s.get('autoPerf') || !adaptDownStack.length) return null;
+    var e = adaptDownStack.pop();
+    adaptSelfSet = true;
+    try { s.set(e.key, e.prev); } finally { adaptSelfSet = false; }
+    return e.key;
   }
 
   function tickAdaptivePerf(dt) {
@@ -1853,13 +1882,16 @@ Voxel.Game = (function () {
     var active = Voxel.Settings && Voxel.Settings.get('autoPerf') &&
       state === 'playing' && diffAliveForPerf();
     if (!active || adaptCool > 0) {
-      if (!active) adaptLowT = 0;
+      if (!active) { adaptLowT = 0; adaptHighT = 0; }
       return;
     }
-    if (fpsEma > 0 && fpsEma < 26) adaptLowT += dt;
+    var target = adaptTargetFps();
+    // 降档方向：EMA < 目标 90% 满 5 秒动一档
+    if (fpsEma > 0 && fpsEma < target * 0.9) adaptLowT += dt;
     else adaptLowT = Math.max(0, adaptLowT - dt * 2);
     if (adaptLowT >= 5) {
       adaptLowT = 0;
+      adaptHighT = 0;
       var what = adaptStepDown();
       if (what) {
         adaptCool = 15;
@@ -1867,7 +1899,25 @@ Voxel.Game = (function () {
           ? '已自动下调' + what + '以维持流畅'
           : '已自动下调' + what + '以维持流畅 · 可在设置中关闭「自适应降质」');
         adaptToastShown = true;
+        // 迟滞：刚回升就又降档 → 该档位不可承受，放弃历史并锁 10 分钟
+        if (performance.now() - adaptLastUpAt < 30000) {
+          adaptDownStack.length = 0;
+          adaptLockUntil = performance.now() + 600000;
+          adaptLastUpAt = -1e9;
+        }
       } else adaptCool = 120;   // 已到梯度底：拉长重试间隔
+      return;
+    }
+    // 回升方向：EMA ≥ 目标 115% 且有可恢复档位、未处于迟滞锁定期，稳定 20 秒回升一档
+    if (fpsEma >= target * 1.15 && adaptDownStack.length &&
+      performance.now() >= adaptLockUntil) adaptHighT += dt;
+    else adaptHighT = Math.max(0, adaptHighT - dt);
+    if (adaptHighT >= 20) {
+      adaptHighT = 0;
+      if (adaptStepUp()) {
+        adaptCool = 15;
+        adaptLastUpAt = performance.now();   // 供迟滞判定
+      }
     }
   }
 
@@ -7346,9 +7396,13 @@ Voxel.Game = (function () {
     var booted = false;
     if (Voxel.Settings) {
       Voxel.Settings.onChange(function (k, v) {
-        // 自适应降质避让：用户手动改动任何设置后冷却 60 秒，不与手动意图抢方向盘。
-        // applyAll() 的重放发生在 booted 之前，不会触发这里的暂停逻辑。
-        if (booted) adaptCool = Math.max(adaptCool, 60);
+        // 自适应画质避让：用户手动改动任何设置后冷却 60 秒并清空降档历史，
+        // 不与手动意图抢方向盘。applyAll() 的重放发生在 booted 之前，不会触发
+        // 这里的暂停逻辑；adaptSelfSet 标记排除自适应闭环自身的 set。
+        if (booted) {
+          adaptCool = Math.max(adaptCool, 60);
+          if (!adaptSelfSet) adaptDownStack.length = 0;
+        }
         if (k === 'sens' && Voxel.Controls.setSens) Voxel.Controls.setSens(v);
         else if (k === 'volume' && Voxel.Sound.setVolume) Voxel.Sound.setVolume(v);
         else if (k === 'res') applyRes();
