@@ -1745,25 +1745,30 @@
     check('饱腹时拒绝进食', PL.food() === 20 && T.countInv(109) === 1);
     var fBefore = PL.food();
     PL.addExhaust(16);
-    // 疲惫→饥饿换算发生在 update 中，驱动一小段真实帧后检查
-    wait(200, function () {
-      check('疲惫累积消耗饥饿 (16 疲惫 = 4 点)', PL.food() === fBefore - 4);
-      check('饥饿条已绘制', (function () {
-        var c = document.getElementById('hunger');
-        if (!c) return false;
-        return c.getContext('2d').getImageData(118, 10, 1, 1).data[3] > 0;
-      })());
-      // 饥饿 0 → 缓慢扣血（轮询；低帧率下模拟时间变慢，预算放宽到 ~40s）
-      PL.setFood(0); PL.setHp(5);
-      (function pollStarve(n) {
-        if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
-        if (Voxel.Player.hp() < 5 || n >= 130) {
-          check('饥饿扣血生效 (hp=' + Voxel.Player.hp() + ')', Voxel.Player.hp() < 5 && Voxel.Player.hp() >= 1);
-          PL.setFood(20); PL.setHp(20);
-          stepG();
-        } else wait(300, function () { pollStarve(n + 1); });
-      })(0);
-    });
+    // 疲惫→饥饿换算发生在 update 中；慢机/无头定时器可能整窗不步进，
+    // 固定 wait(200) 会伪失败 → 与下方扣血测试同策略：轮询直至换算完成
+    (function pollExhaust(n) {
+      if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
+      if (PL.food() === fBefore - 4 || n >= 130) {
+        check('疲惫累积消耗饥饿 (16 疲惫 = 4 点)', PL.food() === fBefore - 4,
+          'food=' + PL.food() + ' expected=' + (fBefore - 4));
+        check('饥饿条已绘制', (function () {
+          var c = document.getElementById('hunger');
+          if (!c) return false;
+          return c.getContext('2d').getImageData(118, 10, 1, 1).data[3] > 0;
+        })());
+        // 饥饿 0 → 缓慢扣血（轮询；低帧率下模拟时间变慢，预算放宽到 ~40s）
+        PL.setFood(0); PL.setHp(5);
+        (function pollStarve(n) {
+          if (Voxel.Game.state !== 'playing') Voxel.Game.onKey('KeyP');
+          if (Voxel.Player.hp() < 5 || n >= 130) {
+            check('饥饿扣血生效 (hp=' + Voxel.Player.hp() + ')', Voxel.Player.hp() < 5 && Voxel.Player.hp() >= 1);
+            PL.setFood(20); PL.setHp(20);
+            stepG();
+          } else wait(300, function () { pollStarve(n + 1); });
+        })(0);
+      } else wait(300, function () { pollExhaust(n + 1); });
+    })(0);
   }
 
   function stepG() {
