@@ -155,9 +155,14 @@ console.log('stream() 预算调度');
     st = V.World.streamStats();
   }
   check('stream 可排空生成队列 (queued=' + st.queued + ')', st.queued === 0);
-  // 预算在"步骤之间"检查：最坏帧 = 预算 + 单个最大步骤（同步回退路径的
-  // ensureChunk 级联可达数十毫秒），这里只约束不出现无界长尾
-  check('单次 stream 消耗有界 (worst=' + worst + 'ms <= ~120ms)', worst <= 120);
+  // 最坏帧上限（plan 5.1 Step E 收紧）：120 → 60ms。
+  // 本 Node 套件 canMesh=false（无材质初始化），worst 全部来自
+  // 同步 ensureChunk 级联 + decorate + relight BFS —— 属于 5.3（光照异步化）
+  // 的优化对象；plan 第 11 节把「收紧到 20ms」定义为阶段 1 整体里程碑，
+  // 在 5.2/5.3 落地前 20ms 物理不可达。网格化本身已移入 Worker（5.1-C），
+  // 真实主线程开销由 telemetry 的 p95 帧时在浏览器侧验证。
+  var WORST_LIMIT = 60;
+  check('单次 stream 消耗有界 (worst=' + worst + 'ms <= ' + WORST_LIMIT + 'ms)', worst <= WORST_LIMIT);
   function CS0() { return V.Config.CHUNK; }
 })();
 

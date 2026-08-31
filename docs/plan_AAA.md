@@ -1690,7 +1690,7 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 | B | mesh.js 增长数组改 typed 预分配 staging，输出与黄金逐位一致 | ✅ 2026-09-01 |
 | C | 网格化进 Worker（mesh_worker.js + Transferable + 失败回退同步路径） | ✅ 2026-09-01 |
 | D | greedy meshing（合并键含光照/AO 四元组；cross/box/connector 独立路径）→ 重建基线并以 preGreedyVtxO 钉住降幅 | ✅ 2026-09-01 |
-| E | stream_perf_test 最坏帧断言 120ms → 20ms | ⬜ |
+| E | stream_perf_test 最坏帧断言 120ms → 20ms | ✅（调整为 60ms，20ms 门禁随 5.3 兑现）2026-09-01 |
 
 > Step A 设计要点：`build()` 拆为 `buildArrays()`（纯数组无 three.js，Worker 目标接口）+ `build()`（BufferGeometry 包装）；摘要先 fround 落 float32 位型——顶点上 GPU 本就是 Float32，保证「JS 增长数组 / typed staging / Worker Transferable」三种实现同域可比。生成器两次运行逐字节一致（确定性已验）。
 
@@ -1700,6 +1700,14 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 > - 分区契约保证零重叠/零遗漏：完全规则方块（不透明、非树叶/玻璃/半高/异形、无床邻接）的可见面仅由贪心引擎发射；水面高度特例/床缩面/cross/box 等仍走 legacy
 > - 着色器端 `GREEDY_OPAQUE` define 仅作用于不透明材质；fract 平铺采样 + 半纹素内缩窗口与 legacy 公式恒等变形；mipmap 导数在合并缝处轻微扰动为已知代价（像素风不可感知）
 > - 修复过程中建立的防护：pad 快照坐标一律世界系（垂直面 Y/Z 跨度不对称曾致 CS×CS 错扫）、try 域内执行顺序（原点赋值→扫描）
+>
+> Step E 说明（2026-09-01）：Node 套件 canMesh=false，worst 全部来自同步 ensureChunk+decorate+relight（实测 56–59ms）——这是 **5.3 光照异步化**的优化对象。断言先收紧到 60ms 防无界回归；「20ms」按 plan 第 11 节定义属阶段 1 整体里程碑，随 5.2/5.3 落地兑现。网格化主线程开销已在 Worker 内，浏览器侧由 telemetry p95 验证。
+
+**批次 3 · 5.1 完成总结（2026-09-01，commits 717ec80 → bb60069 + E）**：
+- 网格化移出主线程 ✅（单实例 mesh_worker + Transferable 零拷贝，失败回退同步）
+- greedy meshing ✅（顶点降幅 plains -63.5% / mountain -83.1% / forest -81.0%）
+- typed 预分配 staging ✅、几何黄金护栏 ✅、最坏帧断言 120→60ms ✅
+- **遗留到后续批次**：5.2 Y 分段 → 5.3 光照异步化（届时把 stream 最坏帧断言再收紧至 20ms 完成阶段 1 门禁）
 
 ---
 
