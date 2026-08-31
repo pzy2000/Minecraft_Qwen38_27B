@@ -198,10 +198,14 @@ Voxel.Config = {
 
   // 性能预设（设置面板一键应用；键名对应 Voxel.Settings）
   PERF_PRESETS: {
-    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5, shadows: 0, sway: 0, stream: 3, bloom: 0 },
-    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75, shadows: 1, sway: 0.75, stream: 6, bloom: 1 },
-    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1, shadows: 2, sway: 1, stream: 12, bloom: 1 }
+    smooth:   { fpsCap: 30, res: 0.55, particleDensity: 0.4, rainDensity: 0.4, mobDensity: 0.5, shadows: 0, sway: 0, stream: 3, bloom: 0, waterReflect: 0, heightFog: 0, viewBoost: 0 },
+    balanced: { fpsCap: 60, res: 0.8,  particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75, shadows: 1, sway: 0.75, stream: 6, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 0 },
+    high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1, shadows: 2, sway: 1, stream: 12, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 1 }
   },
+
+  // 远景主题的流式半径（按 viewBoost 档位）：北欧峡湾雪脊在 140+ 格外，
+  // 基础半径 5（雾尾 128）会把整片山体埋进雾里。
+  VIEW_BOOST_RADIUS: 8,
 
   // 实时光影参数
   SHADOW: {

@@ -2381,13 +2381,15 @@ Voxel.Blocks = (function () {
       var shade = (y % 8 === 0 || x % 9 === 0) ? 5 : 0;
       return [243 + v - shade, 240 + v - shade, 231 + v - shade];
     });
-    // 枯草丛：北欧草簇（十字渲染透明底，枯黄细叶）
+    // 枯草丛：北欧草簇（十字渲染透明底）。参考照片里这些草丘是锈橙偏褐、
+    // 成簇密生，原来的亮黄细叶在暮色下会读成荧光绿，所以压暖压密。
     drawTile(T.TUSSOCK_DRY, function (x, y, r) {
-      var blade = (x % 4 === 0 && y > 5) || (x % 4 === 2 && y > 8);
-      if (!blade || y > 13) return null;
+      var blade = (x % 3 === 0 && y > 4) || (x % 3 === 1 && y > 7) ||
+        (x % 6 === 2 && y > 9);
+      if (!blade || y > 14) return null;
       var tip = y < 8;
-      var v = n(r, 0, 22);
-      return tip ? [232 + v, 196 + v, 110 + v] : [198 + v, 156 + v, 78 + v];
+      var v = n(r, 0, 20);
+      return tip ? [206 + v, 142 + v, 74 + v] : [162 + v, 104 + v, 52 + v];
     });
 
     ctx.putImageData(img, 0, 0);

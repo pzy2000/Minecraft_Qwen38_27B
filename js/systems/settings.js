@@ -14,6 +14,9 @@ Voxel.Settings = (function () {
     sway: 1,                // 树叶风摇强度档 0=关 0.5=弱 1=标准
     stream: 6,              // 后台区块加载的每帧时间预算（毫秒）：越大加载越快、瞬时掉帧越多
     bloom: 1,               // 能量辉光后期 0=关 1=开（软件渲染器会强制关闭）
+    waterReflect: 1,        // 水面解析式反射（菲涅尔+天穹/极光倒影）0=关 1=开
+    heightFog: 1,           // 谷雾（湖面/低地起雾，山脊露出）0=关 1=开
+    viewBoost: 1,           // 远景主题（峡湾雪脊）允许抬高流式半径 0=关 1=开
     // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
     sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,
@@ -44,6 +47,9 @@ Voxel.Settings = (function () {
     sway: [0, 1],
     stream: [2, 16],
     bloom: [0, 1],
+    waterReflect: [0, 1],
+    heightFog: [0, 1],
+    viewBoost: [0, 1],
     difficulty: [0, 3],
     autoPerf: [0, 1]
   };
@@ -53,7 +59,8 @@ Voxel.Settings = (function () {
   var TOUCH_DEFAULTS = {
     fpsCap: 60, res: 0.8,
     particleDensity: 0.7, rainDensity: 0.7, mobDensity: 0.75,
-    bloom: 0              // 移动端默认关辉光，兼顾性能与续航
+    bloom: 0,             // 移动端默认关辉光，兼顾性能与续航
+    viewBoost: 0          // 移动端不抬流式半径（工作集翻倍会拖垮生成队列）
   };
   var vals = {};
   var listeners = [];

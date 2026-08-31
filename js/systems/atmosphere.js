@@ -584,21 +584,33 @@ Voxel.Atmosphere = (function () {
     if (profile.landmark && count < 4) createCelestial(profile.landmark, 'landmark', count++);
   }
 
+  // 光帘辐亮度增益：Bloom 的选择性阈值是 1.15，光帘要越过它才有辉散。
+  // 没有半浮点缓冲时保持 ≤1，否则会被硬截断而丢掉丝状层次。
+  // Bloom 的初始化可能晚于世界加载，所以逐帧取值而不是建材质时定死。
+  function auroraGain() {
+    return (Voxel.Bloom && Voxel.Bloom.hdr && Voxel.Bloom.hdr()) ? 1.72 : 1.18;
+  }
+
   function createAurora(count, color) {
     count = Math.max(8, Math.min(96, count));
     // DynamicSurroundings 式极光：若干幅绕穹顶弯曲的宽幅光帘（网格带 +
     // 加色混合 shader），底部亮绿、向上渐隐，横向射线随时间扫动呼吸。
-    // nordic 主题三层帘（主帘 + 两条副帘），其余世界保持单层。
+    // nordic 主题四层帘（主帘 + 三条副帘），其余世界保持单层。
+    // 光帘的高度直接决定它落在视场的哪一段：yb/R 的反正切就是下缘仰角。
+    // 原来主帘从 160/430（20.4°）起、顶到 46°，而竖直视场只有 ±37.5°，
+    // 于是画面里只剩顶部一条绿边。整体下移后绿帘从约 12° 起铺满上半屏。
     var layers = profile.typeKey === 'nordic' ? [
       // 主光帘：从南岸上空铺到头顶（出生点背后也可见）
-      { azc: 3.19, span: 3.4, yb: 160, yt: 450, R: 430, weight: 1.0 },
+      { azc: 3.19, span: 3.4, yb: 92, yt: 340, R: 430, weight: 1.0 },
       // 副帘：更高更淡的斜向交叠层（偏城堡一侧）
-      { azc: -0.62, span: 2.9, yb: 235, yt: 560, R: 452, weight: 0.7 },
+      { azc: -0.62, span: 2.9, yb: 150, yt: 430, R: 452, weight: 0.7 },
       // 低幅横带：贴着雪脊上方的一条水平亮绿（参考照片山脚的光弧）
-      { azc: 0.35, span: 3.3, yb: 98, yt: 168, R: 436, weight: 0.62 },
+      { azc: 0.35, span: 3.3, yb: 62, yt: 132, R: 436, weight: 0.62 },
       // 南天低带：背对城堡时也有轻微绿晕
-      { azc: 3.05, span: 2.4, yb: 105, yt: 220, R: 444, weight: 0.45 }
+      { azc: 3.05, span: 2.4, yb: 70, yt: 165, R: 444, weight: 0.45 }
     ] : [{ azc: 0, span: 2.2, yb: 120, yt: 225, R: 430, weight: 1.0 }];
+    var aur = profile.aurora || { low: 0x2bff8f, mid: 0x0ca4a4, high: 0x4a5fb8 };
+    var cLow = new THREE.Color(aur.low), cMid = new THREE.Color(aur.mid), cHigh = new THREE.Color(aur.high);
     var rng = makeRng(profile.seed, 'aurora');
     var group = new THREE.Group();
     group.userData.isAuroraGroup = true;
@@ -642,7 +654,11 @@ Voxel.Atmosphere = (function () {
         uniforms: {
           uTime: { value: rng() * 40 },
           uIntensity: { value: 0 },
-          uSeed: { value: seedPhase }
+          uSeed: { value: seedPhase },
+          uLow: { value: cLow },
+          uMid: { value: cMid },
+          uHigh: { value: cHigh },
+          uGain: { value: auroraGain() }
         },
         vertexShader:
           'varying vec2 vUv;' +
@@ -651,19 +667,35 @@ Voxel.Atmosphere = (function () {
           'uniform float uTime;' +
           'uniform float uIntensity;' +
           'uniform float uSeed;' +
+          'uniform vec3 uLow;' +
+          'uniform vec3 uMid;' +
+          'uniform vec3 uHigh;' +
+          'uniform float uGain;' +
           'varying vec2 vUv;' +
+          // 竖直细丝：三阶正弦叠加成 fbm 式非周期分布，再整体缓慢横向漂移，
+          // 去掉单一正弦那种规律波纹感（真实光帘的丝是疏密不均的）。
           'float ray(float u,float t,float seed){' +
-          '  return 0.5+0.5*sin(u*21.0+seed+sin(u*8.5-t*0.55)*2.6+sin(u*43.0+t*0.21)*0.9);' +
+          '  float d=u+t*0.012;' +
+          '  float a=sin(d*17.0+seed);' +
+          '  float b=sin(d*41.0-seed*1.7+a*1.3);' +
+          '  float c=sin(d*97.0+seed*0.6+b*0.8);' +
+          '  return clamp(0.5+0.30*a+0.22*b+0.13*c,0.0,1.0);' +
           '}' +
           'void main(){' +
           '  float r=ray(vUv.x,uTime,uSeed);' +
-          '  float curtain=smoothstep(0.02,0.16,vUv.y)*pow(max(0.0,1.0-vUv.y),1.35);' +
-          '  vec3 col=mix(vec3(0.17,0.98,0.52),vec3(0.05,0.62,0.63),' +
-          '    clamp(vUv.y*1.55-0.18+r*0.13,0.0,1.0));' +
-          // 纯加色：亮度全部走 RGB 通道（强度先钳回 ≤1），alpha 恒为 0——
-          // 预乘 alpha + 加色混合会把超量 alpha 二次折叠成红/品红伪影。
-          '  float k=clamp(curtain*(0.38+0.62*r*r)*uIntensity,0.0,1.0);' +
-          '  gl_FragColor=vec4(col*k*1.18,0.0);' +
+          // 底缘锐利、向上拖长渐隐；丝的疏密再调制一次高度剖面
+          '  float curtain=smoothstep(0.015,0.14,vUv.y)*pow(max(0.0,1.0-vUv.y),1.30);' +
+          '  curtain*=0.55+0.45*smoothstep(0.15,0.85,r);' +
+          // 三段取色：底亮绿 → 中段青 → 高空淡紫冠（氮辉）。
+          // 紫冠权重压到 0.42：更高会在两层帘顶重叠处糊成一块紫斑。
+          '  float h=clamp(vUv.y*1.35-0.10+r*0.10,0.0,1.0);' +
+          '  vec3 col=mix(uLow,uMid,smoothstep(0.0,0.55,h));' +
+          '  col=mix(col,uHigh,smoothstep(0.70,1.0,h)*0.42);' +
+          // 纯加色：亮度全部走 RGB 通道，alpha 恒为 0——预乘 alpha +
+          // 加色混合会把超量 alpha 二次折叠成红/品红伪影。
+          // 强度可超过 1（HDR 缓冲），Bloom 的阈值据此挑出辉散区。
+          '  float k=clamp(curtain*(0.34+0.66*r*r)*uIntensity,0.0,1.0);' +
+          '  gl_FragColor=vec4(col*k*uGain,0.0);' +
           '}',
         transparent: true,
         blending: THREE.CustomBlending,
@@ -682,11 +714,28 @@ Voxel.Atmosphere = (function () {
       mesh.frustumCulled = false;
       mesh.visible = false;
       group.add(mesh);
-      group.userData.uniforms.push({ uniform: mat.uniforms.uIntensity, weight: L2.weight });
+      group.userData.uniforms.push({
+        uniform: mat.uniforms.uIntensity, weight: L2.weight,
+        azc: L2.azc, span: L2.span
+      });
     }
+    group.userData.auroraColor = cLow;
     group.userData.baseOpacity = layers.length > 1 ? 1.35 : 0.85;
     signature = setRole(group, 'aurora');
     signature.userData.count = count;
+  }
+
+  // 极光帘的方位快照：供水面解析式倒影采样（取强度最高的三层）。
+  // 只描述"天上哪个方位有多亮的绿"，不涉及几何，Mesh 侧零额外 draw call。
+  var auroraSnapshot = null;
+  function publishAuroraBands(list, color) {
+    var bands = [];
+    for (var i = 0; i < list.length && bands.length < 3; i++) {
+      var v = list[i].uniform.value;
+      if (v <= 0.01) continue;
+      bands.push([list[i].azc, Math.max(0.2, list[i].span * 0.5), v]);
+    }
+    auroraSnapshot = bands.length ? { color: color || null, bands: bands } : null;
   }
 
   function createSignaturePoints(role, count, color) {
@@ -868,10 +917,14 @@ Voxel.Atmosphere = (function () {
       var list = signature.userData.uniforms || [];
       for (var ui = 0; ui < list.length; ui++)
         list[ui].uniform.value = Math.min(1.0, aOpacity * list[ui].weight);
+      publishAuroraBands(list, signature.userData.auroraColor);
+      var gain = auroraGain();
       for (var mi = 0; mi < signature.children.length; mi++) {
         var aMesh = signature.children[mi];
         aMesh.visible = aOpacity > 0.01;
-        if (!reducedMotion && aMesh.material)
+        if (!aMesh.material) continue;
+        aMesh.material.uniforms.uGain.value = gain;
+        if (!reducedMotion)
           aMesh.material.uniforms.uTime.value = wrap01(lastTime) * 90 + mi * 13.7;
       }
       signature.visible = true;
@@ -945,6 +998,7 @@ Voxel.Atmosphere = (function () {
   }
 
   function clear() {
+    auroraSnapshot = null;
     var had = !!root || owned.geometries.length > 0 || owned.materials.length > 0 || owned.textures.length > 0;
     if (root) {
       if (root.parent && typeof root.parent.remove === 'function') root.parent.remove(root);
@@ -1100,6 +1154,7 @@ Voxel.Atmosphere = (function () {
     snapshot: snapshot,
     resourceStats: resourceStats,
     currentProfile: currentProfile,
-    sunDirection: sunDirection
+    sunDirection: sunDirection,
+    auroraBands: function () { return auroraSnapshot; }
   };
 })();

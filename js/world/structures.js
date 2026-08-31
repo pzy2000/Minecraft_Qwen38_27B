@@ -1489,8 +1489,12 @@ Voxel.Structures = (function () {
   //   → 北岸雪帽锯齿山脊；夜空由 nordic 大气提供绿帘极光。
   var VISTA_CELL = 384;
   var VISTA_EXTENT = 175;     // 圆盘半径 158 + 桥墩/码头余量
-  // 锚点高度带：雪脊最高点 ≈ ah+74 < CONTENT_NATURAL_TOP(116)，留出建造上限
-  var VISTA_AH_MAX = 42;
+  // 锚点高度带：站点搜索已要求 ah > WATER+2(=29)，上界压到 34 是为了给雪脊
+  // 留出足够竖向空间（见 RIDGE_TOP_MAX / ridgeScale）
+  var VISTA_AH_MAX = 34;
+  // 雪脊顶不得越过内容封顶（光照快路径假设其上恒为空气）；
+  // 剖面按 ah 实际可用空间整体缩放，而不是硬截成平台。
+  var RIDGE_TOP_MAX = Math.min(H - 2, (CFG.CONTENT_NATURAL_TOP || H - 1) - 2);
 
   var NK = {
     BLACK_SAND: 215, GNEISS: 216, SHINGLE: 217, PLASTER: 218, TUSSOCK: 219,
@@ -1502,19 +1506,27 @@ Voxel.Structures = (function () {
   };
 
   // ---- 布局事实源（builder 与宝箱反查/出生点共用）----
+  // 构图取自两张参考照片的合成（南岸眼位 → 湖 → 岛心城堡 → 雪脊）：
+  //   出生点 z=+95 → 岸线 z=+62（前景沙丘 33 格）→ 岛心 z=-10（约 105 格）
+  //   → 雪脊前缘 z=-61（约 156 格）→ 主峰 z=-90..-120（约 185..215 格）
+  // 主峰距离必须落在雾尾内（viewBoost 半径 8 → 雾尾 224 格），否则整片山体
+  // 会被雾吃掉——这是旧构图（出生点 z=+112、雾尾 128）最大的问题。
   function vistaLayout() {
     return {
       diskCx: 0, diskCz: -15, diskR: 158,
-      lake: { cx: 0, cz: -12, rx: 92, rz: 54 },
+      lake: { cx: 0, cz: 8, rx: 132, rz: 52 },
       island: { cx: 0, cz: -10, rx: 34, rz: 27 },
       plaza: { cx: -2, cz: -12, rx: 27, rz: 21, top: 5 },      // 相对 ah 的台面高
       hall: { x0: -22, x1: -2, z0: -9, z1: 7, wallTop: 18 },   // 主厅（plaza 局部）
       spire: { cx: 8, cz: -1, r: 3, shaftTop: 36 },            // 中央尖塔
       wing: { x0: 2, x1: 18, z0: -5, z1: 9, wallTop: 13 },     // 东翼楼
       turretA: [-22, 11], turretB: [-2, 11], turretNW: [-22, -11],
-      bridge: { z0: 4, z1: 8, x0: 22, x1: 88, rise: 4 },
+      bridge: { z0: 4, z1: 8, x0: 22, x1: 138, rise: 5 },
       dock: { x0: -40, x1: -27, z0: -3, z1: 1 },
-      spawn: { dx: 8, dz: 112 },
+      spawn: { dx: 8, dz: 95 },
+      // 雾中礁岛群（参考照片 002 上三分之一的群岛剪影）：[x, z, 半径]
+      islets: [[-96, -34, 9], [86, -38, 11], [-72, 30, 7],
+        [104, 18, 8], [-112, -6, 6], [34, -36, 10]],
       // 宝箱（plaza 局部）：主厅王座旁
       chests: [{ dx: -20, dz: -6, dy: 8, index: 0 }]
     };
@@ -1636,40 +1648,53 @@ Voxel.Structures = (function () {
   }
 
   // ---------- 几何助手 ----------
-  function vInEllipse(dx, dz, e) {
-    var ex = (dx - e.cx) / e.rx, ez = (dz - e.cz) / e.rz;
-    return ex * ex + ez * ez <= 1;
-  }
-  // 绝对坐标版（布局椭圆存相对锚点的 cx/cz）
-  function vInEllipseAbs(gx, gz, v, e) {
-    var ex = (gx - (v.ax + e.cx)) / e.rx, ez = (gz - (v.az + e.cz)) / e.rz;
-    return ex * ex + ez * ez <= 1;
+  // 山脊剖面参数：峰顶抬高、锥面用 1.7 次幂收尖（参考照片 001 的刀刃状雪峰），
+  // 锥半径仍留 30 以保证相邻峰重叠、山墙不出现缺口。剖面本体见 buildVista 的
+  // ridgeAt（唯一实现，避免两份会漂移的山形）。
+  var VISTA_PEAK_STEP = 28;
+  // 峰高是"山体占多少画面"与"极光有多少天空"的直接权衡：前缘峰在 144 格外，
+  // 峰高 60 → 仰角约 19°，占 75° 竖直视场的四分之一，正好给绿帘留出上方天空。
+  // 再高（原来 95）会把天空挤到只剩 15%，极光就成了顶部一条边。
+  var VISTA_PEAK_H = [38, 47, 42, 50, 40, 48, 44, 51, 39, 46, 43];
+  // 峰位与锥半径都逐峰错开：等距同径的锥列从空中看是一排一模一样的三角鳍，
+  // 像梳子而不是山脉。
+  var VISTA_PEAK_DX = [0, 7, -5, 10, -8, 4, -3, 8, -6, 3, -4];
+  var VISTA_PEAK_R = [26, 34, 29, 37, 24, 32, 27, 35, 25, 31, 28];
+  var VISTA_PEAK_POW = 1.7;
+  // 山脊前缘（相对盘心 z）：越靠南越近、看起来越高，也越不容易被雾吃掉。
+  var VISTA_RIDGE_FRONT = -30;
+  // 剖面理论上限（base 最大 14 + 最高峰 × 起伏上限 1.06），用于按 ah 缩放
+  var VISTA_RIDGE_SPAN = 14 + Math.round(51 * 1.06);
+
+  // ah 越高，留给雪脊的竖向空间越少；整体缩放而不是截顶，山形不会被削平。
+  function vRidgeScale(ah) {
+    return Math.min(1, Math.max(20, RIDGE_TOP_MAX - ah) / VISTA_RIDGE_SPAN);
   }
 
-  function vistaInDisk(v, gx, gz) {
-    var L = vistaLayout();
-    var ex = (gx - (v.ax + L.diskCx)) / L.diskR, ez = (gz - (v.az + L.diskCz)) / L.diskR;
-    return ex * ex + ez * ez <= 1;
-  }
-
-  // 山脊剖面：北带锯齿峰列，返回该列相对 ah 的目标高度
-  var VISTA_PEAK_STEP = 28, VISTA_PEAK_H = [56, 68, 61, 73, 59, 70, 64, 74, 58, 67, 62];
-  function vRidgeHeight(v, gx, gz) {
-    var L = vistaLayout();
-    var zrel = gz - (v.az + L.diskCz);            // 相对盘心的 z 偏移（负=北）
-    if (zrel > -80) return null;
-    var edge = (zrel + 80) / -(L.diskR * 2 + 30) ; // 0..1 向盘缘衰减
-    var base = 6 + Math.round(edge * 6);
-    var bestH = 0;
-    for (var k = 0; k < VISTA_PEAK_H.length; k++) {
-      var pkx = v.ax + L.diskCx - 140 + k * VISTA_PEAK_STEP;
-      var d = Math.abs(gx - pkx);
-      var r = 30;
-      var dh = VISTA_PEAK_H[k] * Math.max(0, 1 - d / r);
-      if (dh > bestH) bestH = dh;
+  // 山体起伏：两级粗格（7 / 23 格）的连续抖动。逐列白噪会把高峰打成一排
+  // 方柱（棋盘噪声在 80 格高度上就是 ±8 格的乱跳），粗格才形成岩脊与冲沟。
+  function vRidgeRough(v, lx, lz) {
+    function lattice(cell, salt) {
+      return h2(v.ax + Math.floor(lx / cell) * 137 + salt,
+        v.az + Math.floor(lz / cell) * 149 + salt);
     }
-    var jitter = Math.floor(h2(gx * 13 + 71, gz * 17 + 29) * 5);
-    return base + Math.round(bestH * (0.82 + jitter * 0.05));
+    return 0.90 + lattice(23, 11) * 0.11 + lattice(7, 37) * 0.05;
+  }
+
+  // 草丘：11 格网格内抖动的簇心。抖动被限制在格心 ±2，于是任何一列只需查
+  // 自己所在的格（邻格簇心至少 8 格远 > 最大丘半径 4），成本恒为常数。
+  var MOUND_CELL = 11;
+  function vMoundAt(v, lx, lz) {
+    var gx = Math.floor(lx / MOUND_CELL), gz = Math.floor(lz / MOUND_CELL);
+    var sx = v.ax + gx * 131, sz = v.az + gz * 149;
+    if (h2(sx + 7, sz + 19) > 0.42) return 0;               // 稀疏：约四成格有丘
+    var cx = gx * MOUND_CELL + 3 + Math.floor(h2(sx + 3, sz + 41) * 5);
+    var cz = gz * MOUND_CELL + 3 + Math.floor(h2(sx + 11, sz + 7) * 5);
+    var r = 2 + Math.floor(h2(sx + 13, sz + 5) * 3);        // 2..4
+    var dx = lx - cx, dz = lz - cz;
+    var d2 = dx * dx + dz * dz;
+    if (d2 > r * r) return 0;
+    return Math.max(1, Math.round((1 - Math.sqrt(d2) / (r + 0.5)) * 3));
   }
 
   // ---- 全景构建入口。clip = [cx0, cx1, cz0, cz1]（含端点），把成本压到相交列。----
@@ -1716,20 +1741,42 @@ Voxel.Structures = (function () {
           for (var by = by0; by <= by1; by++) fn(lx, by, lz);
     }
 
-    // 山脊剖面：北带锯齿峰列，返回该列相对 ah 的目标高度
+    // 山脊剖面：北带锯齿峰列，返回该列相对 ah 的目标高度。
+    // ridgeScale 把整条剖面压进内容封顶（ah 越高压得越多），保持山形比例。
+    var ridgeScale = vRidgeScale(ah);
+    var ridgeFront = L.diskCz + VISTA_RIDGE_FRONT;
     function ridgeAt(lx, lz) {
-      if (lz > L.diskCz - 46) return null;
-      var t = (L.diskCz - 46 - lz) / (L.diskR - 24);   // 0..1 向盘缘抬升
+      if (lz > ridgeFront) return null;
+      var t = (ridgeFront - lz) / (L.diskR - 24);   // 0..1 向盘缘抬升
       var base = 6 + Math.round(Math.max(0, t) * 8);
-      var bestH = 0;
+      // 两层锥叠加：窄锥（半径 30、1.7 次幂）给刀刃状峰顶，宽缓的山体基座
+      // （半径 64、线性、0.62 权重）把峰连成连续山墙。只有窄锥时峰间会塌到
+      // 峰高的 35%，从南岸看过去就是一排孤立的三角尖而不是山脉。
+      var bestH = 0, wall = 0;
       for (var k = 0; k < VISTA_PEAK_H.length; k++) {
-        var d = Math.abs(lx - (L.diskCx - 140 + k * VISTA_PEAK_STEP));
-        var dh = VISTA_PEAK_H[k] * Math.max(0, 1 - d / 30);
+        var d = Math.abs(lx - (L.diskCx - 140 + k * VISTA_PEAK_STEP + VISTA_PEAK_DX[k]));
+        var dh = VISTA_PEAK_H[k] * Math.pow(Math.max(0, 1 - d / VISTA_PEAK_R[k]), VISTA_PEAK_POW);
         if (dh > bestH) bestH = dh;
+        var dw = VISTA_PEAK_H[k] * Math.max(0, 1 - d / 64) * 0.62;
+        if (dw > wall) wall = dw;
       }
+      if (wall > bestH) bestH = wall;
       if (bestH <= 0) return null;
-      var jitter = Math.floor(h2((v.ax + lx) * 13 + 71, (v.az + lz) * 17 + 29) * 5);
-      return base + Math.round(bestH * (0.82 + jitter * 0.05));
+      return Math.round((base + bestH * vRidgeRough(v, lx, lz)) * ridgeScale);
+    }
+
+    // 礁岛：湖中的岩锥（雾中群岛剪影）。返回该列相对 ah 的目标高度，
+    // 不命中返回 null。半径外的边缘用平方根收边，读起来像被水啃过的岩石。
+    function isletAt(lx, lz) {
+      for (var i = 0; i < L.islets.length; i++) {
+        var it = L.islets[i];
+        var dx = lx - it[0], dz = lz - it[1];
+        var d = Math.sqrt(dx * dx + dz * dz);
+        if (d > it[2]) continue;
+        var jit = h2((v.ax + lx) * 19 + 3, (v.az + lz) * 23 + 61);
+        return Math.max(1, Math.round((1 - d / it[2]) * (5 + jit * 4)) + 1);
+      }
+      return null;
     }
 
     var islandTop = ah + 3, plazaTop = ah + L.plaza.top;
@@ -1743,30 +1790,35 @@ Voxel.Structures = (function () {
         var surfId, bodyId, dst;
         var isIsland = inEll(lx, lz, L.island);
         var ridge = ridgeAt(lx, lz);
+        var inLake = inEll(lx, lz, L.lake) && !isIsland && !ridge;
+        var islet = inLake ? isletAt(lx, lz) : null;
         if (isIsland && !ridge) {
           surfId = inEll(lx, lz, L.plaza) ? NK.GNEISS :
             (h2((v.ax + lx) * 41 + 7, (v.az + lz) * 43 + 11) < 0.5 ? NK.BLACK_SAND : NK.GNEISS);
           bodyId = NK.GNEISS;
           dst = inEll(lx, lz, L.plaza) ? plazaTop : islandTop;
-        } else if (inEll(lx, lz, L.lake) && !isIsland && !ridge) {
+        } else if (islet !== null) {
+          surfId = NK.GNEISS; bodyId = NK.GNEISS; dst = ah + islet;
+        } else if (inLake) {
           surfId = NK.GNEISS; bodyId = NK.GNEISS; dst = ah - 7;
         } else if (ridge !== null) {
-          colFound(lx, lz, ah + ridge,
-            (ridge > 34 || h2((v.ax + lx) * 7 + 91, (v.az + lz) * 5 + 53) < ridge / 68) ? NK.SNOW : NK.GNEISS,
-            NK.GNEISS);
-          // 雪帽：峰体越高积雪越厚，间以岩脊条纹（照片中的雪线斑驳）
-          if (ridge > 20) {
-            var cap = Math.min(9, Math.round((ridge - 20) * 0.22) + 3);
-            var striped = h2((v.ax + lx) * 11 + 37, (v.az + lz) * 13 + 53) < 0.5;
-            for (var syd = 1; syd <= cap; syd++) {
-              if (!striped && syd % 4 === 3) continue;
-              WL(lx, ah + ridge - syd, lz, NK.SNOW);
-            }
+          // 雪沟：条纹只由 x 决定，于是沿坡面连成竖向的雪槽/岩脊
+          //（参考照片 001 里山体上一道道白色雪沟），而不是横向色带。
+          // 雪沟：条纹取 5 格粗格且只由 x 决定，于是沿坡面连成宽度合适的
+          // 竖向雪槽。逐列白噪会变成 1 格宽的黑白交替，远看像瓦楞铁皮。
+          var gully = h2((v.ax + Math.floor(lx / 5) * 5) * 11 + 37, 0);
+          var snowy = ridge > 26 || h2((v.ax + lx) * 7 + 91, (v.az + lz) * 5 + 53) < ridge / 44;
+          colFound(lx, lz, ah + ridge, snowy ? NK.SNOW : NK.GNEISS, NK.GNEISS);
+          // 雪帽：峰体越高积雪越厚，雪沟处露岩、其余整面覆雪
+          if (ridge > 12) {
+            var cap = Math.min(22, Math.round((ridge - 12) * 0.55) + 4);
+            if (gully >= 0.70) cap = Math.max(2, Math.round(cap * 0.45));
+            for (var syd = 1; syd <= cap; syd++) WL(lx, ah + ridge - syd, lz, NK.SNOW);
           }
           continue;
         } else {
           var dune = h2((v.ax + lx) * 31 + 3, (v.az + lz) * 37 + 61);
-          dst = ah + (dune < 0.16 ? 1 : dune < 0.22 ? 2 : 0);
+          dst = ah + (dune < 0.14 ? 1 : 0);
           surfId = NK.BLACK_SAND; bodyId = NK.DIRT;
         }
         // 盘缘向自然地形过渡（半宽 14）
@@ -1781,14 +1833,38 @@ Voxel.Structures = (function () {
     }
 
     // ==== 2. 注水冰湖（水位 ah-1）====
+    // 雪脊与礁岛都可能伸进湖椭圆，注水必须跳过它们，否则会往山体里灌水。
     for (var wx = Math.max(L.lake.cx - L.lake.rx, x0c); wx <= Math.min(L.lake.cx + L.lake.rx, x1c); wx++)
       for (var wz = Math.max(L.lake.cz - L.lake.rz, z0c); wz <= Math.min(L.lake.cz + L.lake.rz, z1c); wz++) {
         if (!inEll(wx, wz, L.lake) || inEll(wx, wz, L.island)) continue;
+        if (ridgeAt(wx, wz) !== null || isletAt(wx, wz) !== null) continue;
         for (var wy = ah - 6; wy <= ah - 1; wy++) WL(wx, wy, wz, NK.WATER);
         if (h2((v.ax + wx) * 23 + 5, (v.az + wz) * 29 + 97) < 0.06 &&
-          !inEll(wx, wz, { cx: L.lake.cx, cz: L.lake.cz, rx: L.lake.rx - 20, rz: L.lake.rz - 12 }))
+          !inEll(wx, wz, { cx: L.lake.cx, cz: L.lake.cz, rx: L.lake.rx - 26, rz: L.lake.rz - 16 }))
           WL(wx, ah - 1, wz, NK.ICE, 'overwrite');
       }
+
+    // ==== 2b. 礁岛植被：岩锥顶上的矮云杉丛（雾中群岛的深色剪影）====
+    L.islets.forEach(function (it, ii) {
+      for (var ti = 0; ti < 3; ti++) {
+        var gx = it[0] + ((ii * 5 + ti * 7) % 9) - 4;
+        var gz = it[1] + ((ii * 7 + ti * 3) % 9) - 4;
+        if (!inClipL(gx, gz)) continue;
+        var top = isletAt(gx, gz);
+        if (top === null || top < 3) continue;
+        var th = 4 + ((ii + ti) % 3);
+        for (var ly = 1; ly <= th; ly++) WL(gx, ah + top + ly, gz, NK.SPRUCE_LOG);
+        for (var cy = th - 2; cy <= th + 1; cy++) {
+          var rad = cy > th ? 0 : (cy === th ? 1 : 2);
+          for (var ldx = -rad; ldx <= rad; ldx++)
+            for (var ldz = -rad; ldz <= rad; ldz++) {
+              if (ldx === 0 && ldz === 0 && cy <= th) continue;
+              if (Math.abs(ldx) === 2 && Math.abs(ldz) === 2) continue;
+              WL(gx + ldx, ah + top + cy, gz + ldz, NK.SPRUCE_LEAVES, 'air');
+            }
+        }
+      }
+    });
 
     // ==== 3. 广场白灰泥台面 + 金饰镶边 + 白栏杆 ====
     boxWalls(PLX - L.plaza.rx - 1, PLZ - L.plaza.rz - 1, PLX + L.plaza.rx + 1, PLZ + L.plaza.rz + 1,
@@ -1806,9 +1882,12 @@ Voxel.Structures = (function () {
           var gap = (qz > PLZ + 6) && (qx >= PLX - 8) && (qx <= PLX - 2);
           if (!gap) {
             WL(qx, plazaTop + 1, qz, NK.RAIL, 'air');
-            if (((qx % 5) + 5) % 5 === 0) {
+            // 灯柱：金柱两格 + 顶灯，俯瞰时勾出台面轮廓（参考照片 002 的
+            // 环台暖光带）。间距 4 比原来的 5 更密，航拍才连成一圈。
+            if (((qx % 4) + 4) % 4 === 0) {
               WL(qx, plazaTop + 1, qz, NK.GOLD);
-              WL(qx, plazaTop + 2, qz, NK.LANTERN, 'air');
+              WL(qx, plazaTop + 2, qz, NK.GOLD);
+              WL(qx, plazaTop + 3, qz, NK.LANTERN, 'air');
             }
           } else {
             WL(qx, plazaTop, qz, NK.PLASTER);   // 门前步道不铺金
@@ -1853,17 +1932,19 @@ Voxel.Structures = (function () {
       for (var wzi = HL.z0 + 3; wzi <= HL.z1 - 3; wzi += 3)
         WL(wxl, wzi, base + 5, NK.GLASS_CYAN);
     });
-    // 人字坡屋顶（屋脊沿 x）
+    // 人字坡屋顶（屋脊沿 x）。参考照片 002 的红瓦坡度接近 60°，
+    // 所以脊高抬到 14、每远离屋脊一格降 1.75 格（旧版 9/1.0 太扁）。
     var roofMid = (HL.z0 + HL.z1) / 2;
-    boxWalls(HL.x0 - 1, HL.z0 - 1, HL.x1 + 1, HL.z1 + 1, hallTop + 1, hallTop + 9,
+    var HALL_ROOF_H = 14;
+    boxWalls(HL.x0 - 1, HL.z0 - 1, HL.x1 + 1, HL.z1 + 1, hallTop + 1, hallTop + HALL_ROOF_H,
       function (lx, by, lz) {
-        var rise = Math.round(9 - Math.abs(lz - roofMid));
+        var rise = Math.round(HALL_ROOF_H - Math.abs(lz - roofMid) * 1.75);
         if (rise < 0 || by > hallTop + rise) return;
         WL(lx, by, lz, NK.SHINGLE);
       });
     // 屋脊金饰
     for (var rxg = HL.x0 - 1; rxg <= HL.x1 + 1; rxg++)
-      WL(rxg, hallTop + 9, roofMid, NK.GOLD);
+      WL(rxg, hallTop + HALL_ROOF_H, roofMid, NK.GOLD);
     // 室内：王座高台 + 壁灯
     boxWalls(HL.x0 + 1, HL.z0 + 1, HL.x1 - 1, HL.z0 + 3, base, base,
       function (lx, by, lz) { WL(lx, by, lz, NK.GNEISS); });
@@ -1939,10 +2020,11 @@ Voxel.Structures = (function () {
     WL(WG.x0, WG.z0 + 2, wgBase, 0); WL(WG.x0, WG.z0 + 2, wgBase + 1, 0);
     WL(WG.x0, WG.z0 + 3, wgBase, 0); WL(WG.x0, WG.z0 + 3, wgBase + 1, 0);
     var wgMx = (WG.x0 + WG.x1) / 2, wgMz = (WG.z0 + WG.z1) / 2;
-    boxWalls(WG.x0 - 1, WG.z0 - 1, WG.x1 + 1, WG.z1 + 1, wgTop + 1, wgTop + 5,
+    var WING_ROOF_H = 9;
+    boxWalls(WG.x0 - 1, WG.z0 - 1, WG.x1 + 1, WG.z1 + 1, wgTop + 1, wgTop + WING_ROOF_H,
       function (lx, by, lz) {
-        var rise = Math.round(5 - Math.max(
-          Math.abs(lx - wgMx) * 0.35, Math.abs(lz - wgMz)));
+        var rise = Math.round(WING_ROOF_H - Math.max(
+          Math.abs(lx - wgMx) * 0.62, Math.abs(lz - wgMz) * 1.3));
         if (rise < 0 || by > wgTop + rise) return;
         WL(lx, by, lz, NK.SHINGLE);
       });
@@ -1968,8 +2050,9 @@ Voxel.Structures = (function () {
             WL(lx3, ty, lz3, id);
           }
         }
-      for (var cy2 = 1; cy2 <= 5; cy2++) {
-        var rad2 = Math.max(0, Math.round(TR * (1 - cy2 / 6)));
+      // 锥顶抬到 8 格（半径 2）：与主厅一起把屋面坡度推到参考照片的陡度
+      for (var cy2 = 1; cy2 <= 8; cy2++) {
+        var rad2 = Math.max(0, Math.round(TR * (1 - cy2 / 9)));
         for (var ex = -rad2; ex <= rad2; ex++)
           for (var ez = -rad2; ez <= rad2; ez++) {
             if (ex * ex + ez * ez > rad2 * rad2 + 0.4) continue;
@@ -1977,8 +2060,61 @@ Voxel.Structures = (function () {
             WL(TX + ex, twTop + cy2, TZ + ez, NK.SHINGLE);
           }
       }
-      WL(TX, twTop + 6, TZ, NK.LANTERN, 'air');
+      WL(TX, twTop + 9, TZ, NK.LANTERN, 'air');
     });
+
+    // ---- 岛缘：岩崖 + 深色云杉环 ----
+    // 参考照片 002 的岛不是裸沙滩，而是一圈灰岩崖挂着深绿针叶林，
+    // 城堡台面像被托在树冠之上。云杉只种在广场椭圆之外的环带里。
+    for (var cxg = Math.max(L.island.cx - L.island.rx, x0c); cxg <= Math.min(L.island.cx + L.island.rx, x1c); cxg++)
+      for (var czg = Math.max(L.island.cz - L.island.rz, z0c); czg <= Math.min(L.island.cz + L.island.rz, z1c); czg++) {
+        if (!inEll(cxg, czg, L.island) || inEll(cxg, czg, L.plaza)) continue;
+        if (!inClipL(cxg, czg)) continue;
+        var rimR = h2((v.ax + cxg) * 53 + 29, (v.az + czg) * 59 + 7);
+        // 崖面：靠岛缘的一圈抬 1~2 格灰岩，形成从水面直起的岩壁
+        var eIx = (cxg - L.island.cx) / L.island.rx, eIz = (czg - L.island.cz) / L.island.rz;
+        var rim = eIx * eIx + eIz * eIz;
+        if (rim > 0.72 && rimR < 0.55) {
+          WL(cxg, islandTop + 1, czg, NK.GNEISS);
+          if (rimR < 0.22) WL(cxg, islandTop + 2, czg, NK.GNEISS);
+          continue;
+        }
+        if (rimR < 0.70 || rimR > 0.745) continue;   // 约 4.5% 的列种树
+        var ith = 5 + Math.floor(h2((v.ax + cxg) * 3 + 5, (v.az + czg) * 11 + 3) * 4);
+        for (var ily = 1; ily <= ith; ily++) WL(cxg, islandTop + ily, czg, NK.SPRUCE_LOG);
+        for (var icy = ith - 3; icy <= ith + 1; icy++) {
+          var irad = icy > ith ? 0 : (icy === ith ? 1 : 2);
+          for (var idx = -irad; idx <= irad; idx++)
+            for (var idz = -irad; idz <= irad; idz++) {
+              if (idx === 0 && idz === 0 && icy <= ith) continue;
+              if (Math.abs(idx) === 2 && Math.abs(idz) === 2) continue;
+              WL(cxg + idx, islandTop + icy, czg + idz, NK.SPRUCE_LEAVES, 'air');
+            }
+        }
+      }
+
+    // ---- 南侧下行石阶 + 低岩台：广场正门 → 伸进湖里的岩石平台 ----
+    // 参考照片 002 里这道石梯与岩台是识别度很高的一处细节：它把城堡台面
+    // 和水面连起来，俯瞰时正好指向画面下缘。
+    var stairX = PLX - 5;
+    var shelfZ0 = PLZ + L.plaza.rz + 1;
+    for (var ss = 0; ss <= 5; ss++) {
+      var stz = shelfZ0 + ss;
+      var sty = plazaTop - ss;
+      for (var sw = -1; sw <= 1; sw++) {
+        if (!inClipL(stairX + sw, stz)) continue;
+        colFound(stairX + sw, stz, sty, NK.GNEISS, NK.GNEISS);
+      }
+      if (ss % 3 === 0) {
+        WL(stairX + 2, stz, sty + 1, NK.GOLD, 'air');
+        WL(stairX + 2, stz, sty + 2, NK.LANTERN, 'air');
+      }
+    }
+    for (var shz = shelfZ0 + 6; shz <= shelfZ0 + 9; shz++)
+      for (var shx = stairX - 3; shx <= stairX + 3; shx++) {
+        if (!inClipL(shx, shz)) continue;
+        colFound(shx, shz, ah, NK.GNEISS, NK.GNEISS);
+      }
 
     // ---- 石拱桥（东南跨湖连东岸）----
     var BR = L.bridge;
@@ -1991,12 +2127,15 @@ Voxel.Structures = (function () {
       for (var bz = BR.z0; bz <= BR.z1; bz++) {
         if (bz < z0c - 2 || bz > z1c + 2) continue;
         var archEdge = (bz === BR.z0 || bz === BR.z1);
-        WL(bx, deckY, bz, archEdge ? NK.GOLD : NK.GNEISS);
+        // 桥面全用石材：早先两侧铺金饰块，航拍时整座桥读成一条纯金带子，
+        // 参考照片里桥体是灰石、只有灯是暖的。
+        WL(bx, deckY, bz, NK.GNEISS);
         for (var uy = Math.max(ah - 8, deckY - 3); uy < deckY; uy++)
           WL(bx, uy, bz, NK.GNEISS);
         if (archEdge) {
           WL(bx, deckY + 1, bz, NK.RAIL, 'air');
-          if (((bx % 6) + 6) % 6 === 0) {
+          // 灯距 7：更密的话灯光在泛光下糊成一条连续金带，桥体就消失了
+          if (((bx % 7) + 7) % 7 === 0) {
             WL(bx, deckY + 1, bz, NK.GOLD);
             WL(bx, deckY + 2, bz, NK.LANTERN, 'air');
           }
@@ -2037,24 +2176,36 @@ Voxel.Structures = (function () {
       if (((jx % 6) + 6) % 6 === 0) WL(jx, ah, DK.z0 + 1, NK.TORCH, 'air');
     }
 
-    // ---- 南岸枯草丛/草丘/残雪点缀 ----
-    for (var tx = Math.max(-100, x0c); tx <= Math.min(100, x1c); tx++)
-      for (var tz = Math.max(50, z0c); tz <= Math.min(L.diskCz + L.diskR - 8, z1c); tz++) {
+    // ---- 南岸草丘 + 潮池 ----
+    // 旧版是按白噪声逐列撒草，密铺出来像噪点地毯；参考照片 001 的前景是
+    // 稀疏的隆起草丘（抬高的黑沙包，顶上一簇枯草）加成片的湿沙反光带。
+    for (var tx = Math.max(-140, x0c); tx <= Math.min(140, x1c); tx++)
+      for (var tz = Math.max(L.lake.cz + 2, z0c); tz <= Math.min(L.diskCz + L.diskR - 8, z1c); tz++) {
         if (!inClipL(tx, tz)) continue;
         if (!inDisk(tx, tz) || inEll(tx, tz, L.lake)) continue;
-        var tr = h2((v.ax + tx) * 57 + 13, (v.az + tz) * 61 + 47);
-        if (tr < 0.07) WL(tx, ah + 1, tz, NK.TUSSOCK, 'air');
-        else if (tr < 0.10) {
-          WL(tx, ah + 1, tz, NK.BLACK_SAND);
-          WL(tx, ah + 2, tz, NK.TUSSOCK, 'air');
-        } else if (tr < 0.115) {
-          WL(tx, ah + 1, tz, NK.BLACK_SAND);
-          WL(tx, ah + 2, tz, NK.SNOW);          // 草丘上的残雪顶
-        } else if (tr < 0.128) WL(tx, ah + 1, tz, NK.SNOW);
+        // 出生点前方留一片空旷沙地：草丘挡在眼位前 12 格内会把整片湖面遮死
+        var sdx = tx - L.spawn.dx, sdz = tz - L.spawn.dz;
+        var nearSpawn = sdx * sdx + sdz * sdz < 12 * 12;
+        var mh = nearSpawn ? 0 : vMoundAt(v, tx, tz);
+        if (mh > 0) {
+          for (var my = 1; my <= mh; my++) WL(tx, ah + my, tz, NK.BLACK_SAND);
+          WL(tx, ah + mh + 1, tz, NK.TUSSOCK, 'air');
+          continue;
+        }
+        // 潮池：7×5 的粗格决定成片区域，再用逐列噪声打散边缘。
+        // 下切一格注水，水面比周围沙面低半格，掠射角下连成镜面反光带。
+        // 只出现在岸线往内 26 格：再往南就是内陆沙丘，不该有潮水。
+        var pool = (tz - (L.lake.cz + L.lake.rz)) < 26 &&
+          h2(Math.floor(tx / 7) * 71 + 3, Math.floor(tz / 5) * 83 + 29) < 0.16 &&
+          h2((v.ax + tx) * 5 + 1, (v.az + tz) * 7 + 3) > 0.24;
+        if (pool) {
+          colFound(tx, tz, ah - 1, NK.GNEISS, NK.GNEISS);
+          WL(tx, ah, tz, NK.WATER);
+        }
       }
 
-    // ---- 侧翼云杉树丛 ----
-    [[-128, 20], [124, 34], [-116, 66], [132, -8]].forEach(function (grove, gi) {
+    // ---- 侧翼云杉树丛（湖面放大后一并外移到新岸线上）----
+    [[-140, 46], [136, 52], [-118, 86], [142, 8]].forEach(function (grove, gi) {
       for (var ti = 0; ti < 5; ti++) {
         var gx3 = grove[0] + ((gi * 7 + ti * 3) % 9) - 4;
         var gz3 = grove[1] + ((gi * 11 + ti * 5) % 11) - 5;

@@ -1010,8 +1010,11 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
     check('vista 锚点高于水位且低于雪脊上限', vista.ah > V.Config.WATER_LEVEL + 2 &&
       vista.ah <= V.Config.WORLD_H - 90);
     var gate = V.Structures.vistaGateSpawn(vista);
+    // 出生点在 z+ 南岸，且与布局事实源一致（构图距离随参考照片调过，
+    // 这里不再钉死具体格数，只钉"在南岸 + 与 layout 同源"）
     check('城堡出生点位于南岸干地并面向湖心', !!gate && gate.y > V.Config.WATER_LEVEL &&
-      (gate.z - vista.az) > 100);   // 出生在 z+ 南岸
+      (gate.z - vista.az) === V.Structures.vistaLayout().spawn.dz + 0.5 &&
+      (gate.z - vista.az) > V.Structures.vistaLayout().lake.cz + V.Structures.vistaLayout().lake.rz);
     // 结构落位抽检：与世界生成同一事实源（gen_core decorateVistas）
     var L = V.Structures.vistaLayout();
     var scx = vista.ax + L.plaza.cx + L.spire.cx;
@@ -1040,8 +1043,17 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
     for (var hwq = 2; hwq <= 10 && !plaster; hwq++)
       if (V.World.get(vista.ax + L.plaza.cx + L.hall.x0 + hwq,
         vista.ah + L.plaza.top + 3, vista.az + L.plaza.cz + L.hall.z1) === 218) plaster = 1;
-    for (var vy2 = 5; vy2 < 60; vy2++)
-      if (V.World.get(vista.ax + L.lake.cx + 60, vy2, vista.az + L.lake.cz) === 7) water++;
+    // 湖面：水位固定在 ah-1、水体至少 6 格厚，东西两侧各取一点
+    var lakeSurfOk = true;
+    [60, -60, 100].forEach(function (dxl) {
+      var depth = 0, surf = -1;
+      for (var vy3 = 5; vy3 < V.Config.WORLD_H; vy3++)
+        if (V.World.get(vista.ax + L.lake.cx + dxl, vy3, vista.az + L.lake.cz) === 7) {
+          depth++; surf = vy3;
+        }
+      if (surf !== vista.ah - 1 || depth < 6) lakeSurfOk = false;
+      water += depth;
+    });
     for (var cxx = vista.ax - 40; cxx <= vista.ax + 40; cxx++)
       for (var czz = vista.az - 40; czz <= vista.az + 20; czz++)
         for (var cy2 = vista.ah; cy2 <= vista.ah + 12; cy2++) {
@@ -1049,7 +1061,7 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
           if (cid === 38) chest++;
         }
     check('中央尖塔锥顶绯红瓦与塔身白灰泥墙生成', shingle >= 4 && plaster >= 1);
-    check('冰湖注水成片', water >= 8);
+    check('冰湖注水成片且水位钉在 ah-1', lakeSurfOk && water >= 18);
     check('主厅宝箱位唯一且与反查坐标一致', chest === 1);
     var chestsApi = V.Structures.vistaChests(vista);
     check('宝箱反查坐标命中实体箱子', chestsApi.length === 1 &&
@@ -1075,6 +1087,55 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
           if (V.World.get(vista.ax + sxv, vista.ah + syv, vista.az + szv) === 18)
             snowRidge++;
     check('北岸山脊带出现积雪峰体', snowRidge > 40);
+    // 雪脊剖面按 ah 缩放，峰顶不得越过内容封顶（光照快路径的前提）
+    var ridgeTop = 0;
+    for (var rxs = -150; rxs <= 150; rxs += 3)
+      for (var rzs = L.diskCz - L.diskR + 4; rzs <= L.diskCz - 50; rzs += 3)
+        for (var rys = V.Config.WORLD_H - 1; rys > vista.ah; rys--)
+          if (V.World.get(vista.ax + rxs, rys, vista.az + rzs) !== 0) {
+            if (rys > ridgeTop) ridgeTop = rys;
+            break;
+          }
+    check('雪脊峰顶落在内容封顶内且足够高', ridgeTop <= V.Config.CONTENT_NATURAL_TOP &&
+      (ridgeTop - vista.ah) >= 60);
+    // 雾中礁岛群：每座礁岛顶都应露出水面并带云杉
+    var isletTops = 0, isletTrees = 0;
+    L.islets.forEach(function (it) {
+      var top = 0;
+      for (var iys = V.Config.WORLD_H - 1; iys > 0; iys--)
+        if (V.World.get(vista.ax + it[0], iys, vista.az + it[1]) !== 0) { top = iys; break; }
+      if (top >= vista.ah) isletTops++;
+      for (var ix2 = -6; ix2 <= 6; ix2++)
+        for (var iz2 = -6; iz2 <= 6; iz2++)
+          for (var iy2 = vista.ah; iy2 <= vista.ah + 16; iy2++)
+            if (V.World.get(vista.ax + it[0] + ix2, iy2, vista.az + it[1] + iz2) === 21) isletTrees++;
+    });
+    check('湖中礁岛群全部露出水面', isletTops === L.islets.length);
+    check('礁岛带深色云杉剪影', isletTrees > 40);
+    // 南岸草丘：稀疏隆起（丘顶枯草/残雪），不再是密铺草地
+    var tussock = 0, moundCols = 0, pool = 0, beachCols = 0;
+    for (var mx = -60; mx <= 60; mx++)
+      for (var mz = L.lake.cz + L.lake.rz + 4; mz <= L.lake.cz + L.lake.rz + 40; mz++) {
+        beachCols++;
+        var topId = 0, topY = 0;
+        for (var my = vista.ah + 8; my > vista.ah - 3; my--) {
+          var mid = V.World.get(vista.ax + mx, my, vista.az + mz);
+          if (mid !== 0) { topId = mid; topY = my; break; }
+        }
+        if (topId === 219) tussock++;
+        if (topY > vista.ah + 1) moundCols++;
+        if (topId === 7) pool++;
+      }
+    check('南岸出现枯草草丘', tussock > 60);
+    check('草丘为稀疏隆起而非密铺', moundCols > 0 && moundCols < beachCols * 0.35);
+    check('南岸潮池注水（湿沙反光带）', pool > 120);
+    // 广场外沿灯柱：俯瞰时勾出台面轮廓
+    var rimLamps = 0;
+    for (var lx2 = -L.plaza.rx - 2; lx2 <= L.plaza.rx + 2; lx2++)
+      for (var lz2 = -L.plaza.rz - 2; lz2 <= L.plaza.rz + 2; lz2++)
+        if (V.World.get(vista.ax + L.plaza.cx + lx2,
+          vista.ah + L.plaza.top + 3, vista.az + L.plaza.cz + lz2) === 79) rimLamps++;
+    check('广场外沿灯柱成圈', rimLamps >= 8);
   }
   // lush 世界不受影响：同一扫描范围内不得产生 vista
   V.World.init(12345, { kind: 'planet', typeKey: 'lush', terrainVersion: 2 });

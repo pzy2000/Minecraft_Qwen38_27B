@@ -114,13 +114,31 @@ Voxel.AtmosphereProfiles = (function () {
       signatureRole: 'station-stars', particles: { role: 'station-stars', count: 96, color: 0xd7e9ff }
     },
     nordic: {
-      // 北欧城堡：极昼式暮光——夜幕仍保持昼间量级的青蓝亮度（午夜太阳），
-      // 绿帘极光整夜高亮；细雪天气。天色冷青、地平线透辉。
-      day: [0x9db8cc, 0xc7dde4], dusk: [0x35506b, 0x4f9a94],
-      night: [0x2e5c7c, 0x63a8ad],
-      tintDay: 0xeaf6fa, tintNight: 0xe2eef5, ambientFloor: 0.76, exponent: 0.52, weatherMix: 0.85,
-      weather: [0x5c7386, 0x8fa7b2, 0x3f5a70, 0x66879c, 0xaec3cd, 0xddeaf0, 'snow', 0xdff5ff],
-      stars: [520, 0xf0ffff, 0x7fe8c8], nebula: [0x1f8f78, 0x4c6fae, 0.30, 1.86],
+      // 北欧城堡：冰岛式极光夜 / 蓝调时刻。参考照片里天穹本身是暗的——画面
+      // 的绿全部来自加色的极光光帘，所以这里的夜色必须压成深钢青，否则
+      // 极光被底色淹没，整屏读成灰。地表靠 ambientFloor 的长曝光式底光可见。
+      day: [0x7d9cb4, 0xacc6d2], dusk: [0x1c3550, 0x2f6b6a],
+      night: [0x08202e, 0x123c46],
+      // ambientFloor 0.76：夜里没有太阳，地表可见度全靠这条底光。参考照片是
+      // 长曝光，前景黑沙、雪脊与城堡石材都读得清，所以贴着 DayNight 的上限走
+      //（lush 只有 0.22 —— 那是普通月夜）。
+      tintDay: 0xeaf6fa, tintNight: 0xd6e8f0, ambientFloor: 0.76, exponent: 0.62, weatherMix: 0.5,
+      weather: [0x39505f, 0x5c757f, 0x0b1d28, 0x1c3540, 0x8ba3ae, 0xc3d4dc, 'snow', 0xdff5ff],
+      stars: [520, 0xf0ffff, 0x7fe8c8], nebula: [0x1f8f78, 0x4c6fae, 0.22, 1.86],
+      // 极光取色：底部亮绿（氧 557.7nm）→ 中段青 → 高空淡紫冠（氮）
+      aurora: { low: 0x2bff8f, mid: 0x0ca4a4, high: 0x6a4fc8 },
+      // 谷雾：base 取略高于湖面（vista 的水位约 y=36），于是水面/沙丘/礁岛
+      // 起雾而城堡屋面与雪脊峰顶露出——对齐 002 的"雾中群岛 + 清晰主体"。
+      heightFog: { base: 42, falloff: 18, strength: 0.55 },
+      // 分级：更强对比 + 暖高光冷阴影分色 + 重暗角（002 的暗角很明显）
+      grade: { contrast: 0.42, saturation: 1.16, split: 0.055, vignette: 0.34, lift: 0.026 },
+      // 城堡窗与灯笼的暖光池；峡湾湖体的深青蓝
+      blockLightTint: 0xffb877, deepWater: 0x0d2f42,
+      // 地表曝光：参考照片是长曝光——雪脊、黑沙与城堡石材在无日照的夜里
+      // 依然层次分明。只抬地表，天穹/雾色保持暗场，对比才留得住。
+      exposure: 1.75,
+      // 远景山脊必须落在雾尾内：允许该主题按画质抬高流式半径
+      viewBoost: true,
       suns: [
         { role: 'sun', style: 'cold-white', size: 40, color: 0xf2fbff, phase: 0.03, inclination: -0.05, cyclesPerDay: 1 }
       ],
@@ -128,8 +146,10 @@ Voxel.AtmosphereProfiles = (function () {
         { role: 'moon', style: 'glacial', size: 34, color: 0xd6f6ef, phase: 0.52, inclination: 0.14, cyclesPerDay: 1 },
         { role: 'moon', style: 'smooth', size: 16, color: 0xbfe9dd, phase: 0.21, inclination: -0.44, cyclesPerDay: 2 }
       ],
-      landmark: { role: 'ringed-landmark', style: 'ice-banded', size: 52, color: 0x64c2ad, phase: 0.71, inclination: 0.28,
-        ring: { color: 0xa9ffe0, inner: 1.15, outer: 2.02, opacity: 0.72, tilt: 0.38 } },
+      // 环带行星压小并挪到偏侧低空：极光夜的取景主体是山脊与城堡，
+      // 原来的 52 号大盘正好悬在城堡正上方，抢焦点也最不像照片。
+      landmark: { role: 'ringed-landmark', style: 'ice-banded', size: 30, color: 0x64c2ad, phase: 0.90, inclination: 0.52,
+        ring: { color: 0xa9ffe0, inner: 1.15, outer: 2.02, opacity: 0.55, tilt: 0.38 } },
       signatureRole: 'aurora', particles: { role: 'aurora', count: 96, color: 0x54ffb0 }
     }
   };
@@ -187,6 +207,47 @@ Voxel.AtmosphereProfiles = (function () {
     return { top: varyColor(base[0], seed, salt, 0.055), horizon: varyColor(base[1], seed, salt + 1, 0.055) };
   }
 
+  // 极光取色：预设未声明时从签名粒子色推导（低段=粒子色，中段压暗偏青，
+  // 高冠取粒子色的补偏紫），保证 frozen 等老主题行为不变。
+  function auroraOf(base, seed) {
+    var b = base.aurora;
+    if (b) {
+      return {
+        low: varyColor(b.low, seed, 0x8000, 0.04),
+        mid: varyColor(b.mid, seed, 0x8001, 0.04),
+        high: varyColor(b.high, seed, 0x8002, 0.05)
+      };
+    }
+    var c = base.particles.color;
+    var mid = ((((c >> 16) & 255) * 0.25) << 16) |
+      ((((c >> 8) & 255) * 0.62) << 8) | (((c & 255) * 0.72) | 0);
+    return { low: c, mid: mid, high: 0x4a5fb8 };
+  }
+
+  // 高度雾：falloff <= 0 表示不启用（默认所有非 nordic 主题）
+  function heightFogOf(base) {
+    var h = base.heightFog;
+    if (!h) return { base: 0, falloff: 0, strength: 0 };
+    return {
+      base: finite(h.base, 0, -64, 192),
+      falloff: finite(h.falloff, 0, 0, 256),
+      strength: finite(h.strength, 0, 0, 1)
+    };
+  }
+
+  // 分级覆盖：未声明时返回 null，Bloom 用内置默认值
+  function gradeOf(base) {
+    var g = base.grade;
+    if (!g) return null;
+    return {
+      contrast: finite(g.contrast, 0.30, 0, 1),
+      saturation: finite(g.saturation, 1.07, 0.5, 2),
+      split: finite(g.split, 0.035, 0, 0.3),
+      vignette: finite(g.vignette, 0.22, 0, 0.8),
+      lift: finite(g.lift, 0, 0, 0.2)
+    };
+  }
+
   function profileFor(typeKey, seed) {
     var key = Object.prototype.hasOwnProperty.call(PRESETS, typeKey) ? typeKey : 'lush';
     var base = PRESETS[key];
@@ -209,7 +270,8 @@ Voxel.AtmosphereProfiles = (function () {
       night: pair(base.night, stableSeed, 0x1020),
       tintDay: varyColor(base.tintDay, stableSeed, 0x1030, 0.04),
       tintNight: varyColor(base.tintNight, stableSeed, 0x1031, 0.04),
-      ambientFloor: finite(base.ambientFloor + signedUnit(stableSeed, 0x1040) * 0.018, base.ambientFloor, 0.08, 0.5),
+      // 上限与 DayNight.ambientFloor 的钳制对齐（0.78），避免预设意图被静默截断
+      ambientFloor: finite(base.ambientFloor + signedUnit(stableSeed, 0x1040) * 0.018, base.ambientFloor, 0.08, 0.78),
       exponent: finite(base.exponent + signedUnit(stableSeed, 0x1041) * 0.045, base.exponent, 0.4, 1.4),
       weatherMix: finite(base.weatherMix + signedUnit(stableSeed, 0x1042) * 0.025, base.weatherMix, 0, 1),
       weather: {
@@ -258,6 +320,14 @@ Voxel.AtmosphereProfiles = (function () {
         count: Math.max(0, Math.round(base.particles.count * (1 + signedUnit(stableSeed, 0x7000) * 0.08))),
         color: varyColor(base.particles.color, stableSeed, 0x7001, 0.055)
       },
+      aurora: auroraOf(base, stableSeed),
+      heightFog: heightFogOf(base),
+      grade: gradeOf(base),
+      // 未声明即保持中性：老主题的观感与金标截图完全不变
+      blockLightTint: base.blockLightTint || 0xffffff,
+      deepWater: base.deepWater || 0,
+      exposure: finite(base.exposure, 1, 0.25, 4),
+      viewBoost: !!base.viewBoost,
       variantHash: variantHash
     };
   }

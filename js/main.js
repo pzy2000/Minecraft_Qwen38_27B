@@ -703,6 +703,9 @@ Voxel.Game = (function () {
     }
     if (Voxel.Weather.setWorldProfile)
       Voxel.Weather.setWorldProfile(Voxel.DayNight.profile ? Voxel.DayNight.profile() : null);
+    // 天体级观感：流式视距与色彩分级都跟着新 profile 走
+    applyViewBoost();
+    applyWorldGrade();
     Voxel.Weather.reset();
     if (Voxel.Weather.setSpaceMode) Voxel.Weather.setSpaceMode(currentWorld.kind === 'station');
     for (var fi = 0; fi < fallers.length; fi++) {
@@ -1811,7 +1814,10 @@ Voxel.Game = (function () {
 
   // ---------- 自适应降质闭环 ----------
   // 持续掉帧（EMA < 26fps 满 5 秒）时按"从便宜到贵"的顺序自动降一档：
-  // 阴影 → 粒子 → 雨滴 → 流式预算 → 渲染分辨率。只在 autoPerf 开启且处于
+  // 远景视距 → 阴影 → 谷雾 → 水面反射 → 粒子 → 雨滴 → 流式预算 → 渲染分辨率。
+  // 视距排第一是因为它决定工作集大小（成本远高于后面几项）；谷雾/水面反射
+  // 都只是几条 shader 指令，排在粒子之前是为了先保住构图再保观感。
+  // 只在 autoPerf 开启且处于
   // playing 态时工作；玩家手动改任何设置后冷却 60 秒（尊重手动意图）。
   // 刻意不做自动回升：避免画质振荡，回满配交给玩家在预设里一键完成。
   var fpsEma = 0, adaptLowT = 0, adaptCool = 0, adaptToastShown = false;
@@ -1819,7 +1825,14 @@ Voxel.Game = (function () {
   function adaptStepDown() {
     var s = Voxel.Settings;
     if (!s || !s.get('autoPerf')) return null;
+    // 远景视距只在当前天体真的用到时才算作可降项（否则会白降一档）
+    var profile = Voxel.DayNight.profile ? Voxel.DayNight.profile() : null;
+    if (s.get('viewBoost') > 0 && profile && profile.viewBoost) { s.set('viewBoost', 0); return '远景视距'; }
     if (s.get('shadows') > 0) { s.set('shadows', s.get('shadows') - 1); return '阴影质量'; }
+    if (s.get('heightFog') > 0 && profile && profile.heightFog && profile.heightFog.falloff > 0) {
+      s.set('heightFog', 0); return '谷雾';
+    }
+    if (s.get('waterReflect') > 0) { s.set('waterReflect', 0); return '水面反射'; }
     var pd = Math.max(0.35, Math.round(s.get('particleDensity') * 0.68 * 100) / 100);
     if (pd < s.get('particleDensity')) { s.set('particleDensity', pd); return '粒子密度'; }
     var rd = Math.max(0.35, Math.round(s.get('rainDensity') * 0.68 * 100) / 100);
@@ -6000,6 +6013,72 @@ Voxel.Game = (function () {
     return c;
   }
 
+  // 远景主题的流式半径：只有大气 profile 声明了 viewBoost 且画质档位允许时才抬高。
+  // 半径只影响可见工作集，不改变任何区块内容（生成只由 seed/profile/坐标决定）。
+  function applyViewBoost() {
+    if (!Voxel.World || !Voxel.World.setRenderRadius) return;
+    var profile = Voxel.DayNight.profile ? Voxel.DayNight.profile() : null;
+    var allow = Voxel.Settings ? Voxel.Settings.get('viewBoost') > 0 : false;
+    var want = (allow && profile && profile.viewBoost) ? (CFG.VIEW_BOOST_RADIUS || 8) : 0;
+    Voxel.World.setRenderRadius(want);
+  }
+
+  // 色彩分级：天体 profile 声明了 grade 就用它，否则回落 Bloom 的内置默认。
+  function applyWorldGrade() {
+    if (!Voxel.Bloom || !Voxel.Bloom.setGrade) return;
+    var profile = Voxel.DayNight.profile ? Voxel.DayNight.profile() : null;
+    Voxel.Bloom.setGrade(profile ? profile.grade : null);
+  }
+
+  // ---- 大气外观下发（谷雾 / 暖块光 / 自发光泛光 / 水面反射）----
+  //
+  // 这些参数都由当前天体的大气 profile 描述，逐帧下发而不是加载时一次性设置，
+  // 因为它们要跟随天空色、相机位、极光强度和画质档位变化。
+  var _deepWater = new THREE.Color();
+  var _blkTint = new THREE.Color();
+  function applyAtmosphereLook(underwater) {
+    var MB = Voxel.MeshBuilder;
+    if (!MB || !MB.setHeightFog) return;
+    var profile = Voxel.DayNight.profile ? Voxel.DayNight.profile() : null;
+    var hf = profile && profile.heightFog;
+    var qHeightFog = Voxel.Settings ? Voxel.Settings.get('heightFog') : 1;
+    // 水下已有贴脸浓雾，再叠谷雾会糊成一片
+    var hasFog = !!(hf && hf.falloff > 0);
+    MB.setHeightFog(hasFog ? hf.base : 0, hasFog ? hf.falloff : 32,
+      hasFog ? hf.strength * qHeightFog * (1 - underwater) : 0);
+
+    // 自发光泛光只在 Bloom 的半浮点缓冲下有意义：LDR 路径会被截到 1.0，
+    // 增益反而抹掉灯具的贴图细节，所以直接置 0。
+    var hdrBloom = Voxel.Bloom && Voxel.Bloom.active() && Voxel.Bloom.hdr();
+    var emitGain = hdrBloom ? 1.45 : 0;
+    var warm = profile && profile.blockLightTint;
+    if (warm) _blkTint.setHex(warm); else _blkTint.setRGB(1, 1, 1);
+    // 地表曝光：极夜主题按"长曝光"抬亮地表，天穹与雾色不动（它们已是目标亮度）
+    var exposure = profile && profile.exposure > 0 ? profile.exposure : 1;
+    MB.setBlockLightLook(_blkTint, emitGain, exposure);
+
+    if (!MB.setWaterLook) return;
+    var qWater = Voxel.Settings ? Voxel.Settings.get('waterReflect') : 1;
+    // 水下看水面反射没有意义（视线在水体内侧）
+    var reflect = qWater > 0 ? Math.min(1, qWater) * (1 - underwater) : 0;
+    // 深水压暗与强天光散射只对声明了 deepWater 的主题生效；其余世界的水面
+    // 只做很弱的菲涅尔倒影，观感与旧版基本一致（否则海洋/沼泽会整片变样）。
+    var deepMix = 0, skyMix = 0.05;
+    if (profile && profile.deepWater) {
+      _deepWater.setHex(profile.deepWater);
+      deepMix = 0.34;
+      skyMix = 0.14;
+    }
+    MB.setWaterLook(camera.position, _skyTop, _sky, _deepWater, deepMix * (1 - underwater),
+      reflect, skyMix, reflect > 0 ? 0.045 : 0, performance.now() / 1000);
+
+    if (MB.setAuroraBands) {
+      var bands = Voxel.Atmosphere && Voxel.Atmosphere.auroraBands
+        ? Voxel.Atmosphere.auroraBands() : null;
+      MB.setAuroraBands(bands ? bands.color : null, bands ? bands.bands : null);
+    }
+  }
+
   function frameBody(dt) {
     var startedState = state;
     frames++;
@@ -6219,8 +6298,9 @@ Voxel.Game = (function () {
     // 无限行星只渲染玩家周围的流式工作集：雾尾留出一整个区块的安全边距，
     // 避免高雾距设置透出尚未加载的边缘。有限空间站保留原视距。
     if (currentWorld && currentWorld.kind === 'planet') {
-      var streamFogFar = Math.max(CFG.CHUNK * 2,
-        (Math.max(2, CFG.STREAM_RENDER_RADIUS || 6) - 1) * CFG.CHUNK);
+      var renderR = Voxel.World.renderRadius ? Voxel.World.renderRadius()
+        : Math.max(2, CFG.STREAM_RENDER_RADIUS || 6);
+      var streamFogFar = Math.max(CFG.CHUNK * 2, (renderR - 1) * CFG.CHUNK);
       fogFar = Math.min(fogFar, streamFogFar);
       fogNear = Math.min(fogNear, fogFar * 0.6);
     }
@@ -6237,6 +6317,7 @@ Voxel.Game = (function () {
         Voxel.DayNight.sunlight()));
       Voxel.MeshBuilder.setEnv(_sky, fogNear, fogFar);
     }
+    applyAtmosphereLook(uwFade);
 
     // 实时光影：树叶风摇 + 太阳方向侧光 + 程序化云影 + 树叶实时投影
     var nowSec = performance.now() / 1000;
@@ -7250,6 +7331,7 @@ Voxel.Game = (function () {
         // ?bloom=0/1 的覆盖只在 applyAll() 之后应用一次（见下方 booted 前），
         // 这里保持纯设置驱动，用户在面板里的手动操作要能正常生效
         else if (k === 'bloom' && Voxel.Bloom) Voxel.Bloom.setEnabled(v > 0);
+        else if (k === 'viewBoost') applyViewBoost();
         else if (k === 'difficulty') {
           // 和平：立即清怪并回满饱食度；噩梦提示不可复活
           if (Voxel.Mobs && Voxel.Mobs.setDifficulty) Voxel.Mobs.setDifficulty(v);

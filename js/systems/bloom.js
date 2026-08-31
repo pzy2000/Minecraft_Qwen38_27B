@@ -15,12 +15,15 @@ window.Voxel = window.Voxel || {};
 // 更有层次。挂在 composer 最后（renderToScreen 由 EffectComposer 自动指定），
 // 与 Bloom 同生共死：软件渲染器/初始化失败时一并退回原始直出。
 var ColorGradeShader = {
+  // 每个天体可以带自己的分级（profile.grade）；未声明时用这套默认值。
+  DEFAULTS: { contrast: 0.30, saturation: 1.07, split: 0.035, vignette: 0.22, lift: 0 },
   uniforms: {
     tDiffuse: { value: null },
     uContrast: { value: 0.30 },
     uSaturation: { value: 1.07 },
     uSplit: { value: 0.035 },
-    uVignette: { value: 0.22 }
+    uVignette: { value: 0.22 },
+    uLift: { value: 0 }
   },
   vertexShader: [
     'varying vec2 vUv;',
@@ -35,14 +38,21 @@ var ColorGradeShader = {
     'uniform float uSaturation;',
     'uniform float uSplit;',
     'uniform float uVignette;',
+    'uniform float uLift;',
     'varying vec2 vUv;',
     'void main(){',
     '  vec3 col = texture2D(tDiffuse, vUv).rgb;',
+    // HDR 缓冲里自发光与极光可以远超 1。S 曲线 c²(3-2c) 在 c>1.5 时是负值，
+    // 直接喂进去会把过曝的绿色翻成品红斑（曾在极光夜里出现）。这里先做软削波：
+    // ≤1 原样通过，>1 渐近压回 1，既不改动 LDR 观感也挡住翻色。
+    '  col = max(col, vec3(0.0)) / (1.0 + max(vec3(0.0), col - vec3(1.0)));',
     '  vec3 sm = col * col * (3.0 - 2.0 * col);', // smoothstep 式 S 曲线
     '  col = mix(col, sm, uContrast);',
     '  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));',
     '  col = mix(vec3(luma), col, uSaturation);',
     '  col += (luma - 0.55) * vec3(uSplit, uSplit * 0.15, -uSplit);',
+    // 黑位冷抬：极光夜的暗部不塌成死黑，而是留一层冷蓝（长曝光照片的观感）
+    '  col += uLift * vec3(0.35, 0.72, 1.0) * (1.0 - smoothstep(0.0, 0.38, luma));',
     '  float d = distance(vUv, vec2(0.5));',
     '  col *= 1.0 - uVignette * smoothstep(0.42, 0.98, d);',
     '  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
@@ -138,6 +148,21 @@ Voxel.Bloom = (function () {
     if (bloomPass) bloomPass.enabled = enabled;
   }
 
+  // 天体级分级覆盖：传 null 恢复默认。Bloom 未初始化时静默忽略
+  //（分级 pass 与 composer 同生共死，无 composer 时画面是直出的）。
+  function setGrade(g) {
+    if (!gradePass) return false;
+    var d = ColorGradeShader.DEFAULTS;
+    var u = gradePass.uniforms;
+    g = g || d;
+    u.uContrast.value = finiteOption(g.contrast, d.contrast, 0, 1);
+    u.uSaturation.value = finiteOption(g.saturation, d.saturation, 0.5, 2);
+    u.uSplit.value = finiteOption(g.split, d.split, 0, 0.3);
+    u.uVignette.value = finiteOption(g.vignette, d.vignette, 0, 0.8);
+    u.uLift.value = finiteOption(g.lift, d.lift, 0, 0.2);
+    return true;
+  }
+
   // 传自定义 renderTarget 时 EffectComposer 的 _pixelRatio 固定为 1，
   // 所以这里要自己把 CSS 尺寸换算成设备像素。
   function setSize(cssWidth, cssHeight, pixelRatio) {
@@ -170,6 +195,7 @@ Voxel.Bloom = (function () {
   return {
     init: init,
     setEnabled: setEnabled,
+    setGrade: setGrade,
     setSize: setSize,
     render: render,
     dispose: dispose,

@@ -264,6 +264,17 @@
       var c = P.create(world(type, 'PROFILE-SEED'));
       check(type + ' profile同seed确定且有限', sameJson(a, b) && finiteTree(a));
       check(type + ' create返回对应profile', c && c.typeKey === type && finiteTree(c));
+      // 观感扩展字段：极光取色/谷雾/曝光对所有主题都必须存在且有界，
+      // 未声明的主题必须落在"中性"取值上（金标截图观感不变）。
+      check(type + ' 观感字段齐全且有界', !!a.aurora && a.aurora.low >= 0 &&
+        !!a.heightFog && a.heightFog.falloff >= 0 && a.heightFog.strength >= 0 &&
+        a.exposure > 0 && a.exposure <= 4 && typeof a.viewBoost === 'boolean' &&
+        (a.grade === null || (a.grade.contrast >= 0 && a.grade.vignette >= 0)));
+      if (type !== 'nordic') {
+        check(type + ' 观感字段保持中性', a.exposure === 1 && a.grade === null &&
+          a.viewBoost === false && a.heightFog.strength === 0 &&
+          a.blockLightTint === 0xffffff && a.deepWater === 0);
+      }
     });
 
     A.init(scene);
@@ -347,6 +358,22 @@
           roleVisible(midnightRoot, 'moon') && roleVisible(midnightRoot, 'stars'));
       }
       check(type + ' noon/midnight snapshot均finite', finiteTree(noon) && finiteTree(midnight));
+
+      // 极光帘的方位快照供水面倒影采样：午夜必须有带、正午必须没有。
+      // 非极光主题永远不发布（否则别的世界水面会凭空出现绿倒影）。
+      if (typeof A.auroraBands === 'function') {
+        var nightBands = A.auroraBands();
+        if (SIGNATURE[type] === 'aurora') {
+          check(type + ' 午夜发布极光帘方位', !!nightBands && nightBands.bands.length > 0 &&
+            nightBands.bands.every(function (b) {
+              return b.length === 3 && isFinite(b[0]) && b[1] > 0 && b[2] > 0;
+            }), nightBands ? nightBands.bands.length + ' 层' : 'null');
+          updateAt(new THREE.Vector3(128, 40, 128), 0.25, 0);
+          check(type + ' 正午不发布极光帘', !A.auroraBands());
+        } else {
+          check(type + ' 非极光主题不发布极光帘', !nightBands);
+        }
+      }
 
       var Apos = new THREE.Vector3(128, 40, 128);
       var Bpos = new THREE.Vector3(-4096.5, 92, 8192.25);

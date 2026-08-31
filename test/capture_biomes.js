@@ -54,7 +54,7 @@ async function waitPlaying(page) {
   const onlyNames = process.argv.slice(3);
   // 园区结构只在精选世界入口（galaxy v2 流程）下启用，裸 v1 存档不会生成；
   // 这些镜头必须在清档后走 btn-featured → startFeatured 启动。
-  const FEATURED_SHOTS = ['playground', 'nordic-castle'];
+  const FEATURED_SHOTS = ['playground', 'nordic-castle', 'nordic-aurora'];
   const featuredMode = onlyNames.length > 0 &&
     onlyNames.every(n => FEATURED_SHOTS.indexOf(n) >= 0);
 
@@ -74,7 +74,13 @@ async function waitPlaying(page) {
   const page = await browser.newPage();
   await page.setViewport({ width: VIEW_W, height: VIEW_H, deviceScaleFactor: 1 });
 
-  const url = 'file://' + path.join(root, 'index.html');
+  // Bloom 在软件渲染器（SwiftShader）上会自动禁用，连带色彩分级 pass 一起退回
+  // 直出。北欧两张的观感恰恰依赖"灯具/极光泛光 + 分级"，所以用 ?bloom=1 强制开
+  //（慢，但这两张是一次性出图）。群系九宫格保持原样，不改既有金标观感。
+  const FORCE_BLOOM_SHOTS = ['nordic-castle', 'nordic-aurora'];
+  const forceBloom = onlyNames.length > 0 &&
+    onlyNames.every(n => FORCE_BLOOM_SHOTS.indexOf(n) >= 0);
+  const url = 'file://' + path.join(root, 'index.html') + (forceBloom ? '?bloom=1' : '');
   await page.goto(url, { waitUntil: 'load' });
   // 园区镜头（parkGate）必须走精选世界入口：裸 v1 存档会被判为旧世界
   // （terrainVersion=1），结构系统不启用，乐园设施根本不生成。
@@ -102,6 +108,12 @@ async function waitPlaying(page) {
   await page.addStyleTag({
     content: '#lock-hint,#toast,#error-banner,#use-hint,#tutorial-card{display:none!important}'
   });
+  // 精选卡缩略图不能糊着血条/背包/扫描面板：这几张走全 HUD 隐藏
+  //（与 capture_atmosphere_qa.js 同一套写法）。群系九宫格保持原样，
+  // 因为 README 里那组图本来就是带 HUD 的游戏内截图。
+  const HIDE_HUD_SHOTS = ['nordic-castle', 'nordic-aurora'];
+  const hideHud = onlyNames.length > 0 &&
+    onlyNames.every(n => HIDE_HUD_SHOTS.indexOf(n) >= 0);
 
   if (featuredMode) {
     await page.click('#btn-featured');
@@ -113,7 +125,7 @@ async function waitPlaying(page) {
     const cardIdx = await page.evaluate((nm) =>
       Voxel.Featured.WORLDS.findIndex(w => w.name === nm ||
         (nm === 'playground' && w.parkSpawn) ||
-        (nm === 'nordic-castle' && w.castleSpawn)), cardName);
+        (/^nordic-/.test(nm) && w.castleSpawn)), cardName);
     console.log('进入精选世界：' + cardName + '（卡片 ' + cardIdx + '）');
     await page.evaluate((i) => { Voxel.Game.startFeatured(i); }, cardIdx);
   } else {
@@ -121,7 +133,24 @@ async function waitPlaying(page) {
   }
   console.log('等待世界生成（种子 ' + SEED + '）…');
   await waitPlaying(page);
+  // 截图跑在 SwiftShader 软件光栅上，帧率必然低于自适应降质的阈值：
+  // 放任不管的话，取景等待期间画质会被一级级调下去（远景视距/谷雾/水面反射
+  // 首当其冲），拍出来的构图与真实硬件上的观感不符。出图必须钉住画质。
+  await page.evaluate(() => {
+    if (window.Voxel && Voxel.Settings) Voxel.Settings.set('autoPerf', 0);
+  });
   await sleep(2500);
+
+  if (hideHud) {
+    await page.evaluate(() => {
+      document.querySelectorAll('.overlay, #hud, .touch-btn, .touch-capture, .touch-stick')
+        .forEach(el => { el.style.display = 'none'; });
+    });
+    // #minimap 由 ui/minimap.js 动态挂在 body 上，不在 #hud 里
+    await page.addStyleTag({
+      content: '#hud,.overlay,#minimap,#cockpit-hud{display:none!important}'
+    });
+  }
 
   await page.evaluate(() => {
     var TREE_BLOCKS = [4, 5, 20, 21, 22, 23, 26, 33, 34, 35, 36, 54, 55, 56, 57, 58, 59];
@@ -221,6 +250,9 @@ async function waitPlaying(page) {
     }
     window.__biomeShot = function (opts) {
       var b = opts.biome;
+      // spot 原来是隐式全局，只有在 parkGate/vistaSpawn 分支先赋值时才不报错；
+      // 纯群系镜头会在 if (!spot) 处读到未声明标识符而抛 ReferenceError。
+      var spot = null;
       // 星海嘉年华：与精选世界同一事实源——直接落位最近园区大门，
       // 面向园内取景（否则拍到的只是群系地貌，没有摩天轮等设施）。
       var yawOverride = null;
@@ -246,6 +278,19 @@ async function waitPlaying(page) {
         yawOverride = vg.yaw;
         vistaBaseY = vg.y + 1.4;
       }
+      // 航拍机位（对齐参考照片 002）：从岛心东南方向斜上方俯瞰，
+      // 城堡居中偏下、长桥指向画面右下、深青蓝湖面填满画幅。
+      if (opts.vistaAerial) {
+        var av = Voxel.Structures && Voxel.Structures.enabled()
+          ? Voxel.Structures.nearestVistaTo(0, 0, 6) : null;
+        if (!av) return null;
+        var AL = Voxel.Structures.vistaLayout();
+        var tx = av.ax + AL.island.cx, tz = av.az + AL.island.cz;
+        var cx0 = tx + opts.vistaAerial.dx, cz0 = tz + opts.vistaAerial.dz;
+        spot = { x: Math.floor(cx0), z: Math.floor(cz0), fx: av.ax, fz: av.az };
+        yawOverride = Math.atan2(-(tx - cx0), -(tz - cz0));
+        vistaBaseY = av.ah;   // 相机高度由 opts.height 叠加
+      }
       if (!spot) spot = opts.fixed ? { x: opts.fixed.x, z: opts.fixed.z }
         : opts.overview
           ? { x: 128, z: 128 }
@@ -254,7 +299,8 @@ async function waitPlaying(page) {
             : findSpot(Voxel.Biomes.B[b], opts.preferSurf, opts.openSurf, opts.purity);
       if (!spot) return null;
       // 清掉可能挡镜头的生物（北欧峡湾的羊群会凑到相机前）
-      if (opts.vistaSpawn && Voxel.Mobs && Voxel.Mobs.clear) Voxel.Mobs.clear();
+      if ((opts.vistaSpawn || opts.vistaAerial) && Voxel.Mobs && Voxel.Mobs.clear)
+        Voxel.Mobs.clear();
       var g = groundAt(spot.x, spot.z);
       var baseY = vistaBaseY !== null ? vistaBaseY :
         parkBaseY !== null ? parkBaseY : (g.y > 0 ? g.y : 30);
@@ -322,10 +368,16 @@ async function waitPlaying(page) {
     // v7 星海嘉年华：走精选世界入口（galaxy v2 流程）+ parkGateSpawn 落位
     // 园门口，再升到园区上空俯瞰喷泉广场/摩天轮/城堡全景
     { name: 'playground',      opts: { biome: 'PLAYGROUND', height: 28, pitch: -0.34, parkGate: true, parkElev: -6, meshR: 140 } },
-    // 北欧城堡：保留精选入场暮夜（keepTime 钉在 duskTime），南岸眼位取景
-    // 湖心城堡+石拱桥+雪脊全景，头顶绿帘极光
-    { name: 'nordic-castle',   opts: { biome: 'NORDIC_FJORD', height: 9, pitch: -0.16,
-      vistaSpawn: true, setTime: 0.60, meshR: 170, chunkR: 11 } }
+    // 北欧城堡 · 航拍（对齐参考照片 002）：岛心东南方向 118 格外、高 92 格
+    // 俯瞰，蓝调时刻 + 全城亮灯，长桥指向画面右下。精选卡缩略图用这张。
+    { name: 'nordic-castle',   opts: { biome: 'NORDIC_FJORD', height: 64, pitch: -0.60,
+      vistaAerial: { dx: 50, dz: 62 }, setTime: 0.585, meshR: 210, chunkR: 13 } },
+    // 北欧城堡 · 地面（对齐参考照片 001）：南岸草丘眼位，锯齿雪脊压在
+    // 画面下三分之一，头顶绿帘极光。README 用图。
+    // height 9 是为了越过前景草丘看到湖面：眼位再低，10~20 格外的草丘就会
+    // 把整片湖遮死（湖面只比地面低 1 格，掠射角极小）。
+    { name: 'nordic-aurora',   opts: { biome: 'NORDIC_FJORD', height: 9, pitch: -0.02,
+      vistaSpawn: true, setTime: 0.70, meshR: 210, chunkR: 13 } }
   ];
 
   // 名称过滤已在 IIFE 顶部声明（onlyNames）

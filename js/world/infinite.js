@@ -19,9 +19,23 @@ window.Voxel = window.Voxel || {};
   var CORE_CX = W / CS, CORE_CZ = D / CS;
   // 自然与结构内容封顶；玩家建造经 setInChunk 抬升。与 world.js FiniteWorld colTop 同一契约。
   var NATURAL_TOP = Math.min(H - 1, CFG.CONTENT_NATURAL_TOP || H - 1);
-  var RENDER_RADIUS = Math.max(2, (CFG.STREAM_RENDER_RADIUS || 6) | 0);
+  var BASE_RENDER_RADIUS = Math.max(2, (CFG.STREAM_RENDER_RADIUS || 6) | 0);
+  var RENDER_RADIUS = BASE_RENDER_RADIUS;
   var DATA_RADIUS = Math.max(RENDER_RADIUS + 1, (CFG.STREAM_DATA_RADIUS || (RENDER_RADIUS + 1)) | 0);
   var KEEP_RADIUS = Math.max(DATA_RADIUS + 1, (CFG.STREAM_KEEP_RADIUS || (DATA_RADIUS + 2)) | 0);
+
+  // 远景主题（北欧峡湾的雪脊在 140+ 格外）需要更大的工作集，否则山体永远
+  // 落在雾尾之外。半径是运行时可调的：切换天体/画质档位时重新下发，
+  // 不改变任何生成结果——区块内容只由 (seed, profile, 全局坐标) 决定。
+  function setRenderRadius(r) {
+    var next = (r | 0) > 0 ? Math.max(2, Math.min(12, r | 0)) : BASE_RENDER_RADIUS;
+    if (next === RENDER_RADIUS) return RENDER_RADIUS;
+    RENDER_RADIUS = next;
+    DATA_RADIUS = RENDER_RADIUS + 1;
+    KEEP_RADIUS = DATA_RADIUS + 2;
+    focus.cx = null; focus.cz = null;   // 强制下一次 setFocus 重算工作集
+    return RENDER_RADIUS;
+  }
   var FEATURE_RADIUS = 4;
   var BLOCK_LIGHT_RANGE = 15;
 
@@ -1213,6 +1227,8 @@ window.Voxel = window.Voxel || {};
     isReady: function () { return FiniteWorld.isReady(); },
     centerMeshed: function () { return FiniteWorld.centerMeshed(); },
     setFocus: setFocus,
+    setRenderRadius: setRenderRadius,
+    renderRadius: function () { return RENDER_RADIUS; },
     focusMeshed: focusMeshed,
     meshCount: function () { return FiniteWorld.meshCount() + (extraGroup ? extraGroup.children.length : 0); },
     buildMeshes: buildMeshes,

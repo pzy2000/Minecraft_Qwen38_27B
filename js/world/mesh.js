@@ -21,6 +21,12 @@ Voxel.MeshBuilder = (function () {
   ];
   var AO = [0.5, 0.72, 0.86, 1.0];
   var tmpUV = [0, 0];
+  // 当前正在发射的方块的面标记（build 每个体素设一次，emit* 系列直接取用）：
+  // curEmit=1 表示高发光方块（交给 Bloom 阈值），curWater=1 表示水体。
+  var curEmit = 0, curWater = 0;
+  // 自发光门槛：只有火把级以上（≥12）才越过 Bloom 阈值，
+  // 金饰块(2)/辉光饰条(7) 这类弱发光装饰不参与，否则城堡整体泛光。
+  var EMIT_MIN_LIGHT = 12;
   // 默认绑定的 1×1 白色纹理：阴影关闭时保证采样器完整（部分驱动对未绑定采样器告警）
   var whiteTex = null;
   function makeWhiteTex() {
@@ -55,6 +61,8 @@ Voxel.MeshBuilder = (function () {
     'attribute vec3 acolor;',
     'attribute vec2 alight;',
     'attribute vec3 anrm;',
+    // x=自发光增益开关(0/1)，y=水面标记(0/1，与玻璃同组但只有水做反射)
+    'attribute vec2 aflag;',
     'uniform mat4 uShadowMat;',
     '#ifdef SWAY',
     'uniform float uTime;',
@@ -68,9 +76,10 @@ Voxel.MeshBuilder = (function () {
     'varying float vDepth;',
     'varying vec3 vNrm;',
     'varying vec3 vWPos;',
+    'varying vec2 vFlag;',
     'varying vec4 vShadowCoord;',
     'void main(){',
-    '  vUv = uv; vCol = acolor; vL = alight; vNrm = anrm;',
+    '  vUv = uv; vCol = acolor; vL = alight; vNrm = anrm; vFlag = aflag;',
     '  vec3 p = position;',
     '  #ifdef SWAY',
     '  p += voxelSway(p, uTime, uWind, uSwayAmp);',
@@ -83,6 +92,30 @@ Voxel.MeshBuilder = (function () {
     '}'
   ].join('\n');
 
+  // 距离雾 + 谷雾：谷雾只在距离雾之外**追加**遮蔽，且随高度指数衰减，
+  // 于是湖面/沙丘起雾而雪脊峰顶露出（uFogHeightStr=0 时退化为纯距离雾）。
+  var FOG_GLSL = [
+    'float fogAmount(){',
+    '  float f = smoothstep(uFogNear, uFogFar, vDepth);',
+    '  if (uFogHeightStr <= 0.001) return f;',
+    '  float hz = exp(-max(0.0, vWPos.y - uFogBase) / max(1.0, uFogFalloff));',
+    // 谷雾按距离迟起：近处保持清晰，只有中远景才蒙上雾，
+    // 否则脚下的水面也会糊成一片、整屏读成灰。
+    '  float d = smoothstep(uFogFar * 0.3, uFogFar * 1.05, vDepth);',
+    '  return clamp(f + (1.0 - f) * uFogHeightStr * hz * d, 0.0, 1.0);',
+    '}'
+  ].join('\n');
+
+  // 块光染色：火把/灯笼主导的表面偏暖，天光主导的表面不动。
+  // 避免引入真实点光源（本项目全程零 THREE.*Light）也能得到暖光池。
+  var BLKTINT_GLSL = [
+    'vec3 blkTint(){',
+    '  float skyPart = vL.x * sun;',
+    '  float share = vL.y / max(1e-4, max(skyPart, vL.y) + skyPart * 0.6);',
+    '  return mix(vec3(1.0), uBlkTint, clamp(share, 0.0, 1.0));',
+    '}'
+  ].join('\n');
+
   function frag(cut) {
     return [
       'uniform sampler2D map;',
@@ -91,6 +124,9 @@ Voxel.MeshBuilder = (function () {
       'uniform vec3 uFogColor;',
       'uniform float uFogNear;',
       'uniform float uFogFar;',
+      'uniform float uFogBase;',
+      'uniform float uFogFalloff;',
+      'uniform float uFogHeightStr;',
       'uniform float uAlpha;',
       'uniform sampler2D uShadowTex;',
       'uniform vec3 uSunDir;',
@@ -99,12 +135,16 @@ Voxel.MeshBuilder = (function () {
       'uniform vec2 uCloudDrift;',
       'uniform float uCloudStr;',
       'uniform float uDirStr;',
+      'uniform vec3 uBlkTint;',
+      'uniform float uEmitGain;',
+      'uniform float uExposure;',
       'varying vec2 vUv;',
       'varying vec3 vCol;',
       'varying vec2 vL;',
       'varying float vDepth;',
       'varying vec3 vNrm;',
       'varying vec3 vWPos;',
+      'varying vec2 vFlag;',
       'varying vec4 vShadowCoord;',
       // 深度图 RGBA 三通道打包（WebGL1 兼容，不依赖 depth texture 扩展）
       'float unpackD(vec4 c){ return dot(c, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0)); }',
@@ -134,6 +174,8 @@ Voxel.MeshBuilder = (function () {
       '  float c = smoothstep(-0.15, 0.75, n);',
       '  return mix(1.0, mix(0.80, 1.0, c), uCloudStr);',
       '}',
+      FOG_GLSL,
+      BLKTINT_GLSL,
       'void main(){',
       '  vec4 tex = texture2D(map, vUv);',
       '  if (tex.a < ' + cut + ') discard;',
@@ -147,9 +189,11 @@ Voxel.MeshBuilder = (function () {
       '  float shade = cloudShadow();',
       '  float sm = smoothstep(0.30, 0.80, vL.x);',
       '  shade *= 1.0 - (1.0 - leafShadow()) * sm;',
-      '  vec3 c = tex.rgb * vCol * tint * br * shade;',
-      '  float f = smoothstep(uFogNear, uFogFar, vDepth);',
-      '  gl_FragColor = vec4(mix(c, uFogColor, f), tex.a * uAlpha);',
+      '  vec3 c = tex.rgb * vCol * tint * br * shade * blkTint();',
+      // 自发光增益：只有被标记的高发光方块超过 1.0，交给 Bloom 的选择性阈值
+      '  c *= (1.0 + vFlag.x * uEmitGain) * uExposure;',
+      // 曝光在雾之前施加：雾色本身就是天空色，已经是"正确曝光"的
+      '  gl_FragColor = vec4(mix(c, uFogColor, fogAmount()), tex.a * uAlpha);',
       '}'
     ].join('\n');
   }
@@ -164,6 +208,12 @@ Voxel.MeshBuilder = (function () {
         uFogColor: { value: new THREE.Color(0x87ceeb) },
         uFogNear: { value: 60 },
         uFogFar: { value: 240 },
+        uFogBase: { value: 0 },
+        uFogFalloff: { value: 32 },
+        uFogHeightStr: { value: 0 },
+        uBlkTint: { value: new THREE.Color(1, 1, 1) },
+        uEmitGain: { value: 0 },
+        uExposure: { value: 1 },
         uAlpha: { value: alpha },
         uShadowTex: { value: whiteTex },
         uShadowMat: { value: new THREE.Matrix4() },
@@ -188,6 +238,158 @@ Voxel.MeshBuilder = (function () {
     return m;
   }
 
+  // ---- 水面材质 ----
+  //
+  // 水原本与地形共用一套着色，只是半透明贴图，所以既没有掠射角反射也没有
+  // 涟漪——峡湾镜湖和湿黑沙的观感全靠这两样。这里不做屏幕空间/平面镜像，
+  // 而是解析式反射：由反射方向查天穹渐变，再叠加极光带的方位角贡献。
+  // 成本是几条三角函数，任何画质档都开得起；uReflect=0 时退回原来的样子。
+  var WATER_FRAG = [
+    'uniform sampler2D map;',
+    'uniform vec3 tint;',
+    'uniform float sun;',
+    'uniform vec3 uFogColor;',
+    'uniform float uFogNear;',
+    'uniform float uFogFar;',
+    'uniform float uFogBase;',
+    'uniform float uFogFalloff;',
+    'uniform float uFogHeightStr;',
+    'uniform float uAlpha;',
+    'uniform vec3 uSunDir;',
+    'uniform float uDirStr;',
+    'uniform vec3 uBlkTint;',
+    'uniform float uEmitGain;',
+    'uniform float uExposure;',
+    'uniform vec3 uCamPos;',
+    'uniform vec3 uSkyTop;',
+    'uniform vec3 uSkyHorizon;',
+    'uniform vec3 uDeepColor;',
+    'uniform float uDeepMix;',
+    'uniform vec3 uAurColor;',
+    // 每条极光帘：x=方位中心(rad) y=半张角 z=强度 w=保留
+    'uniform vec4 uAurBands[3];',
+    'uniform float uReflect;',
+    'uniform float uSkyMix;',
+    'uniform float uRipple;',
+    'uniform float uWaterTime;',
+    'varying vec2 vUv;',
+    'varying vec3 vCol;',
+    'varying vec2 vL;',
+    'varying float vDepth;',
+    'varying vec3 vNrm;',
+    'varying vec3 vWPos;',
+    'varying vec2 vFlag;',
+    'varying vec4 vShadowCoord;',
+    FOG_GLSL,
+    BLKTINT_GLSL,
+    // 极长波长的双层扰动：参考照片里的湖面近乎静止，幅度必须很小，
+    // 否则反射会碎成噪点而不是长条倒影。
+    'vec3 rippleNormal(){',
+    '  if (uRipple <= 0.001) return vNrm;',
+    '  vec2 q = vWPos.xz;',
+    '  float t = uWaterTime;',
+    '  float nx = sin(q.x * 0.29 + t * 0.33) * 0.6 + sin(q.x * 0.11 - q.y * 0.08 + t * 0.19) * 0.4;',
+    '  float nz = sin(q.y * 0.25 - t * 0.27) * 0.6 + sin(q.y * 0.09 + q.x * 0.07 + t * 0.15) * 0.4;',
+    '  return normalize(vec3(nx * uRipple, 1.0, nz * uRipple));',
+    '}',
+    // 反射方向落在某条光帘的方位扇区内时加色。掠射反射看到的是靠近地平线的
+    // 天空，而绿帘本身就一直压到山脊上方，所以 elev 的下界给得很松——
+    // 否则近水平的倒影拿不到极光，湖面在夜里会读成黑洞。
+    'vec3 auroraReflect(vec3 R){',
+    '  float az = atan(R.x, -R.z);',
+    '  float elev = smoothstep(-0.02, 0.25, R.y);',
+    '  float acc = 0.0;',
+    '  for (int i = 0; i < 3; i++) {',
+    '    vec4 bd = uAurBands[i];',
+    '    if (bd.z <= 0.001) continue;',
+    '    float d = abs(az - bd.x);',
+    '    if (d > 3.14159265) d = 6.28318531 - d;',
+    '    acc += bd.z * (1.0 - smoothstep(bd.y * 0.35, bd.y, d));',
+    '  }',
+    // 0.5 是"倒影总比光源暗"的经验系数：不压的话湖面会比天上的绿帘更亮，
+    // 整片水读成荧光绿。
+    '  return uAurColor * clamp(acc, 0.0, 1.0) * elev * 0.5;',
+    '}',
+    'void main(){',
+    '  vec4 tex = texture2D(map, vUv);',
+    '  if (tex.a < 0.02) discard;',
+    '  float br = max(vL.x * sun, vL.y);',
+    '  float nl = clamp(dot(vNrm, uSunDir) * 0.62 + 0.38, 0.0, 1.0);',
+    '  br *= mix(1.0, mix(0.87, 1.09, nl), uDirStr);',
+    '  br = 0.05 + 0.95 * pow(br, 1.35);',
+    // 曝光只作用于水体自身：反射项取的是天穹色，天穹由自己的着色器绘制、
+    // 不过曝光，若一起放大湖面会比它反射的天空还亮。
+    '  vec3 body = tex.rgb * vCol * tint * br * blkTint() * uExposure;',
+    '  float a = tex.a * uAlpha;',
+    // 只有朝上的水面做反射：玻璃/彩玻与水同组，靠 vFlag.y 区分；
+    // 水的侧面也维持原样，避免与相邻地形出现接缝色差
+    '  float upper = vFlag.y * step(0.5, vNrm.y);',
+    '  if (upper * uReflect > 0.001) {',
+    '    vec3 N = rippleNormal();',
+    '    vec3 V = normalize(uCamPos - vWPos);',
+    '    float ndv = clamp(dot(N, V), 0.0, 1.0);',
+    // 菲涅尔：只有很掠射时才接近全镜，近处水面保留自己的贴图色
+    '    float fres = pow(1.0 - ndv, 4.2);',
+    '    vec3 R = reflect(-V, N);',
+    '    vec3 refl = mix(uSkyHorizon, uSkyTop, clamp(R.y * 1.7, 0.0, 1.0));',
+    '    refl += auroraReflect(R);',
+    // 深水压暗：仅当主题声明了 deepWater（uDeepMix>0）时启用，
+    // 默认 0，未声明主题的水面观感与旧版逐像素一致。
+    '    if (uDeepMix > 0.001)',
+    '      body = mix(body, uDeepColor * (0.45 + 0.55 * br), ndv * uDeepMix);',
+    // uSkyMix 是"水体散射天光"的基底：纯菲涅尔在俯视角只有 3% 反射率，
+    // 但真实水面之所以在暮色里发亮，主要是水体散射天光而非镜面反射。
+    // 没有它，湖面在夜景里会读成黑洞（也就看不到极光倒影）。
+    '    float k = clamp(uSkyMix + fres * (1.0 - uSkyMix), 0.0, 1.0) * uReflect * 0.85;',
+    '    body = mix(body, refl, k);',
+    '    a = mix(a, 0.96, k);',
+    '  }',
+    '  body *= 1.0 + vFlag.x * uEmitGain;',
+    '  gl_FragColor = vec4(mix(body, uFogColor, fogAmount()), a);',
+    '}'
+  ].join('\n');
+
+  function mkWaterMat() {
+    var m = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: texture },
+        tint: { value: new THREE.Color(1, 1, 1) },
+        sun: { value: 1 },
+        uFogColor: { value: new THREE.Color(0x87ceeb) },
+        uFogNear: { value: 60 },
+        uFogFar: { value: 240 },
+        uFogBase: { value: 0 },
+        uFogFalloff: { value: 32 },
+        uFogHeightStr: { value: 0 },
+        uBlkTint: { value: new THREE.Color(1, 1, 1) },
+        uEmitGain: { value: 0 },
+        uExposure: { value: 1 },
+        uAlpha: { value: 1 },
+        uShadowMat: { value: new THREE.Matrix4() },
+        uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
+        uDirStr: { value: 0 },
+        uCamPos: { value: new THREE.Vector3() },
+        uSkyTop: { value: new THREE.Color(0x87ceeb) },
+        uSkyHorizon: { value: new THREE.Color(0x87ceeb) },
+        uDeepColor: { value: new THREE.Color(0x11384f) },
+        uDeepMix: { value: 0 },
+        uAurColor: { value: new THREE.Color(0, 0, 0) },
+        uAurBands: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+        uReflect: { value: 0 },
+        uSkyMix: { value: 0.05 },
+        uRipple: { value: 0.05 },
+        uWaterTime: { value: 0 }
+      },
+      vertexShader: VERT,
+      fragmentShader: WATER_FRAG,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.FrontSide
+    });
+    mats.push(m);
+    return m;
+  }
+
   function init() {
     B = Voxel.Blocks;
     G = Voxel.World.get;
@@ -196,7 +398,7 @@ Voxel.MeshBuilder = (function () {
     texture = B.getTexture();
     whiteTex = makeWhiteTex();
     opaqueMat = mkMat(1, '0.5', {});
-    waterMat = mkMat(1, '0.02', { transparent: true });
+    waterMat = mkWaterMat();
     foliageMat = mkMat(1, '0.5', { sway: true });
     inited = true;
   }
@@ -362,6 +564,7 @@ Voxel.MeshBuilder = (function () {
       var shade = F.b * AO[vl.ao];
       t.col.push(shade, shade, shade);
       t.lgt.push(vl.ls, vl.lb);
+      t.flg.push(curEmit, curWater);
     }
     // AO 各向异性：按对角和选择四边形剖分对角线，避免遮蔽插值出现三角面痕迹
     if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
@@ -414,6 +617,7 @@ Voxel.MeshBuilder = (function () {
         var shade = F.b * AO[vl.ao];
         t.col.push(shade, shade, shade);
         t.lgt.push(vl.ls, vl.lb);
+        t.flg.push(curEmit, curWater);
       }
       if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
         t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -459,9 +663,13 @@ Voxel.MeshBuilder = (function () {
     if (conns[3]) emitBoxInner(t, def, id, x, y, z, [c0, armY0, 0, c1, armY1, c0]);
   }
 
-  // 火把等十字面片：两条对角竖 quad × 正反两面
-  function emitCross(t, tile, x, y, z, crossH) {
-    var ls = GSky(x, y, z) / 15, lb = 1; // 自身全亮
+  // 火把等十字面片：两条对角竖 quad × 正反两面。
+  // selfLit 只给真正发光的十字块（火把/红石火把）：它们的贴图本身就是光源，
+  // 必须无视烘焙光全亮。花草之类不发光的十字块要走正常光照，否则在夜景里
+  // 会整片自发光，读起来像噪点地毯。
+  function emitCross(t, tile, x, y, z, crossH, selfLit) {
+    var ls = GSky(x, y, z) / 15;
+    var lb = selfLit ? 1 : GBlk(x, y, z) / 15;
     var h = (typeof crossH === 'number') ? crossH : 0.7;
     var m = 0.15, M = 0.85;
     var quads = [
@@ -487,6 +695,7 @@ Voxel.MeshBuilder = (function () {
           t.uv.push(tmpUV[0], tmpUV[1]);
           t.col.push(1, 1, 1);
           t.lgt.push(ls, lb);
+          t.flg.push(curEmit, curWater);
         }
         if (side === 1) t.idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
         else t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -502,6 +711,7 @@ Voxel.MeshBuilder = (function () {
     g.setAttribute('acolor', new THREE.Float32BufferAttribute(a.col, 3));
     g.setAttribute('alight', new THREE.Float32BufferAttribute(a.lgt, 2));
     g.setAttribute('anrm', new THREE.Float32BufferAttribute(a.nrm, 3));
+    g.setAttribute('aflag', new THREE.Float32BufferAttribute(a.flg, 2));
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(a.idx), 1));
     g.computeBoundingSphere();
     return g;
@@ -510,9 +720,9 @@ Voxel.MeshBuilder = (function () {
   function build(cx, cz) {
     var CFG = Voxel.Config;
     var H = CFG.WORLD_H, CS = CFG.CHUNK;
-    var o = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
-    var w = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
-    var fl = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [] };
+    var o = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
+    var w = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
+    var fl = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
     var x0 = cx * CS, z0 = cz * CS;
 
     // 填充草稿缓冲并切换到本地数组采样器；退出时恢复全局门面，
@@ -536,10 +746,12 @@ Voxel.MeshBuilder = (function () {
           var isBed = !!def.half;
           // 树叶独立组：参与实时阴影投射与顶点风摇
           var target = (isWater || id === 13 || isStained) ? w : (def.leaves ? fl : o);
+          curEmit = B.LIGHT[id] >= EMIT_MIN_LIGHT ? 1 : 0;
+          curWater = isWater ? 1 : 0;
 
           // 火把等十字面片：不参与面剔除
           if (def.cross) {
-            emitCross(target, def.tiles[1], x, y, z, def.crossHeight);
+            emitCross(target, def.tiles[1], x, y, z, def.crossHeight, B.LIGHT[id] > 0);
             continue;
           }
 
@@ -632,6 +844,45 @@ Voxel.MeshBuilder = (function () {
       eachUniform('uFogColor', function (u) { u.value.copy(fogColor); });
       eachUniform('uFogNear', function (u) { u.value = fogNear; });
       eachUniform('uFogFar', function (u) { u.value = fogFar; });
+    },
+    // 谷雾：base 以下满强度，往上按 falloff 指数衰减；str=0 关闭
+    setHeightFog: function (base, falloff, str) {
+      eachUniform('uFogBase', function (u) { u.value = base; });
+      eachUniform('uFogFalloff', function (u) { u.value = falloff; });
+      eachUniform('uFogHeightStr', function (u) { u.value = str; });
+    },
+    // 块光染色 + 自发光增益（gain>0 需要 Bloom 的半浮点缓冲，否则会被截到 1）
+    // + 地表曝光（长曝光式极夜主题用；天穹/雾色不受影响）
+    setBlockLightLook: function (tintColor, emitGain, exposure) {
+      eachUniform('uBlkTint', function (u) { u.value.copy(tintColor); });
+      eachUniform('uEmitGain', function (u) { u.value = emitGain; });
+      eachUniform('uExposure', function (u) { u.value = exposure; });
+    },
+    // 水面解析式反射：相机位、天穹上下色、深水色/权重、反射/天光散射/涟漪
+    setWaterLook: function (camPos, skyTop, skyHorizon, deep, deepMix, reflect, skyMix, ripple, time) {
+      if (!waterMat) return;
+      var u = waterMat.uniforms;
+      u.uCamPos.value.copy(camPos);
+      u.uSkyTop.value.copy(skyTop);
+      u.uSkyHorizon.value.copy(skyHorizon);
+      u.uDeepColor.value.copy(deep);
+      u.uDeepMix.value = deepMix;
+      u.uReflect.value = reflect;
+      u.uSkyMix.value = skyMix;
+      u.uRipple.value = ripple;
+      u.uWaterTime.value = time;
+    },
+    // 极光帘的方位/强度（由 Atmosphere 每帧下发，供水面倒影采样）
+    setAuroraBands: function (color, bands) {
+      if (!waterMat) return;
+      var u = waterMat.uniforms;
+      if (color) u.uAurColor.value.copy(color); else u.uAurColor.value.setRGB(0, 0, 0);
+      var arr = u.uAurBands.value;
+      for (var i = 0; i < arr.length; i++) {
+        var b = bands && bands[i];
+        if (b) arr[i].set(b[0], b[1], b[2], 0);
+        else arr[i].set(0, 1, 0, 0);
+      }
     },
     // 风摇：时间 + 风矢量 + 振幅（树叶材质生效；其余材质 SWAY 未定义自动忽略）
     setWind: function (time, wx, wz, amp) {
