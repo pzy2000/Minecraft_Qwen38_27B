@@ -1682,6 +1682,18 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 - 待人工验证清单（无法自动化）：144Hz 屏幕移动无阶梯感、转向输入延迟不高于改造前
 - **下一批**：5.1 网格化移出主线程 + greedy meshing（Step A 护栏 → B 预分配 → C Worker 化 → D greedy → E 收紧断言至 20ms）
 
+**批次 3 · 5.1 执行进度（2026-09-01 起）**：
+
+| 步 | 任务 | 状态 |
+|---|---|---|
+| A | 几何黄金护栏：`mesh_golden_test.js` + `make_mesh_golden.js`（平原/山地/森林三区块，float32 位域摘要，7 组哈希 × 3 材质组），接入 test:node | ✅ 2026-09-01 |
+| B | mesh.js 增长数组改 typed 预分配 staging，输出与黄金逐位一致 | ⬜ |
+| C | 网格化进 Worker（mesh_worker.js + Transferable + 失败回退同步路径） | ⬜ |
+| D | greedy meshing（合并键含光照/AO 四元组；cross/box/connector 独立路径）→ 重建基线并以 preGreedyVtxO 钉住降幅 | ⬜ |
+| E | stream_perf_test 最坏帧断言 120ms → 20ms | ⬜ |
+
+> Step A 设计要点：`build()` 拆为 `buildArrays()`（纯数组无 three.js，Worker 目标接口）+ `build()`（BufferGeometry 包装）；摘要先 fround 落 float32 位型——顶点上 GPU 本就是 Float32，保证「JS 增长数组 / typed staging / Worker Transferable」三种实现同域可比。生成器两次运行逐字节一致（确定性已验）。
+
 ---
 
 ## 变更记录

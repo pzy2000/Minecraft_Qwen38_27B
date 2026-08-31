@@ -717,7 +717,10 @@ Voxel.MeshBuilder = (function () {
     return g;
   }
 
-  function build(cx, cz) {
+  // 纯数组构建：不含任何 three.js 依赖（plan 5.1 · Worker 化目标接口）。
+  // 输出三组增长的普通数组；主线程路径由 build() 包装成 BufferGeometry，
+  // 测试与未来的 mesh_worker 直接消费原始数组。
+  function buildArrays(cx, cz) {
     var CFG = Voxel.Config;
     var H = CFG.WORLD_H, CS = CFG.CHUNK;
     var o = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
@@ -812,7 +815,12 @@ Voxel.MeshBuilder = (function () {
     } finally {
       G = gPrev; GSky = gsPrev; GBlk = gbPrev;
     }
-    return { opaque: makeGeo(o), water: makeGeo(w), foliage: makeGeo(fl) };
+    return { o: o, w: w, fl: fl };
+  }
+
+  function build(cx, cz) {
+    var r = buildArrays(cx, cz);
+    return { opaque: makeGeo(r.o), water: makeGeo(r.w), foliage: makeGeo(r.fl) };
   }
 
   function aboveWaterOf(x, y, z) {
@@ -907,9 +915,18 @@ Voxel.MeshBuilder = (function () {
       eachUniform('uCloudDrift', function (u) { u.value.set(dx, dz); });
       eachUniform('uCloudStr', function (u) { u.value = str; });
     },
-    // 测试钩子：填充式采样与全局门面语义的等价性校验（Node 冒烟）
+    // 测试钩子：填充式采样与全局门面语义的等价性校验（Node 冒烟）+
+    // 纯数组构建（mesh_golden_test 黄金基线数据源；Worker 化接口）
     _test: {
+      // 仅绑定体素/光照采样门面，不做材质与纹理初始化（Node 无 DOM）
+      bindForTest: function () {
+        B = Voxel.Blocks;
+        G = Voxel.World.get;
+        GSky = Voxel.World.getSky;
+        GBlk = Voxel.World.getBlk;
+      },
       fillPad: fillPad,
+      buildArrays: buildArrays,
       ready: function () { return inited; },
       sample: function (wx, wy, wz) {
         return { b: padG(wx, wy, wz), s: padSky(wx, wy, wz), p: padBlk(wx, wy, wz) };
