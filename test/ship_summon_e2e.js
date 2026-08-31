@@ -119,6 +119,25 @@ let browser;
   });
   check('取消后幽灵已从场景移除', ghostGone);
 
+  console.log('未加载区块不是障碍（跨图召唤前提）');
+  const streamInfo = await page.evaluate(() => {
+    const hooks = Voxel.SpaceTravel._test;
+    const cs = Voxel.Config.CHUNK, size = Voxel.World.size();
+    // 取一处远离玩家焦点、必然未流式加载的核心外坐标。
+    const x = size.w + cs * 40 + 5, z = size.d + cs * 40 + 5;
+    const loadedBefore = Voxel.World.isChunkLoaded(Math.floor(x / cs), Math.floor(z / cs));
+    const voxel = Voxel.World.get(x, 80, z);
+    const collisions = hooks.flightCollisionCount([x, 80, z], { yaw: 0, pitch: 0, roll: 0 });
+    const ground = hooks.flightGroundAt(x, z);
+    const loadedAfter = Voxel.World.isChunkLoaded(Math.floor(x / cs), Math.floor(z / cs));
+    return { loadedBefore, voxel, solid: !!Voxel.Blocks.isSolid(voxel), collisions, ground, loadedAfter };
+  });
+  check('远处区块确实未加载且读数为实心占位',
+    streamInfo.loadedBefore === false && streamInfo.solid === true, `id=${streamInfo.voxel}`);
+  check('未加载区块不产生飞行碰撞', streamInfo.collisions === 0, String(streamInfo.collisions));
+  check('地表查询不触发同步生成', streamInfo.loadedAfter === false &&
+    typeof streamInfo.ground === 'number', `ground=${streamInfo.ground}`);
+
   console.log('确认召回 → 自动驾驶 → 精确降落');
   const beginInfo = await page.evaluate(async () => {
     const p = Voxel.Player.pos();

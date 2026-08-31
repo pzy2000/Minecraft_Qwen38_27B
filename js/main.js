@@ -3591,7 +3591,8 @@ Voxel.Game = (function () {
     if (doneKey && doneKey !== summonToastKey) {
       summonToastKey = doneKey;
       var msg = {
-        completed: '飞船已抵达指定着陆点 · 靠近后按 E 登舰',
+        completed: st.fallback ? '航路受阻已紧急归位 · 飞船抵达着陆点 · 按 E 登舰'
+          : '飞船已抵达指定着陆点 · 靠近后按 E 登舰',
         cancelled: '',
         expired: '召回中止：自动驾驶超时',
         blocked: '召回中止：航路上持续受阻',
@@ -3608,7 +3609,8 @@ Voxel.Game = (function () {
           : Math.round(st.distance) + ' m')
         : '--';
       var brg = Voxel.SpaceTravel.shipBearing ? Voxel.SpaceTravel.shipBearing() : null;
-      showSummonStatus('flight', '召回中 · 方向 ' + (brg ? brg.direction : '--') +
+      showSummonStatus('flight', (st.phase === 'ferry' ? '紧急归位中' : '召回中') +
+        ' · 方向 ' + (brg ? brg.direction : '--') +
         ' · 距离 ' + distTxt + ' · X 取消');
     } else if (!summonPlace.active) hideSummonStatus();
   }

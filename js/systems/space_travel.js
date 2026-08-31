@@ -546,6 +546,29 @@ Voxel.SpaceTravel = (function () {
     return _flightBox;
   }
 
+  // 未加载区块的体素读数是"石头"占位（Voxel.World.get 的虚空保护约定），
+  // 对飞行判定必须区别对待：流式加载只跟随玩家焦点，被召唤的无人飞船
+  // 在跨图航路上几乎全程处在焦点半径之外，若把占位读数当障碍，飞船会
+  // 撞上一堵不存在的墙（北欧城堡精选世界出生点距核心泊位约 1km，飞船
+  // 恰好停在 legacy core 边界过不来）。这里统一按"未加载 = 无信息"处理：
+  // 碰撞跳过、地表改用不触发生成的样条预测高度。
+  function chunkLoadedAt(x, z) {
+    if (typeof Voxel.World.isChunkLoaded !== 'function') return true;
+    var cs = (Voxel.Config && Voxel.Config.CHUNK) || 32;
+    return !!Voxel.World.isChunkLoaded(Math.floor(x / cs), Math.floor(z / cs));
+  }
+
+  // 飞行用地表高度：已加载列取真实体素地表；未加载列取样条预测高度，
+  // 绝不调用 surfaceAt——外围 surfaceAt 会同步生成整块区块，一次跨图
+  // 召唤能沿途生成上百个区块（数百 MB）并造成明显掉帧。
+  function flightGroundAt(x, z) {
+    x = Math.floor(x); z = Math.floor(z);
+    if (chunkLoadedAt(x, z)) return Voxel.World.surfaceAt(x, z);
+    var predicted = typeof Voxel.World.predictedHeightAt === 'function'
+      ? Voxel.World.predictedHeightAt(x, z) : -1;
+    return isFinite(predicted) && predicted >= 0 ? Math.floor(predicted) : -1;
+  }
+
   function flightCollisionCount(position, attitude) {
     var box3 = flightBounds(position, attitude);
     var x0 = Math.floor(box3.min.x + 0.01), x1 = Math.floor(box3.max.x - 0.01);
@@ -553,15 +576,18 @@ Voxel.SpaceTravel = (function () {
     var y1 = Math.min((Voxel.Config && Voxel.Config.WORLD_H || 64) - 1, Math.floor(box3.max.y - 0.01));
     var z0 = Math.floor(box3.min.z + 0.01), z1 = Math.floor(box3.max.z - 0.01);
     var checked = 0, collisions = 0;
-    for (var x = x0; x <= x1; x++) for (var z = z0; z <= z1; z++) for (var y = y0; y <= y1; y++) {
-      if (++checked > 8192) return 8192;
-      var id = Voxel.World.get(x, y, z);
-      // 树叶对飞行不构成硬碰撞：第 23 轮树冠显著加高加宽后，树叶实心
-      // 会让林间垂直起飞/低空穿越必然卡死在冠层内。
-      if (!Voxel.Blocks.isSolid(id) ||
-        (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].leaves)) continue;
-      var top = y + (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].half ? 0.5 : 1);
-      if (box3.min.y < top - 0.01 && box3.max.y > y + 0.01) collisions++;
+    for (var x = x0; x <= x1; x++) for (var z = z0; z <= z1; z++) {
+      if (!chunkLoadedAt(x, z)) continue;
+      for (var y = y0; y <= y1; y++) {
+        if (++checked > 8192) return 8192;
+        var id = Voxel.World.get(x, y, z);
+        // 树叶对飞行不构成硬碰撞：第 23 轮树冠显著加高加宽后，树叶实心
+        // 会让林间垂直起飞/低空穿越必然卡死在冠层内。
+        if (!Voxel.Blocks.isSolid(id) ||
+          (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].leaves)) continue;
+        var top = y + (Voxel.Blocks.defs[id] && Voxel.Blocks.defs[id].half ? 0.5 : 1);
+        if (box3.min.y < top - 0.01 && box3.max.y > y + 0.01) collisions++;
+      }
     }
     return collisions;
   }
@@ -577,6 +603,9 @@ Voxel.SpaceTravel = (function () {
     for (var i = 0; i < GEAR_LOCAL.length; i++) {
       _flightCorner.set(GEAR_LOCAL[i][0], 0, GEAR_LOCAL[i][2]).applyMatrix4(_flightCandidate.matrixWorld);
       var gx = Math.floor(_flightCorner.x), gz = Math.floor(_flightCorner.z);
+      // 只在有真实体素的列上判定停驻：未加载列没有可站立的地面事实，
+      // 也不能为此同步生成区块（巡航每帧都会走到这里）。
+      if (!chunkLoadedAt(gx, gz)) return { stable: false, y: position[1] };
       var gy = Voxel.World.surfaceAt(gx, gz);
       var ground = Voxel.World.get(gx, gy, gz);
       if (!Voxel.Blocks.isSolid(ground) || ground === 7) dry = false;
@@ -588,7 +617,7 @@ Voxel.SpaceTravel = (function () {
 
   function resolveFlightMove(from, proposed, velocity, attitude) {
     var cfg = Voxel.Config.SHIP_FLIGHT;
-    var surface = Voxel.World.surfaceAt(Math.floor(proposed[0]), Math.floor(proposed[2]));
+    var surface = flightGroundAt(proposed[0], proposed[2]);
     var minY = surface + cfg.SHIP_BASE_CLEARANCE;
     var maxY = Math.min(cfg.MAX_ABSOLUTE_Y, minY + cfg.MAX_ALTITUDE);
     var floorContact = proposed[1] <= minY + 0.001 && velocity[1] < 0;
@@ -639,7 +668,7 @@ Voxel.SpaceTravel = (function () {
         } else { velocity[1] = 0; collided = true; }
       }
     }
-    surface = Voxel.World.surfaceAt(Math.floor(current[0]), Math.floor(current[2]));
+    surface = flightGroundAt(current[0], current[2]);
     minY = surface + cfg.SHIP_BASE_CLEARANCE;
     if (current[1] < minY) { current[1] = minY; velocity[1] = Math.max(0, velocity[1]); collided = true; }
     if (floorContact && current[1] <= minY + 0.03) velocity[1] = 0;
@@ -715,14 +744,72 @@ Voxel.SpaceTravel = (function () {
     });
   }
 
-  function summonConf() {
+  // conf.transitTimeout 随航程放大：固定值只够跨核心，而外围出生点
+  // （精选世界的城堡/乐园门口）到泊位可达数公里。
+  function summonConf(distance) {
     var raw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
     var out = {};
     if (isFinite(raw.SUMMON_APPROACH_SPEED)) out.approachSpeed = raw.SUMMON_APPROACH_SPEED;
     if (isFinite(raw.SUMMON_HANDOFF_DIST)) out.handoffDist = raw.SUMMON_HANDOFF_DIST;
     if (isFinite(raw.SUMMON_TAKEOFF_TIMEOUT)) out.takeoffTimeout = raw.SUMMON_TAKEOFF_TIMEOUT;
     if (isFinite(raw.SUMMON_TRANSIT_TIMEOUT)) out.transitTimeout = raw.SUMMON_TRANSIT_TIMEOUT;
+    var speed = finite(raw.SUMMON_APPROACH_SPEED, 24, 1);
+    var needed = finite(distance, 0, 0) / speed * 2.5 + 60;
+    out.transitTimeout = Math.max(finite(out.transitTimeout, 420, 1), needed);
     return out;
+  }
+
+  // ---- 兜底归位 ---------------------------------------------------------
+  // 自动驾驶（起飞/爬升/巡航/着陆辅助）在任何环节判定失败时由此接管：
+  // 爬到安全高度 → 直线飞向落点 → 垂直下降落地。刻意不做碰撞求解：
+  // 落点在召唤确认时已通过完整净空验证，而航路上的"障碍"通常只是尚未
+  // 加载的区块。每一步都单调逼近目标，并带硬性期限，保证召唤必定抵达。
+  var FERRY_SPEED = 26, FERRY_VERTICAL = 9, FERRY_CLEARANCE = 14;
+  var summonFerryDeadline = null;
+
+  function setFlightPose(x, y, z, yaw, landed) {
+    flightState = Voxel.ShipFlight.create({
+      position: [x, y, z], velocity: [0, 0, 0], yaw: yaw,
+      pitch: 0, roll: 0, throttle: 0, landed: !!landed
+    }, flightState);
+    applyFlightTransform();
+  }
+
+  function summonFerryStep(spot, cruiseY, dt) {
+    if (!flightState || !Voxel.ShipFlight) return { done: true, distance: 0 };
+    dt = finite(dt, 0, 0, 0.1);
+    var p = flightState.position;
+    var dx = spot.x - p[0], dz = spot.z - p[2];
+    var dist = Math.sqrt(dx * dx + dz * dz);
+    if (summonFerryDeadline === null) summonFerryDeadline = dist / FERRY_SPEED + 90;
+    summonFerryDeadline -= dt;
+    var safeY = Math.min(240, Math.max(finite(cruiseY, 0), spot.y + FERRY_CLEARANCE));
+    var yaw = dist > 0.5 ? Voxel.ShipSummon.yawFacing(p[0], p[2], spot.x, spot.z) : flightState.yaw;
+
+    if (summonFerryDeadline <= 0) {   // 期限兜底：直接就位落地
+      setFlightPose(spot.x, spot.y, spot.z, yaw, true);
+      lastLandingPose = [spot.x, spot.y, spot.z, yaw];
+      flightEvents = ['landed'];
+      return { done: true, distance: 0 };
+    }
+    if (dist > 0.05 && p[1] < safeY - 0.5) {   // 先脱离地形层
+      setFlightPose(p[0], Math.min(safeY, p[1] + FERRY_VERTICAL * dt), p[2], yaw, false);
+      return { done: false, distance: dist };
+    }
+    if (dist > 0.05) {                          // 定高直飞落点上空
+      var stepLen = Math.min(dist, FERRY_SPEED * dt);
+      setFlightPose(p[0] + dx / dist * stepLen, p[1], p[2] + dz / dist * stepLen, yaw, false);
+      return { done: false, distance: Math.max(dist - stepLen, 0) };
+    }
+    var nextY = p[1] - FERRY_VERTICAL * dt;     // 垂直下降落地
+    if (nextY <= spot.y) {
+      setFlightPose(spot.x, spot.y, spot.z, yaw, true);
+      lastLandingPose = [spot.x, spot.y, spot.z, yaw];
+      flightEvents = ['landed'];
+      return { done: true, distance: 0 };
+    }
+    setFlightPose(spot.x, nextY, spot.z, yaw, false);
+    return { done: false, distance: 0 };
   }
 
   // 召唤期间的物理推进：与 updateFlight 相同的事件簿记，但不检查 isAboard。
@@ -754,6 +841,9 @@ Voxel.SpaceTravel = (function () {
 
     var cfgRaw = Voxel.Config && Voxel.Config.SHIP_FLIGHT || {};
     var api = assistWorldApi();
+    var clearance = finite(cfgRaw.SHIP_BASE_CLEARANCE, 1.02);
+    var landing = { x: spot.x, z: spot.z, y: isFinite(spot.y) ? spot.y
+      : flightGroundAt(spot.x, spot.z) + clearance };
     // 移交技巧：begin 用「目标点替换 position」的只读视图让控制器直接
     // 以已验证着陆点为搜索圆心；tick 始终传真实飞行状态。
     summonCtrl = Voxel.LandingAssist.create(summonOverrides());
@@ -774,19 +864,21 @@ Voxel.SpaceTravel = (function () {
         tick: function (dt) { return summonCtrl.tick(flightState, dt, api); },
         cancel: function (reason) { summonCtrl.cancel(reason); }
       },
+      ferry: function (dt) { return summonFerryStep(landing, pilotDeps.cruiseY, dt); },
       target: { x: spot.x, z: spot.z },
-      conf: summonConf()
+      conf: summonConf(Math.hypot(spot.x - ship.position.x, spot.z - ship.position.z))
     };
     pilotDeps.cruiseY = Voxel.ShipSummon.planCruiseY(
-      function (x, z) { return Voxel.World.surfaceAt(x, z); },
-      { x: ship.position.x, z: ship.position.z }, { x: spot.x, z: spot.z, y: spot.y },
+      flightGroundAt,
+      { x: ship.position.x, z: ship.position.z }, landing,
       { margin: cfgRaw.SUMMON_CRUISE_MARGIN, cruiseMaxY: cfgRaw.SUMMON_CRUISE_MAX_Y }
     );
     summonPilot = Voxel.ShipSummon.createPilot(pilotDeps);
     if (!summonPilot) return { ok: false, reason: 'pilot' };
-    lastSummonTarget = { x: spot.x, y: spot.y, z: spot.z };
+    summonFerryDeadline = null;
+    lastSummonTarget = { x: landing.x, y: landing.y, z: landing.z };
     announceTravel('飞船召回已确认：自动驾驶启动，正前往指定着陆点。');
-    return { ok: true, target: { x: spot.x, y: spot.y, z: spot.z }, cruiseY: pilotDeps.cruiseY };
+    return { ok: true, target: { x: landing.x, y: landing.y, z: landing.z }, cruiseY: pilotDeps.cruiseY };
   }
 
   function summonCancel(reason) {
@@ -807,7 +899,7 @@ Voxel.SpaceTravel = (function () {
 
   function summonStatus() {
     if (!summonPilot || !flightState) {
-      return { active: false, phase: 'idle', distance: null,
+      return { active: false, phase: 'idle', distance: null, fallback: null,
         result: summonPilot ? summonPilot.result() : null };
     }
     var p = flightState.position;
@@ -820,6 +912,8 @@ Voxel.SpaceTravel = (function () {
       // 实时飞船位置：供雷达箭头 / 小地图锁定召回航向
       shipPos: isFinite(p[0]) ? { x: p[0], y: p[1], z: p[2] } : null,
       result: summonPilot.result(),
+      // 非空表示自动驾驶中途受阻、已切换兜底归位（仍会抵达）
+      fallback: summonPilot.fallbackReason ? summonPilot.fallbackReason() : null,
       target: lastSummonTarget ? Object.assign({}, lastSummonTarget) : null
     };
   }
@@ -2329,7 +2423,7 @@ Voxel.SpaceTravel = (function () {
     flightState = null; flightEvents.length = 0; lastSafeExit = null; lastLandingPose = null;
     flightRestoreValid = true;
     landingAssist = null; landingAssistDistance = null;
-    summonPilot = null; summonCtrl = null; lastSummonTarget = null;
+    summonPilot = null; summonCtrl = null; lastSummonTarget = null; summonFerryDeadline = null;
     group = null; ship = null; shipBaseY = 0; portals = []; nearShip = false; nearPortal = null;
     shipParts = { engines: [], door: null, ramp: null };
     stationHub = null; stationDock = null; stationTerminal = null;
@@ -3333,6 +3427,12 @@ Voxel.SpaceTravel = (function () {
     showArrivalCard: showArrivalCard,
     visualSnapshot: visualSnapshot,
     resourceStats: resourceStats,
+    // 测试钩子：未加载区块的飞行判定语义（跨图召唤能否成行的核心契约）
+    _test: {
+      chunkLoadedAt: chunkLoadedAt,
+      flightGroundAt: flightGroundAt,
+      flightCollisionCount: flightCollisionCount
+    },
     setReducedMotion: setReducedMotion,
     setVisualTime: setVisualTime,
     currentWorld: function () { return world; },

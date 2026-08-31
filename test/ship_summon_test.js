@@ -243,5 +243,60 @@ console.log('召唤自动驾驶全流程');
   void stuckResolve; void world;
 }
 
+console.log('兜底归位：召唤一经确认必定抵达');
+{
+  // 同样的物理卡死场景，但宿主注入了兜底归位：自动驾驶的失败不得中止
+  // 召唤，必须转入 ferry 并最终 completed。
+  const target = { x: 900, y: 12, z: -400 };
+  const frozen = () => ({ position: [0, 11.02, 0], velocity: [0, 0, 0], landed: true, collided: true });
+  let state = sandbox.Voxel.ShipFlight.create({
+    position: [0, 11.02, 0], velocity: [0, 0, 0], yaw: 0, pitch: 0, roll: 0,
+    throttle: 0, landed: true
+  });
+  // 宿主 ferry 契约：无碰撞、单调逼近落点，抵达后 done=true。
+  let ferryCalls = 0;
+  function ferry(dt) {
+    ferryCalls++;
+    const p = state.position;
+    const dx = target.x - p[0], dz = target.z - p[2];
+    const dist = Math.hypot(dx, dz);
+    const stepLen = Math.min(dist, 26 * dt);
+    const pos = dist > 0.05 ? [p[0] + dx / dist * stepLen, p[1], p[2] + dz / dist * stepLen]
+      : [target.x, target.y, target.z];
+    state = sandbox.Voxel.ShipFlight.create({
+      position: pos, velocity: [0, 0, 0], yaw: 0, pitch: 0, roll: 0,
+      throttle: 0, landed: dist <= 0.05
+    });
+    return { done: dist <= 0.05, distance: Math.max(dist - stepLen, 0) };
+  }
+  const pilot = SS.createPilot({
+    step(input, dt) {
+      const r = sandbox.Voxel.ShipFlight.step(state, dt, input, { config: {}, resolve: frozen });
+      state = r.state; return r.events;
+    },
+    getPos() { return state.position.slice(); },
+    ctrl: { begin() { return false; }, tick() { return { input: {}, active: false }; }, cancel() { } },
+    ferry: ferry,
+    target: { x: target.x, z: target.z },
+    cruiseY: 40,
+    conf: { takeoffTimeout: 3 }
+  });
+  let out = null;
+  for (let i = 0; i < 60 * 60 * 30; i++) { out = pilot.tick(1 / 30); if (!pilot.active()) break; }
+  check('自动驾驶失败转兜底归位而非中止', out.fallback === 'stuck', out.fallback);
+  check('兜底归位最终 completed', out.done === 'completed', out.done);
+  check('落点即已验证的目标点', Math.hypot(state.position[0] - target.x, state.position[2] - target.z) < 0.06 &&
+    state.landed === true, `${state.position[0].toFixed(2)},${state.position[2].toFixed(2)}`);
+  void ferryCalls;
+}
+
+{
+  // 玩家主动取消不得被兜底归位吞掉：ferry 只兜自动驾驶的失败。
+  const h = makeHarness({ height: () => 10 }, { sx: 0, sy: 11.02, sz: 0, tx: 400, tz: 120 });
+  h.pilot.cancel();
+  const st = h.pilot.tick(1 / 30);
+  check('玩家取消仍为 cancelled', st.done === 'cancelled' && st.fallback === null, st.done);
+}
+
 if (failed) { console.log(`\n${failed} 项失败`); process.exit(1); }
 console.log('\nship_summon_test 全部通过');

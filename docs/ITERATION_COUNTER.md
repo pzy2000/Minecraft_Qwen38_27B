@@ -33,6 +33,7 @@
 | 22 | P1 | 功能新增：蘑菇林/沼泽/樱花树林/黑森林并加入精选世界 | ✅ |
 | 23 | P1 | 群系面积 ~9x（气候降频）+ 全树种加高（蘑菇精确 3x）+ 飞船树叶非硬碰撞 | ✅ |
 | 24 | P1 | 精选世界出生在水下修复 + 阿特拉斯轨道空间站视觉重构 | ✅ |
+| 27 | P0 | 跨图召唤飞船卡在 legacy core 边界修复 + 兜底归位保障必达 | ✅ |
 
 ## 第 1 轮证据
 
@@ -189,3 +190,10 @@
 - 内容：新增第 25 张精选卡「北欧城堡」（专属种子 24601，入场钉暮夜 duskTime=0.56）：① 群系——NORDIC_FJORD(23) 北欧峡湾（黑沙地表/片麻岩填充、稀疏云杉、羊/兔），气候点 [-1.0,-0.5,0.05,0.35,-0.92] 实测落于五维场空隙，种子 12345 既有 23 群系覆盖不受挤压（黄金指纹仅 lush 边界重排，edits 保留）；② 方块——稳定 ID 215..219（黑沙/暗色片麻岩/绯红瓦/白灰泥墙/枯草丛 cross），瓦片 254..258 程序化纹理只追加；③ 结构——Structures 新增 `cellVista` 峡湾全景（cell 384/extent 175，站点=北欧峡湾群系内的最小方差探针）：黑沙丘地（草丛/草丘/残雪斑）→ 注水冰湖（碎冰带）→ 湖心岛白墙红顶城堡（主厅可进入：正门拱廊/高窗灯列/王座高台/内梯，中央尖塔 spire 36 + 锥顶红灯，东翼楼，前双塔+西北塔，惰性宝箱 chestLootAt 反查必出曲速电池）→ 多孔石拱桥（正弦拱面零缺口断言）→ 西侧石阶码头木栈桥 → 北岸雪帽锯齿山脊（雪帽体素随峰高加厚）；`vistaGateSpawn` 出生南岸丘顶面向城堡；④ 大气——AtmosphereProfiles 新增 nordic 主题（ORDER 7→8）：极昼式暮光（night 天色 0x2e5c7c/0x63a8ad、tintNight 0xe2eef5、ambientFloor 0.76，daynight 钳制上限 0.5→0.78），夜与昼几乎等亮、城堡整夜可见；Atmosphere 极光重写为 DynamicSurroundings 式**光帘**：最多 4 幅绕穹顶弯曲的网格带 + 加色 shader（底部亮绿→上部青蓝渐隐、射线随绝对日内时间扫动呼吸），northic 四层（主帘铺满头顶 + 副帘交叠 + 雪脊低带 + 南天低晕），`depthTest: true` 使山体/建筑正确遮挡光帘；⑤ 主题持久化——galaxy `legacyTheme` 通道（hydrate 透传 + main.js `PlanetRules.knownType` 校验回贴），读档/跃迁往返后底图、群系白名单（nordic→[NORDIC_FJORD]）与大气主题不漂移；⑥ gen_core `decorateVistas` 按 clip 裁剪逐区块重算，写入器允许覆写自然方块（湖盆注水/雪脊压顶）但保护基岩与功能方块，176 格清景半径跳过植被锚点。
 - 修复（迭代内回归）：光帘初版预乘 alpha + AdditiveBlending 在超量强度下折叠出红/品红坏像素——改为纯加色（CustomBlending One/One、alpha 恒 0、强度钳 ≤1）根治；「竖直帘丝」floor/fact 高频条纹在 GPU 产生锯齿波纹与坏像素，按用户反馈回退为平滑光带；极光原 LineSegments 双线形态不达预期，整体重写为网格光帘并接受深度测试。
 - 回归：smoke 新增「北欧城堡峡湾全景」组（vista 确定性/锚点群系/出生干地面向湖心/尖塔绯红瓦+主厅白墙/冰湖注水/宝箱唯一且反查坐标命中/战利品稳定含曲速电池/拱桥面采样零缺口/雪脊积雪/lush 世界无 vista）与 nordic 大气契约（8 键精确覆盖、拓扑 [1,2]、与 frozen 同签名异天色）；atmosphere_test TYPES +nordic，天空 drawable 预算 7→10（4 幅光帘）；browser_test/featured_lazy/audio_budget 精选卡 24→25；planet_rules 黄金指纹 lush 刷新（新增气候点挪动最近邻边界，edits/建筑逐位保留）；capture_biomes 新增 FEATURED_SHOTS 'nordic-castle'（vistaSpawn 落位 + setTime 0.60 深夜极光机位，chunkR 11 等待半径）；canonical `npm test`（Node 13 套件 + 浏览器全矩阵 + Space E2E）全绿；`screenshots/biomes/nordic-castle.png` 实机夜景重拍并多机位取证（正面/缩放/湖左/脊右/仰天/背面/沙丘/岛顶俯瞰 + 16 向红斑全扫零命中）人工复核通过。
+
+## 第 27 轮（缺陷修复）：跨图召唤飞船中途卡死
+
+- 问题：精选世界「北欧城堡」在出生点按 X 召唤飞船，HUD 距离停在约 980m 不再变化。真实浏览器复现（Edge headless）：出生点在无限外围 (-556, 1038)，而飞船泊位是 legacy core 的 `spawnPoint()` (129, 111)，全程 1153m；飞船起飞爬升后一路巡航，到 (28.6, 249.7)——恰好 legacy core 的 x/z 边界——速度归零、位置再不变化，直到巡航超时。
+- 根因：流式区块只跟随玩家焦点加载（DATA_RADIUS 6 块），被召唤的无人飞船整条航路都在焦点半径之外；而 `Voxel.World.get()` 对未加载区块按虚空保护约定返回实心占位（ID 12 石头）。`flightCollisionCount` 把这堵占位墙当真实障碍，飞船一出核心就撞上不存在的墙，弧线脱困机动同样无解。第二处隐患：外围 `surfaceAt` 会**同步生成**整块区块，`resolveFlightMove`/`landingSurface` 每帧调用，一次跨图召唤沿途生成上百个区块（实测流式工作集 52→246 块，约数百 MB）并造成掉帧。
+- 修复：① `space_travel.js` 统一「未加载 = 无信息」语义——新增 `chunkLoadedAt()`，碰撞逐列跳过未加载区块，`landingSurface` 在未加载列直接判不可停驻（不为落地判定同步造块）；② 新增 `flightGroundAt()`，已加载列取真实体素地表、未加载列取零成本样条预测高度 `predictedHeightAt`，`resolveFlightMove` 的贴地下限与 `planCruiseY` 的沿途采样都改走它，彻底移除巡航期的同步区块生成；③ `summonConf(distance)` 让巡航超时随航程放大（固定 420s 只够跨核心）；④ 保障必达：`ShipSummon` 驾驶脑新增 `ferry` 兜底阶段——起飞/爬升/巡航/着陆辅助的**任何**失败（blocked/stuck/expired/nospot）不再中止召唤，而是转入宿主注入的无碰撞归位（爬到安全高度→直线飞向落点→垂直下降落地，带硬性期限），落点在召唤确认时已通过完整净空验证，因此单调收敛必定抵达；玩家主动按 X 取消与登舰仍是唯一的中止途径，HUD 相应显示「紧急归位中」与抵达提示。
+- 回归：`ship_summon_test` 新增兜底归位组（自动驾驶失败转 ferry 而非中止、最终 completed、落点即已验证目标点、玩家取消不被兜底吞掉）；`ship_summon_e2e` 新增「未加载区块不是障碍」组（远处区块确实未加载且读数为实心占位、飞行碰撞计数为 0、地表查询不触发同步生成），经新增的 `SpaceTravel._test` 钩子断言。北欧城堡实机复验：1153m 航程全程贯通，phase transit→auto→completed，落地点距玩家 7.1m，流式工作集不再因召唤膨胀。canonical `npm run test:node` 与浏览器矩阵全绿；index.html 的 main.js sha256 与 ship_summon/space_travel 日期缓存键同步刷新。

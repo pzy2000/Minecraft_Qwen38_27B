@@ -8,7 +8,10 @@
 //   transit —— 跨图巡航：航向对准 + 距离-速度曲线收敛 + 定高；距目标近且
 //              低速时移交 Voxel.LandingAssist 控制器（其自选着陆点以当前
 //              位置为圆心螺旋搜索，此时圆心≈已验证目标点，必然优先命中）；
-//   auto    —— 着陆辅助三阶段（刹车→进场→垂直下降），直到 landed 事件。
+//   auto    —— 着陆辅助三阶段（刹车→进场→垂直下降），直到 landed 事件；
+//   ferry   —— 兜底归位：以上任一阶段判定失败时接管（宿主注入 deps.ferry），
+//              无碰撞直飞已验证落点。召唤一旦确认就必须抵达，唯一的中止
+//              途径是玩家主动取消或登舰。
 window.Voxel = window.Voxel || {};
 
 Voxel.ShipSummon = (function () {
@@ -139,12 +142,15 @@ Voxel.ShipSummon = (function () {
   //                 tick() 仍传真实 flightState。
   //   ctrl.tick(dt) -> {input,distance,active,expired,blocked}
   //   ctrl.cancel(reason)
+  //   ferry(dt) -> {done,distance}          可选兜底归位：无碰撞直飞落点。
+  //                 提供时，自动驾驶的任何失败都转为该机动而不是中止召唤。
   //   target:{x,z}                          已确认的着陆点（水平）
   //   cruiseY                               规划巡航绝对高度
   //   conf.*                                覆盖 DEFAULTS 子集
   //
-  // pilot.tick(dt) -> {active, phase, distance, done}
+  // pilot.tick(dt) -> {active, phase, distance, done, fallback}
   //   done ∈ null | 'completed'|'cancelled'|'expired'|'blocked'|'stuck'|'nospot'
+  //   fallback = 触发兜底归位的原始失败原因（未触发为 null）
   function createPilot(deps) {
     if (!deps || !deps.target || !finite(deps.target.x) || !finite(deps.target.z)) return null;
     var conf = config(Object.assign({}, DEFAULTS, deps.conf || {}));
@@ -157,6 +163,7 @@ Voxel.ShipSummon = (function () {
     // 纯"再爬升"永远无效——改输出「升力+推进+转向」画弧横移脱离遮挡柱；
     // 连续多轮无起色才放弃（blocked）。
     var escT = 0, escCycles = 0;
+    var fallback = null;
 
     function finish(kind) {
       if (done) return false;
@@ -167,8 +174,24 @@ Voxel.ShipSummon = (function () {
       return true;
     }
 
+    // 自动驾驶失败出口：宿主提供兜底归位时一律改走 ferry（已确认的召唤
+    // 不允许把飞船丢在半路），否则如实中止。返回 true 表示本帧已收尾。
+    function bail(kind) {
+      if (done) return true;
+      if (phase !== 'ferry' && typeof deps.ferry === 'function') {
+        fallback = String(kind || 'blocked');
+        phase = 'ferry';
+        phaseElapsed = 0;
+        escT = 0;
+        if (deps.ctrl && typeof deps.ctrl.cancel === 'function')
+          try { deps.ctrl.cancel(fallback); } catch (e) { /* 宿主兜底 */ }
+        return true;
+      }
+      return finish(kind);
+    }
+
     function status() {
-      return { active: !done, phase: phase, distance: dist, done: done };
+      return { active: !done, phase: phase, distance: dist, done: done, fallback: fallback };
     }
 
     function hspeed(vx, vz) { return Math.sqrt(vx * vx + vz * vz); }
@@ -196,7 +219,7 @@ Voxel.ShipSummon = (function () {
       riseT += dt;
       if (riseT >= conf.stuckTime) {
         riseT = 0;
-        if (escCycles >= 5) { finish('blocked'); return true; }
+        if (escCycles >= 5) { bail('blocked'); return true; }
         escT = 3;
       }
       return false;
@@ -235,7 +258,7 @@ Voxel.ShipSummon = (function () {
         if (stallT >= conf.stuckTime) {
           stallT = 0;
           lastDist = null;
-          if (escCycles >= 5) { finish('blocked'); }
+          if (escCycles >= 5) { bail('blocked'); }
           else escT = 3;
         }
       } else if (input.thrust !== true) stallT = 0;
@@ -247,6 +270,7 @@ Voxel.ShipSummon = (function () {
       active: function () { return !done; },
       getPhase: function () { return phase; },
       result: function () { return done; },
+      fallbackReason: function () { return fallback; },
       cancel: function (reason) { return finish(reason || 'cancelled'); },
       tick: function (dt) {
         if (done) return status();
@@ -259,10 +283,20 @@ Voxel.ShipSummon = (function () {
 
         // 超时守卫按阶段独立计：起飞/爬升与巡航各有限额；auto 阶段的
         // 时长由控制器 maxDuration 兜底（远距召唤航程可达数分钟）。
+        // ferry 不设超时：它是最后一道保障，由宿主保证单调收敛。
         if ((phase === 'takeoff' || phase === 'climb') &&
-          phaseElapsed > conf.takeoffTimeout) { finish('stuck'); return status(); }
+          phaseElapsed > conf.takeoffTimeout) { bail('stuck'); return status(); }
         if (phase === 'transit' && phaseElapsed > conf.transitTimeout) {
-          finish('stuck'); return status();
+          bail('stuck'); return status();
+        }
+
+        if (phase === 'ferry') {
+          var fr = null;
+          try { fr = deps.ferry(dt); } catch (e) { fr = null; }
+          if (!fr || typeof fr !== 'object') { finish('stuck'); return status(); }
+          if (finite(fr.distance)) dist = fr.distance;
+          if (fr.done) finish('completed');
+          return status();
         }
 
         if (phase === 'takeoff') {
@@ -299,7 +333,7 @@ Voxel.ShipSummon = (function () {
               var okBegin = false;
               try { okBegin = !!deps.ctrl.begin(); } catch (e) { okBegin = false; }
               if (okBegin) { phase = 'auto'; phaseElapsed = 0; }
-              else if (++beginTries > conf.beginRetries) finish('nospot');
+              else if (++beginTries > conf.beginRetries) bail('nospot');
             }
           }
           return status();
@@ -308,10 +342,10 @@ Voxel.ShipSummon = (function () {
         // auto：完全交由着陆辅助控制器驱动（刹车→进场→垂直下降）。
         var r = null;
         try { r = deps.ctrl.tick(dt); } catch (e) { r = null; }
-        if (!r || typeof r !== 'object') { finish('stuck'); return status(); }
+        if (!r || typeof r !== 'object') { bail('stuck'); return status(); }
         if (finite(r.distance)) dist = r.distance;
         if (!r.active) {
-          finish(r.expired ? 'expired' : 'blocked');
+          bail(r.expired ? 'expired' : 'blocked');
           return status();
         }
         var ev2 = deps.step(r.input, dt);
@@ -325,7 +359,8 @@ Voxel.ShipSummon = (function () {
     VERSION: VERSION,
     DEFAULTS: Object.freeze(Object.assign({}, DEFAULTS)),
     PHASES: Object.freeze({
-      TAKEOFF: 'takeoff', CLIMB: 'climb', TRANSIT: 'transit', AUTO: 'auto', IDLE: 'idle'
+      TAKEOFF: 'takeoff', CLIMB: 'climb', TRANSIT: 'transit', AUTO: 'auto',
+      FERRY: 'ferry', IDLE: 'idle'
     }),
     config: config,
     aimSpot: aimSpot,
