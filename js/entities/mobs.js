@@ -344,6 +344,11 @@ Voxel.Mobs = (function () {
     var m = {
       type: type,
       pos: pos.clone(),
+      // 渲染插值（plan 5.6）：prev/curr 快照槽，仅显示侧 lerp，模拟不读。
+      // 出生即 curr=prev=pos，避免首帧从原点飞入
+      ipx: pos.x, ipy: pos.y, ipz: pos.z,
+      icx: pos.x, icy: pos.y, icz: pos.z,
+      bobY: 0,
       vel: new THREE.Vector3(),
       w: b.w, h: b.h,
       voiceVariant: b.voice,                 // 猫品种专属叫声索引（其他生物为 undefined）
@@ -913,6 +918,9 @@ Voxel.Mobs = (function () {
       var m = list[i];
       if (m.dead) { removeAt(i); continue; }
 
+      // 渲染插值（plan 5.6）：本步积分前把 curr 推给 prev
+      m.ipx = m.icx; m.ipy = m.icy; m.ipz = m.icz;
+
       m.aiTimer -= dt;
       m.moveTime -= dt;
       m.attackCd -= dt;
@@ -1086,13 +1094,11 @@ Voxel.Mobs = (function () {
         }
       }
 
-      // 渲染
-      m.group.rotation.y = m.dir + Math.PI;
+      // 渲染（位置部分移至 renderPose 逐帧插值；plan 5.6）
+      m.icx = m.pos.x; m.icy = m.pos.y; m.icz = m.pos.z;
       // 走路整体轻微浮动（合批后无法单独动某一部件）
-      m.group.position.set(
-        m.pos.x,
-        m.pos.y + ((speed > 0 && m.onGround) ? Math.sin(t * 9 + i) * 0.03 : 0),
-        m.pos.z);
+      m.bobY = (speed > 0 && m.onGround) ? Math.sin(t * 9 + i) * 0.03 : 0;
+      m.group.rotation.y = m.dir + Math.PI;
 
       // 白天烧僵尸与弓手（需露天：天光 ≥ 12，洞穴里不烧）
       if ((m.type === 'zombie' || m.type === 'archer') &&
@@ -1135,11 +1141,32 @@ Voxel.Mobs = (function () {
     scene.add(group);
   }
 
+  // 渲染位姿：每个渲染帧由主循环调用（plan 5.6）。生物网格位置 = prev/curr
+  // 按 alpha 插值 + 步内算好的浮动偏移。单步位移超 8 格（传送类事件）直接吸附。
+  function renderPose(alpha) {
+    if (!group) return;
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      if (!m.group || m.dead) continue;
+      var dx = m.icx - m.ipx, dy = m.icy - m.ipy, dz = m.icz - m.ipz;
+      if (dx * dx + dy * dy + dz * dz > 64) {
+        m.ipx = m.icx; m.ipy = m.icy; m.ipz = m.icz;
+        m.group.position.set(m.icx, m.icy, m.icz);
+        continue;
+      }
+      m.group.position.set(
+        m.ipx + dx * alpha,
+        m.ipy + dy * alpha + (m.bobY || 0),
+        m.ipz + dz * alpha);
+    }
+  }
+
   return {
     setDensity: setDensity,
     setDifficulty: setDifficulty,
     init: init,
     update: update,
+    renderPose: renderPose,
     applyTint: applyTint,
     damage: damage,
     clear: clear,

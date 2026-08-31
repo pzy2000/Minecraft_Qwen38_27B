@@ -88,6 +88,10 @@ Voxel.Drops = (function () {
     var m = {
       id: id, n: n, dur: dur !== undefined ? dur : null,
       pos: pos.clone(),
+      // 渲染插值（plan 5.6）：prev/curr 快照，出生对齐避免首帧漂移
+      ipx: pos.x, ipy: pos.y, ipz: pos.z,
+      icx: pos.x, icy: pos.y, icz: pos.z,
+      bobY: 0,
       ent: { pos: pos.clone(), vel: (vel || new THREE.Vector3()).clone(), w: 0.25, h: 0.25, onGround: false },
       age: 0,
       spin: (Math.random() - 0.5) * 3,
@@ -111,6 +115,9 @@ Voxel.Drops = (function () {
     for (var i = list.length - 1; i >= 0; i--) {
       var m = list[i];
       m.age += dt;
+
+      // 渲染插值（plan 5.6）：本步积分前把 curr 推给 prev
+      m.ipx = m.icx; m.ipy = m.icy; m.ipz = m.icz;
 
       // 物理：轻重力 + 地面摩擦
       m.ent.vel.y -= 22 * dt;
@@ -147,12 +154,29 @@ Voxel.Drops = (function () {
         continue;
       }
 
-      // 渲染：悬浮微动 + 缓慢旋转
-      m.mesh.position.set(
-        m.pos.x,
-        m.pos.y + 0.14 + Math.sin(m.age * 2.5) * 0.025,
-        m.pos.z);
+      // 渲染（位置部分移至 renderPose 逐帧插值；plan 5.6）：悬浮微动 + 缓慢旋转
+      m.icx = m.pos.x; m.icy = m.pos.y; m.icz = m.pos.z;
+      m.bobY = 0.14 + Math.sin(m.age * 2.5) * 0.025;
       m.mesh.rotation.y += m.spin * dt;
+    }
+  }
+
+  // 渲染位姿：每个渲染帧由主循环调用（plan 5.6）
+  function renderPose(alpha) {
+    if (!group) return;
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      if (!m.mesh) continue;
+      var dx = m.icx - m.ipx, dy = m.icy - m.ipy, dz = m.icz - m.ipz;
+      if (dx * dx + dy * dy + dz * dz > 64) {
+        m.ipx = m.icx; m.ipy = m.icy; m.ipz = m.icz;
+        m.mesh.position.set(m.icx, m.icy + (m.bobY || 0), m.icz);
+        continue;
+      }
+      m.mesh.position.set(
+        m.ipx + dx * alpha,
+        m.ipy + dy * alpha + (m.bobY || 0),
+        m.ipz + dz * alpha);
     }
   }
 
@@ -228,6 +252,7 @@ Voxel.Drops = (function () {
   return {
     init: init,
     update: update,
+    renderPose: renderPose,
     spawn: spawn,
     snapshot: snapshot,
     restore: restore,

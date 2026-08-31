@@ -12,6 +12,10 @@ Voxel.Player = (function () {
   var prevInWater = false, bubbleTimer = 0;
   var air = C.AIR_MAX, drownT = 0;   // 憋气
   var bedPos = null;                 // 床重生点
+  // 渲染插值位（plan 5.6）：prev/curr 两个快照槽，仅在显示侧 lerp，模拟不读
+  var interpPX = 0, interpPY = 0, interpPZ = 0;
+  var interpCX = 0, interpCY = 0, interpCZ = 0;
+  var interpSnapD2 = 64;             // 单步位移超 8 格（传送/跃迁）→ 直接吸附 curr
   var kbx = 0, kbz = 0, kbT = 0;     // 受击击退
   var lastCause = '';                // 最近一次受伤原因
   var headInWater = false;           // 头部浸水（水下滤镜/雾用）
@@ -49,6 +53,9 @@ Voxel.Player = (function () {
   }
 
   function update(dt) {
+    // 渲染插值（plan 5.6）：步首把「上一渲染位」推为 prev，步末 pos 成为 curr。
+    // prev 只供显示侧 lerp 读取，模拟逻辑一律不得引用。
+    interpPX = interpCX; interpPY = interpCY; interpPZ = interpCZ;
     // ESC 菜单/睡觉期间世界继续运转：只冻结玩家的移动/跳跃输入，物理与代谢照常
     var frozen = !!(Voxel.Game && (Voxel.Game.state === 'paused' || Voxel.Game.state === 'sleeping'));
     var K = frozen ? {} : Voxel.Controls.keys;
@@ -196,6 +203,7 @@ Voxel.Player = (function () {
         cam.updateProjectionMatrix();
       }
     }
+    interpCX = pos.x; interpCY = pos.y; interpCZ = pos.z;
   }
 
   // 座舱内不运行玩家AABB移动，但完整推进基础代谢/饥饿；外部位置由飞船代理更新。
@@ -381,6 +389,17 @@ Voxel.Player = (function () {
     getBed: getBed,
     air: function () { return air; },
     pos: function () { return pos; },
+    // 渲染插值：按 alpha 在 prev/curr 位置间取值（显示专用，模拟侧不得调用）
+    interpPos: function (alpha) {
+      var dx = interpCX - interpPX, dy = interpCY - interpPY, dz = interpCZ - interpPZ;
+      if (dx * dx + dy * dy + dz * dz > interpSnapD2) {
+        return new THREE.Vector3(interpCX, interpCY, interpCZ);
+      }
+      return new THREE.Vector3(
+        interpPX + dx * alpha,
+        interpPY + dy * alpha,
+        interpPZ + dz * alpha);
+    },
     vel: function () { return vel; },
     eyePos: function () { return new THREE.Vector3(pos.x, pos.y + C.EYE, pos.z); },
     lookDir: function () {

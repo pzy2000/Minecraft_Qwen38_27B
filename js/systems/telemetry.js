@@ -84,6 +84,33 @@ Voxel.Telemetry = (function () {
     console.log('[Telemetry]', JSON.stringify(snapshot(), null, 2));
   }
 
+  // 导出为可下载的 JSON 文件（玩家手动分享给开发者；零网络上传）
+  function exportReport() {
+    var json = JSON.stringify(snapshot(), null, 2);
+    try {
+      var blob = new Blob([json], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'perf-report-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      return true;
+    } catch (e) {
+      // Blob/下载不可用（老 WebView 等）：退回复制到剪贴板，再不行只有控制台
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(json);
+          return true;
+        }
+      } catch (e2) { }
+      dump();
+      return false;
+    }
+  }
+
   function countContextLost() { ctxLost++; }
 
   function init() {
@@ -100,6 +127,7 @@ Voxel.Telemetry = (function () {
     noteFrame: noteFrame,
     snapshot: snapshot,
     dump: dump,
+    exportReport: exportReport,
     countContextLost: countContextLost
   };
   init();

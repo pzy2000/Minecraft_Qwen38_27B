@@ -1925,6 +1925,33 @@ Voxel.Game = (function () {
     // 死亡/入睡等非常态画面负载骤降，不作为降级依据
     return state !== 'sleeping';
   }
+
+  // ---------- 渲染插值（plan 5.6 · 多人联机前置） ----------
+  // 固定 60Hz 逻辑步已存在，这里补显示侧：渲染帧按 alpha 在「上一步位姿」与
+  // 「本步位姿」间取值，144Hz 等高刷屏不再有 60Hz 阶跃。约束：
+  //   · 仅位置插值；相机朝向直取当前输入（Voxel.Controls），不引入瞄准延迟
+  //   · prev 只由固定步写入、只被本函数读取，模拟逻辑一律不得引用
+  //   · 单步位移超 8 格（传送/跃迁/重生）直接吸附，杜绝长距离拖影
+  //   · 座舱（boarded）、骑乘（rideStarted）相机由各自系统接管，不在此覆盖
+  function applyRenderInterp(alpha) {
+    if (!camera || !isFinite(alpha)) return;
+    var p = Voxel.Player.interpPos(alpha);
+    camera.position.set(p.x, p.y + C.EYE, p.z);
+    camera.rotation.x = Voxel.Controls.pitch();
+    camera.rotation.y = Voxel.Controls.yaw();
+    if (Voxel.Mobs && Voxel.Mobs.renderPose) Voxel.Mobs.renderPose(alpha);
+    if (Voxel.Drops && Voxel.Drops.renderPose) Voxel.Drops.renderPose(alpha);
+    for (var i = 0; i < fallers.length; i++) {
+      var fb = fallers[i];
+      var dy = fb.cy - fb.py;
+      if (dy * dy > 64) {
+        fb.mesh.position.set(fb.x + 0.5, fb.cy + 0.5, fb.z + 0.5);
+        continue;
+      }
+      fb.mesh.position.set(fb.x + 0.5, fb.py + dy * alpha + 0.5, fb.z + 0.5);
+    }
+  }
+
   // ---------- 打击感：顿帧（全局时间冻结）+ 震屏 ----------
   var hitStopUntil = 0;
   var shakeT = 0, shakeDur = 0, shakeAmp = 0;
@@ -4983,7 +5010,9 @@ Voxel.Game = (function () {
       if (fallMat && scene) {
         var mesh = makeFallMesh(id, x, yy, z);
         scene.add(mesh);
-        fallers.push({ x: x, y: yy, z: z, id: id, vy: -0.4, mesh: mesh });
+        fallers.push({ x: x, y: yy, z: z, id: id, vy: -0.4,
+          // 渲染插值（plan 5.6）：prev/curr 高度快照，出生对齐
+          py: yy, cy: yy, mesh: mesh });
       }
       yy++;
     }
@@ -4992,6 +5021,7 @@ Voxel.Game = (function () {
   function updateFallers(dt) {
     for (var i = fallers.length - 1; i >= 0; i--) {
       var fb = fallers[i];
+      fb.py = fb.cy;   // 渲染插值（plan 5.6）：本步积分前推 prev
       fb.vy -= 24 * dt;
       if (fb.vy < -28) fb.vy = -28;
       var ny = fb.y + fb.vy * dt;
@@ -5013,6 +5043,7 @@ Voxel.Game = (function () {
         continue;
       }
       fb.y = ny;
+      fb.cy = ny;
       fb.mesh.position.set(fb.x + 0.5, fb.y + 0.5, fb.z + 0.5);
     }
   }
@@ -6240,6 +6271,13 @@ Voxel.Game = (function () {
       }
       var simulationDt = fixedStepsThisFrame * FIXED_DT;
 
+      // 渲染插值（plan 5.6）：alpha = 固定步余量占一个逻辑步的比例。
+      // 门控与固定步内 Player 相机写入的条件完全一致，避免与座舱/骑乘相机打架。
+      if (state === startedState &&
+        (startedState === 'playing' || (pausedState && !pausedAboard))) {
+        applyRenderInterp(Math.min(1, Math.max(0, simAccumulator / FIXED_DT)));
+      }
+
       if (startedState === 'furnace') {
         if (simulationDt > 0) tickFurnaces(simulationDt);
       } else if (boardedShelterState || pausedAboard) {
@@ -7392,6 +7430,15 @@ Voxel.Game = (function () {
     document.getElementById('btn-set-close').addEventListener('click', closeSettings);
     var settingsClose = document.getElementById('btn-settings-close');
     if (settingsClose) settingsClose.addEventListener('click', closeSettings);
+    // 性能报告导出（plan 8.5）：本地生成 JSON 下载，零网络上传
+    var telemetryBtn = document.getElementById('btn-telemetry-export');
+    if (telemetryBtn && Voxel.Telemetry) {
+      telemetryBtn.addEventListener('click', function () {
+        Voxel.HUD.toast(Voxel.Telemetry.exportReport()
+          ? '性能报告已导出，可分享给开发者'
+          : '导出失败，报告已打印到控制台');
+      });
+    }
     document.getElementById('btn-settings').addEventListener('click', function () { openSettings('paused'); });
     document.getElementById('btn-settings-menu').addEventListener('click', function () { openSettings('menu'); });
 

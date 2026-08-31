@@ -1664,12 +1664,23 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 
 > 决策记录：terrain_parity 失败经确认为 fafb487（Nordic 主题）引入的**有意变更**，不做诊断回溯，直接重建基线。后续第一梯队（5.1/5.2）的存储与网格改造以本次刷新后的黄金值为守护基线。
 
-**批次 1 完成总结（2026-09-01，commits 283d02a → 78feea2 + 遥测）**：
+**批次 1 完成总结（2026-09-01，commits 283d02a → 36a83cc）**：
 - 全仓不再有 `_test.galaxy` / `_test.countInv` 生产调用点（8.3 提前完成）
 - CI 内 node 测试数：27 → 31（redstone / park_economy / terrain_parity 接入快速链；landing_success 独立 `test:sim`，远程单独执行）
 - 自适应画质从单向降档升级为双向闭环（5.5 全部四条做法落地）
-- 遥测骨架就位（`js/systems/telemetry.js`）：环形缓冲 2400 帧样本、异常/拒绝/上下文丢失计数、`Voxel.Telemetry.snapshot()` 导出 p50/p95/p99；零网络请求，`?telemetry=1` 每 30s 自动 dump。与 8.5 完整版（真实上报后端）的差距留待后续。
-- **阶段 0 验收门未完项**：无真实玩家数据回流通道 —— 当前遥测仅本地导出，"从真实玩家数据回答 p95 帧时"需要下一批做导出文件上传或社区协作收集。
+- 遥测骨架就位（`js/systems/telemetry.js`）：环形缓冲 2400 帧样本、异常/拒绝/上下文丢失计数、`Voxel.Telemetry.snapshot()` 导出 p50/p95/p99；零网络请求，`?telemetry=1` 每 30s 自动 dump
+
+**批次 2 完成总结（2026-09-01）**：
+
+| # | 任务 | 对应章节 | 状态 |
+|---|---|---|---|
+| 1 | 渲染插值：相机仅位置 lerp + 生物/掉落物/下落方块 renderPose(alpha)，朝向直取输入，8 格传送吸附，座舱/骑乘门控隔离 | 5.6 | ✅ 2026-09-01 |
+| 2 | 遥测导出按钮（设置面板「性能报告」→ JSON 下载，真实设备数据手动回流，阶段 0 收尾闭环） | 8.5 收尾 | ✅ 2026-09-01 |
+
+- [5.6] 实现要点：player/mobs/drops/fallers 四处固定步 prev/curr 快照槽；alpha 取自 simAccumulator 余量；prev 仅显示侧可读；数据结构预留 MP 插值缓冲位
+- 验收：node 全链绿（exit=0）+ 浏览器全套绿（route/galaxy UI、space_travel、cockpit_resume、jump_flow、ship_summon e2e）
+- 待人工验证清单（无法自动化）：144Hz 屏幕移动无阶梯感、转向输入延迟不高于改造前
+- **下一批**：5.1 网格化移出主线程 + greedy meshing（Step A 护栏 → B 预分配 → C Worker 化 → D greedy → E 收紧断言至 20ms）
 
 ---
 
