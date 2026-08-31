@@ -1657,7 +1657,7 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 | # | 任务 | 对应章节 | 状态 |
 |---|---|---|---|
 | 1 | terrain_parity 黄金基线随 Nordic 有意变更刷新（`make_terrain_golden.js` 重建，测试转绿） | 8.6 前置 | ✅ 2026-09-01 |
-| 2 | 补齐 CI：redstone / park_economy / terrain_parity 接入 `test:node`；新增 `test:sim`；更新 ci_workflow 断言 | 8.6 | ⬜ |
+| 2 | 补齐 CI：redstone / park_economy / terrain_parity 接入 `test:node`；新增 `test:sim`；更新 ci_workflow 断言 | 8.6 | ✅ 2026-09-01 |
 | 3 | 新增 `getGalaxy()` / `countInventory()` 正规 API，解除 achievements/codex 对 `_test` 的生产依赖 | 8.3 | ⬜ |
 | 4 | 自适应画质双向化：降档阈值挂钩 fpsCap(90%)、新增 `adaptStepUp` 回升 + 迟滞锁档 | 5.5 | ⬜ |
 | 5 | 本地帧时遥测骨架：环形缓冲 + p50/p95/p99 导出（零后端依赖） | 8.5 | ⬜ |

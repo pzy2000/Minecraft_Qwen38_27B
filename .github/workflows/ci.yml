@@ -31,6 +31,9 @@ jobs:
       - name: 运行无浏览器测试
         run: npm run test:node
 
+      - name: 运行高保真仿真回归
+        run: npm run test:sim
+
   browser-test:
     name: 浏览器测试 (Chrome headless)
     runs-on: ubuntu-latest

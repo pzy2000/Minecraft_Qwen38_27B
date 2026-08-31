@@ -42,11 +42,18 @@ const nodeFiles = [
   'test/planet_rules_test.js',
   'test/resource_registry_test.js',
   'test/portal_network_test.js',
+  'test/redstone_test.js',
+  'test/park_economy_test.js',
+  'test/terrain_parity_test.js',
   'test/ship_flight_test.js',
   'test/flight_sequence_test.js',
   'test/audio_asset_budget_test.js',
   'test/ci_workflow_test.js',
   'test/pages_workflow_test.js'
+];
+// 高保真仿真：运行时长 60s+，单独承载为 test:sim，不进入快速链
+const simFiles = [
+  'test/landing_success_test.js'
 ];
 const browserFiles = [
   'test/run_browser_tests.js',
@@ -68,6 +75,13 @@ for (const file of browserFiles) {
   check(!String(pkg.scripts['test:node'] || '').includes(file),
     'test:node 不重复 ' + file);
 }
+for (const file of simFiles) {
+  check(occurrences(pkg.scripts['test:sim'] || '', file) === 1,
+    'test:sim 唯一覆盖 ' + file);
+  check(!String(pkg.scripts['test:node'] || '').includes(file) &&
+    !String(pkg.scripts['test:browser'] || '').includes(file),
+    'test:sim 不与快速链重复 ' + file);
+}
 
 console.log('GitHub Actions 契约');
 check(occurrences(workflow, 'actions/checkout@v7') === 2,
@@ -82,6 +96,7 @@ check(occurrences(workflow, 'npm ci --engine-strict') === 2,
   '两个任务均严格校验 engine 并按锁文件安装');
 check(occurrences(workflow, 'npm run build') === 1, '远程唯一执行 build');
 check(occurrences(workflow, 'npm run test:node') === 1, '远程唯一执行 test:node');
+check(occurrences(workflow, 'npm run test:sim') === 1, '远程唯一执行 test:sim（高保真仿真回归）');
 check(occurrences(workflow, 'npm run test:browser') === 1, '远程唯一执行 test:browser');
 check(workflow.includes("CHROME_BUILD=\"$(node -p \"require('puppeteer-core').PUPPETEER_REVISIONS.chrome\")\"") &&
   /^[0-9]+(?:\.[0-9]+){3}$/.test(require('puppeteer-core').PUPPETEER_REVISIONS.chrome),
