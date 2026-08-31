@@ -40,6 +40,7 @@ Voxel.Atmosphere = (function () {
     toxic: 'spores',
     volcanic: 'ash',
     oceanic: 'sea-mist',
+    nordic: 'aurora',
     station: 'station-stars'
   };
 
@@ -585,32 +586,107 @@ Voxel.Atmosphere = (function () {
 
   function createAurora(count, color) {
     count = Math.max(8, Math.min(96, count));
-    var positions = new Float32Array(count * 2 * 3);
+    // DynamicSurroundings 式极光：若干幅绕穹顶弯曲的宽幅光帘（网格带 +
+    // 加色混合 shader），底部亮绿、向上渐隐，横向射线随时间扫动呼吸。
+    // nordic 主题三层帘（主帘 + 两条副帘），其余世界保持单层。
+    var layers = profile.typeKey === 'nordic' ? [
+      // 主光帘：从南岸上空铺到头顶（出生点背后也可见）
+      { azc: 3.19, span: 3.4, yb: 160, yt: 450, R: 430, weight: 1.0 },
+      // 副帘：更高更淡的斜向交叠层（偏城堡一侧）
+      { azc: -0.62, span: 2.9, yb: 235, yt: 560, R: 452, weight: 0.7 },
+      // 低幅横带：贴着雪脊上方的一条水平亮绿（参考照片山脚的光弧）
+      { azc: 0.35, span: 3.3, yb: 98, yt: 168, R: 436, weight: 0.62 },
+      // 南天低带：背对城堡时也有轻微绿晕
+      { azc: 3.05, span: 2.4, yb: 105, yt: 220, R: 444, weight: 0.45 }
+    ] : [{ azc: 0, span: 2.2, yb: 120, yt: 225, R: 430, weight: 1.0 }];
     var rng = makeRng(profile.seed, 'aurora');
-    for (var i = 0; i < count; i++) {
-      var t0 = i / count;
-      var t1 = (i + 1) / count;
-      var a0 = -1.05 + t0 * 2.1;
-      var a1 = -1.05 + t1 * 2.1;
-      var y0 = 155 + Math.sin(t0 * Math.PI * 4 + rng() * 0.08) * 28;
-      var y1 = 155 + Math.sin(t1 * Math.PI * 4 + rng() * 0.08) * 28;
-      var j = i * 6;
-      positions[j] = Math.sin(a0) * 430; positions[j + 1] = y0; positions[j + 2] = -Math.cos(a0) * 430;
-      positions[j + 3] = Math.sin(a1) * 430; positions[j + 4] = y1; positions[j + 5] = -Math.cos(a1) * 430;
+    var group = new THREE.Group();
+    group.userData.isAuroraGroup = true;
+    group.userData.role = 'aurora';
+    group.name = 'AtmosphereSignature_aurora';
+    group.renderOrder = -70;
+    group.userData.uniforms = [];
+    var segs = 72, rows = 10;
+    for (var li = 0; li < layers.length; li++) {
+      var L2 = layers[li];
+      var positions = new Float32Array((segs + 1) * (rows + 1) * 3);
+      var uvs = new Float32Array((segs + 1) * (rows + 1) * 2);
+      var indices = new Uint16Array(segs * rows * 6);
+      var seedPhase = rng() * Math.PI * 2;
+      var p = 0, q = 0;
+      for (var iy = 0; iy <= rows; iy++) {
+        var tv = iy / rows;
+        for (var ix = 0; ix <= segs; ix++) {
+          var tu = ix / segs;
+          var az = L2.azc - L2.span / 2 + tu * L2.span;
+          var wave = Math.sin(az * 3.1 + seedPhase) * 11 + Math.sin(az * 7.7 + seedPhase * 2.3) * 6;
+          positions[p++] = Math.sin(az) * L2.R;
+          positions[p++] = L2.yb + (L2.yt - L2.yb) * tv + wave;
+          positions[p++] = -Math.cos(az) * L2.R;
+          uvs[q++] = tu; uvs[q++] = tv;
+        }
+      }
+      var idx = 0;
+      for (var iy2 = 0; iy2 < rows; iy2++)
+        for (var ix2 = 0; ix2 < segs; ix2++) {
+          var a = iy2 * (segs + 1) + ix2, b = a + 1;
+          var c = a + segs + 1, d = c + 1;
+          indices[idx++] = a; indices[idx++] = c; indices[idx++] = b;
+          indices[idx++] = b; indices[idx++] = c; indices[idx++] = d;
+        }
+      var geo = track('geometries', new THREE.BufferGeometry());
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(new THREE.BufferAttribute(indices, 1));
+      var mat = track('materials', new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: rng() * 40 },
+          uIntensity: { value: 0 },
+          uSeed: { value: seedPhase }
+        },
+        vertexShader:
+          'varying vec2 vUv;' +
+          'void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+        fragmentShader:
+          'uniform float uTime;' +
+          'uniform float uIntensity;' +
+          'uniform float uSeed;' +
+          'varying vec2 vUv;' +
+          'float ray(float u,float t,float seed){' +
+          '  return 0.5+0.5*sin(u*21.0+seed+sin(u*8.5-t*0.55)*2.6+sin(u*43.0+t*0.21)*0.9);' +
+          '}' +
+          'void main(){' +
+          '  float r=ray(vUv.x,uTime,uSeed);' +
+          '  float curtain=smoothstep(0.02,0.16,vUv.y)*pow(max(0.0,1.0-vUv.y),1.35);' +
+          '  vec3 col=mix(vec3(0.17,0.98,0.52),vec3(0.05,0.62,0.63),' +
+          '    clamp(vUv.y*1.55-0.18+r*0.13,0.0,1.0));' +
+          // 纯加色：亮度全部走 RGB 通道（强度先钳回 ≤1），alpha 恒为 0——
+          // 预乘 alpha + 加色混合会把超量 alpha 二次折叠成红/品红伪影。
+          '  float k=clamp(curtain*(0.38+0.62*r*r)*uIntensity,0.0,1.0);' +
+          '  gl_FragColor=vec4(col*k*1.18,0.0);' +
+          '}',
+        transparent: true,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+        depthWrite: false,
+        // 接受深度测试：透明队列在不透明地形之后绘制，开深度测试后
+        // 山体/建筑会正确遮挡光帘（天空穹顶不写深度，不受影响）。
+        depthTest: true,
+        side: THREE.DoubleSide
+      }));
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.userData.role = 'aurora';
+      mesh.userData.layerWeight = L2.weight;
+      mesh.renderOrder = -70 + li;
+      mesh.frustumCulled = false;
+      mesh.visible = false;
+      group.add(mesh);
+      group.userData.uniforms.push({ uniform: mat.uniforms.uIntensity, weight: L2.weight });
     }
-    var geo = track('geometries', new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    var mat = track('materials', new THREE.LineBasicMaterial({
-      color: color,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      depthTest: false,
-      fog: false
-    }));
-    signature = setRole(new THREE.LineSegments(geo, mat), 'aurora');
+    group.userData.baseOpacity = layers.length > 1 ? 1.35 : 0.85;
+    signature = setRole(group, 'aurora');
     signature.userData.count = count;
-    signature.userData.baseOpacity = 0.62;
   }
 
   function createSignaturePoints(role, count, color) {
@@ -785,6 +861,20 @@ Voxel.Atmosphere = (function () {
       signature.visible = opacity > 0.008;
       signature.rotation.y = reducedMotion ? 0 : wrap01(lastTime) * TAU *
         (role === 'ash' ? -0.035 : 0.022);
+    } else if (signature && signature.userData.isAuroraGroup) {
+      // 光帘极光：强度写进各层 shader uniform；射线扫动用绝对日内时间驱动。
+      var aOpacity = (signature.userData.baseOpacity || 1) *
+        Math.pow(night, profile.typeKey === 'nordic' ? 0.85 : 1.3);
+      var list = signature.userData.uniforms || [];
+      for (var ui = 0; ui < list.length; ui++)
+        list[ui].uniform.value = Math.min(1.0, aOpacity * list[ui].weight);
+      for (var mi = 0; mi < signature.children.length; mi++) {
+        var aMesh = signature.children[mi];
+        aMesh.visible = aOpacity > 0.01;
+        if (!reducedMotion && aMesh.material)
+          aMesh.material.uniforms.uTime.value = wrap01(lastTime) * 90 + mi * 13.7;
+      }
+      signature.visible = true;
     }
     updateCelestials(lastTime);
   }

@@ -59,6 +59,7 @@ load('js/world/planet_rules.js');
 load('js/world/shaper.js');
 load('js/world/gen_core.js');
 load('js/blocks.js');
+load('js/world/structures.js');
 load('js/systems/discovery.js');
 load('js/crafting.js');
 load('js/world/world.js');
@@ -330,17 +331,17 @@ console.log('主动扫描、发现档案与探索目标');
   check('巨型 catalog 同样受硬上限约束', D.summary(D.empty(), hugeCatalog).totalWorlds === 64);
 })();
 
-console.log('七类大气与天体描述');
+console.log('八类大气与天体描述');
 var AP = V.AtmosphereProfiles;
 var atmosphereKeys = AP.keys();
-var expectedAtmosphereKeys = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'station'];
+var expectedAtmosphereKeys = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'nordic', 'station'];
 var expectedSignatures = {
   lush: 'pollen', arid: 'dust', frozen: 'aurora', toxic: 'spores',
-  volcanic: 'ash', oceanic: 'sea-mist', station: 'station-stars'
+  volcanic: 'ash', oceanic: 'sea-mist', nordic: 'aurora', station: 'station-stars'
 };
 var expectedTopology = {
   lush: [1, 2], arid: [2, 2], frozen: [1, 3], toxic: [1, 1],
-  volcanic: [2, 1], oceanic: [1, 2], station: [0, 0]
+  volcanic: [2, 1], oceanic: [1, 2], nordic: [1, 2], station: [0, 0]
 };
 
 function atmosphereColor(v) {
@@ -388,7 +389,7 @@ function atmosphereProfileValid(p) {
     p.particles.count >= 0 && atmosphereColor(p.particles.color) && Number.isInteger(p.variantHash) && p.variantHash >= 0;
 }
 
-check('大气描述键精确覆盖6行星+空间站', JSON.stringify(atmosphereKeys) === JSON.stringify(expectedAtmosphereKeys));
+check('大气描述键精确覆盖7行星主题+空间站', JSON.stringify(atmosphereKeys) === JSON.stringify(expectedAtmosphereKeys));
 var atmosphereProfiles = {};
 for (var api = 0; api < atmosphereKeys.length; api++) {
   var atmosphereKey = atmosphereKeys[api];
@@ -418,10 +419,14 @@ check('所有行星均有星云/日月/多天体/星环', planetAtmosphereKeys.e
 check('空间站无日月且有星空/带环母星', atmosphereProfiles.station.suns.length === 0 &&
   atmosphereProfiles.station.moons.length === 0 && atmosphereProfiles.station.signatureRole === 'station-stars' &&
   atmosphereProfiles.station.landmark.style === 'station-parent-ringed');
-check('六类行星的大气基色与签名均唯一',
+check('行星主题的大气基色与签名均唯一',
   new Set(planetAtmosphereKeys.map(function (key) {
     var p = atmosphereProfiles[key]; return p.day.top + ':' + p.day.horizon + ':' + p.night.top;
   })).size === 6 && new Set(atmosphereKeys.map(function (key) { return atmosphereProfiles[key].signatureRole; })).size === 7);
+check('nordic 主题与 frozen 同为绿帘极光但天色独立',
+  atmosphereProfiles.nordic.signatureRole === 'aurora' &&
+  atmosphereProfiles.nordic.day.top !== atmosphereProfiles.frozen.day.top &&
+  atmosphereProfiles.nordic.particles.color !== atmosphereProfiles.frozen.particles.color);
 check('类型标志特征与规格一致',
   atmosphereProfiles.frozen.signatureRole === 'aurora' &&
   atmosphereProfiles.toxic.landmark.style === 'banded-ringed' &&
@@ -989,6 +994,92 @@ console.log('精选世界出生点（干地校验，复现蘑菇林沉海回归�
     { step: 4, x0: -520, x1: 519 });
   check('缺干地探针时退化为旧评分行为', !!degraded &&
     V.World.biomeAt(degraded.x, degraded.z) === Bn.MUSHROOM_FIELDS);
+})();
+
+console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
+(function () {
+  var Bn = V.Biomes.B;
+  // 主题世界：单一峡湾群系白名单 + 确定性 vista 站点
+  V.World.init('24601', { id: 'planet-0', kind: 'planet', typeKey: 'nordic', terrainVersion: 2 });
+  var vista = V.Structures.nearestVistaTo(0, 0, 6);
+  check('nordic 世界在起源附近产出峡湾全景站点', !!vista);
+  if (vista) {
+    var v2 = V.Structures.nearestVistaTo(0, 0, 6);
+    check('vista 描述符确定性复现', JSON.stringify(vista) === JSON.stringify(v2));
+    check('vista 锚点为北欧峡湾群系', V.World.biomeAt(vista.ax, vista.az) === Bn.NORDIC_FJORD);
+    check('vista 锚点高于水位且低于雪脊上限', vista.ah > V.Config.WATER_LEVEL + 2 &&
+      vista.ah <= V.Config.WORLD_H - 90);
+    var gate = V.Structures.vistaGateSpawn(vista);
+    check('城堡出生点位于南岸干地并面向湖心', !!gate && gate.y > V.Config.WATER_LEVEL &&
+      (gate.z - vista.az) > 100);   // 出生在 z+ 南岸
+    // 结构落位抽检：与世界生成同一事实源（gen_core decorateVistas）
+    var L = V.Structures.vistaLayout();
+    var scx = vista.ax + L.plaza.cx + L.spire.cx;
+    var scz = vista.az + L.plaza.cz + L.spire.cz;
+    function scanFound() {
+      var sh = false;
+      for (var yv = vista.ah + 28; yv < vista.ah + 50; yv++)
+        if (V.World.get(scx - 2, yv, scz) === 217) { sh = true; break; }
+      return sh;
+    }
+    // 同步预生成锚点周边区块（半径 176 列，覆盖雪脊带与桥台）
+    var bcx0 = Math.floor((vista.ax - 180) / V.Config.CHUNK);
+    var bcx1 = Math.floor((vista.ax + 180) / V.Config.CHUNK);
+    var bcz0 = Math.floor((vista.az - 180) / V.Config.CHUNK);
+    var bcz1 = Math.floor((vista.az + 180) / V.Config.CHUNK);
+    for (var gcx = bcx0; gcx <= bcx1; gcx++)
+      for (var gcz = bcz0; gcz <= bcz1; gcz++) V.World.ensureChunk(gcx, gcz);
+    var shingle = 0, plaster = 0, water = 0, chest = 0;
+    for (var vy = 10; vy < 130; vy++) {
+      var sid = V.World.get(scx - 2, vy, scz);
+      if (sid === 217) shingle++;
+      if (sid === 218) plaster++;
+    }
+    // 主厅南墙白灰泥（避开每 5 列的暗隅石与窗行，取普通墙面采样）
+    plaster = 0;
+    for (var hwq = 2; hwq <= 10 && !plaster; hwq++)
+      if (V.World.get(vista.ax + L.plaza.cx + L.hall.x0 + hwq,
+        vista.ah + L.plaza.top + 3, vista.az + L.plaza.cz + L.hall.z1) === 218) plaster = 1;
+    for (var vy2 = 5; vy2 < 60; vy2++)
+      if (V.World.get(vista.ax + L.lake.cx + 60, vy2, vista.az + L.lake.cz) === 7) water++;
+    for (var cxx = vista.ax - 40; cxx <= vista.ax + 40; cxx++)
+      for (var czz = vista.az - 40; czz <= vista.az + 20; czz++)
+        for (var cy2 = vista.ah; cy2 <= vista.ah + 12; cy2++) {
+          var cid = V.World.get(cxx, cy2, czz);
+          if (cid === 38) chest++;
+        }
+    check('中央尖塔锥顶绯红瓦与塔身白灰泥墙生成', shingle >= 4 && plaster >= 1);
+    check('冰湖注水成片', water >= 8);
+    check('主厅宝箱位唯一且与反查坐标一致', chest === 1);
+    var chestsApi = V.Structures.vistaChests(vista);
+    check('宝箱反查坐标命中实体箱子', chestsApi.length === 1 &&
+      V.World.get(chestsApi[0].x, chestsApi[0].y, chestsApi[0].z) === 38);
+    var loot = V.Structures.chestLootAt(chestsApi[0].x, chestsApi[0].y, chestsApi[0].z);
+    check('城堡宝箱战利品按种子稳定且必出曲速电池', !!loot &&
+      JSON.stringify(loot) === JSON.stringify(V.Structures.chestLootAt(chestsApi[0].x, chestsApi[0].y, chestsApi[0].z)) &&
+      loot.some(function (s) { return s && s.id === 122; }));
+    // 拱桥完整：全程每隔一列采样桥面应无缺口
+    var BR = L.bridge, gaps = 0;
+    for (var bxv = BR.x0; bxv <= BR.x1; bxv += 3) {
+      var t = (bxv - BR.x0) / (BR.x1 - BR.x0);
+      var dyv = Math.round(Math.sin(t * Math.PI) * BR.rise);
+      var bid = V.World.get(vista.ax + bxv, vista.ah + L.plaza.top + dyv, vista.az + BR.z0 + 2);
+      if (bid !== 216 && bid !== 78) gaps++;
+    }
+    check('石拱桥面采样无缺口', gaps === 0);
+    // 雪脊带覆雪（峰体雪帽体素总量）
+    var snowRidge = 0;
+    for (var sxv = -140; sxv <= 140; sxv += 5)
+      for (var syv = 38; syv <= 80; syv += 3)
+        for (var szv = L.diskCz - L.diskR + 6; szv <= L.diskCz - 70; szv += 12)
+          if (V.World.get(vista.ax + sxv, vista.ah + syv, vista.az + szv) === 18)
+            snowRidge++;
+    check('北岸山脊带出现积雪峰体', snowRidge > 40);
+  }
+  // lush 世界不受影响：同一扫描范围内不得产生 vista
+  V.World.init(12345, { kind: 'planet', typeKey: 'lush', terrainVersion: 2 });
+  while (!V.World.isReady()) V.World.generateNext(64);
+  check('lush 世界无峡湾全景结构', !V.Structures.cellVista(0, 0));
 })();
 
 console.log('修改与存档还原');

@@ -30,7 +30,8 @@ Voxel.Biomes = (function () {
     SWAMP: 19,           // 沼泽
     CHERRY_GROVE: 20,    // 樱花树林
     DARK_FOREST: 21,     // 黑森林
-    PLAYGROUND: 22       // 星海嘉年华（v7 新增）
+    PLAYGROUND: 22,      // 星海嘉年华（v7 新增）
+    NORDIC_FJORD: 23     // 北欧峡湾（北欧城堡主题群系）
   };
 
   // 方块 ID 引用（与 blocks.js 保持一致）
@@ -44,7 +45,9 @@ Voxel.Biomes = (function () {
     PARK_LAWN: 74, CREAM_PAVE: 75, PASTEL_BRICK: 76, CANDY_STRIPE: 77,
     GOLD_TRIM: 78, LANTERN: 79, RAIL_WHITE: 80, ROOF_BLUE: 81,
     NEON_PURPLE: 82, NEON_CYAN: 83, BUNTING: 84, RIDE_PAD: 85,
-    CASTLE_PINK: 86, CASTLE_BLUE: 87
+    CASTLE_PINK: 86, CASTLE_BLUE: 87,
+    // 北欧峡湾
+    BLACK_SAND: 215, GNEISS: 216
   };
 
   var defs = [];
@@ -192,6 +195,16 @@ Voxel.Biomes = (function () {
   };
   defs[B.PLAYGROUND].visual = V([1.04, 1.00, 1.03], 1.08);     // 园区欢快高亮
 
+  // 北欧峡湾：黑沙丘地、峡湾湖面与雪脊山影的极地海岸。
+  // 植被只有稀疏云杉与枯草丛（plantOn 限黑沙），地标地貌由 Structures 的
+  // 峡湾全景结构负责（湖心城堡、石拱桥、雪帽山脊）。
+  defs[B.NORDIC_FJORD] = {
+    name: '北欧峡湾', surface: BLK.BLACK_SAND, filler: BLK.GNEISS,
+    treeType: 'spruce', treeChance: 0.0018, plantOn: [BLK.BLACK_SAND],
+    mobs: ['sheep', 'rabbit']
+  };
+  defs[B.NORDIC_FJORD].visual = V([0.90, 1.14, 1.06], 1.55);   // 极光绿青环境色 + 远目
+
   // ---- 气候参数点：每个群系在五维气候空间的目标位置 ----
   // 顺序：[温度 T, 湿度 H, 大陆性 C, 侵蚀度 E, 奇异性 W]
   var points = [];
@@ -224,6 +237,9 @@ Voxel.Biomes = (function () {
   // 主活动窗内约 830+ 干地胜出格连片（x[78,144] z[138,285]），高侵蚀=平坦开阔，
   // 与樱花林/草原吸引域边界清晰；乐园园区结构只落在本群系干地上。
   points[B.PLAYGROUND] = [0.32, -0.42, 0.12, 0.9, 0.82];
+  // 北欧峡湾：极寒角点（比雪原更冷、奇异性极负的未占用角落），避免挤压
+  // 既有群系的气候吸引域；主题世界的黑沙地表与雪脊由种子+结构保证。
+  points[B.NORDIC_FJORD] = [-1.0, -0.5, 0.05, 0.35, -0.92];
 
   // ---- 气候采样器：低频噪声通道，输出归一化到 [-1,1] ----
   // 世界仅 256×256，频率相对 MC 压缩以保证一张图内出现多样群系。

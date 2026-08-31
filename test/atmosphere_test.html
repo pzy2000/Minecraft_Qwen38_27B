@@ -19,7 +19,7 @@
   'use strict';
   var out = [];
   var failures = 0;
-  var TYPES = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'station'];
+  var TYPES = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'nordic', 'station'];
   var PLANET_ROLES = ['sky-dome', 'sun', 'moon', 'stars'];
   var SIGNATURE = {
     lush: 'pollen',
@@ -28,6 +28,7 @@
     toxic: 'spores',
     volcanic: 'ash',
     oceanic: 'sea-mist',
+    nordic: 'aurora',
     station: 'station-stars'
   };
   var scene = new THREE.Scene();
@@ -319,7 +320,9 @@
         check(type + ' 保留星环且像素天体纹理有透明角/尺寸有界',
           hasRole(r, 'ringed-landmark') && tex.ok && tex.checked >= 3, JSON.stringify(tex));
         var budget = objectMetrics(r);
-        check(type + ' 天空drawables<=7且celestial<=4', budget.drawables <= 7 &&
+        // 光帘极光（DynamicSurroundings 式）由最多 4 幅加色网格组成，
+        // 天空 drawable 预算相应放宽：dome/stars/signature×4/celestial≤4
+        check(type + ' 天空drawables<=10且celestial<=4', budget.drawables <= 10 &&
           snapshot().counts.celestial <= 4, JSON.stringify(budget));
       }
       check(type + ' scene对象与snapshot均finite', finiteObject(r) && finiteTree(snapshot()));

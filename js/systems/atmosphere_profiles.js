@@ -3,7 +3,7 @@ window.Voxel = window.Voxel || {};
 
 Voxel.AtmosphereProfiles = (function () {
   var TWO_PI = Math.PI * 2;
-  var ORDER = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'station'];
+  var ORDER = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'nordic', 'station'];
 
   var PRESETS = {
     lush: {
@@ -112,6 +112,25 @@ Voxel.AtmosphereProfiles = (function () {
       landmark: { role: 'ringed-landmark', style: 'station-parent-ringed', size: 74, color: 0x477db0, phase: 0.64, inclination: -0.22,
         ring: { color: 0xc8dcff, inner: 1.18, outer: 1.88, opacity: 0.66, tilt: 0.51 } },
       signatureRole: 'station-stars', particles: { role: 'station-stars', count: 96, color: 0xd7e9ff }
+    },
+    nordic: {
+      // 北欧城堡：极昼式暮光——夜幕仍保持昼间量级的青蓝亮度（午夜太阳），
+      // 绿帘极光整夜高亮；细雪天气。天色冷青、地平线透辉。
+      day: [0x9db8cc, 0xc7dde4], dusk: [0x35506b, 0x4f9a94],
+      night: [0x2e5c7c, 0x63a8ad],
+      tintDay: 0xeaf6fa, tintNight: 0xe2eef5, ambientFloor: 0.76, exponent: 0.52, weatherMix: 0.85,
+      weather: [0x5c7386, 0x8fa7b2, 0x3f5a70, 0x66879c, 0xaec3cd, 0xddeaf0, 'snow', 0xdff5ff],
+      stars: [520, 0xf0ffff, 0x7fe8c8], nebula: [0x1f8f78, 0x4c6fae, 0.30, 1.86],
+      suns: [
+        { role: 'sun', style: 'cold-white', size: 40, color: 0xf2fbff, phase: 0.03, inclination: -0.05, cyclesPerDay: 1 }
+      ],
+      moons: [
+        { role: 'moon', style: 'glacial', size: 34, color: 0xd6f6ef, phase: 0.52, inclination: 0.14, cyclesPerDay: 1 },
+        { role: 'moon', style: 'smooth', size: 16, color: 0xbfe9dd, phase: 0.21, inclination: -0.44, cyclesPerDay: 2 }
+      ],
+      landmark: { role: 'ringed-landmark', style: 'ice-banded', size: 52, color: 0x64c2ad, phase: 0.71, inclination: 0.28,
+        ring: { color: 0xa9ffe0, inner: 1.15, outer: 2.02, opacity: 0.72, tilt: 0.38 } },
+      signatureRole: 'aurora', particles: { role: 'aurora', count: 96, color: 0x54ffb0 }
     }
   };
 

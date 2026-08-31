@@ -72,7 +72,10 @@ Voxel.Blocks = (function () {
     WOOL_C0: 195,   // 彩色羊毛×15 连续（白色用原羊毛）
     TERRA_C0: 210,  // 彩色陶瓦×16 连续
     GLASS_C0: 225,  // 彩色玻璃×13 连续
-    I_DYE0: 238     // 染料图标×16 连续
+    I_DYE0: 238,    // 染料图标×16 连续
+    // 北欧城堡瓦片（稳定序号 254..，只追加不移动）
+    BLACK_SAND: 254, GNEISS: 255, SHINGLE_RED: 256,
+    PLASTER_WHITE: 257, TUSSOCK_DRY: 258
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -581,6 +584,29 @@ Voxel.Blocks = (function () {
   defs[220] = { name: '红石粉', item: true, solid: false, opaque: false,
     tiles: [T.RS_DUST, T.RS_DUST, T.RS_DUST], sound: 'wool',
     color: 0xd8331e, icon: T.RS_DUST };
+
+  // ============ 北欧城堡扩展（稳定方块 ID 215..219）============
+  // 只在注册表尾部追加，不得复用/移动旧 ID；仅 nordic 主题世界自然/结构生成。
+  // 黑沙：火山质感的深色沙滩（北欧峡湾群系地表）
+  defs[215] = { name: '黑沙', solid: true, opaque: true,
+    tiles: [T.BLACK_SAND, T.BLACK_SAND, T.BLACK_SAND], sound: 'sand',
+    color: 0x5c6168, hard: 0.6 };
+  // 暗色片麻岩：峡湾基岩山体的片理纹理
+  defs[216] = { name: '暗色片麻岩', solid: true, opaque: true,
+    tiles: [T.GNEISS, T.GNEISS, T.GNEISS], sound: 'stone',
+    color: 0x4a4e58, hard: 4, pick: true };
+  // 绯红瓦：城堡锥顶与坡屋顶的红陶鳞瓦
+  defs[217] = { name: '绯红瓦', solid: true, opaque: true,
+    tiles: [T.SHINGLE_RED, T.SHINGLE_RED, T.SHINGLE_RED], sound: 'stone',
+    color: 0x9c3a30, hard: 2.5, pick: true };
+  // 白灰泥墙：城堡主体亮白墙面
+  defs[218] = { name: '白灰泥墙', solid: true, opaque: true,
+    tiles: [T.PLASTER_WHITE, T.PLASTER_WHITE, T.PLASTER_WHITE], sound: 'stone',
+    color: 0xe8e4d8, hard: 1.8 };
+  // 枯草丛：黑沙丘上的北欧草簇（十字面片装饰）
+  defs[219] = { name: '枯草丛', solid: false, opaque: false, cross: true, crossHeight: 0.7,
+    tiles: [T.TUSSOCK_DRY, T.TUSSOCK_DRY, T.TUSSOCK_DRY], sound: 'leaves',
+    color: 0xb08a4a, hard: 0.05 };
 
   // ============ v8 扩容：农耕系统（方块 ID 221..238，物品 239..247）============
   var FARM = {
@@ -2325,6 +2351,44 @@ Voxel.Blocks = (function () {
         });
       })(ddi);
     }
+
+    // ---- 北欧城堡瓦片 ----
+    // 黑沙：湿润火山沙面 + 云母反光点（青绿环境下呈亮炭色）
+    drawTile(T.BLACK_SAND, function (x, y, r) {
+      var v = n(r, 0, 14);
+      var sheen = r() < 0.06 ? 34 : 0;
+      return [86 + v + sheen, 92 + v * 0.95 + sheen, 98 + v * 0.8 + sheen * 1.2];
+    });
+    // 暗色片麻岩：斜向片理条带
+    drawTile(T.GNEISS, function (x, y, r) {
+      var band = ((x + y * 2) % 7 < 2);
+      var v = band ? n(r, 4, 16) : n(r, 0, 12);
+      var light = ((x + y) % 11 === 0) ? 18 : 0;   // 亮矿线
+      return [66 + v + light, 70 + v + light, 80 + v];
+    });
+    // 绯红瓦：叠瓦鳞纹（行错位半片）
+    drawTile(T.SHINGLE_RED, function (x, y, r) {
+      var row = Math.floor((y + (Math.floor(x / 4) % 2) * 2) / 4);
+      var edge = ((y + (Math.floor(x / 4) % 2) * 2) % 4 === 3);
+      var v = n(r, 0, 12);
+      if (edge) return [96 + v, 40 + v, 34 + v];
+      var hi = ((x % 4) === 0 || row % 3 === 0) ? 22 : 0;
+      return [156 + v + hi, 62 + v * 0.5 + hi * 0.4, 48 + v * 0.4];
+    });
+    // 白灰泥墙：暖白抹灰 + 细颗粒
+    drawTile(T.PLASTER_WHITE, function (x, y, r) {
+      var v = n(r, 0, 10);
+      var shade = (y % 8 === 0 || x % 9 === 0) ? 5 : 0;
+      return [243 + v - shade, 240 + v - shade, 231 + v - shade];
+    });
+    // 枯草丛：北欧草簇（十字渲染透明底，枯黄细叶）
+    drawTile(T.TUSSOCK_DRY, function (x, y, r) {
+      var blade = (x % 4 === 0 && y > 5) || (x % 4 === 2 && y > 8);
+      if (!blade || y > 13) return null;
+      var tip = y < 8;
+      var v = n(r, 0, 22);
+      return tip ? [232 + v, 196 + v, 110 + v] : [198 + v, 156 + v, 78 + v];
+    });
 
     ctx.putImageData(img, 0, 0);
 

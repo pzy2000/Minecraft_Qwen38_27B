@@ -415,6 +415,20 @@ Voxel.Structures = (function () {
         }
       }
     }
+    // 北欧城堡主厅宝箱反查
+    var vx0 = Math.floor((x - VISTA_EXTENT) / VISTA_CELL), vx1 = Math.floor((x + VISTA_EXTENT) / VISTA_CELL);
+    var vz0 = Math.floor((z - VISTA_EXTENT) / VISTA_CELL), vz1 = Math.floor((z + VISTA_EXTENT) / VISTA_CELL);
+    for (var vcx = vx0; vcx <= vx1; vcx++) {
+      for (var vcz = vz0; vcz <= vz1; vcz++) {
+        var vista = cellVista(vcx, vcz);
+        if (!vista) continue;
+        var vchests2 = vistaChests(vista);
+        for (var vi2 = 0; vi2 < vchests2.length; vi2++) {
+          if (vchests2[vi2].x === x && vchests2[vi2].y === y && vchests2[vi2].z === z)
+            return vistaLootFor(vista, vchests2[vi2].index);
+        }
+      }
+    }
     return null;
   }
 
@@ -1466,6 +1480,613 @@ Voxel.Structures = (function () {
     })();
   }
 
+  // ================= 北欧城堡 · 峡湾全景（nordic 主题精选世界）=================
+  //
+  // 与星海嘉年华同一套「cell 重算裁剪」模式：描述符为纯函数，builder 只依赖
+  // (vista, 常量)；每区块按 clip 裁剪只计算与自己相交的列。构图固定不旋转，
+  // 保证任何 vista 的取景都一一对应两张参考照片：
+  //   南岸黑沙丘地(出生点) → 冰湖 → 湖心岛上的红顶白墙城堡 → 石拱桥连东岸
+  //   → 北岸雪帽锯齿山脊；夜空由 nordic 大气提供绿帘极光。
+  var VISTA_CELL = 384;
+  var VISTA_EXTENT = 175;     // 圆盘半径 158 + 桥墩/码头余量
+  // 锚点高度带：雪脊最高点 ≈ ah+74 < CONTENT_NATURAL_TOP(116)，留出建造上限
+  var VISTA_AH_MAX = 42;
+
+  var NK = {
+    BLACK_SAND: 215, GNEISS: 216, SHINGLE: 217, PLASTER: 218, TUSSOCK: 219,
+    SNOW: 18, ICE: 32, WATER: 7, GRASS: 1, DIRT: 2, STONE: 3,
+    PLANKS: 10, GLASS: 13, CHEST: 38, TORCH: 19,
+    SPRUCE_LOG: 20, SPRUCE_LEAVES: 21,
+    GOLD: 78, LANTERN: 79, RAIL: 80,
+    GLASS_GOLD: 90, GLASS_CYAN: 89
+  };
+
+  // ---- 布局事实源（builder 与宝箱反查/出生点共用）----
+  function vistaLayout() {
+    return {
+      diskCx: 0, diskCz: -15, diskR: 158,
+      lake: { cx: 0, cz: -12, rx: 92, rz: 54 },
+      island: { cx: 0, cz: -10, rx: 34, rz: 27 },
+      plaza: { cx: -2, cz: -12, rx: 27, rz: 21, top: 5 },      // 相对 ah 的台面高
+      hall: { x0: -22, x1: -2, z0: -9, z1: 7, wallTop: 18 },   // 主厅（plaza 局部）
+      spire: { cx: 8, cz: -1, r: 3, shaftTop: 36 },            // 中央尖塔
+      wing: { x0: 2, x1: 18, z0: -5, z1: 9, wallTop: 13 },     // 东翼楼
+      turretA: [-22, 11], turretB: [-2, 11], turretNW: [-22, -11],
+      bridge: { z0: 4, z1: 8, x0: 22, x1: 88, rise: 4 },
+      dock: { x0: -40, x1: -27, z0: -3, z1: 1 },
+      spawn: { dx: 8, dz: 112 },
+      // 宝箱（plaza 局部）：主厅王座旁
+      chests: [{ dx: -20, dz: -6, dy: 8, index: 0 }]
+    };
+  }
+
+  // ---- 站点搜索：确定性最小方差探针。锚点必须是北欧峡湾群系——既把全景
+  // 结构限定在 nordic 主题世界，也保证 lush 等其他世界的逐区块扫描廉价早退。
+  function vistaSiteScore(ax, az) {
+    var h0 = ctx.surfaceAt(ax, az);
+    if (h0 <= WATER + 2 || h0 > VISTA_AH_MAX) return Infinity;
+    if (ctx.biomeAt(ax, az) !== B.NORDIC_FJORD) return Infinity;
+    var hs = [h0], sum = h0, n = 1, min = h0, max = h0;
+    var RING = [[120, 0], [-120, 0], [0, -130], [0, 118],
+      [96, -84], [-96, -84], [96, 70], [-96, 70]];
+    for (var i = 0; i < RING.length; i++) {
+      var h = ctx.surfaceAt(ax + RING[i][0], az + RING[i][1]);
+      if (h <= WATER + 2) return Infinity;          // 设计区整体必须站得住陆地
+      hs.push(h); sum += h; n++;
+      if (h < min) min = h; if (h > max) max = h;
+    }
+    var mean = sum / n;
+    if (max > mean + 14 || min < mean - 12) return Infinity;  // 悬崖落差过大
+    var dev = 0;
+    for (var j = 0; j < hs.length; j++) dev += Math.abs(hs[j] - mean);
+    return dev / n;
+  }
+
+  function cellVista(cellX, cellZ) {
+    if (!enabled()) return null;
+    var PROBE_STEP = 14;
+    var x0p = cellX * VISTA_CELL + VISTA_EXTENT;
+    var z0p = cellZ * VISTA_CELL + VISTA_EXTENT;
+    var spanP = VISTA_CELL - 2 * VISTA_EXTENT;
+    if (spanP < PROBE_STEP) return null;
+    var cols = Math.floor(spanP / PROBE_STEP);
+    var best = null, bestScore = Infinity;
+    for (var pi = 0; pi <= cols; pi++) {
+      for (var pj = 0; pj <= cols; pj++) {
+        var sx = x0p + pi * PROBE_STEP, sz = z0p + pj * PROBE_STEP;
+        // legacy core 禁区与园区一致
+        if (!(sx + VISTA_EXTENT < 0 || sx - VISTA_EXTENT >= W ||
+          sz + VISTA_EXTENT < 0 || sz - VISTA_EXTENT >= D)) continue;
+        var sc = vistaSiteScore(sx, sz);
+        if (sc === Infinity) continue;
+        if (sc < bestScore) { bestScore = sc; best = { ax: sx, az: sz }; }
+      }
+    }
+    if (!best) return null;
+    var ah = Math.round((ctx.surfaceAt(best.ax, best.az)));
+    // 邻域众数回正：锚点列取环均值更接近整体台面
+    var nbSum = 0;
+    [[0, 0], [40, 0], [0, 40], [-40, 0], [0, -40]].forEach(function (q) {
+      nbSum += ctx.surfaceAt(best.ax + q[0], best.az + q[1]);
+    });
+    ah = Math.round(nbSum / 5);
+    return { ax: best.ax, az: best.az, ah: ah, score: bestScore };
+  }
+
+  function nearestVistaTo(x, z, maxCells) {
+    if (!enabled()) return null;
+    var baseCx = Math.floor(x / VISTA_CELL), baseCz = Math.floor(z / VISTA_CELL);
+    var limit = Math.max(0, maxCells | 0);
+    var best = null, bestD = Infinity;
+    for (var ring = 0; ring <= limit && !best; ring++)
+      for (var dx = -ring; dx <= ring; dx++)
+        for (var dz = -ring; dz <= ring; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+          var v = cellVista(baseCx + dx, baseCz + dz);
+          if (!v) continue;
+          var d = Math.abs(v.ax - x) + Math.abs(v.az - z);
+          if (d < bestD) { bestD = d; best = v; }
+        }
+    return best;
+  }
+
+  // 精选出生点：南岸丘顶面向城堡大门（同 parkGateSpawn 的换算约定）
+  function vistaGateSpawn(vista) {
+    if (!vista || !ctx) return null;
+    var L = vistaLayout();
+    var px = vista.ax + L.spawn.dx, pz = vista.az + L.spawn.dz;
+    var gy = ctx.surfaceAt(px, pz);
+    if (gy <= WATER || Math.abs(gy - vista.ah) > 6) gy = vista.ah;
+    var tgt = PXv(vista, -2, -12);
+    var dx = tgt[0] - px, dz = tgt[1] - pz;
+    return { x: px + 0.5, y: gy + 1.25, z: pz + 0.5, yaw: Math.atan2(-dx, -dz) };
+  }
+
+  function PXv(vista, dx, dz) { return [vista.ax + dx, vista.az + dz]; } // 固定朝向
+
+  function vistaChests(vista) {
+    if (!vista) return [];
+    var L = vistaLayout();
+    return L.chests.map(function (c) {
+      var p = PXv(vista, L.plaza.cx + c.dx, L.plaza.cz + c.dz);
+      return { x: p[0], y: vista.ah + c.dy, z: p[1], index: c.index };
+    });
+  }
+
+  function vistaLootFor(vista, index) {
+    if (!enabled() || !vista) return null;
+    var items = new Array(27).fill(null);
+    var saltBase = vista.ax * 7517 + vista.az * 39301 + index * 1543;
+    var cursor = 3;
+    function roll(salt) { return h2(saltBase + salt * 5231, (vista.score * 100000 | 0) + salt * 4001); }
+    function put(id, n, dur) {
+      for (var guard = 0; guard < 27 && items[cursor]; guard++) cursor = (cursor + 1) % 27;
+      if (!items[cursor]) items[cursor] = { id: id, n: n, dur: dur === undefined ? null : dur };
+      cursor++;
+    }
+    put(ITEM.WARP_CELL, 1);
+    var toolId = roll(1) < 0.55 ? ITEM.IRON_PICK : ITEM.IRON_SWORD;
+    put(toolId, 1, Math.max(1, Math.round(251 * (0.7 + roll(2) * 0.3))));
+    put(ITEM.COAL, 5 + ((roll(3) * 7) | 0));
+    var meats = [ITEM.COOKED_PORK, ITEM.COOKED_CHICKEN, ITEM.COOKED_RABBIT];
+    put(meats[(roll(4) * 3) | 0], 2 + ((roll(5) * 3) | 0));
+    var crys = CRYSTAL_ITEM[typeKeyOf()] || CRYSTAL_ITEM.lush;
+    put(crys, 1 + ((roll(6) * 3) | 0));
+    return items;
+  }
+
+  // ---------- 几何助手 ----------
+  function vInEllipse(dx, dz, e) {
+    var ex = (dx - e.cx) / e.rx, ez = (dz - e.cz) / e.rz;
+    return ex * ex + ez * ez <= 1;
+  }
+  // 绝对坐标版（布局椭圆存相对锚点的 cx/cz）
+  function vInEllipseAbs(gx, gz, v, e) {
+    var ex = (gx - (v.ax + e.cx)) / e.rx, ez = (gz - (v.az + e.cz)) / e.rz;
+    return ex * ex + ez * ez <= 1;
+  }
+
+  function vistaInDisk(v, gx, gz) {
+    var L = vistaLayout();
+    var ex = (gx - (v.ax + L.diskCx)) / L.diskR, ez = (gz - (v.az + L.diskCz)) / L.diskR;
+    return ex * ex + ez * ez <= 1;
+  }
+
+  // 山脊剖面：北带锯齿峰列，返回该列相对 ah 的目标高度
+  var VISTA_PEAK_STEP = 28, VISTA_PEAK_H = [56, 68, 61, 73, 59, 70, 64, 74, 58, 67, 62];
+  function vRidgeHeight(v, gx, gz) {
+    var L = vistaLayout();
+    var zrel = gz - (v.az + L.diskCz);            // 相对盘心的 z 偏移（负=北）
+    if (zrel > -80) return null;
+    var edge = (zrel + 80) / -(L.diskR * 2 + 30) ; // 0..1 向盘缘衰减
+    var base = 6 + Math.round(edge * 6);
+    var bestH = 0;
+    for (var k = 0; k < VISTA_PEAK_H.length; k++) {
+      var pkx = v.ax + L.diskCx - 140 + k * VISTA_PEAK_STEP;
+      var d = Math.abs(gx - pkx);
+      var r = 30;
+      var dh = VISTA_PEAK_H[k] * Math.max(0, 1 - d / r);
+      if (dh > bestH) bestH = dh;
+    }
+    var jitter = Math.floor(h2(gx * 13 + 71, gz * 17 + 29) * 5);
+    return base + Math.round(bestH * (0.82 + jitter * 0.05));
+  }
+
+  // ---- 全景构建入口。clip = [cx0, cx1, cz0, cz1]（含端点），把成本压到相交列。----
+  function buildVista(v, writer, clip) {
+    if (!v || typeof writer !== 'function') return;
+    var L = vistaLayout();
+    var ah = v.ah;
+    // 统一坐标系：以下所有 dlx/dlz 都是「锚点局部」；写入一律经 WL()。
+    // 布局表中的城堡件以 plaza 局部存储，这里一次性换算成锚点局部。
+    var PLX = L.plaza.cx, PLZ = L.plaza.cz;
+    function LJ(dx) { return PLX + dx; }        // plaza 局部 x -> 锚点局部
+    function LJz(dz) { return PLZ + dz; }
+    var x0c = clip ? clip[0] - v.ax : -L.diskR - 2;   // clip 转局部
+    var x1c = clip ? clip[1] - v.ax : L.diskR + 2;
+    var z0c = clip ? clip[2] - v.az : L.diskCz - L.diskR - 2;
+    var z1c = clip ? clip[3] - v.az : L.diskCz + L.diskR + 2;
+    var gsLo = ah - 12;
+
+    function WL(lx, y, lz, id, mode) { writer(v.ax + lx, y, v.az + lz, id, mode || 'force'); }
+    function inClipL(lx, lz) { return lx >= x0c && lx <= x1c && lz >= z0c && lz <= z1c; }
+    function gsAt(lx, lz) { return ctx.surfaceAt(v.ax + lx, v.az + lz); }
+    function inDisk(lx, lz) {
+      var ex = (lx - L.diskCx) / L.diskR, ez = (lz - L.diskCz) / L.diskR;
+      return ex * ex + ez * ez <= 1;
+    }
+    function inEll(lx, lz, e) {
+      var ex = (lx - e.cx) / e.rx, ez = (lz - e.cz) / e.rz;
+      return ex * ex + ez * ez <= 1;
+    }
+
+    // 找平柱：垫到 topY（低处回填），高于 topY 且在盘内的天然土柱整段削除
+    function colFound(lx, lz, topY, topId, bodyId) {
+      if (!inClipL(lx, lz)) return;
+      var gs = gsAt(lx, lz);
+      if (gs < gsLo) gs = gsLo;
+      var y;
+      for (y = Math.min(gs + 1, topY); y <= topY; y++) WL(lx, y, lz, bodyId);
+      WL(lx, topY, lz, topId);
+      for (y = topY + 1; y <= gs; y++) WL(lx, y, lz, 0, 'air');
+    }
+    function boxWalls(lx0, lz0, lx1, lz1, by0, by1, fn) {
+      for (var lx = Math.max(lx0, x0c); lx <= Math.min(lx1, x1c); lx++)
+        for (var lz = Math.max(lz0, z0c); lz <= Math.min(lz1, z1c); lz++)
+          for (var by = by0; by <= by1; by++) fn(lx, by, lz);
+    }
+
+    // 山脊剖面：北带锯齿峰列，返回该列相对 ah 的目标高度
+    function ridgeAt(lx, lz) {
+      if (lz > L.diskCz - 46) return null;
+      var t = (L.diskCz - 46 - lz) / (L.diskR - 24);   // 0..1 向盘缘抬升
+      var base = 6 + Math.round(Math.max(0, t) * 8);
+      var bestH = 0;
+      for (var k = 0; k < VISTA_PEAK_H.length; k++) {
+        var d = Math.abs(lx - (L.diskCx - 140 + k * VISTA_PEAK_STEP));
+        var dh = VISTA_PEAK_H[k] * Math.max(0, 1 - d / 30);
+        if (dh > bestH) bestH = dh;
+      }
+      if (bestH <= 0) return null;
+      var jitter = Math.floor(h2((v.ax + lx) * 13 + 71, (v.az + lz) * 17 + 29) * 5);
+      return base + Math.round(bestH * (0.82 + jitter * 0.05));
+    }
+
+    var islandTop = ah + 3, plazaTop = ah + L.plaza.top;
+
+    // ==== 1. 地形底景：黑沙盘 / 湖盆 / 岛体 / 雪脊 ====
+    for (var lx = Math.max(L.diskCx - L.diskR, x0c); lx <= Math.min(L.diskCx + L.diskR, x1c); lx++) {
+      for (var lz = Math.max(L.diskCz - L.diskR, z0c); lz <= Math.min(L.diskCz + L.diskR, z1c); lz++) {
+        if (!inDisk(lx, lz)) continue;
+        var dcx = lx - L.diskCx, dcz = lz - L.diskCz;
+        var rr = Math.sqrt(dcx * dcx + dcz * dcz);
+        var surfId, bodyId, dst;
+        var isIsland = inEll(lx, lz, L.island);
+        var ridge = ridgeAt(lx, lz);
+        if (isIsland && !ridge) {
+          surfId = inEll(lx, lz, L.plaza) ? NK.GNEISS :
+            (h2((v.ax + lx) * 41 + 7, (v.az + lz) * 43 + 11) < 0.5 ? NK.BLACK_SAND : NK.GNEISS);
+          bodyId = NK.GNEISS;
+          dst = inEll(lx, lz, L.plaza) ? plazaTop : islandTop;
+        } else if (inEll(lx, lz, L.lake) && !isIsland && !ridge) {
+          surfId = NK.GNEISS; bodyId = NK.GNEISS; dst = ah - 7;
+        } else if (ridge !== null) {
+          colFound(lx, lz, ah + ridge,
+            (ridge > 34 || h2((v.ax + lx) * 7 + 91, (v.az + lz) * 5 + 53) < ridge / 68) ? NK.SNOW : NK.GNEISS,
+            NK.GNEISS);
+          // 雪帽：峰体越高积雪越厚，间以岩脊条纹（照片中的雪线斑驳）
+          if (ridge > 20) {
+            var cap = Math.min(9, Math.round((ridge - 20) * 0.22) + 3);
+            var striped = h2((v.ax + lx) * 11 + 37, (v.az + lz) * 13 + 53) < 0.5;
+            for (var syd = 1; syd <= cap; syd++) {
+              if (!striped && syd % 4 === 3) continue;
+              WL(lx, ah + ridge - syd, lz, NK.SNOW);
+            }
+          }
+          continue;
+        } else {
+          var dune = h2((v.ax + lx) * 31 + 3, (v.az + lz) * 37 + 61);
+          dst = ah + (dune < 0.16 ? 1 : dune < 0.22 ? 2 : 0);
+          surfId = NK.BLACK_SAND; bodyId = NK.DIRT;
+        }
+        // 盘缘向自然地形过渡（半宽 14）
+        if (!isIsland && !inEll(lx, lz, L.lake) && rr > L.diskR - 14) {
+          var tt = Math.min(1, (rr - (L.diskR - 14)) / 14);
+          var natTop = gsAt(lx, lz);
+          if (natTop > WATER + 2) dst = Math.round(dst * (1 - tt) +
+            Math.max(gsLo, Math.min(natTop, ah + 26)) * tt);
+        }
+        colFound(lx, lz, dst, surfId, bodyId);
+      }
+    }
+
+    // ==== 2. 注水冰湖（水位 ah-1）====
+    for (var wx = Math.max(L.lake.cx - L.lake.rx, x0c); wx <= Math.min(L.lake.cx + L.lake.rx, x1c); wx++)
+      for (var wz = Math.max(L.lake.cz - L.lake.rz, z0c); wz <= Math.min(L.lake.cz + L.lake.rz, z1c); wz++) {
+        if (!inEll(wx, wz, L.lake) || inEll(wx, wz, L.island)) continue;
+        for (var wy = ah - 6; wy <= ah - 1; wy++) WL(wx, wy, wz, NK.WATER);
+        if (h2((v.ax + wx) * 23 + 5, (v.az + wz) * 29 + 97) < 0.06 &&
+          !inEll(wx, wz, { cx: L.lake.cx, cz: L.lake.cz, rx: L.lake.rx - 20, rz: L.lake.rz - 12 }))
+          WL(wx, ah - 1, wz, NK.ICE, 'overwrite');
+      }
+
+    // ==== 3. 广场白灰泥台面 + 金饰镶边 + 白栏杆 ====
+    boxWalls(PLX - L.plaza.rx - 1, PLZ - L.plaza.rz - 1, PLX + L.plaza.rx + 1, PLZ + L.plaza.rz + 1,
+      plazaTop, plazaTop + 2, function () { });
+    for (var qx = Math.max(PLX - L.plaza.rx - 1, x0c); qx <= Math.min(PLX + L.plaza.rx + 1, x1c); qx++)
+      for (var qz = Math.max(PLZ - L.plaza.rz - 1, z0c); qz <= Math.min(PLZ + L.plaza.rz + 1, z1c); qz++) {
+        if (!inClipL(qx, qz)) continue;
+        var exq = (qx - PLX) / (L.plaza.rx - 0.6), ezq = (qz - PLZ) / (L.plaza.rz - 0.6);
+        var rimQ = exq * exq + ezq * ezq;
+        if (rimQ > 1.05) continue;
+        colFound(qx, qz, plazaTop, NK.PLASTER, NK.GNEISS);
+        if (rimQ >= 0.94) {
+          WL(qx, plazaTop, qz, NK.GOLD);
+          // 南侧主入口豁口
+          var gap = (qz > PLZ + 6) && (qx >= PLX - 8) && (qx <= PLX - 2);
+          if (!gap) {
+            WL(qx, plazaTop + 1, qz, NK.RAIL, 'air');
+            if (((qx % 5) + 5) % 5 === 0) {
+              WL(qx, plazaTop + 1, qz, NK.GOLD);
+              WL(qx, plazaTop + 2, qz, NK.LANTERN, 'air');
+            }
+          } else {
+            WL(qx, plazaTop, qz, NK.PLASTER);   // 门前步道不铺金
+          }
+        }
+      }
+
+    // ---- 主厅：白墙红顶、可进入（正门朝南广场）----
+    var HL = { x0: LJ(L.hall.x0), x1: LJ(L.hall.x1), z0: LJz(L.hall.z0), z1: LJz(L.hall.z1),
+      wallTop: L.hall.wallTop };
+    var base = plazaTop + 1, hallTop = plazaTop + HL.wallTop;
+    boxWalls(HL.x0, HL.z0, HL.x1, HL.z1, base, hallTop, function (lx, by, lz) {
+      var edge = lx === HL.x0 || lx === HL.x1 || lz === HL.z0 || lz === HL.z1;
+      if (!edge) { WL(lx, by, lz, 0); return; }                       // 室内清空
+      var corner = (lx === HL.x0 || lx === HL.x1) && (lz === HL.z0 || lz === HL.z1);
+      var quoin = corner ||
+        ((lx === HL.x0 || lx === HL.x1) && ((lz + 100) % 4 === 0)) ||
+        ((lz === HL.z0 || lz === HL.z1) && ((lx + 100) % 5 === 0));
+      var id = quoin ? NK.GNEISS : NK.PLASTER;
+      if (by === hallTop) id = NK.GOLD;                               // 檐口金带
+      WL(lx, by, lz, id);
+    });
+    // 正门拱门（南面中央 3 宽×4 高）
+    boxWalls(HL.x0 + 8, HL.z1, HL.x0 + 10, HL.z1, base, base + 4, function (lx, by, lz) {
+      WL(lx, by, lz, 0);
+    });
+    [HL.x0 + 7, HL.x0 + 11].forEach(function (gdxx) {
+      WL(gdxx, HL.z1, base + 5, NK.PLASTER);
+      WL(gdxx, HL.z1, base + 6, NK.GOLD);
+    });
+    for (var gdx = HL.x0 + 8; gdx <= HL.x0 + 10; gdx++) WL(gdx, HL.z1, base + 5, NK.GOLD);
+    // 高窗列（南北两面两排：彩玻与灯球相间）
+    [HL.z0, HL.z1].forEach(function (wzl) {
+      for (var wy = base + 3; wy <= base + 10; wy += 3)
+        for (var wxi = HL.x0 + 2; wxi <= HL.x1 - 2; wxi += 3) {
+          var lit = (((wxi - HL.x0) / 3 | 0) % 2 === 0);
+          WL(wxi, wzl, wy, lit ? NK.LANTERN : NK.GLASS_GOLD);
+          WL(wxi, wzl, wy + 1, lit ? NK.LANTERN : NK.GLASS_GOLD);
+        }
+    });
+    [HL.x0, HL.x1].forEach(function (wxl) {
+      for (var wzi = HL.z0 + 3; wzi <= HL.z1 - 3; wzi += 3)
+        WL(wxl, wzi, base + 5, NK.GLASS_CYAN);
+    });
+    // 人字坡屋顶（屋脊沿 x）
+    var roofMid = (HL.z0 + HL.z1) / 2;
+    boxWalls(HL.x0 - 1, HL.z0 - 1, HL.x1 + 1, HL.z1 + 1, hallTop + 1, hallTop + 9,
+      function (lx, by, lz) {
+        var rise = Math.round(9 - Math.abs(lz - roofMid));
+        if (rise < 0 || by > hallTop + rise) return;
+        WL(lx, by, lz, NK.SHINGLE);
+      });
+    // 屋脊金饰
+    for (var rxg = HL.x0 - 1; rxg <= HL.x1 + 1; rxg++)
+      WL(rxg, hallTop + 9, roofMid, NK.GOLD);
+    // 室内：王座高台 + 壁灯
+    boxWalls(HL.x0 + 1, HL.z0 + 1, HL.x1 - 1, HL.z0 + 3, base, base,
+      function (lx, by, lz) { WL(lx, by, lz, NK.GNEISS); });
+    WL(HL.x0 + 9, HL.z0 + 1, base + 1, NK.GOLD);
+    WL(HL.x0 + 9, HL.z0 + 1, base + 2, NK.GOLD);
+    for (var lamz = HL.z0 + 4; lamz <= HL.z1 - 1; lamz += 3) {
+      WL(HL.x0 + 1, lamz, base + 2, NK.TORCH, 'air');
+      WL(HL.x1 - 1, lamz, base + 2, NK.TORCH, 'air');
+    }
+    // 西墙内直跑梯上檐口走台（每级升 1，沿北墙爬）
+    for (var stp = 0; stp < HL.wallTop; stp++) {
+      var sy = base + stp;
+      WL(HL.x0 + 1, sy, HL.z1 - 2 - stp, NK.GNEISS);
+      WL(HL.x0 + 1, sy, HL.z1 - 1 - stp, NK.GNEISS);
+      WL(HL.x0 + 1, sy, HL.z1 - 3 - stp, 0);
+      WL(HL.x0 + 2, sy, HL.z1 - 2 - stp, 0);
+      WL(HL.x0 + 2, sy, HL.z1 - 1 - stp, 0);
+    }
+
+    // ---- 中央尖塔：细身高耸、塔冠红灯 ----
+    var SP = { cx: LJ(L.spire.cx), cz: LJz(L.spire.cz), r: L.spire.r, shaftTop: L.spire.shaftTop };
+    var spBase = plazaTop + 1, spTop = plazaTop + SP.shaftTop;
+    for (var sx2 = SP.cx - SP.r; sx2 <= SP.cx + SP.r; sx2++)
+      for (var sz2 = SP.cz - SP.r; sz2 <= SP.cz + SP.r; sz2++) {
+        if (!inClipL(sx2, sz2)) continue;
+        var ddx = sx2 - SP.cx, ddz = sz2 - SP.cz;
+        var d2s = ddx * ddx + ddz * ddz;
+        if (d2s > SP.r * SP.r + 1) continue;
+        var shell = d2s >= (SP.r - 1) * (SP.r - 1) + 1;
+        for (var ty = spBase; ty <= spTop; ty++) {
+          if (!shell) { WL(sx2, ty, sz2, 0); continue; }
+          var id = NK.PLASTER;
+          if (ty === spTop) id = NK.GOLD;
+          else if ((ty - spBase) % 12 === 0) id = NK.GOLD;
+          else if ((Math.abs(ddx) === SP.r && ddz % 2 === 0) ||
+            (Math.abs(ddz) === SP.r && ddx % 2 === 0)) id = NK.GNEISS;
+          else if ((ty - spBase) % 4 === 2 && ddx !== 0) id =
+            ((ty - spBase) % 8 === 2) ? NK.LANTERN : NK.GLASS_GOLD;
+          WL(sx2, ty, sz2, id);
+        }
+      }
+    for (var cy = 1; cy <= 12; cy++) {
+      var rad = Math.max(0, Math.round(SP.r * (1 - cy / 13)));
+      for (var cxx = -rad; cxx <= rad; cxx++)
+        for (var czz = -rad; czz <= rad; czz++) {
+          if (cxx * cxx + czz * czz > rad * rad + 0.4) continue;
+          var px3 = SP.cx + cxx, pz3 = SP.cz + czz;
+          if (!inClipL(px3, pz3)) continue;
+          WL(px3, spTop + cy, pz3, cy === 12 ? NK.GOLD : NK.SHINGLE);
+        }
+    }
+    WL(SP.cx, spTop + 13, SP.cz, NK.LANTERN, 'air');
+    WL(SP.cx, spTop + 14, SP.cz, NK.GOLD);
+
+    // ---- 东翼楼：矮层四坡顶、亮灯长窗 ----
+    var WG = { x0: LJ(L.wing.x0), x1: LJ(L.wing.x1), z0: LJz(L.wing.z0), z1: LJz(L.wing.z1),
+      wallTop: L.wing.wallTop };
+    var wgBase = plazaTop + 1, wgTop = plazaTop + WG.wallTop;
+    boxWalls(WG.x0, WG.z0, WG.x1, WG.z1, wgBase, wgTop, function (lx, by, lz) {
+      var edge = lx === WG.x0 || lx === WG.x1 || lz === WG.z0 || lz === WG.z1;
+      if (!edge) { WL(lx, by, lz, 0); return; }
+      var id = ((lx === WG.x1 && (lz % 4 === 0)) || (lz === WG.z1 && (lx % 4 === 2))) ?
+        NK.GNEISS : NK.PLASTER;
+      if (by === wgTop) id = NK.GOLD;
+      WL(lx, by, lz, id);
+    });
+    for (var wi = WG.x0 + 2; wi <= WG.x1 - 2; wi += 2) {
+      WL(wi, WG.z1, wgBase + 2, (wi % 4 === 0) ? NK.LANTERN : NK.GLASS_GOLD);
+      WL(wi, WG.z1, wgBase + 3, (wi % 4 === 0) ? NK.LANTERN : NK.GLASS_GOLD);
+      WL(wi, WG.x1 !== wi ? WG.z1 : WG.z1, wgBase + 7, NK.GLASS_GOLD);
+    }
+    // 连通门（大厅东墙 <-> 翼楼）
+    WL(WG.x0, WG.z0 + 2, wgBase, 0); WL(WG.x0, WG.z0 + 2, wgBase + 1, 0);
+    WL(WG.x0, WG.z0 + 3, wgBase, 0); WL(WG.x0, WG.z0 + 3, wgBase + 1, 0);
+    var wgMx = (WG.x0 + WG.x1) / 2, wgMz = (WG.z0 + WG.z1) / 2;
+    boxWalls(WG.x0 - 1, WG.z0 - 1, WG.x1 + 1, WG.z1 + 1, wgTop + 1, wgTop + 5,
+      function (lx, by, lz) {
+        var rise = Math.round(5 - Math.max(
+          Math.abs(lx - wgMx) * 0.35, Math.abs(lz - wgMz)));
+        if (rise < 0 || by > wgTop + rise) return;
+        WL(lx, by, lz, NK.SHINGLE);
+      });
+
+    // ---- 角塔 ×3（前双塔 + 西北塔）：白身石裙红锥 ----
+    [L.turretA, L.turretB, L.turretNW].forEach(function (tp, ti) {
+      var TX = LJ(tp[0]), TZ = LJz(tp[1]), TR = 2;
+      var thMax = ti === 2 ? 22 : 12;
+      var twBase = plazaTop + 1, twTop = plazaTop + thMax;
+      for (var ddx = -TR - 1; ddx <= TR + 1; ddx++)
+        for (var ddz = -TR - 1; ddz <= TR + 1; ddz++) {
+          var lx3 = TX + ddx, lz3 = TZ + ddz;
+          if (!inClipL(lx3, lz3)) continue;
+          var dsk2 = ddx * ddx + ddz * ddz;
+          if (dsk2 <= (TR + 1) * (TR + 1))
+            WL(lx3, plazaTop, lz3, dsk2 > TR * TR ? NK.GNEISS : NK.PLASTER);
+          if (dsk2 > TR * TR + 1) continue;
+          var shell = dsk2 >= (TR - 1) * (TR - 1) + 1;
+          for (var ty = twBase; ty <= twTop; ty++) {
+            if (!shell) { WL(lx3, ty, lz3, 0); continue; }
+            var id = ty === twTop ? NK.GOLD :
+              ((ddx === 0 || ddz === 0) && (ty % 5 === 0)) ? NK.GNEISS : NK.PLASTER;
+            WL(lx3, ty, lz3, id);
+          }
+        }
+      for (var cy2 = 1; cy2 <= 5; cy2++) {
+        var rad2 = Math.max(0, Math.round(TR * (1 - cy2 / 6)));
+        for (var ex = -rad2; ex <= rad2; ex++)
+          for (var ez = -rad2; ez <= rad2; ez++) {
+            if (ex * ex + ez * ez > rad2 * rad2 + 0.4) continue;
+            if (!inClipL(TX + ex, TZ + ez)) continue;
+            WL(TX + ex, twTop + cy2, TZ + ez, NK.SHINGLE);
+          }
+      }
+      WL(TX, twTop + 6, TZ, NK.LANTERN, 'air');
+    });
+
+    // ---- 石拱桥（东南跨湖连东岸）----
+    var BR = L.bridge;
+    var deckBase = plazaTop;
+    for (var bx = BR.x0; bx <= BR.x1; bx++) {
+      if (bx < x0c - 2 || bx > x1c + 2) continue;
+      var t = (bx - BR.x0) / (BR.x1 - BR.x0);
+      var rise = Math.round(Math.sin(t * Math.PI) * BR.rise);
+      var deckY = deckBase + rise;
+      for (var bz = BR.z0; bz <= BR.z1; bz++) {
+        if (bz < z0c - 2 || bz > z1c + 2) continue;
+        var archEdge = (bz === BR.z0 || bz === BR.z1);
+        WL(bx, deckY, bz, archEdge ? NK.GOLD : NK.GNEISS);
+        for (var uy = Math.max(ah - 8, deckY - 3); uy < deckY; uy++)
+          WL(bx, uy, bz, NK.GNEISS);
+        if (archEdge) {
+          WL(bx, deckY + 1, bz, NK.RAIL, 'air');
+          if (((bx % 6) + 6) % 6 === 0) {
+            WL(bx, deckY + 1, bz, NK.GOLD);
+            WL(bx, deckY + 2, bz, NK.LANTERN, 'air');
+          }
+        }
+      }
+      // 桥墩扎进湖床
+      if (rise >= 2 && ((bx - BR.x0) % 11 + 11) % 11 === 0) {
+        for (var py = ah - 7; py <= deckY - 3; py++)
+          WL(bx, py, BR.z0 + 2, NK.GNEISS);
+      }
+    }
+    // 东岸引道找平
+    for (var axb = Math.max(BR.x1 + 1, x0c); axb <= Math.min(BR.x1 + 9, x1c); axb++)
+      for (var azb = Math.max(BR.z0 - 2, z0c); azb <= Math.min(BR.z1 + 2, z1c); azb++)
+        colFound(axb, azb, ah, NK.BLACK_SAND, NK.DIRT);
+
+    // ---- 西侧石阶码头 + 木栈桥 ----
+    var DK = L.dock;
+    var stepN = 6;
+    for (var si = 0; si <= stepN; si++) {
+      var sxl = DK.x1 - Math.round(si * (DK.x1 - DK.x0) / stepN);
+      var syl = plazaTop - Math.round((si / stepN) * (plazaTop - ah));
+      for (var syy = syl; syy <= plazaTop; syy++)
+        WL(sxl, syy, DK.z0, NK.GNEISS);
+      if (si < stepN) {
+        WL(sxl, syl, DK.z0 + 1, NK.GNEISS);
+        WL(sxl, syl, DK.z0 + 2, NK.GNEISS);
+      }
+    }
+    for (var jx = DK.x0 - 14; jx <= DK.x0; jx++) {
+      if (!inClipL(jx, DK.z0)) continue;
+      for (var jz = DK.z0 + 1; jz <= DK.z1 - 1; jz++) {
+        for (var fy = ah - 7; fy < ah - 1; fy++)
+          WL(jx, fy, jz, ((jz === DK.z0 + 1 || jz === DK.z1 - 1) && (jx % 4 === 0)) ?
+            NK.SPRUCE_LOG : NK.WATER);
+        WL(jx, ah - 1, jz, NK.PLANKS);
+      }
+      if (((jx % 6) + 6) % 6 === 0) WL(jx, ah, DK.z0 + 1, NK.TORCH, 'air');
+    }
+
+    // ---- 南岸枯草丛/草丘/残雪点缀 ----
+    for (var tx = Math.max(-100, x0c); tx <= Math.min(100, x1c); tx++)
+      for (var tz = Math.max(50, z0c); tz <= Math.min(L.diskCz + L.diskR - 8, z1c); tz++) {
+        if (!inClipL(tx, tz)) continue;
+        if (!inDisk(tx, tz) || inEll(tx, tz, L.lake)) continue;
+        var tr = h2((v.ax + tx) * 57 + 13, (v.az + tz) * 61 + 47);
+        if (tr < 0.07) WL(tx, ah + 1, tz, NK.TUSSOCK, 'air');
+        else if (tr < 0.10) {
+          WL(tx, ah + 1, tz, NK.BLACK_SAND);
+          WL(tx, ah + 2, tz, NK.TUSSOCK, 'air');
+        } else if (tr < 0.115) {
+          WL(tx, ah + 1, tz, NK.BLACK_SAND);
+          WL(tx, ah + 2, tz, NK.SNOW);          // 草丘上的残雪顶
+        } else if (tr < 0.128) WL(tx, ah + 1, tz, NK.SNOW);
+      }
+
+    // ---- 侧翼云杉树丛 ----
+    [[-128, 20], [124, 34], [-116, 66], [132, -8]].forEach(function (grove, gi) {
+      for (var ti = 0; ti < 5; ti++) {
+        var gx3 = grove[0] + ((gi * 7 + ti * 3) % 9) - 4;
+        var gz3 = grove[1] + ((gi * 11 + ti * 5) % 11) - 5;
+        if (!inClipL(gx3, gz3) || !inDisk(gx3, gz3)) continue;
+        var th = 5 + (ti % 3);
+        for (var ly = 1; ly <= th; ly++) WL(gx3, ah + ly, gz3, NK.SPRUCE_LOG);
+        for (var cyl = th - 2; cyl <= th + 1; cyl++) {
+          var rad3 = cyl > th ? 0 : (cyl === th ? 1 : 2);
+          for (var ldx = -rad3; ldx <= rad3; ldx++)
+            for (var ldz = -rad3; ldz <= rad3; ldz++) {
+              if (ldx === 0 && ldz === 0 && cyl <= th) continue;
+              if (Math.abs(ldx) === 2 && Math.abs(ldz) === 2) continue;
+              WL(gx3 + ldx, ah + cyl, gz3 + ldz, NK.SPRUCE_LEAVES, 'air');
+            }
+        }
+      }
+    });
+
+    // ---- 宝箱位（与 vistaChests 严格一致：anchor+plaza+chest 局部）----
+    L.chests.forEach(function (ch) {
+      WL(LJ(ch.dx), ah + ch.dy, LJz(ch.dz), NK.CHEST, 'air');
+    });
+
+    // ---- 出生安全岛保证：出生列 ±2 强制平坦黑沙无草 ----
+    var SPC = L.spawn;
+    for (var fx = SPC.dx - 2; fx <= SPC.dx + 2; fx++)
+      for (var fz = SPC.dz - 2; fz <= SPC.dz + 2; fz++) {
+        if (!inDisk(fx, fz)) continue;
+        colFound(fx, fz, ah, NK.BLACK_SAND, NK.DIRT);
+      }
+  }
+
   // ================= 村落聚居地（v2 行星地表，密度介于遗迹与园区之间） =================
 
   var VILLAGE_CELL = 224;     // cell 边长：相邻村落最小间距保证
@@ -1770,6 +2391,16 @@ Voxel.Structures = (function () {
     // 地下遗迹地窖
     cellDungeon: cellDungeon,
     buildDungeon: buildDungeon,
+    // 北欧城堡 · 峡湾全景
+    VISTA_CELL: VISTA_CELL,
+    VISTA_EXTENT: VISTA_EXTENT,
+    cellVista: cellVista,
+    vistaLayout: vistaLayout,
+    buildVista: buildVista,
+    vistaChests: vistaChests,
+    vistaLootFor: vistaLootFor,
+    nearestVistaTo: nearestVistaTo,
+    vistaGateSpawn: vistaGateSpawn,
     // 星海嘉年华
     PARK_CELL: PARK_CELL,
     PARK_EXTENT: PARK_EXTENT,

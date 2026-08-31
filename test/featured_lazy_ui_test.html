@@ -67,7 +67,7 @@ Voxel.Game = { startFeatured: function () {} };
 
   async function run() {
     var images = Array.prototype.slice.call(document.querySelectorAll('.featured-thumb img'));
-    check('菜单ready时24卡已建且精选图0请求', cards.length === 24 && images.length === 24 &&
+    check('菜单ready时25卡已建且精选图0请求', cards.length === 25 && images.length === 25 &&
       images.every(function (image) { return !image.hasAttribute('src'); }) && biomeRequests().length === 0);
 
     document.getElementById('btn-featured').click();
@@ -77,9 +77,9 @@ Voxel.Game = { startFeatured: function () {} };
     var cardRects = cards.map(function (card) { return card.getBoundingClientRect(); });
     var viewportWidth = document.documentElement.clientWidth;
     var viewportHeight = document.documentElement.clientHeight;
-    check('首次显示才注入24个唯一图片URL', images.every(function (image) {
+    check('首次显示才注入25个唯一图片URL', images.every(function (image) {
       return image.hasAttribute('src') && !image.hasAttribute('data-src');
-    }) && new Set(images.map(function (image) { return image.src; })).size === 24);
+    }) && new Set(images.map(function (image) { return image.src; })).size === 25);
     check('极窄精选卡片保持单列与44px触控目标', cardRects.every(function (rect) {
       return rect.width >= 44 && rect.height >= 44;
     }) && Math.abs(cardRects[0].left - cardRects[1].left) < 1,

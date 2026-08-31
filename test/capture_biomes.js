@@ -54,7 +54,7 @@ async function waitPlaying(page) {
   const onlyNames = process.argv.slice(3);
   // 园区结构只在精选世界入口（galaxy v2 流程）下启用，裸 v1 存档不会生成；
   // 这些镜头必须在清档后走 btn-featured → startFeatured 启动。
-  const FEATURED_SHOTS = ['playground'];
+  const FEATURED_SHOTS = ['playground', 'nordic-castle'];
   const featuredMode = onlyNames.length > 0 &&
     onlyNames.every(n => FEATURED_SHOTS.indexOf(n) >= 0);
 
@@ -107,11 +107,14 @@ async function waitPlaying(page) {
     await page.click('#btn-featured');
     await page.waitForFunction(() =>
       window.Voxel && Voxel.Featured && Voxel.Featured.WORLDS &&
-      Voxel.Featured.WORLDS.findIndex(w => w.parkSpawn) >= 0,
+      Voxel.Featured.WORLDS.findIndex(w => w.parkSpawn || w.castleSpawn) >= 0,
       { timeout: 30000, polling: 200 });
-    const cardIdx = await page.evaluate(() =>
-      Voxel.Featured.WORLDS.findIndex(w => w.parkSpawn));
-    console.log('进入精选世界：星海嘉年华（卡片 ' + cardIdx + '）');
+    const cardName = onlyNames[0];
+    const cardIdx = await page.evaluate((nm) =>
+      Voxel.Featured.WORLDS.findIndex(w => w.name === nm ||
+        (nm === 'playground' && w.parkSpawn) ||
+        (nm === 'nordic-castle' && w.castleSpawn)), cardName);
+    console.log('进入精选世界：' + cardName + '（卡片 ' + cardIdx + '）');
     await page.evaluate((i) => { Voxel.Game.startFeatured(i); }, cardIdx);
   } else {
     await page.click('#btn-start');
@@ -232,6 +235,17 @@ async function waitPlaying(page) {
         // 园区上空俯瞰：以锚点地表为基准抬升，越过门墙看到整园
         parkBaseY = pk.ah + (opts.parkElev || 0);
       }
+      // 北欧城堡：南岸出生位面向湖心城堡（保留入场暮夜，极光+城堡亮灯）
+      var vistaBaseY = null;
+      if (opts.vistaSpawn) {
+        var vt = Voxel.Structures && Voxel.Structures.enabled()
+          ? Voxel.Structures.nearestVistaTo(0, 0, 6) : null;
+        var vg = vt ? Voxel.Structures.vistaGateSpawn(vt) : null;
+        if (!vg) return null;
+        spot = { x: Math.floor(vg.x), z: Math.floor(vg.z), fx: vt.ax, fz: vt.az };
+        yawOverride = vg.yaw;
+        vistaBaseY = vg.y + 1.4;
+      }
       if (!spot) spot = opts.fixed ? { x: opts.fixed.x, z: opts.fixed.z }
         : opts.overview
           ? { x: 128, z: 128 }
@@ -239,8 +253,11 @@ async function waitPlaying(page) {
             ? findSpotWide(Voxel.Biomes.B[b], opts)
             : findSpot(Voxel.Biomes.B[b], opts.preferSurf, opts.openSurf, opts.purity);
       if (!spot) return null;
+      // 清掉可能挡镜头的生物（北欧峡湾的羊群会凑到相机前）
+      if (opts.vistaSpawn && Voxel.Mobs && Voxel.Mobs.clear) Voxel.Mobs.clear();
       var g = groundAt(spot.x, spot.z);
-      var baseY = parkBaseY !== null ? parkBaseY : (g.y > 0 ? g.y : 30);
+      var baseY = vistaBaseY !== null ? vistaBaseY :
+        parkBaseY !== null ? parkBaseY : (g.y > 0 ? g.y : 30);
       var camY = baseY + (opts.height || 12);
       var pitch = opts.pitch !== undefined ? opts.pitch : -0.26;
       var yaw;
@@ -254,8 +271,13 @@ async function waitPlaying(page) {
         var dx = 128 - spot.x, dz = 128 - spot.z;
         yaw = (Math.abs(dx) + Math.abs(dz) < 24) ? 0.75 : Math.atan2(-dx, -dz);
       }
-      Voxel.DayNight.setTime(opts.time || 0.27);
-      Voxel.DayNight.update(0);
+      if (opts.setTime !== undefined) {
+        Voxel.DayNight.setTime(opts.setTime);
+        Voxel.DayNight.update(0);
+      } else if (!opts.keepTime) {
+        Voxel.DayNight.setTime(opts.time || 0.27);
+        Voxel.DayNight.update(0);
+      }
       Voxel.Weather.set('clear');
       Voxel.Weather.update(12);
       Voxel.Player.init(new THREE.Vector3(spot.x + 0.5, camY, spot.z + 0.5), yaw, pitch);
@@ -299,7 +321,11 @@ async function waitPlaying(page) {
     { name: 'dark-forest',     opts: { biome: 'DARK_FOREST', height: 12, wide: true, wideStrict: true } },
     // v7 星海嘉年华：走精选世界入口（galaxy v2 流程）+ parkGateSpawn 落位
     // 园门口，再升到园区上空俯瞰喷泉广场/摩天轮/城堡全景
-    { name: 'playground',      opts: { biome: 'PLAYGROUND', height: 28, pitch: -0.34, parkGate: true, parkElev: -6, meshR: 140 } }
+    { name: 'playground',      opts: { biome: 'PLAYGROUND', height: 28, pitch: -0.34, parkGate: true, parkElev: -6, meshR: 140 } },
+    // 北欧城堡：保留精选入场暮夜（keepTime 钉在 duskTime），南岸眼位取景
+    // 湖心城堡+石拱桥+雪脊全景，头顶绿帘极光
+    { name: 'nordic-castle',   opts: { biome: 'NORDIC_FJORD', height: 9, pitch: -0.16,
+      vistaSpawn: true, setTime: 0.60, meshR: 170, chunkR: 11 } }
   ];
 
   // 名称过滤已在 IIFE 顶部声明（onlyNames）
@@ -311,7 +337,7 @@ async function waitPlaying(page) {
     // 等待取景点周围 7×7 区块全部生成完毕（宽域点离核心远，流式生成
     // 每帧只推进少量区块），再留出网格构建缓冲，避免拍到大片未加载石料。
     await page.waitForFunction((spt) => {
-      const CS = window.Voxel.Config.CHUNK, R = 3;
+      const CS = window.Voxel.Config.CHUNK, R = spt.chunkR || 3;
       // 园区镜头聚焦在锚点（fx/fz），等聚焦点周围区块就绪
       const fx = spt.fx !== undefined ? spt.fx : spt.x;
       const fz = spt.fz !== undefined ? spt.fz : spt.z;
@@ -322,6 +348,8 @@ async function waitPlaying(page) {
       return true;
     }, { timeout: 300000, polling: 200 }, info);
     await sleep(3500);
+    if (s.opts.vistaSpawn || s.opts.parkGate)
+      await page.evaluate(() => { if (window.Voxel.Mobs && Voxel.Mobs.clear) Voxel.Mobs.clear(); });
     const dest = path.join(outDir, s.name + '.png');
     await page.screenshot({ path: dest, type: 'png' });
     console.log('已写入 screenshots/biomes/' + s.name + '.png  @ ' + JSON.stringify(info));

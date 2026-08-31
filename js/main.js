@@ -36,6 +36,7 @@ Voxel.Game = (function () {
   var environmentLastProtected = true;
   var mouseDown = [false, false, false];
   var lastDig = 0, lastPlace = 0;
+  var doorClickUsed = false;   // 左键按住期间门/活板门只开关一次
   var autosaveT = 0, regenT = 0, lastHp = C.HP, lastDmgT = -99;
   // 单一存档健康状态驱动 HUD、暂停面板和无障碍播报。只有 Save.save 返回 true
   // （底层已完成精确回读校验）才允许从 unsaved 转为 recovered/saved。
@@ -666,10 +667,22 @@ Voxel.Game = (function () {
       // 与卡片承诺的展示种子气候场完全不同——新群系可能整图缺失。
       // 把起始行星种子钉为承诺种子（与 v4 迁移同一 legacyStartSeed 通道），
       // 保证群系构成与缩略图一致，再次载档/跃迁往返后底图也不漂移。
+      // nordic 等主题精选世界额外钉 typeKey（大气/群系白名单随主题切换），
+      // 主题串走 galaxy 的 legacyTheme 持久化通道，读档/换天体返回后仍生效。
       if (featured && !sd) {
         var featuredSeed = Voxel.SeedUtil.toString(Voxel.SeedUtil.toBigInt(featured.seed));
         currentWorld.seed = featuredSeed;
         galaxyState.legacyStartSeed = featuredSeed;
+        if (featured.theme && currentWorld.typeKey !== featured.theme) {
+          currentWorld.typeKey = featured.theme;
+          galaxyState.legacyTheme = featured.theme;
+        }
+      }
+      // 载档/重进：hydrate 恢复的 legacyStartSeed 命中起始行星时回贴主题
+      if (!destinationId && !featured && galaxyState.legacyStartSeed && galaxyState.legacyTheme &&
+        currentWorld && currentWorld.id === 'planet-0' &&
+        currentWorld.seed === galaxyState.legacyStartSeed) {
+        currentWorld.typeKey = galaxyState.legacyTheme;
       }
     }
     featuredPending = featured || null;
@@ -761,6 +774,17 @@ Voxel.Game = (function () {
         spot = { x: Math.floor(gate.x), z: Math.floor(gate.z) };
         yaw = gate.yaw;
         pitch = -0.1;
+      }
+    }
+    // 北欧城堡卡：南岸丘顶落位，正对湖心城堡与雪脊（峡湾全景结构）。
+    if (w.castleSpawn && !w.overview && !spot &&
+      Voxel.Structures && Voxel.Structures.nearestVistaTo) {
+      var vista = Voxel.Structures.nearestVistaTo(0, 0, 6);
+      var vgate = vista ? Voxel.Structures.vistaGateSpawn(vista) : null;
+      if (vgate) {
+        spot = { x: Math.floor(vgate.x), z: Math.floor(vgate.z) };
+        yaw = vgate.yaw;
+        pitch = -0.08;
       }
     }
     if (!spot) {
@@ -891,7 +915,9 @@ Voxel.Game = (function () {
       if (!commitTx) Voxel.HUD.toast('已抵达 ' + currentWorld.name + ' · ' + currentWorld.typeName);
     } else {
       // 新世界：背包/手持/合成格/选中格/床重生点全部清空
-      Voxel.DayNight.setTime(0.3);
+      // 主题精选世界可承诺入场时刻（北欧城堡钉暮夜：极光满值 + 城堡亮灯）
+      Voxel.DayNight.setTime(featuredPending && featuredPending.duskTime ?
+        featuredPending.duskTime : 0.3);
       Voxel.DayNight.update(0);
       Voxel.Weather.reset();
       inv = []; cnt = [];
@@ -1650,7 +1676,19 @@ Voxel.Game = (function () {
       }
       return true;
     }
-    // 活板门：E 键切换开合（关 ↔ 开，开态在 X/Z 贴边间往复）
+    return false;
+  }
+
+  // 门/活板门命中判定（开关由左键或触屏轻点触发，E 键不再开关门）
+  function isOpenableHit(hit) {
+    return !!hit && hit.type === 'block' &&
+      (Voxel.Blocks.isDoor(hit.id) || Voxel.Blocks.isTrapdoor(hit.id));
+  }
+
+  // 切换命中的门/活板门：关 ↔ 开，开态在 X/Z 贴边间往复；铁门只认红石信号。
+  // 处理了返回 true（包括铁门提示），供调用方短路放置/挖掘管线。
+  function toggleOpenableBlock(hit) {
+    if (!isOpenableHit(hit)) return false;
     if (Voxel.Blocks.isTrapdoor(hit.id)) {
       var tid = Voxel.Blocks.trapdoorToggleId(hit.id);
       if (tid) Voxel.World.set(hit.x, hit.y, hit.z, tid);
@@ -1658,18 +1696,13 @@ Voxel.Game = (function () {
       Voxel.Sound.place('wood');
       return true;
     }
-    // 木门：E 键上下半一起翻转开合；铁门只认红石信号
-    if (Voxel.Blocks.isDoor(hit.id)) {
-      var dinf2 = Voxel.Blocks.defs[hit.id].door;
-      var isIron = dinf2.kind === 6;
-      if (isIron) {
-        Voxel.HUD.toast('铁门需要红石信号驱动');
-        return true;
-      }
-      toggleDoorAt(hit.x, hit.y, hit.z, hit.id);
+    var dinf2 = Voxel.Blocks.defs[hit.id].door;
+    if (dinf2.kind === 6) {
+      Voxel.HUD.toast('铁门需要红石信号驱动');
       return true;
     }
-    return false;
+    toggleDoorAt(hit.x, hit.y, hit.z, hit.id);
+    return true;
   }
 
   // 切换门开合：以下半为准翻转，上半跟随；孤半块只翻自己
@@ -1721,7 +1754,10 @@ Voxel.Game = (function () {
       if (tryFeedMob(hit.mob)) return;
       attack(hit.mob, d);
     }
-    else if (hit && hit.type === 'block' && !interactWith(hit)) place(hit);
+    else if (hit && hit.type === 'block') {
+      if (toggleOpenableBlock(hit)) return;
+      if (!interactWith(hit)) place(hit);
+    }
   }
 
   // 长按挖掘开关（触屏手势）
@@ -1759,7 +1795,17 @@ Voxel.Game = (function () {
       if (btn === 2) attack(hit.mob, d);
       return;
     }
-    if (btn === 0) place(hit);
+    if (btn === 0) {
+      // 门/活板门：左键切换开合（一次按住只触发一次，按住期间不放置方块）
+      if (isOpenableHit(hit)) {
+        if (!doorClickUsed) {
+          doorClickUsed = true;
+          toggleOpenableBlock(hit);
+        }
+        return;
+      }
+      place(hit);
+    }
     // 方块挖掘：由 tickDig 长按推进
   }
 
@@ -5469,7 +5515,7 @@ Voxel.Game = (function () {
     } else if (hit && hit.type === 'block' &&
       (Voxel.Blocks.isDoor(hit.id) || Voxel.Blocks.isTrapdoor(hit.id))) {
       var dname = Voxel.Blocks.defs[hit.id].door;
-      hitEl.textContent = (isTouch ? '轻点开关门' : '按 E 开关门') +
+      hitEl.textContent = (isTouch ? '轻点开关门' : '左键开关门') +
         (dname && dname.kind === 6 ? '（铁门需红石）' : '');
       hitEl.dataset.kind = 'door';
       hitEl.style.display = 'block';
@@ -6682,9 +6728,11 @@ Voxel.Game = (function () {
     });
     document.addEventListener('pointerup', function (e) {
       mouseDown[e.button] = false;
+      if (e.button === 0) doorClickUsed = false;
     });
     document.addEventListener('pointercancel', function () {
       mouseDown[0] = mouseDown[1] = mouseDown[2] = false;
+      doorClickUsed = false;
     });
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragUp);

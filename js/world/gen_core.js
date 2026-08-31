@@ -507,6 +507,34 @@ Voxel.GenCore = (function () {
       }
     }
 
+    // 北欧城堡全景：与园区同一套 cell 重算裁剪；写入器允许覆写自然方块
+    // （含水/雪，供湖盆注水与雪脊压顶），仅基岩/工作台/床/火把/箱子不可让位。
+    // builder 内部按 clip 只计算与本区块相交的列。
+    function decorateVistas(s) {
+      var S = Voxel.Structures;
+      if (!S || !S.enabled() || !S.cellVista) return;
+      var VISTA_KEEP = { 12: 1, 15: 1, 17: 1, 19: 1, 38: 1,
+        67: 1, 68: 1, 69: 1, 70: 1, 71: 1 };
+      var x0 = s.cx * CS, z0 = s.cz * CS;
+      function vistaWriter(x, y, z, id) {
+        if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
+        if (VISTA_KEEP[s.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))]]) return;
+        s.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] = id;
+      }
+      var VE2 = S.VISTA_EXTENT, VC2 = S.VISTA_CELL;
+      var vx0 = floorDiv(x0 - VE2, VC2), vx1 = floorDiv(x0 + CS + VE2, VC2);
+      var vz0 = floorDiv(z0 - VE2, VC2), vz1 = floorDiv(z0 + CS + VE2, VC2);
+      for (var vcx = vx0; vcx <= vx1; vcx++) {
+        for (var vcz = vz0; vcz <= vz1; vcz++) {
+          var vista = S.cellVista(vcx, vcz);
+          if (!vista) continue;
+          if (vista.ax + VE2 <= x0 || vista.ax - VE2 >= x0 + CS ||
+            vista.az + VE2 <= z0 || vista.az - VE2 >= z0 + CS) continue;
+          S.buildVista(vista, vistaWriter, [x0, x0 + CS - 1, z0, z0 + CS - 1]);
+        }
+      }
+    }
+
     function decorate(s) {
       if (s.decorated) return;
       var defs = Voxel.Biomes.defs;
@@ -527,6 +555,21 @@ Voxel.GenCore = (function () {
         return out;
       }
       var villageFootprints = collectVillageFootprints();
+      // 北欧城堡全景找平盘（半径 175）：植被锚点在盘内必须跳过，否则树会
+      // 穿透黑沙台地与城堡本体。纯函数判定（锚点全局坐标 vs 结构锚点）。
+      function collectVistaFootprints() {
+        var S2 = Voxel.Structures;
+        var out = [];
+        if (!S2 || !S2.enabled() || !S2.cellVista) return out;
+        var VE3 = S2.VISTA_EXTENT + 12, VC3 = S2.VISTA_CELL;
+        for (var fcx = floorDiv(x0 - VE3 - FEATURE_RADIUS, VC3); fcx <= floorDiv(x0 + CS + VE3 + FEATURE_RADIUS, VC3); fcx++)
+          for (var fcz = floorDiv(z0 - VE3 - FEATURE_RADIUS, VC3); fcz <= floorDiv(z0 + CS + VE3 + FEATURE_RADIUS, VC3); fcz++) {
+            var vist = S2.cellVista(fcx, fcz);
+            if (vist) out.push({ ax: vist.ax, az: vist.az });
+          }
+        return out;
+      }
+      var vistaFootprints = collectVistaFootprints();
       // 园区找平椭圆（与 Structures.buildPark 的铺装范围一致）：植被锚点在园内
       // 必须跳过——植被 pass 读的是 base 自然地形，找平后树会穿透铺装长进园里。
       // 纯函数判定（锚点全局坐标 vs 结构锚点），跨区块结果一致。
@@ -539,9 +582,14 @@ Voxel.GenCore = (function () {
           var vx2 = x - villageFootprints[j].ax, vz2 = z - villageFootprints[j].az;
           if (vx2 * vx2 + vz2 * vz2 <= 48 * 48) return true;   // 村庄清景半径
         }
+        for (var vk = 0; vk < vistaFootprints.length; vk++) {
+          var vdx = x - vistaFootprints[vk].ax, vdz = z - vistaFootprints[vk].az;
+          if (vdx * vdx + vdz * vdz <= 176 * 176) return true; // 峡湾全景清景半径
+        }
         return false;
       }
       decorateParks(s);
+      decorateVistas(s);
       // 外星巨树的写入语义与普通树一致（force 主干 / airOnly 树冠）。
       var megaPen = Voxel.Structures ? {
         force: function (px, py, pz, pid) { decorSet(s, px, py, pz, pid, false); },

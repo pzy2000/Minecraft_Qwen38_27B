@@ -148,6 +148,10 @@ Voxel.Galaxy = (function () {
       fresh.legacyStartSeed = legacyStart;
       freshStart.seed = legacyStart;
     }
+    // 主题精选世界（北欧城堡等）的 typeKey 覆盖标记随 galaxy 持久化；
+    // 这里只透传字符串，是否为已知主题由 main.js 的 PlanetRules.knownType 校验。
+    if (typeof saved.legacyTheme === 'string' && /^[a-z]{2,12}$/.test(saved.legacyTheme))
+      fresh.legacyTheme = saved.legacyTheme;
     // 无限宇宙坐标：损坏/缺失一律回落起源系（其目录与旧版逐位一致）。
     var curG = plainInt(saved.curG), curS = plainInt(saved.curS);
     if (curG === null || curS === null || !Voxel.Universe.addr(curG, curS)) {

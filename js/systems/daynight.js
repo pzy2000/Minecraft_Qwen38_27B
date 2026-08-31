@@ -156,7 +156,8 @@ Voxel.DayNight = (function () {
     sunlight: function () { return sunlight; },
     ambientFloor: function () {
       var n = profile && Number(profile.ambientFloor);
-      return isFinite(n) ? Math.max(0.08, Math.min(0.5, n)) : 0.2;
+      // 极昼主题需要远超月光的地表可见度，钳制上限放宽到 0.78
+      return isFinite(n) ? Math.max(0.08, Math.min(0.78, n)) : 0.2;
     },
     weatherMix: function () {
       var n = profile && Number(profile.weatherMix);

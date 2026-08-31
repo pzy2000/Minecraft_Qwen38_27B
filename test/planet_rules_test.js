@@ -120,9 +120,10 @@ const GOLDEN = {
   // lush 覆盖整个群系注册表：第 22 轮群系扩展（+蘑菇林/沼泽/樱花树林/黑森林）
   // 与第 23 轮气候降频（群系面积 ~9x）都移动了 MultiNoise 最近邻边界，
   // 自然地形随之重排（edits/建筑逐位保留，用户已确认接受）；
+  // 北欧城堡轮新增 NORDIC_FJORD 气候点同样只挪动 lush 边界区域；
   // 其余五类 v1 行星走 LEGACY_SETS 逐格哈希，但 base pick 的输入气候场
   // 同样随频率变化，指纹一并刷新。
-  lush: '55c6bb2b',
+  lush: 'cc9aa958',
   arid: '20a55869',
   frozen: '4a03dfd3',
   toxic: '5d8b1ba7',
