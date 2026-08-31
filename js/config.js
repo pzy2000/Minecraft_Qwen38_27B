@@ -212,8 +212,8 @@ Voxel.Config = {
     high:     { fpsCap: 0,  res: 1,    particleDensity: 1,   rainDensity: 1,   mobDensity: 1, shadows: 2, sway: 1, stream: 12, bloom: 1, waterReflect: 1, heightFog: 1, viewBoost: 1, clouds: 2 }
   },
 
-  // 远景主题的流式半径（按 viewBoost 档位）：北欧峡湾雪脊在 140+ 格外，
-  // 基础半径 5（雾尾 128）会把整片山体埋进雾里。
+  // 远景主题的流式半径（按 viewBoost 档位）：北欧峡湾的湖心城堡在 108 格外、
+  // 雾中礁岛群更远，基础半径 5（雾尾 128）会把远景群岛与湖对岸埋进雾里。
   VIEW_BOOST_RADIUS: 8,
 
   // 实时光影参数

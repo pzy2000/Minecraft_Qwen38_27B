@@ -26,7 +26,7 @@ Voxel.PlanetRules = (function () {
     volcanic: [B.BADLANDS, B.STONY_PEAKS, B.JAGGED_PEAKS, B.WINDSWEPT_HILLS],
     oceanic: [B.OCEAN, B.BEACH, B.SPARSE_JUNGLE],
     station: [B.STONY_PEAKS],
-    // 北欧城堡精选主题：单一峡湾群系铺满全图，保证出生点四周即雪脊/黑沙/湖面
+    // 北欧城堡精选主题：单一峡湾群系铺满全图，保证出生点四周即黑沙/湖面
     nordic: [B.NORDIC_FJORD]
   };
 

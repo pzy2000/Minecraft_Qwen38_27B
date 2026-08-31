@@ -120,7 +120,7 @@ Voxel.AtmosphereProfiles = (function () {
       day: [0x7d9cb4, 0xacc6d2], dusk: [0x1c3550, 0x2f6b6a],
       night: [0x08202e, 0x123c46],
       // ambientFloor 0.76：夜里没有太阳，地表可见度全靠这条底光。参考照片是
-      // 长曝光，前景黑沙、雪脊与城堡石材都读得清，所以贴着 DayNight 的上限走
+      // 长曝光，前景黑沙、冰湖与城堡石材都读得清，所以贴着 DayNight 的上限走
       //（lush 只有 0.22 —— 那是普通月夜）。
       tintDay: 0xeaf6fa, tintNight: 0xd6e8f0, ambientFloor: 0.76, exponent: 0.62, weatherMix: 0.5,
       weather: [0x39505f, 0x5c757f, 0x0b1d28, 0x1c3540, 0x8ba3ae, 0xc3d4dc, 'snow', 0xdff5ff],
@@ -128,16 +128,16 @@ Voxel.AtmosphereProfiles = (function () {
       // 极光取色：底部亮绿（氧 557.7nm）→ 中段青 → 高空淡紫冠（氮）
       aurora: { low: 0x2bff8f, mid: 0x0ca4a4, high: 0x6a4fc8 },
       // 谷雾：base 取略高于湖面（vista 的水位约 y=36），于是水面/沙丘/礁岛
-      // 起雾而城堡屋面与雪脊峰顶露出——对齐 002 的"雾中群岛 + 清晰主体"。
+      // 起雾而城堡屋面与尖塔露出——对齐 002 的"雾中群岛 + 清晰主体"。
       heightFog: { base: 42, falloff: 18, strength: 0.55 },
       // 分级：更强对比 + 暖高光冷阴影分色 + 重暗角（002 的暗角很明显）
       grade: { contrast: 0.42, saturation: 1.16, split: 0.055, vignette: 0.34, lift: 0.026 },
       // 城堡窗与灯笼的暖光池；峡湾湖体的深青蓝
       blockLightTint: 0xffb877, deepWater: 0x0d2f42,
-      // 地表曝光：参考照片是长曝光——雪脊、黑沙与城堡石材在无日照的夜里
+      // 地表曝光：参考照片是长曝光——黑沙、冰湖与城堡石材在无日照的夜里
       // 依然层次分明。只抬地表，天穹/雾色保持暗场，对比才留得住。
       exposure: 1.75,
-      // 远景山脊必须落在雾尾内：允许该主题按画质抬高流式半径
+      // 远景礁岛群必须落在雾尾内：允许该主题按画质抬高流式半径
       viewBoost: true,
       suns: [
         { role: 'sun', style: 'cold-white', size: 40, color: 0xf2fbff, phase: 0.03, inclination: -0.05, cyclesPerDay: 1 }

@@ -17,7 +17,7 @@ Voxel.Settings = (function () {
     bloom: 1,               // 能量辉光后期 0=关 1=开（软件渲染器会强制关闭）
     waterReflect: 1,        // 水面解析式反射（菲涅尔+天穹/极光倒影）0=关 1=开
     heightFog: 1,           // 谷雾（湖面/低地起雾，山脊露出）0=关 1=开
-    viewBoost: 1,           // 远景主题（峡湾雪脊）允许抬高流式半径 0=关 1=开
+    viewBoost: 1,           // 远景主题（峡湾远景）允许抬高流式半径 0=关 1=开
     // 分音效开关（1=开，0=关），键名对应 Sound 内部分类
     sndSheep: 1, sndPig: 1, sndChicken: 1, sndZombie: 1, sndRabbit: 1, sndCat: 1,
     sndStep: 1, sndDig: 1, sndEat: 1, sndWater: 1, sndLand: 1,

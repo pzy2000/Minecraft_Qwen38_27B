@@ -34,8 +34,8 @@ Voxel.Featured = (function () {
     { name: '黑森林',     desc: '暗叶密林与苔石巨砾',       img: 'screenshots/biomes/dark-forest.png',     seed: SEED, biome: 'DARK_FOREST',    color: '#3c5a38' },
     { name: '星海嘉年华', desc: '摩天轮·过山车·光轮乐园',   img: 'screenshots/biomes/playground.png',      seed: SEED, biome: 'PLAYGROUND', parkSpawn: true, color: '#d8a13c' },
     // duskTime 0.70：日落之后的极光时段。进游戏第一眼就是南岸眼位的
-    // 「绿帘极光 + 锯齿雪脊 + 湖心亮灯城堡」，与参考照片 001 同一构图。
-    { name: '北欧城堡',   desc: '极光雪脊下的湖心红顶城堡',   img: 'screenshots/biomes/nordic-castle.png',   seed: '24601', biome: 'NORDIC_FJORD', castleSpawn: true, theme: 'nordic', duskTime: 0.70, color: '#54c9a2' }
+    // 「绿帘极光 + 开阔冰湖 + 湖心亮灯城堡」，城堡是天际线上唯一的主体。
+    { name: '北欧城堡',   desc: '极光冰湖上的湖心红顶城堡',   img: 'screenshots/biomes/nordic-castle.png',   seed: '24601', biome: 'NORDIC_FJORD', castleSpawn: true, theme: 'nordic', duskTime: 0.70, color: '#54c9a2' }
   ];
 
   function show() {

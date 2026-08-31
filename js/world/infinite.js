@@ -24,8 +24,8 @@ window.Voxel = window.Voxel || {};
   var DATA_RADIUS = Math.max(RENDER_RADIUS + 1, (CFG.STREAM_DATA_RADIUS || (RENDER_RADIUS + 1)) | 0);
   var KEEP_RADIUS = Math.max(DATA_RADIUS + 1, (CFG.STREAM_KEEP_RADIUS || (DATA_RADIUS + 2)) | 0);
 
-  // 远景主题（北欧峡湾的雪脊在 140+ 格外）需要更大的工作集，否则山体永远
-  // 落在雾尾之外。半径是运行时可调的：切换天体/画质档位时重新下发，
+  // 远景主题（北欧峡湾的雾中礁岛群在 140+ 格外）需要更大的工作集，否则远景
+  // 永远落在雾尾之外。半径是运行时可调的：切换天体/画质档位时重新下发，
   // 不改变任何生成结果——区块内容只由 (seed, profile, 全局坐标) 决定。
   function setRenderRadius(r) {
     var next = (r | 0) > 0 ? Math.max(2, Math.min(12, r | 0)) : BASE_RENDER_RADIUS;

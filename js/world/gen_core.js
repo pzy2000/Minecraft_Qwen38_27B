@@ -508,7 +508,7 @@ Voxel.GenCore = (function () {
     }
 
     // 北欧城堡全景：与园区同一套 cell 重算裁剪；写入器允许覆写自然方块
-    // （含水/雪，供湖盆注水与雪脊压顶），仅基岩/工作台/床/火把/箱子不可让位。
+    // （含水/雪，供湖盆注水与滩地找平），仅基岩/工作台/床/火把/箱子不可让位。
     // builder 内部按 clip 只计算与本区块相交的列。
     function decorateVistas(s) {
       var S = Voxel.Structures;

@@ -1486,15 +1486,14 @@ Voxel.Structures = (function () {
   // (vista, 常量)；每区块按 clip 裁剪只计算与自己相交的列。构图固定不旋转，
   // 保证任何 vista 的取景都一一对应两张参考照片：
   //   南岸黑沙丘地(出生点) → 冰湖 → 湖心岛上的红顶白墙城堡 → 石拱桥连东岸
-  //   → 北岸雪帽锯齿山脊；夜空由 nordic 大气提供绿帘极光。
+  //   → 北岸开阔黑沙滩地；夜空由 nordic 大气提供绿帘极光。
+  // 北岸原有一列脚本化锯齿雪脊，从出生眼位看是一道 12° 高的灰白山墙，把极光
+  // 挤成天顶一条边、也压过了城堡。移除后北向只剩雾中开阔地平线，构图主体唯一。
   var VISTA_CELL = 384;
   var VISTA_EXTENT = 175;     // 圆盘半径 158 + 桥墩/码头余量
-  // 锚点高度带：站点搜索已要求 ah > WATER+2(=29)，上界压到 34 是为了给雪脊
-  // 留出足够竖向空间（见 RIDGE_TOP_MAX / ridgeScale）
+  // 锚点高度带：站点搜索已要求 ah > WATER+2(=29)。上界 34 是站点选择的一部分，
+  // 改动会挪走整座城堡（截图/出生点契约），故雪脊移除后仍按原值钉住。
   var VISTA_AH_MAX = 34;
-  // 雪脊顶不得越过内容封顶（光照快路径假设其上恒为空气）；
-  // 剖面按 ah 实际可用空间整体缩放，而不是硬截成平台。
-  var RIDGE_TOP_MAX = Math.min(H - 2, (CFG.CONTENT_NATURAL_TOP || H - 1) - 2);
 
   var NK = {
     BLACK_SAND: 215, GNEISS: 216, SHINGLE: 217, PLASTER: 218, TUSSOCK: 219,
@@ -1506,11 +1505,11 @@ Voxel.Structures = (function () {
   };
 
   // ---- 布局事实源（builder 与宝箱反查/出生点共用）----
-  // 构图取自两张参考照片的合成（南岸眼位 → 湖 → 岛心城堡 → 雪脊）：
+  // 构图取自两张参考照片的合成（南岸眼位 → 湖 → 岛心城堡 → 开阔北岸）：
   //   出生点 z=+95 → 岸线 z=+62（前景沙丘 33 格）→ 岛心 z=-10（约 105 格）
-  //   → 雪脊前缘 z=-61（约 156 格）→ 主峰 z=-90..-120（约 185..215 格）
-  // 主峰距离必须落在雾尾内（viewBoost 半径 8 → 雾尾 224 格），否则整片山体
-  // 会被雾吃掉——这是旧构图（出生点 z=+112、雾尾 128）最大的问题。
+  //   → 湖北岸 z=-44（约 139 格）→ 盘北缘 z=-173（约 268 格，已在雾尾之外）
+  // 城堡距离必须落在雾尾内（viewBoost 半径 8 → 雾尾 224 格），否则主体会被
+  // 雾吃掉——这是旧构图（出生点 z=+112、雾尾 128）最大的问题。
   function vistaLayout() {
     return {
       diskCx: 0, diskCz: -15, diskR: 158,
@@ -1648,39 +1647,6 @@ Voxel.Structures = (function () {
   }
 
   // ---------- 几何助手 ----------
-  // 山脊剖面参数：峰顶抬高、锥面用 1.7 次幂收尖（参考照片 001 的刀刃状雪峰），
-  // 锥半径仍留 30 以保证相邻峰重叠、山墙不出现缺口。剖面本体见 buildVista 的
-  // ridgeAt（唯一实现，避免两份会漂移的山形）。
-  var VISTA_PEAK_STEP = 28;
-  // 峰高是"山体占多少画面"与"极光有多少天空"的直接权衡：前缘峰在 144 格外，
-  // 峰高 60 → 仰角约 19°，占 75° 竖直视场的四分之一，正好给绿帘留出上方天空。
-  // 再高（原来 95）会把天空挤到只剩 15%，极光就成了顶部一条边。
-  var VISTA_PEAK_H = [38, 47, 42, 50, 40, 48, 44, 51, 39, 46, 43];
-  // 峰位与锥半径都逐峰错开：等距同径的锥列从空中看是一排一模一样的三角鳍，
-  // 像梳子而不是山脉。
-  var VISTA_PEAK_DX = [0, 7, -5, 10, -8, 4, -3, 8, -6, 3, -4];
-  var VISTA_PEAK_R = [26, 34, 29, 37, 24, 32, 27, 35, 25, 31, 28];
-  var VISTA_PEAK_POW = 1.7;
-  // 山脊前缘（相对盘心 z）：越靠南越近、看起来越高，也越不容易被雾吃掉。
-  var VISTA_RIDGE_FRONT = -30;
-  // 剖面理论上限（base 最大 14 + 最高峰 × 起伏上限 1.06），用于按 ah 缩放
-  var VISTA_RIDGE_SPAN = 14 + Math.round(51 * 1.06);
-
-  // ah 越高，留给雪脊的竖向空间越少；整体缩放而不是截顶，山形不会被削平。
-  function vRidgeScale(ah) {
-    return Math.min(1, Math.max(20, RIDGE_TOP_MAX - ah) / VISTA_RIDGE_SPAN);
-  }
-
-  // 山体起伏：两级粗格（7 / 23 格）的连续抖动。逐列白噪会把高峰打成一排
-  // 方柱（棋盘噪声在 80 格高度上就是 ±8 格的乱跳），粗格才形成岩脊与冲沟。
-  function vRidgeRough(v, lx, lz) {
-    function lattice(cell, salt) {
-      return h2(v.ax + Math.floor(lx / cell) * 137 + salt,
-        v.az + Math.floor(lz / cell) * 149 + salt);
-    }
-    return 0.90 + lattice(23, 11) * 0.11 + lattice(7, 37) * 0.05;
-  }
-
   // 草丘：11 格网格内抖动的簇心。抖动被限制在格心 ±2，于是任何一列只需查
   // 自己所在的格（邻格簇心至少 8 格远 > 最大丘半径 4），成本恒为常数。
   var MOUND_CELL = 11;
@@ -1741,30 +1707,6 @@ Voxel.Structures = (function () {
           for (var by = by0; by <= by1; by++) fn(lx, by, lz);
     }
 
-    // 山脊剖面：北带锯齿峰列，返回该列相对 ah 的目标高度。
-    // ridgeScale 把整条剖面压进内容封顶（ah 越高压得越多），保持山形比例。
-    var ridgeScale = vRidgeScale(ah);
-    var ridgeFront = L.diskCz + VISTA_RIDGE_FRONT;
-    function ridgeAt(lx, lz) {
-      if (lz > ridgeFront) return null;
-      var t = (ridgeFront - lz) / (L.diskR - 24);   // 0..1 向盘缘抬升
-      var base = 6 + Math.round(Math.max(0, t) * 8);
-      // 两层锥叠加：窄锥（半径 30、1.7 次幂）给刀刃状峰顶，宽缓的山体基座
-      // （半径 64、线性、0.62 权重）把峰连成连续山墙。只有窄锥时峰间会塌到
-      // 峰高的 35%，从南岸看过去就是一排孤立的三角尖而不是山脉。
-      var bestH = 0, wall = 0;
-      for (var k = 0; k < VISTA_PEAK_H.length; k++) {
-        var d = Math.abs(lx - (L.diskCx - 140 + k * VISTA_PEAK_STEP + VISTA_PEAK_DX[k]));
-        var dh = VISTA_PEAK_H[k] * Math.pow(Math.max(0, 1 - d / VISTA_PEAK_R[k]), VISTA_PEAK_POW);
-        if (dh > bestH) bestH = dh;
-        var dw = VISTA_PEAK_H[k] * Math.max(0, 1 - d / 64) * 0.62;
-        if (dw > wall) wall = dw;
-      }
-      if (wall > bestH) bestH = wall;
-      if (bestH <= 0) return null;
-      return Math.round((base + bestH * vRidgeRough(v, lx, lz)) * ridgeScale);
-    }
-
     // 礁岛：湖中的岩锥（雾中群岛剪影）。返回该列相对 ah 的目标高度，
     // 不命中返回 null。半径外的边缘用平方根收边，读起来像被水啃过的岩石。
     function isletAt(lx, lz) {
@@ -1781,7 +1723,7 @@ Voxel.Structures = (function () {
 
     var islandTop = ah + 3, plazaTop = ah + L.plaza.top;
 
-    // ==== 1. 地形底景：黑沙盘 / 湖盆 / 岛体 / 雪脊 ====
+    // ==== 1. 地形底景：黑沙盘 / 湖盆 / 岛体 ====
     for (var lx = Math.max(L.diskCx - L.diskR, x0c); lx <= Math.min(L.diskCx + L.diskR, x1c); lx++) {
       for (var lz = Math.max(L.diskCz - L.diskR, z0c); lz <= Math.min(L.diskCz + L.diskR, z1c); lz++) {
         if (!inDisk(lx, lz)) continue;
@@ -1789,10 +1731,9 @@ Voxel.Structures = (function () {
         var rr = Math.sqrt(dcx * dcx + dcz * dcz);
         var surfId, bodyId, dst;
         var isIsland = inEll(lx, lz, L.island);
-        var ridge = ridgeAt(lx, lz);
-        var inLake = inEll(lx, lz, L.lake) && !isIsland && !ridge;
+        var inLake = inEll(lx, lz, L.lake) && !isIsland;
         var islet = inLake ? isletAt(lx, lz) : null;
-        if (isIsland && !ridge) {
+        if (isIsland) {
           surfId = inEll(lx, lz, L.plaza) ? NK.GNEISS :
             (h2((v.ax + lx) * 41 + 7, (v.az + lz) * 43 + 11) < 0.5 ? NK.BLACK_SAND : NK.GNEISS);
           bodyId = NK.GNEISS;
@@ -1801,21 +1742,6 @@ Voxel.Structures = (function () {
           surfId = NK.GNEISS; bodyId = NK.GNEISS; dst = ah + islet;
         } else if (inLake) {
           surfId = NK.GNEISS; bodyId = NK.GNEISS; dst = ah - 7;
-        } else if (ridge !== null) {
-          // 雪沟：条纹只由 x 决定，于是沿坡面连成竖向的雪槽/岩脊
-          //（参考照片 001 里山体上一道道白色雪沟），而不是横向色带。
-          // 雪沟：条纹取 5 格粗格且只由 x 决定，于是沿坡面连成宽度合适的
-          // 竖向雪槽。逐列白噪会变成 1 格宽的黑白交替，远看像瓦楞铁皮。
-          var gully = h2((v.ax + Math.floor(lx / 5) * 5) * 11 + 37, 0);
-          var snowy = ridge > 26 || h2((v.ax + lx) * 7 + 91, (v.az + lz) * 5 + 53) < ridge / 44;
-          colFound(lx, lz, ah + ridge, snowy ? NK.SNOW : NK.GNEISS, NK.GNEISS);
-          // 雪帽：峰体越高积雪越厚，雪沟处露岩、其余整面覆雪
-          if (ridge > 12) {
-            var cap = Math.min(22, Math.round((ridge - 12) * 0.55) + 4);
-            if (gully >= 0.70) cap = Math.max(2, Math.round(cap * 0.45));
-            for (var syd = 1; syd <= cap; syd++) WL(lx, ah + ridge - syd, lz, NK.SNOW);
-          }
-          continue;
         } else {
           var dune = h2((v.ax + lx) * 31 + 3, (v.az + lz) * 37 + 61);
           dst = ah + (dune < 0.14 ? 1 : 0);
@@ -1833,11 +1759,11 @@ Voxel.Structures = (function () {
     }
 
     // ==== 2. 注水冰湖（水位 ah-1）====
-    // 雪脊与礁岛都可能伸进湖椭圆，注水必须跳过它们，否则会往山体里灌水。
+    // 礁岛伸进湖椭圆，注水必须跳过它们，否则会往岩锥里灌水。
     for (var wx = Math.max(L.lake.cx - L.lake.rx, x0c); wx <= Math.min(L.lake.cx + L.lake.rx, x1c); wx++)
       for (var wz = Math.max(L.lake.cz - L.lake.rz, z0c); wz <= Math.min(L.lake.cz + L.lake.rz, z1c); wz++) {
         if (!inEll(wx, wz, L.lake) || inEll(wx, wz, L.island)) continue;
-        if (ridgeAt(wx, wz) !== null || isletAt(wx, wz) !== null) continue;
+        if (isletAt(wx, wz) !== null) continue;
         for (var wy = ah - 6; wy <= ah - 1; wy++) WL(wx, wy, wz, NK.WATER);
         if (h2((v.ax + wx) * 23 + 5, (v.az + wz) * 29 + 97) < 0.06 &&
           !inEll(wx, wz, { cx: L.lake.cx, cz: L.lake.cz, rx: L.lake.rx - 26, rz: L.lake.rz - 16 }))

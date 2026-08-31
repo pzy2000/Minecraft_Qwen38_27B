@@ -1,5 +1,5 @@
 // 北欧城堡峡湾全景的构图体检（Node，无浏览器）：
-// 打印站点、关键构图距离、雪脊高度包络与几条竖向剖面，用于对齐参考照片。
+// 打印站点、关键构图距离、北岸开阔度与几条竖向剖面，用于对齐参考照片。
 //   node tools/check_nordic.js
 'use strict';
 
@@ -57,23 +57,22 @@ const spawnZ = L.spawn.dz;
 console.log('\n-- 构图距离（自出生点 z=%d 向北）--', spawnZ);
 console.log('岸线   z=%d  距离 %d', L.lake.cz + L.lake.rz, spawnZ - (L.lake.cz + L.lake.rz));
 console.log('岛心   z=%d  距离 %d', L.island.cz, spawnZ - L.island.cz);
-// 与 structures.js 的 VISTA_RIDGE_FRONT 保持一致
-const RIDGE_FRONT = L.diskCz - 30;
-console.log('脊前缘 z=%d  距离 %d', RIDGE_FRONT, spawnZ - RIDGE_FRONT);
+console.log('湖北岸 z=%d  距离 %d', L.lake.cz - L.lake.rz, spawnZ - (L.lake.cz - L.lake.rz));
 console.log('盘北缘 z=%d  距离 %d', L.diskCz - L.diskR, spawnZ - (L.diskCz - L.diskR));
 
-console.log('\n-- 雪脊高度包络 --');
+// 北岸曾是一列脚本化锯齿雪脊，现已移除；这里体检它没有悄悄回归。
+console.log('\n-- 北岸开阔度（湖北岸至盘缘内圈）--');
 let peakTop = 0, peakAt = null, snowCount = 0;
 for (let lx = -150; lx <= 150; lx += 2)
-  for (let lz = L.diskCz - L.diskR + 4; lz <= L.diskCz - 50; lz += 2) {
+  for (let lz = L.diskCz - L.diskR + 24; lz <= L.diskCz - 45; lz += 2) {
+    if (Math.hypot(lx, lz - L.diskCz) > L.diskR - 24) continue;
     const t = topAt(lx, lz);
     if (t.y > peakTop) { peakTop = t.y; peakAt = [lx, lz]; }
     if (t.id === 18) snowCount++;
   }
 console.log('最高点 y=%d (相对 ah +%d) 位于 [%d, %d]', peakTop, peakTop - vista.ah,
   peakAt ? peakAt[0] : 0, peakAt ? peakAt[1] : 0);
-console.log('脊带雪顶采样命中 %d', snowCount);
-console.log('是否越过内容封顶：%s', peakTop > V.Config.CONTENT_NATURAL_TOP ? '是（越界！）' : '否');
+console.log('北岸雪顶采样命中 %d（应为 0）', snowCount);
 
 console.log('\n-- 出生点向北的地表剖面（每 12 格）--');
 for (let lz = spawnZ; lz >= L.diskCz - L.diskR + 6; lz -= 12) {
@@ -83,9 +82,10 @@ for (let lz = spawnZ; lz >= L.diskCz - L.diskR + 6; lz -= 12) {
     String(t.id).padStart(3), V.Blocks.name(t.id));
 }
 
-// 从出生眼位向北做逐列光栖：每个水平方位取"最高仰角"的地表点，
-// 这就是画面里山脊剪影的实际来源（能分辨看到的是前缘还是远峰）。
-console.log('\n-- 剪影来源（沿几条方位射线取最大仰角）--');
+// 从出生眼位向北做逐列光栖：每个水平方位取"最高仰角"的地表点，这就是画面
+// 天际线的实际来源。仰角为负即该方位整段落在地平线以下（只剩天空与极光）。
+console.log('\n-- 剪影来源（沿几条方位射线取最大仰角，雾尾 %d 格）--',
+  (V.Config.VIEW_BOOST_RADIUS - 1) * CS);
 const EYE = { x: L.spawn.dx, y: vista.ah + 1.25 + 1.4 + 9, z: spawnZ };
 for (const bearing of [-0.45, -0.25, 0, 0.25, 0.45]) {
   let bestAng = -9, bestD = 0, bestY = 0, bestId = 0;

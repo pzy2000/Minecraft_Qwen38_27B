@@ -1007,7 +1007,7 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
     var v2 = V.Structures.nearestVistaTo(0, 0, 6);
     check('vista 描述符确定性复现', JSON.stringify(vista) === JSON.stringify(v2));
     check('vista 锚点为北欧峡湾群系', V.World.biomeAt(vista.ax, vista.az) === Bn.NORDIC_FJORD);
-    check('vista 锚点高于水位且低于雪脊上限', vista.ah > V.Config.WATER_LEVEL + 2 &&
+    check('vista 锚点高于水位且落在锚点高度带内', vista.ah > V.Config.WATER_LEVEL + 2 &&
       vista.ah <= V.Config.WORLD_H - 90);
     var gate = V.Structures.vistaGateSpawn(vista);
     // 出生点在 z+ 南岸，且与布局事实源一致（构图距离随参考照片调过，
@@ -1025,7 +1025,7 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
         if (V.World.get(scx - 2, yv, scz) === 217) { sh = true; break; }
       return sh;
     }
-    // 同步预生成锚点周边区块（半径 176 列，覆盖雪脊带与桥台）
+    // 同步预生成锚点周边区块（半径 176 列，覆盖北岸滩地与桥台）
     var bcx0 = Math.floor((vista.ax - 180) / V.Config.CHUNK);
     var bcx1 = Math.floor((vista.ax + 180) / V.Config.CHUNK);
     var bcz0 = Math.floor((vista.az - 180) / V.Config.CHUNK);
@@ -1079,25 +1079,24 @@ console.log('北欧城堡峡湾全景（nordic 主题结构契约）');
       if (bid !== 216 && bid !== 78) gaps++;
     }
     check('石拱桥面采样无缺口', gaps === 0);
-    // 雪脊带覆雪（峰体雪帽体素总量）
-    var snowRidge = 0;
+    // 北岸开阔：原先这里是一列脚本化锯齿雪脊，会挡住极光并压过城堡。移除后
+    // 湖北岸到盘缘内圈必须保持贴地滩地——既无积雪，地表也不高出锚点，
+    // 否则山墙就是悄悄回归了。盘缘 24 格是向自然地形的过渡带，不纳入采样。
+    var northBandTop = vista.ah, northSnow = 0;
     for (var sxv = -140; sxv <= 140; sxv += 5)
-      for (var syv = 38; syv <= 80; syv += 3)
-        for (var szv = L.diskCz - L.diskR + 6; szv <= L.diskCz - 70; szv += 12)
-          if (V.World.get(vista.ax + sxv, vista.ah + syv, vista.az + szv) === 18)
-            snowRidge++;
-    check('北岸山脊带出现积雪峰体', snowRidge > 40);
-    // 雪脊剖面按 ah 缩放，峰顶不得越过内容封顶（光照快路径的前提）
-    var ridgeTop = 0;
-    for (var rxs = -150; rxs <= 150; rxs += 3)
-      for (var rzs = L.diskCz - L.diskR + 4; rzs <= L.diskCz - 50; rzs += 3)
-        for (var rys = V.Config.WORLD_H - 1; rys > vista.ah; rys--)
-          if (V.World.get(vista.ax + rxs, rys, vista.az + rzs) !== 0) {
-            if (rys > ridgeTop) ridgeTop = rys;
-            break;
-          }
-    check('雪脊峰顶落在内容封顶内且足够高', ridgeTop <= V.Config.CONTENT_NATURAL_TOP &&
-      (ridgeTop - vista.ah) >= 60);
+      for (var szv = L.diskCz - L.diskR + 24; szv <= L.diskCz - 45; szv += 6) {
+        if (Math.sqrt(sxv * sxv + Math.pow(szv - L.diskCz, 2)) > L.diskR - 24) continue;
+        for (var rys = V.Config.CONTENT_NATURAL_TOP; rys > vista.ah; rys--) {
+          var nid = V.World.get(vista.ax + sxv, rys, vista.az + szv);
+          if (nid === 0) continue;
+          if (nid === 18) northSnow++;
+          if (rys > northBandTop) northBandTop = rys;
+          break;
+        }
+      }
+    check('湖北岸无积雪山体', northSnow === 0);
+    check('湖北岸地表贴着锚点（无脚本化山脊）', northBandTop - vista.ah <= 4,
+      '+' + (northBandTop - vista.ah));
     // 雾中礁岛群：每座礁岛顶都应露出水面并带云杉
     var isletTops = 0, isletTrees = 0;
     L.islets.forEach(function (it) {

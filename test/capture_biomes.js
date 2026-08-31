@@ -372,8 +372,8 @@ async function waitPlaying(page) {
     // 俯瞰，蓝调时刻 + 全城亮灯，长桥指向画面右下。精选卡缩略图用这张。
     { name: 'nordic-castle',   opts: { biome: 'NORDIC_FJORD', height: 64, pitch: -0.60,
       vistaAerial: { dx: 50, dz: 62 }, setTime: 0.585, meshR: 210, chunkR: 13 } },
-    // 北欧城堡 · 地面（对齐参考照片 001）：南岸草丘眼位，锯齿雪脊压在
-    // 画面下三分之一，头顶绿帘极光。README 用图。
+    // 北欧城堡 · 地面（对齐参考照片 001）：南岸草丘眼位，开阔冰湖与湖心
+    // 城堡压在画面下三分之一，头顶绿帘极光。README 用图。
     // height 9 是为了越过前景草丘看到湖面：眼位再低，10~20 格外的草丘就会
     // 把整片湖遮死（湖面只比地面低 1 格，掠射角极小）。
     { name: 'nordic-aurora',   opts: { biome: 'NORDIC_FJORD', height: 9, pitch: -0.02,

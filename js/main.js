@@ -779,7 +779,7 @@ Voxel.Game = (function () {
         pitch = -0.1;
       }
     }
-    // 北欧城堡卡：南岸丘顶落位，正对湖心城堡与雪脊（峡湾全景结构）。
+    // 北欧城堡卡：南岸丘顶落位，正对湖心城堡（峡湾全景结构）。
     if (w.castleSpawn && !w.overview && !spot &&
       Voxel.Structures && Voxel.Structures.nearestVistaTo) {
       var vista = Voxel.Structures.nearestVistaTo(0, 0, 6);

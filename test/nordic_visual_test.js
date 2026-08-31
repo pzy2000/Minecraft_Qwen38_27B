@@ -1,8 +1,8 @@
 // 北欧城堡观感契约（Node，无浏览器）：
 //   1. 大气 profile 的新字段（极光取色 / 谷雾 / 分级 / 曝光 / 视距）确定性且在合理量程内；
 //   2. 老主题不受影响 —— 未声明这些字段的世界必须保持中性，金标截图观感不变；
-//   3. 峡湾全景的竖向包络：雪脊按 ah 缩放后不得越过内容封顶（光照快路径的前提）；
-//   4. 构图距离：出生眼位到雪脊前缘必须落在雾尾之内，否则整片山体会被雾吃掉；
+//   3. 峡湾全景的竖向包络：全景内容不得越过内容封顶（光照快路径的前提）；
+//   4. 北向天际线开阔：雾尾内除城堡外无越过地平线的山体（原锯齿雪脊已移除）；
 //   5. 自发光门槛只挑真正的灯具，不会让整座城堡泛光。
 const fs = require('fs');
 const path = require('path');
@@ -136,22 +136,21 @@ if (vista) {
     return 0;
   }
 
-  let ridgeTop = 0;
+  let diskTop = 0;
   for (let lx = -150; lx <= 150; lx += 3)
-    for (let lz = L.diskCz - L.diskR + 4; lz <= L.diskCz - 40; lz += 3)
-      ridgeTop = Math.max(ridgeTop, topAt(lx, lz));
-  check('雪脊峰顶不越过内容封顶', ridgeTop <= CFG.CONTENT_NATURAL_TOP,
-    ridgeTop + ' <= ' + CFG.CONTENT_NATURAL_TOP);
-  check('雪脊足够高（相对锚点）', ridgeTop - vista.ah >= 50,
-    '+' + (ridgeTop - vista.ah));
+    for (let lz = L.diskCz - L.diskR + 4; lz <= L.diskCz + L.diskR - 4; lz += 3)
+      diskTop = Math.max(diskTop, topAt(lx, lz));
+  check('全景内容不越过内容封顶', diskTop <= CFG.CONTENT_NATURAL_TOP,
+    diskTop + ' <= ' + CFG.CONTENT_NATURAL_TOP);
 
-  // 剪影来源：沿出生眼位向正北取"最高仰角"的地表点，它就是画面里山脊的来源。
-  // 这个距离必须落在雾尾之内（远景视距档位下 fogFar = (半径-1)×区块），
-  // 否则山体会被雾整片抹平 —— 这正是改造前最大的观感缺陷。
+  // 剪影来源：沿出生眼位向正北取"最高仰角"的地表点，它就是画面天际线的来源。
+  // 只扫到雾尾（远景视距档位下 fogFar = (半径-1)×区块）为止——更远的自然地形
+  // 会被雾整片抹平，不进入观感。
+  const fogFar = (CFG.VIEW_BOOST_RADIUS - 1) * CFG.CHUNK;
   const eyeY = vista.ah + 1.25 + 1.4 + 9;
   function silhouette(offsetX) {
     let bestAng = -9, bestDist = 0, bestId = 0;
-    for (let d = 20; d <= 300; d += 2) {
+    for (let d = 20; d <= fogFar; d += 2) {
       const lx = L.spawn.dx + offsetX, lz = L.spawn.dz - d;
       const y = topAt(lx, lz);
       if (!y) continue;
@@ -163,16 +162,16 @@ if (vista) {
     }
     return { ang: bestAng, dist: bestDist, id: bestId };
   }
-  const fogFar = (CFG.VIEW_BOOST_RADIUS - 1) * CFG.CHUNK;
-  // 偏 70 格避开城堡本体，取到的就是雪脊
-  const ridge = silhouette(70);
-  check('雪脊剪影落在远景雾尾之内且是雪面', ridge.dist < fogFar && ridge.id === 18,
-    ridge.dist + ' < ' + fogFar + '，顶块 ' + V.Blocks.name(ridge.id));
-  check('雪脊剪影仰角足够（山体占画面）', ridge.ang > 0.13,
-    (ridge.ang * 57.2958).toFixed(1) + '°');
-  // 正前方是城堡：必须比雪脊更高才能成为构图主体
+  // 偏 70 格避开城堡本体：这条射线上原先是锯齿雪脊（12° 灰白山墙，把极光挤成
+  // 天顶一条边）。移除后北向天际线必须整段落在地平线以下，且不再有雪面。
+  const offAxis = silhouette(70);
+  check('偏轴北向天际线落在地平线以下', offAxis.ang < 0,
+    (offAxis.ang * 57.2958).toFixed(1) + '°');
+  check('偏轴北向天际线不是雪面', offAxis.id !== 18,
+    '顶块 ' + V.Blocks.name(offAxis.id));
+  // 城堡是画面里唯一越过地平线的主体
   const keep = silhouette(0);
-  check('城堡在正前方压过雪脊成为主体', keep.ang > ridge.ang && keep.dist < ridge.dist,
+  check('城堡是正前方唯一压过地平线的主体', keep.ang > 0.2 && keep.dist < fogFar,
     (keep.ang * 57.2958).toFixed(1) + '° @ ' + keep.dist + ' 格');
 
   // 出生点前方必须能看见湖面：眼位与岸线之间不得被草丘挡死

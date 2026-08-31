@@ -93,7 +93,7 @@ Voxel.MeshBuilder = (function () {
   ].join('\n');
 
   // 距离雾 + 谷雾：谷雾只在距离雾之外**追加**遮蔽，且随高度指数衰减，
-  // 于是湖面/沙丘起雾而雪脊峰顶露出（uFogHeightStr=0 时退化为纯距离雾）。
+  // 于是湖面/沙丘起雾而城堡屋面露出（uFogHeightStr=0 时退化为纯距离雾）。
   var FOG_GLSL = [
     'float fogAmount(){',
     '  float f = smoothstep(uFogNear, uFogFar, vDepth);',
