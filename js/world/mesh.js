@@ -411,6 +411,42 @@ Voxel.MeshBuilder = (function () {
     tmpUV[1] = 1 - (r * 16 + 0.5 + (1 - uy) * 15) / asz;
   }
 
+  // ---- typed 预分配几何缓冲（plan 5.1 · Step B）----
+  // 取代旧的 JS 增长数组：消除逐值装箱与 makeGeo 处的全量类型转换。
+  // push 保持可变参数签名、length 读作已用元素数 —— 原有发射器代码零改动。
+  // 容量倍增；数值在写入时即落 float32 位型（与 GPU 上传精度一致），
+  // 因此对同一输入，本实现与旧 JS 数组路径的最终 BufferGeometry 逐位相同。
+  function TypedBuf(ctor, cap) {
+    this.a = new ctor(cap);
+    this.n = 0;
+  }
+  Object.defineProperty(TypedBuf.prototype, 'length', {
+    get: function () { return this.n; }
+  });
+  TypedBuf.prototype.push = function () {
+    var need = this.n + arguments.length;
+    if (need > this.a.length) {
+      var na = new this.a.constructor(this.a.length * 2 > need ? this.a.length * 2 : need);
+      na.set(this.a.subarray(0, this.n));
+      this.a = na;
+    }
+    for (var i = 0; i < arguments.length; i++) this.a[this.n++] = arguments[i];
+  };
+  // 只读精确长度视图（不拷贝；调用方如需持有应自行 slice）
+  TypedBuf.prototype.view = function () { return this.a.subarray(0, this.n); };
+
+  function mkStage() {
+    return {
+      pos: new TypedBuf(Float32Array, 8192),
+      uv: new TypedBuf(Float32Array, 4096),
+      col: new TypedBuf(Float32Array, 8192),
+      lgt: new TypedBuf(Float32Array, 4096),
+      nrm: new TypedBuf(Float32Array, 8192),
+      flg: new TypedBuf(Float32Array, 4096),
+      idx: new TypedBuf(Uint32Array, 12288)
+    };
+  }
+
   // 单顶点平滑光照：对面朝格 N 及其两个侧邻、角邻共 4 格采样（不透明格不参与平均，
   // 但通过 AO 因子变暗）；返回该顶点的天光/块光与 AO 等级
   function vertexLight(x, y, z, F, au, av, aw, bu, bv, bw) {
@@ -705,27 +741,26 @@ Voxel.MeshBuilder = (function () {
 
   function makeGeo(a) {
     if (!a.pos.length) return null;
+    // slice() 紧凑化：GPU 持有精确尺寸副本，过容量 staging 可及时回收
     var g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(a.pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(a.uv, 2));
-    g.setAttribute('acolor', new THREE.Float32BufferAttribute(a.col, 3));
-    g.setAttribute('alight', new THREE.Float32BufferAttribute(a.lgt, 2));
-    g.setAttribute('anrm', new THREE.Float32BufferAttribute(a.nrm, 3));
-    g.setAttribute('aflag', new THREE.Float32BufferAttribute(a.flg, 2));
-    g.setIndex(new THREE.BufferAttribute(new Uint32Array(a.idx), 1));
+    g.setAttribute('position', new THREE.BufferAttribute(a.pos.slice(), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(a.uv.slice(), 2));
+    g.setAttribute('acolor', new THREE.BufferAttribute(a.col.slice(), 3));
+    g.setAttribute('alight', new THREE.BufferAttribute(a.lgt.slice(), 2));
+    g.setAttribute('anrm', new THREE.BufferAttribute(a.nrm.slice(), 3));
+    g.setAttribute('aflag', new THREE.BufferAttribute(a.flg.slice(), 2));
+    g.setIndex(new THREE.BufferAttribute(a.idx.slice(), 1));
     g.computeBoundingSphere();
     return g;
   }
 
   // 纯数组构建：不含任何 three.js 依赖（plan 5.1 · Worker 化目标接口）。
-  // 输出三组增长的普通数组；主线程路径由 build() 包装成 BufferGeometry，
-  // 测试与未来的 mesh_worker 直接消费原始数组。
+  // 输出三组 typed 预分配 staging 的精确视图；主线程路径由 build() 包装成
+  // BufferGeometry，测试与未来的 mesh_worker 直接消费原始视图。
   function buildArrays(cx, cz) {
     var CFG = Voxel.Config;
     var H = CFG.WORLD_H, CS = CFG.CHUNK;
-    var o = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
-    var w = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
-    var fl = { pos: [], uv: [], col: [], idx: [], lgt: [], nrm: [], flg: [] };
+    var o = mkStage(), w = mkStage(), fl = mkStage();
     var x0 = cx * CS, z0 = cz * CS;
 
     // 填充草稿缓冲并切换到本地数组采样器；退出时恢复全局门面，
@@ -815,7 +850,16 @@ Voxel.MeshBuilder = (function () {
     } finally {
       G = gPrev; GSky = gsPrev; GBlk = gbPrev;
     }
-    return { o: o, w: w, fl: fl };
+    // 边界输出为精确长度视图：array-like（测试哈希 / Worker 序列化 /
+    // makeGeo 三方通用），底层 staging 由本次调用私有，无共享风险
+    return { o: toViews(o), w: toViews(w), fl: toViews(fl) };
+  }
+
+  function toViews(s) {
+    return {
+      pos: s.pos.view(), uv: s.uv.view(), col: s.col.view(),
+      lgt: s.lgt.view(), nrm: s.nrm.view(), flg: s.flg.view(), idx: s.idx.view()
+    };
   }
 
   function build(cx, cz) {
