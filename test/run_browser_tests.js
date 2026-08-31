@@ -54,7 +54,7 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
     { file: 'test/featured_lazy_ui_test.html', re: '^FEATURED-LAZY-UI-PASS', viewport: { width: 160, height: 284, deviceScaleFactor: 2 } },
     { file: 'test/featured_lazy_ui_test.html', re: '^FEATURED-LAZY-UI-PASS', viewport: { width: 284, height: 160, deviceScaleFactor: 2 } },
     { file: 'test/browser_test.html', re: '^TEST-PASS' },
-    { file: 'test/park_ride_test.html', re: '^PARK-RIDE-PASS' },
+    { file: 'test/park_ride_test.html', re: '^PARK-RIDE-PASS', timeoutMs: 600000 },
     { file: 'test/atmosphere_test.html', re: '^ATMOSPHERE-PASS' },
     { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS' },
     { file: 'test/environment_test.html', re: '^ENVIRONMENT-PASS', reducedMotion: true },
@@ -119,9 +119,11 @@ if (!execPath) { console.error('未找到 Chromium 内核浏览器，请传入�
       await page.evaluateOnNewDocument(() => { window.__FORCE_TOUCH__ = true; });
     await page.goto('file://' + path.join(root, t.file), { waitUntil: 'load' });
     const t0 = Date.now();
+    // 部分用例（如 park_ride）在 CI 慢速软件渲染下超过默认 300s，
+    // 允许按用例放宽等待上限（页面自身还有更长的兜底超时来产出诊断结果）
     const reachedTerminal = await page.waitForFunction(
       (re) => new RegExp(re).test(document.title) || /-FAIL\b/.test(document.title),
-      { timeout: 300000, polling: 500 }, t.re
+      { timeout: t.timeoutMs || 300000, polling: 500 }, t.re
     ).then(() => true).catch(e => {
       console.log('[wait aborted ' + ((Date.now() - t0) / 1000).toFixed(1) + 's] ' + (e && e.message || e));
       return false;
