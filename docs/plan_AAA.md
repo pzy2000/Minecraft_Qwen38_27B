@@ -1688,7 +1688,7 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 |---|---|---|
 | A | 几何黄金护栏：`mesh_golden_test.js` + `make_mesh_golden.js`（平原/山地/森林三区块，float32 位域摘要，7 组哈希 × 3 材质组），接入 test:node | ✅ 2026-09-01 |
 | B | mesh.js 增长数组改 typed 预分配 staging，输出与黄金逐位一致 | ✅ 2026-09-01 |
-| C | 网格化进 Worker（mesh_worker.js + Transferable + 失败回退同步路径） | ⬜ |
+| C | 网格化进 Worker（mesh_worker.js + Transferable + 失败回退同步路径） | ✅ 2026-09-01 |
 | D | greedy meshing（合并键含光照/AO 四元组；cross/box/connector 独立路径）→ 重建基线并以 preGreedyVtxO 钉住降幅 | ⬜ |
 | E | stream_perf_test 最坏帧断言 120ms → 20ms | ⬜ |
 

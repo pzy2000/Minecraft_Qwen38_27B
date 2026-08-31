@@ -50,6 +50,123 @@ window.Voxel = window.Voxel || {};
   var coreBlkOverlay = null;             // 外围火把跨入 legacy core 的附加块光
   var genQueue = [], genQueued = Object.create(null);
   var meshQueue = [], meshQueued = Object.create(null);
+  // 网格 Worker（plan 5.1 · Step C）：发射循环移出主线程。单实例无状态、
+  // 输出与同步路径逐位一致；失败整体回退同步路径（file:// / CSP 自动降级）。
+  var MW_MAX_INFLIGHT = 3;
+  var mwc = null, mwFailed = false, mwNextId = 1, mwInflight = 0;
+  var mwPending = Object.create(null);   // jobId -> job
+
+  function ensureMeshWorker() {
+    if (mwc || mwFailed || !planetMode || typeof Worker === 'undefined') return;
+    try {
+      mwc = new Worker('js/world/mesh_worker.js?v=' +
+        (Voxel.Config.MESH_WORKER_V || Voxel.Config.GEN_WORKER_V || 1));
+      mwc.onmessage = function (e) {
+        var m = e.data;
+        if (!m) return;
+        if (m.type === 'error') { failMeshWorker(m.message || '未知'); return; }
+        if (m.type !== 'mesh') return;
+        // 无条件释放槽位：世界切换后清理了 mwPending，迟到回包不能漏减，
+        // 否则在途计数永久虚高 → 派发通道饿死
+        var job = mwPending[m.jobId];
+        delete mwPending[m.jobId];
+        if (mwInflight > 0) mwInflight--;
+        finishMeshJob(job, m);
+      };
+      mwc.onerror = function () {
+        failMeshWorker('运行异常');
+      };
+    } catch (e) {
+      failMeshWorker('创建失败');
+    }
+  }
+
+  function failMeshWorker(why) {
+    if (mwFailed && !mwc) return;
+    mwFailed = true;
+    if (why && window.console && console.warn) console.warn('[World] 网格线程停用：' + why);
+    for (var id in mwPending) if (Object.prototype.hasOwnProperty.call(mwPending, id)) {
+      var job = mwPending[id];
+      delete mwPending[id];
+      // 已派发且未再变脏的区块重新走同步队列
+      queueMesh(job.cx, job.cz);
+    }
+    mwPending = Object.create(null);
+    mwInflight = 0;
+    try { if (mwc) mwc.terminate(); } catch (e2) { }
+    mwc = null;
+  }
+
+  function dispatchMeshJob(ch) {
+    ensureMeshWorker();
+    if (!mwc) return false;
+    // fillPad 后立即拷贝三组 pad 快照（约 1.3MB/chunk，Transferable 移交）
+    try {
+      var snap = Voxel.MeshBuilder._test.snapshotPadForWorker(ch.cx, ch.cz);
+      var job = { key: key(ch.cx, ch.cz), cx: ch.cx, cz: ch.cz, rev: ch.meshRev };
+      snap.jobId = mwNextId++;
+      mwPending[snap.jobId] = job;
+      mwInflight++;
+      mwc.postMessage({ type: 'build', cx: snap.cx, cz: snap.cz, yTop: snap.yTop, snap: snap, jobId: snap.jobId },
+        [snap.b.buffer, snap.s.buffer, snap.p.buffer]);
+      return true;
+    } catch (e) {
+      failMeshWorker('派发失败');
+      return false;
+    }
+  }
+
+  // 结果落地：竞态校验（卸载 → extra 无条目；重脏 → rev 不匹配）后
+  // 用与同步路径完全相同的包装/挂载逻辑装配网格。
+  function finishMeshJob(job, msg) {
+    if (!job || mwInflight < 0) return;
+    var ch = extra[job.key];
+    // 场景已拆除（clearMeshes/世界切换）或区块过期：产物作废
+    if (!ch || !ch.ready || !extraGroup || ch.meshRev !== job.rev || ch.meshed) return;
+    var r = packGeoFromBuffers(msg);
+    applyChunkGeometry(ch, r);
+  }
+
+  // Transferable 缓冲 → BufferGeometry（零额外拷贝：缓冲已是精确尺寸）
+  function geoFromGroup(gb) {
+    if (!gb || !gb.pos) return null;
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(gb.pos), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(gb.uv), 2));
+    g.setAttribute('acolor', new THREE.BufferAttribute(new Float32Array(gb.col), 3));
+    g.setAttribute('alight', new THREE.BufferAttribute(new Float32Array(gb.lgt), 2));
+    g.setAttribute('anrm', new THREE.BufferAttribute(new Float32Array(gb.nrm), 3));
+    g.setAttribute('aflag', new THREE.BufferAttribute(new Float32Array(gb.flg), 2));
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(gb.idx), 1));
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  function packGeoFromBuffers(msg) {
+    return { opaque: geoFromGroup(msg.o), water: geoFromGroup(msg.w), foliage: geoFromGroup(msg.fl) };
+  }
+
+  // 同步/异步两条路径共用的网格装配终态
+  function applyChunkGeometry(ch, res) {
+    disposeChunkMesh(ch);
+    if (res.opaque) {
+      ch.mesh = new THREE.Mesh(res.opaque, Voxel.MeshBuilder.opaqueMat());
+      extraGroup.add(ch.mesh);
+    }
+    if (res.water) {
+      ch.wmesh = new THREE.Mesh(res.water, Voxel.MeshBuilder.waterMat());
+      ch.wmesh.renderOrder = 2;
+      extraGroup.add(ch.wmesh);
+    }
+    if (res.foliage) {
+      ch.fmesh = new THREE.Mesh(res.foliage, Voxel.MeshBuilder.foliageMat());
+      extraGroup.add(ch.fmesh);
+      if (Voxel.Shadow) Voxel.Shadow.addCaster(ch.fmesh);
+    }
+    ch.meshed = true;
+    ch.dirty = false;
+  }
+
   var pendingRelight = [];               // 卸载触发的跨区块重光，延迟到 stream() 预算内消化
   var extraGroup = null, extraScene = null;
   var focus = { x: W / 2, z: D / 2, cx: null, cz: null };
@@ -590,6 +707,8 @@ window.Voxel = window.Voxel || {};
     var k = key(cx, cz), ch = extra[k];
     if (!ch || !ch.ready || meshQueued[k]) return;
     ch.dirty = true;
+    // 版本号随每次入队递增：在途的旧网格产物落地时据此丢弃
+    ch.meshRev = (ch.meshRev || 0) + 1;
     meshQueued[k] = true;
     meshQueue.push(k);
   }
@@ -810,23 +929,15 @@ window.Voxel = window.Voxel || {};
       delete meshQueued[k];
       var ch = extra[k];
       if (!ch || !ch.ready) continue;
+      built++;
+      // 路由：Worker 有余量 → 派发异步构建（发射循环 ~10ms 移出主线程）；
+      // 其余情形走原同步路径（file:// / CSP / 失败回退共用）
+      if (!mwFailed && mwInflight < MW_MAX_INFLIGHT && dispatchMeshJob(ch)) continue;
+      // 派发失败若已由 failMeshWorker 把该区块重新入队，跳过同步双建，
+      // 留给下一轮队列自然消化（此时 rev 已被 bump，旧产物不会被误装）
+      if (meshQueued[k]) { built--; continue; }
       disposeChunkMesh(ch);
-      var res = Voxel.MeshBuilder.build(ch.cx, ch.cz);
-      if (res.opaque) {
-        ch.mesh = new THREE.Mesh(res.opaque, Voxel.MeshBuilder.opaqueMat());
-        extraGroup.add(ch.mesh);
-      }
-      if (res.water) {
-        ch.wmesh = new THREE.Mesh(res.water, Voxel.MeshBuilder.waterMat());
-        ch.wmesh.renderOrder = 2;
-        extraGroup.add(ch.wmesh);
-      }
-      if (res.foliage) {
-        ch.fmesh = new THREE.Mesh(res.foliage, Voxel.MeshBuilder.foliageMat());
-        extraGroup.add(ch.fmesh);
-        if (Voxel.Shadow) Voxel.Shadow.addCaster(ch.fmesh);
-      }
-      ch.meshed = true; ch.dirty = false; built++;
+      applyChunkGeometry(ch, Voxel.MeshBuilder.build(ch.cx, ch.cz));
     }
     return built;
   }
@@ -870,6 +981,10 @@ window.Voxel = window.Voxel || {};
     wcQueue.length = 0;
     wcPending = Object.create(null);
     wcInflight = 0;
+    // 网格 Worker 无状态可跨世界复用，但换世界的在途产物必须作废：
+    // extra 表已重建，迟到回包会因 key 不存在被丢弃，这里清空计数即可
+    mwPending = Object.create(null);
+    mwInflight = 0;
     wcOldestAt = 0;
     if (wc) {
       try { wc.postMessage({ type: 'init', epoch: wcEpoch, seed: seed, profile: worldProfile }); }

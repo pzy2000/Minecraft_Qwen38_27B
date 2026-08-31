@@ -755,18 +755,24 @@ Voxel.MeshBuilder = (function () {
   }
 
   // 纯数组构建：不含任何 three.js 依赖（plan 5.1 · Worker 化目标接口）。
-  // 输出三组 typed 预分配 staging 的精确视图；主线程路径由 build() 包装成
-  // BufferGeometry，测试与未来的 mesh_worker 直接消费原始视图。
-  function buildArrays(cx, cz) {
+  // 两相结构：pad 填充（主线程快照）+ 发射循环（可整体移入 Worker 执行，
+  // 输出只由 pad 输入决定，与运行位置无关 —— 黄金哈希守护逐位一致）。
+  function buildArrays(cx, cz, opts) {
     var CFG = Voxel.Config;
     var H = CFG.WORLD_H, CS = CFG.CHUNK;
     var o = mkStage(), w = mkStage(), fl = mkStage();
     var x0 = cx * CS, z0 = cz * CS;
 
-    // 填充草稿缓冲并切换到本地数组采样器；退出时恢复全局门面，
-    // 保证 emitCross/vertexLight 等共享辅助函数在两种模式下都正确。
+    var yTop;
+    if (opts && opts.padReady) {
+      // pad 已由 installPad 外部装入（Worker 路径 / 测试预填）
+      yTop = opts.yTop | 0;
+    } else {
+      yTop = fillPad(cx, cz);
+    }
+    // 切换到本地数组采样器；退出时恢复全局门面，保证 emitCross/vertexLight
+    // 等共享辅助函数在两种模式下都正确。
     var gPrev = G, gsPrev = GSky, gbPrev = GBlk;
-    var yTop = fillPad(cx, cz);
     G = padG; GSky = padSky; GBlk = padBlk;
     try {
       for (var lx = 0; lx < CS; lx++) {
@@ -968,6 +974,32 @@ Voxel.MeshBuilder = (function () {
         G = Voxel.World.get;
         GSky = Voxel.World.getSky;
         GBlk = Voxel.World.getBlk;
+      },
+      // Worker 入口绑定：发射循环内 G/GSky/GBlk 会被 pad 版本整体替换，
+      // 只需占位可调用；B 必须指向真实方块定义表
+      bindInline: function (facade) {
+        B = Voxel.Blocks;
+        G = facade.get; GSky = facade.getSky; GBlk = facade.getBlk;
+      },
+      // 主线程快照：填充 pad 后按需拷贝三组数据与元信息（transfer 前置副本）
+      snapshotPadForWorker: function (cx, cz) {
+        var yTop = fillPad(cx, cz);
+        return {
+          cx: cx | 0, cz: cz | 0,
+          x0: padX0, z0: padZ0, pw: PW, ph: PH,
+          yTop: yTop,
+          b: bPad.slice(), s: sPad.slice(), p: pPad.slice()
+        };
+      },
+      // Worker 侧安装外部 pad 快照（含维度与原点）
+      installPad: function (snap) {
+        bPad = snap.b; sPad = snap.s; pPad = snap.p;
+        PW = snap.pw | 0; PH = snap.ph | 0;
+        padX0 = snap.x0 | 0; padZ0 = snap.z0 | 0;
+      },
+      // Worker 侧发射循环入口：pad 就绪前提下的纯数组构建
+      buildFromPad: function (cx, cz, yTop) {
+        return buildArrays(cx | 0, cz | 0, { padReady: true, yTop: yTop });
       },
       fillPad: fillPad,
       buildArrays: buildArrays,
