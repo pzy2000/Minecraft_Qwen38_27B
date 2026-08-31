@@ -178,7 +178,7 @@ Voxel.Codex = (function () {
 
   // ---------- 天体 ----------
   function galaxyState() {
-    return Voxel.Game && Voxel.Game._test ? Voxel.Game._test.galaxy() : null;
+    return Voxel.Game ? Voxel.Game.getGalaxy() : null;
   }
 
   // ---------- 渲染 ----------

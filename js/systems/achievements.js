@@ -179,7 +179,7 @@ Voxel.Achievements = (function () {
     return [Math.min(3, n), 3];
   }
   function galaxy() {
-    return Voxel.Game && Voxel.Game._test ? Voxel.Game._test.galaxy() : null;
+    return Voxel.Game ? Voxel.Game.getGalaxy() : null;
   }
   function biomesProg(target) {
     return function () { return [Math.min(target, P().biomeSet()), target]; };
@@ -200,8 +200,8 @@ Voxel.Achievements = (function () {
     return P().faunaSet() >= 6;
   }
   function ironKitTest() {
-    return Voxel.Game && Voxel.Game._test &&
-      ((Voxel.Game._test.countInv(103) || 0) > 0 && (Voxel.Game._test.countInv(106) || 0) > 0);
+    return Voxel.Game &&
+      ((Voxel.Game.countInventory(103) || 0) > 0 && (Voxel.Game.countInventory(106) || 0) > 0);
   }
   var ENV_CAUSES = ['drown', 'toxic', 'pressure', 'heat', 'cold', 'ash'];
   function envDeathTest(t, d) {

@@ -6482,6 +6482,10 @@ Voxel.Game = (function () {
     setTouchAim: setTouchAim,
     setDigHold: setDigHold,
     touchTap: touchTap,
+    // 只读查询 API（生产模块的正规入口；_test 钩子同源，测试代码仍走 _test）
+    getGalaxy: function () { return galaxyState; },
+    countInventory: function (id) { return invTotal(id); },
+
     viewportSize: viewportSize,
     startFeatured: startFeatured,
     openManual: openManual,
