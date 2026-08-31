@@ -5744,6 +5744,8 @@ Voxel.Game = (function () {
     framesExecuted++;
     // 自适应降质：以"实际渲染帧间隔"为样本更新 FPS 指数滑动平均
     if (lastT !== null) tickAdaptivePerf(Math.min(1, Math.max(0.0005, (now - lastT) / 1000)));
+    // 本地帧时遥测（plan 8.5）：同样的渲染帧间隔样本进环形缓冲，供 p50/p95/p99 导出
+    if (Voxel.Telemetry && lastT !== null) Voxel.Telemetry.noteFrame(now - lastT);
 
     if (lastT === null) lastT = now;
     var dt = (now - lastT) / 1000;
@@ -6938,6 +6940,7 @@ Voxel.Game = (function () {
     });
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
+      if (Voxel.Telemetry) Voxel.Telemetry.countContextLost();
       showError('图形上下文丢失，请刷新页面（F5）重试');
     });
 

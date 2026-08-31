@@ -1660,9 +1660,16 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 | 2 | 补齐 CI：redstone / park_economy / terrain_parity 接入 `test:node`；新增 `test:sim`；更新 ci_workflow 断言 | 8.6 | ✅ 2026-09-01 |
 | 3 | 新增 `getGalaxy()` / `countInventory()` 正规 API，解除 achievements/codex 对 `_test` 的生产依赖 | 8.3 | ✅ 2026-09-01 |
 | 4 | 自适应画质双向化：降档阈值挂钩 fpsCap(90%)、新增 `adaptStepUp` 回升 + 迟滞锁档 | 5.5 | ✅ 2026-09-01 |
-| 5 | 本地帧时遥测骨架：环形缓冲 + p50/p95/p99 导出（零后端依赖） | 8.5 | ⬜ |
+| 5 | 本地帧时遥测骨架：环形缓冲 + p50/p95/p99 导出（零后端依赖） | 8.5 | ✅ 2026-09-01 |
 
 > 决策记录：terrain_parity 失败经确认为 fafb487（Nordic 主题）引入的**有意变更**，不做诊断回溯，直接重建基线。后续第一梯队（5.1/5.2）的存储与网格改造以本次刷新后的黄金值为守护基线。
+
+**批次 1 完成总结（2026-09-01，commits 283d02a → 78feea2 + 遥测）**：
+- 全仓不再有 `_test.galaxy` / `_test.countInv` 生产调用点（8.3 提前完成）
+- CI 内 node 测试数：27 → 31（redstone / park_economy / terrain_parity 接入快速链；landing_success 独立 `test:sim`，远程单独执行）
+- 自适应画质从单向降档升级为双向闭环（5.5 全部四条做法落地）
+- 遥测骨架就位（`js/systems/telemetry.js`）：环形缓冲 2400 帧样本、异常/拒绝/上下文丢失计数、`Voxel.Telemetry.snapshot()` 导出 p50/p95/p99；零网络请求，`?telemetry=1` 每 30s 自动 dump。与 8.5 完整版（真实上报后端）的差距留待后续。
+- **阶段 0 验收门未完项**：无真实玩家数据回流通道 —— 当前遥测仅本地导出，"从真实玩家数据回答 p95 帧时"需要下一批做导出文件上传或社区协作收集。
 
 ---
 
