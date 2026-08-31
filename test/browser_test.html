@@ -1811,7 +1811,7 @@
     var guard = 0;
     while (guard++ < 300 && Voxel.World.buildMeshes(16, Voxel.Game.scene) > 0) { }
     check('区块网格可重建', Voxel.World.centerMeshed());
-    check('纹理图集 256x256', !!Voxel.Blocks.getAtlas() && Voxel.Blocks.getAtlas().width === 256);
+    check('纹理图集 512x512', !!Voxel.Blocks.getAtlas() && Voxel.Blocks.getAtlas().width === 512);
     wait(1500, stepH); // 再跑一会渲染
   }
 
@@ -1827,7 +1827,7 @@
     Voxel.World.set(bxL, byL, bzL, 0);
 
     // 合成手册（21 条配方 + 烧炼章节 11 条）
-    check('手册列出 38 行（配方+烧炼）', document.querySelectorAll('#manual .recipe-row').length === 38);
+    check("手册列出 116 行（配方+烧炼）", document.querySelectorAll("#manual .recipe-row").length === 116);
     check('手册含材料获取与烧炼说明', document.querySelectorAll('#manual .manual-obtain').length >= 2);
 
     var T = Voxel.Game._test;
@@ -2412,7 +2412,8 @@
     // 石头的 -X 面被分割：上半面的下缘顶点在 y+0.5 处、纹理 v 位于 tile 中部（≈0.9688）
     check('相邻石头面只发上半(y+0.5 处有中部纹理顶点)', hasV(bx + 1, by + 1.5, by + 1.5, 0.95, 0.99));
     // 若误发下半面，会在 y+1 处出现同样中部纹理 v 的顶点
-    check('相邻石头面下半被剔除(防 z-fight)', !hasV(bx + 1, by + 1.0, by + 1.0, 0.955, 0.985));
+    // （图集 512 化后全脸底边 v≈0.9648，窗口收紧到半 tile 接缝 0.98291 邻域）
+    check('相邻石头面下半被剔除(防 z-fight)', !hasV(bx + 1, by + 1.0, by + 1.0, 0.977, 0.989));
 
     // 物理：玩家应落在床顶 (by+1.5) 而不是整格顶 (by+2)
     var bedTop = by + 1.5;

@@ -20,8 +20,15 @@ Voxel.Codex = (function () {
   var LEAF_SET = { 5: 1, 21: 1, 23: 1, 34: 1, 36: 1, 58: 1, 59: 1 };
   var PLANT_SET = { 26: 1, 47: 1, 55: 1, 56: 1, 54: 1 };
   var ORE_SET = { 8: 1, 9: 1, 39: 1, 40: 1, 41: 1, 42: 1, 43: 1, 44: 1,
-    115: 1, 116: 1, 117: 1, 118: 1, 119: 1, 120: 1 };
-  var FUNC_SET = { 15: 1, 17: 1, 19: 1, 37: 1, 38: 1, 67: 1, 68: 1, 69: 1, 70: 1, 71: 1 };
+    115: 1, 116: 1, 117: 1, 118: 1, 119: 1, 120: 1,
+    // v8：红石矿石
+    200: 1 };
+  var FUNC_SET = { 15: 1, 17: 1, 19: 1, 37: 1, 38: 1, 67: 1, 68: 1, 69: 1, 70: 1, 71: 1,
+    // v8：门/活板门/红石元件/耕地
+    141: 1, 149: 1, 157: 1, 165: 1, 173: 1, 181: 1, 189: 1,
+    197: 1, 198: 1, 199: 1, 221: 1, 222: 1,
+    201: 1, 202: 1, 203: 1, 204: 1, 205: 1, 206: 1, 207: 1, 208: 1,
+    209: 1, 210: 1, 211: 1, 212: 1, 213: 1, 214: 1 };
 
   var GROUPS = [
     { key: 'tools', name: '工具与武器', obtain: '工作台合成 · 有耐久不堆叠', tip: '工具等级越高开采越快；武器决定攻击伤害。' },
@@ -35,13 +42,21 @@ Voxel.Codex = (function () {
 
   function classify(id, d) {
     if (!d || !id) return null;
-    if (d.tool === 'pick' || d.tool === 'sword') return 'tools';
+    if (d.tool === 'pick' || d.tool === 'sword' || d.hoeTool) return 'tools';
     if (d.food) return 'food';
     if (ORE_SET[id]) return 'ores';
-    if (id === 100 || id === 107 || id === 108 || id === 121 || id === 122) return 'materials';
+    if (id === 100 || id === 107 || id === 108 || id === 121 || id === 122 ||
+      id === 123 || id === 124 || id === 125 || id === 132 || id === 133 ||
+      id === 135 || id === 220 || id === 239 || id === 240 ||
+      (id >= 260 && id <= 275)) return 'materials';
     if (d.item) return null;   // 其余物品无语义归属，暂不展示
     if (FUNC_SET[id]) return 'functional';
     if (LOG_SET[id] || LEAF_SET[id] || PLANT_SET[id]) return 'plants';
+    // v8：作物与花草
+    if (id === 223 || (id >= 224 && id <= 238) || (id >= 251 && id <= 258)) return 'plants';
+    // v8：染色变体与建造方块
+    if ((id >= 280 && id <= 295) || (id >= 300 && id <= 315) ||
+      (id >= 320 && id <= 335) || (id >= 340 && id <= 363)) return 'terrain';
     if (d.solid || id === 7) return 'terrain';
     return null;
   }

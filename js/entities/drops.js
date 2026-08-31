@@ -67,13 +67,14 @@ Voxel.Drops = (function () {
     var uv = geo.attributes.uv;
     var t = Voxel.Blocks.iconTile(id);
     if (t < 0) t = Voxel.Blocks.tileForFace(id, 1);
-    var c = t % 16, r = (t / 16) | 0;
+    var tpr = Voxel.Blocks.TILES_PER_ROW || 16;
+    var c = t % tpr, r = (t / tpr) | 0;
     var cornerV = [[0, 1], [1, 1], [0, 0], [1, 0]];
     for (var f = 0; f < 6; f++)
       for (var k = 0; k < 4; k++)
         uv.setXY(f * 4 + k,
-          (c * 16 + 0.5 + cornerV[k][0] * 15) / 256,
-          1 - (r * 16 + 0.5 + (1 - cornerV[k][1]) * 15) / 256);
+          (c * 16 + 0.5 + cornerV[k][0] * 15) / Voxel.Blocks.ATLAS_SIZE,
+          1 - (r * 16 + 0.5 + (1 - cornerV[k][1]) * 15) / Voxel.Blocks.ATLAS_SIZE);
     uv.needsUpdate = true;
     return geo;
   }

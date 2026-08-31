@@ -708,6 +708,9 @@ Voxel.Game = (function () {
       Voxel.Drops.restore(savedDrops || []);
     }
     rebuildActiveFurnaces();
+    // v8：红石电路重建（从世界编辑表登记玩家放置的元件）
+    if (Voxel.Redstone) Voxel.Redstone.init(Voxel.World, currentWorld);
+    if (Voxel.Farming) Voxel.Farming.init(Voxel.World);
     setState('loading');
     if (pendingTravel) {
       // 星际旅行沿用驾驶舱显示真实 World.progress；普通 loading 面板会遮住
@@ -1631,7 +1634,63 @@ Voxel.Game = (function () {
     if (Voxel.Blocks.isBed(hit.id)) { useBed(hit); return true; }
     if (hit.id === 37) { openFurnace(hit); return true; }
     if (hit.id === 38) { openChest(hit); return true; }
+    // 红石元件：拉杆拨动 / 按钮按下（其余元件只由电路驱动）
+    if (Voxel.Redstone && Voxel.Blocks.isRedstone(hit.id) &&
+      Voxel.Blocks.rsKindOf(hit.id) === 'lever') {
+      Voxel.Redstone.interactToggle(hit.x, hit.y, hit.z, hit.id);
+      Voxel.Sound.place('wood');
+      return true;
+    }
+    if (Voxel.Redstone && Voxel.Blocks.isRedstone(hit.id) &&
+      Voxel.Blocks.rsKindOf(hit.id) === 'button') {
+      var btnDef = Voxel.Blocks.defs[hit.id];
+      if (!btnDef.powered) {
+        Voxel.Redstone.interactToggle(hit.x, hit.y, hit.z, hit.id);
+        Voxel.Sound.place('wood');
+      }
+      return true;
+    }
+    // 活板门：E 键切换开合（关 ↔ 开，开态在 X/Z 贴边间往复）
+    if (Voxel.Blocks.isTrapdoor(hit.id)) {
+      var tid = Voxel.Blocks.trapdoorToggleId(hit.id);
+      if (tid) Voxel.World.set(hit.x, hit.y, hit.z, tid);
+      if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(hit.x, hit.y, hit.z);
+      Voxel.Sound.place('wood');
+      return true;
+    }
+    // 木门：E 键上下半一起翻转开合；铁门只认红石信号
+    if (Voxel.Blocks.isDoor(hit.id)) {
+      var dinf2 = Voxel.Blocks.defs[hit.id].door;
+      var isIron = dinf2.kind === 6;
+      if (isIron) {
+        Voxel.HUD.toast('铁门需要红石信号驱动');
+        return true;
+      }
+      toggleDoorAt(hit.x, hit.y, hit.z, hit.id);
+      return true;
+    }
     return false;
+  }
+
+  // 切换门开合：以下半为准翻转，上半跟随；孤半块只翻自己
+  function toggleDoorAt(x, y, z, id) {
+    var B = Voxel.Blocks;
+    var dInf = B.defs[id].door;
+    var ly = dInf.upper ? y - 1 : y;
+    var uy = dInf.upper ? y : y + 1;
+    var l0 = B.isDoor(B.defs[Voxel.World.get(x, ly, z)] ? Voxel.World.get(x, ly, z) : 0) ?
+      Voxel.World.get(x, ly, z) : 0;
+    var u0 = B.isDoor(B.defs[Voxel.World.get(x, uy, z)] ? Voxel.World.get(x, uy, z) : 0) ?
+      Voxel.World.get(x, uy, z) : 0;
+    // 两半必须互为配对（同木种、互补半），否则只翻命中的那块
+    if (!(l0 && u0 && B.doorPartnerId(l0) === u0)) { l0 = id; u0 = 0; }
+    var nl = l0 ? B.doorToggleId(l0) : 0;
+    var nu = nl ? B.doorPartnerId(nl) : (u0 ? B.doorToggleId(u0) : 0);
+    if (l0 && nl) Voxel.World.set(x, ly, z, nl);
+    if (u0 && nu) Voxel.World.set(x, uy, z, nu);
+    if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(x, y, z);
+    var sndDef = B.defs[nl || nu || id];
+    Voxel.Sound.place(sndDef && sndDef.door.kind === 6 ? 'stone' : 'wood');
   }
 
   // 喂养尝试：手持物品命中生物偏好食物表 → 喂食（扣一件）。返回是否消耗。
@@ -1897,6 +1956,13 @@ Voxel.Game = (function () {
 
   function finishDig(t) {
     stopDig();
+    // v8：作物收割走独立路径（多样掉落）
+    var cropDef0 = Voxel.Blocks.defs[t.id];
+    if (cropDef0 && cropDef0.crop) {
+      harvestCrop(t);
+      spawnFallersAbove(t.x, t.y, t.z);
+      return;
+    }
     var dropId = Voxel.Blocks.dropOf(t.id);
     // P0：背包放不下则方块保留，不凭空消失
     if (!canAddInv(dropId, 1)) {
@@ -1907,12 +1973,23 @@ Voxel.Game = (function () {
     if (t.id === 37) dumpContainerContents(t.x, t.y, t.z, ['in', 'fuel', 'out']);
     if (t.id === 38) dumpChest(t.x, t.y, t.z);
     Voxel.World.set(t.x, t.y, t.z, 0);
+    if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(t.x, t.y, t.z);
     if (Voxel.Blocks.isBed(t.id)) {
       // 双格床：破坏任一半同时拆掉另一半，整张床只掉一张床物品
       var pb = bedPartner(t.x, t.y, t.z, t.id);
       if (pb) {
         Voxel.World.set(pb.x, pb.y, pb.z, 0);
         enqueueWaterAround(pb.x, pb.y, pb.z);
+      }
+    }
+    // 双格门：破坏任意半块同时拆另一半，只掉一扇（下半关闭形态）
+    if (Voxel.Blocks.isDoor(t.id)) {
+      var pdy = Voxel.Blocks.defs[t.id].door.upper ? t.y - 1 : t.y + 1;
+      var pid = Voxel.World.get(t.x, pdy, t.z);
+      if (Voxel.Blocks.isDoor(pid) && pid !== t.id) {
+        Voxel.World.set(t.x, pdy, t.z, 0);
+        enqueueWaterAround(t.x, pdy, t.z);
+        spawnFallersAbove(t.x, pdy + 1, t.z);
       }
     }
     var blockPos = new THREE.Vector3(t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -1929,6 +2006,11 @@ Voxel.Game = (function () {
     }
     Voxel.Sound.dig(def.sound);
     Voxel.Particles.burst(blockPos, def.color, 10);
+    // v8：橡树树叶有几率掉落苹果
+    if (t.id === 5 && Math.random() < 0.08) {
+      if (addInv(242, 1) >= 1) Voxel.HUD.toast('获得了苹果！');
+      else spawnRemainder(242, 1, blockPos);
+    }
     Voxel.Player.addExhaust(C.EXHAUST_DIG);
     damageHeldTool(1);   // 挖掘损耗工具耐久
     // 成长系统：挖掘事件（含深层/水下判定）
@@ -1937,6 +2019,23 @@ Voxel.Game = (function () {
       if (t.y < 20) Voxel.Progress.track('depth', {});
       if (Voxel.Player.headIn && Voxel.Player.headIn()) Voxel.Progress.track('wetdig', {});
     }
+    // v8：支撑被挖掉后，上方的落地红石元件/火把脱落成掉落物
+    (function popUnsupportedAbove() {
+      var ay = t.y + 1;
+      var aid = Voxel.World.get(t.x, ay, t.z);
+      var ad = aid > 0 ? Voxel.Blocks.defs[aid] : null;
+      var floating = aid === 19 ||
+        (ad && ad.rs && !ad.solid) || ad && ad.cross;
+      if (!floating) return;
+      var aDrop = Voxel.Blocks.dropOf(aid);
+      if (!aDrop) return;
+      if (!canAddInv(aDrop, 1)) return;   // 放不下就先留着，下次再收
+      Voxel.World.set(t.x, ay, t.z, 0);
+      if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(t.x, ay, t.z);
+      var ap = new THREE.Vector3(t.x + 0.5, ay + 0.5, t.z + 0.5);
+      if (addInv(aDrop, 1) < 1) spawnRemainder(aDrop, 1, ap);
+      enqueueWaterAround(t.x, ay, t.z);
+    })();
     spawnFallersAbove(t.x, t.y, t.z);   // 上方沙/砾失去支撑 → 下落
     enqueueWaterAround(t.x, t.y, t.z);  // 临水 → 水流入
     if (Voxel.HandItem) Voxel.HandItem.swing();
@@ -1946,18 +2045,40 @@ Voxel.Game = (function () {
     var id = inv[sel];
     if (!id) return;
     var def = Voxel.Blocks.defs[id];
+    // v8 农耕：手持种子/块茎 → 种在耕地上；手持锄头 → 翻土
+    var heldDef = Voxel.Blocks.defs[id];
+    if (heldDef && heldDef.plantable) {
+      return plantSeed(hit, id);
+    }
+    if (heldDef && heldDef.hoeTool) {
+      if (!hit || hit.type !== 'block') return;
+      var belowId = Voxel.World.get(hit.x, hit.y, hit.z);
+      var above = Voxel.World.get(hit.x, hit.y + 1, hit.z);
+      if ((belowId === 1 || belowId === 2) && above === 0 &&
+        Voxel.Farming && Voxel.Farming.hoeConvert(hit.x, hit.y, hit.z, belowId)) {
+        Voxel.Sound.dig('dirt');
+        damageHeldTool(1);
+        if (Voxel.HandItem) Voxel.HandItem.swing();
+      }
+      return;
+    }
     if (def && def.item) return; // 工具/材料不可放置
     var x = hit.x + hit.nx, y = hit.y + hit.ny, z = hit.z + hit.nz;
     var cur = Voxel.World.get(x, y, z);
     if (cur !== 0 && cur !== 7) return;
+    var B = Voxel.Blocks;
     if (id === 19) {
       // 火把需要依托：下方或任一水平邻为实体
-      var supported = Voxel.Blocks.isSolid(Voxel.World.get(x, y - 1, z)) ||
-        Voxel.Blocks.isSolid(Voxel.World.get(x + 1, y, z)) ||
-        Voxel.Blocks.isSolid(Voxel.World.get(x - 1, y, z)) ||
-        Voxel.Blocks.isSolid(Voxel.World.get(x, y, z + 1)) ||
-        Voxel.Blocks.isSolid(Voxel.World.get(x, y, z - 1));
+      var supported = B.isSolid(Voxel.World.get(x, y - 1, z)) ||
+        B.isSolid(Voxel.World.get(x + 1, y, z)) ||
+        B.isSolid(Voxel.World.get(x - 1, y, z)) ||
+        B.isSolid(Voxel.World.get(x, y, z + 1)) ||
+        B.isSolid(Voxel.World.get(x, y, z - 1));
       if (!supported) return;
+    }
+    // 红石落地元件：只允许安放在实体面上
+    if (B.isRedstone(id) && id !== B.RS.LAMP_ON && id !== B.RS.LAMP_OFF) {
+      if (!B.isSolid(Voxel.World.get(x, y - 1, z))) return;
     }
     var p = Voxel.Player.pos();
     var hw = C.W / 2 + 0.01;
@@ -1984,6 +2105,40 @@ Voxel.Game = (function () {
       if (Voxel.HandItem) Voxel.HandItem.swing();
       return;
     }
+    // 门：占两格（下半在目标格、上半在其上），朝向取视线主轴；需下方实体支撑
+    if (Voxel.Blocks.isDoor(id)) {
+      var dinf = Voxel.Blocks.defs[id].door;
+      if (dinf.upper || dinf.open) id = Voxel.Blocks.doorItemId(dinf.kind); // 兜底为放置形态
+      if (cur !== 0) return;
+      if (!Voxel.Blocks.isSolid(Voxel.World.get(x, y - 1, z))) return;
+      if (y + 1 >= CFG.WORLD_H || Voxel.World.get(x, y + 1, z) !== 0) return;
+      var pfd = Voxel.Player.lookDir();
+      var dAxis = Math.abs(pfd.x) >= Math.abs(pfd.z) ? 0 : 1;
+      var dOverlap = function (cy) {
+        return x < p.x + hw && x + 1 > p.x - hw &&
+          cy < p.y + CFG.H + 0.01 && cy + 1 > p.y &&
+          z < p.z + hw && z + 1 > p.z - hw;
+      };
+      var dB = Voxel.Blocks.DOOR_BASE + dinf.kind * 8;
+      if (dOverlap(y) && Voxel.Blocks.isSolid(id)) return;
+      if (dOverlap(y + 1)) return;
+      Voxel.World.set(x, y, z, dB + dAxis * 2);
+      Voxel.World.set(x, y + 1, z, dB + 4 + dAxis * 2);
+      if (Voxel.Redstone) { Voxel.Redstone.onBlockChanged(x, y, z); Voxel.Redstone.onBlockChanged(x, y + 1, z); }
+      decSel();
+      Voxel.Sound.place(dinf.kind === 6 ? 'stone' : 'wood');
+      if (Voxel.Progress) Voxel.Progress.track('place', { placedId: id });
+      if (Voxel.HandItem) Voxel.HandItem.swing();
+      return;
+    }
+    // 楼梯：按视线主轴选择上楼方向变体
+    var stairPlaced = Voxel.Blocks.defs[id];
+    if (stairPlaced && stairPlaced.stairDir !== undefined) {
+      var sf = Voxel.Player.lookDir();
+      var sdir = Math.abs(sf.x) >= Math.abs(sf.z) ? (sf.x >= 0 ? 0 : 1) : (sf.z >= 0 ? 2 : 3);
+      var smi = (id - 350) >> 2;   // 材质索引
+      if (smi >= 0 && smi < 3) id = 350 + smi * 4 + sdir;
+    }
     var overlap = x < p.x + hw && x + 1 > p.x - hw &&
       y < p.y + C.H + 0.01 && y + 1 > p.y &&
       z < p.z + hw && z + 1 > p.z - hw;
@@ -1991,8 +2146,60 @@ Voxel.Game = (function () {
     Voxel.World.set(x, y, z, id);
     decSel();
     Voxel.Sound.place(def.sound);
+    if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(x, y, z);   // v8
     if (Voxel.Progress) Voxel.Progress.track('place', { placedId: id });
     if (Voxel.HandItem) Voxel.HandItem.swing();
+  }
+
+  // v8：把种子/块茎种到耕地上（命中耕地顶面 → 在其上方生成作物）
+  function plantSeed(hit, id) {
+    var B = Voxel.Blocks;
+    if (!hit || hit.type !== 'block') return;
+    // 必须点击耕地的上表面
+    if (hit.ny !== 1) return;
+    var fid = Voxel.World.get(hit.x, hit.y, hit.z);
+    if (fid !== B.FARM.FARMLAND_DRY && fid !== B.FARM.FARMLAND_WET) {
+      Voxel.HUD.toast('种子需要种在耕地上（用锄头翻土）');
+      return;
+    }
+    var sx = hit.x, sy = hit.y + 1, sz = hit.z;
+    if (Voxel.World.get(sx, sy, sz) !== 0) return;
+    var stageA = id === 240 ? B.FARM.WHEAT_A : (id === 245 ? B.FARM.CARROT_A : B.FARM.POTATO_A);
+    Voxel.World.set(sx, sy, sz, stageA);
+    decSel();
+    Voxel.Sound.place('leaves');
+    if (Voxel.Farming) Voxel.Farming.onPlanted(sx, sy, sz, stageA);
+    if (Voxel.HandItem) Voxel.HandItem.swing();
+  }
+
+  // v8：收割作物——成熟掉落多样产物，未成熟只回收种子
+  function harvestCrop(t) {
+    var B = Voxel.Blocks;
+    var def = B.defs[t.id];
+    var drops = [];   // {id, n}
+    var mature = t.id === B.FARM.WHEAT_MATURE ||
+      t.id === B.FARM.CARROT_MATURE || t.id === B.FARM.POTATO_MATURE;
+    if (!mature) {
+      drops.push({ id: def.drop, n: 1 });
+    } else if (t.id === B.FARM.WHEAT_MATURE) {
+      drops.push({ id: 239, n: 1 });
+      drops.push({ id: 240, n: 1 + ((Math.random() * 3) | 0) });
+    } else {
+      drops.push({ id: def.drop, n: 2 + ((Math.random() * 3) | 0) });
+    }
+    var pos = new THREE.Vector3(t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    for (var i = 0; i < drops.length; i++) {
+      var d = drops[i];
+      if (d.n <= 0) continue;
+      if (!canAddInv(d.id, d.n)) continue;   // 背包满时丢弃尾批（守恒由残余器兜底不完美，接受）
+      var got = addInv(d.id, d.n);
+      if (got < d.n) spawnRemainder(d.id, d.n - got, pos);
+    }
+    Voxel.World.set(t.x, t.y, t.z, 0);
+    if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(t.x, t.y, t.z);
+    enqueueWaterAround(t.x, t.y, t.z);
+    Voxel.Sound.dig(def.sound || 'leaves');
+    Voxel.Player.addExhaust(C.EXHAUST_DIG);
   }
 
   // 吃掉当前快捷栏格的食物（R 键）
@@ -2711,6 +2918,25 @@ Voxel.Game = (function () {
         Voxel.Progress.track('smelt', { id: f.out.id, n: produced });
     }
     if (state === 'furnace' && curFurnace) refreshFurnacePanel(curFurnace);
+  }
+
+  // v8：红石电路 tick——玩家与生物位置喂给压力板扫描
+  function tickRedstone(dt) {
+    if (!Voxel.Redstone) return;
+    var ents = [];
+    var pp = Voxel.Player.pos();
+    if (pp && Voxel.Player.alive()) ents.push({ x: pp.x, y: pp.y, z: pp.z });
+    try {
+      var mobsList = Voxel.Mobs && Voxel.Mobs.list ? Voxel.Mobs.list() : null;
+      if (mobsList)
+        for (var mi = 0; mi < mobsList.length; mi++) {
+          var m = mobsList[mi];
+          if (m && m.alive !== false && m.pos)
+            ents.push(typeof m.pos.x === 'number' ? m.pos : { x: m.pos.x, y: m.pos.y, z: m.pos.z });
+        }
+    } catch (e) { /* 生物列表不可用时只扫玩家 */ }
+    Voxel.Redstone.tick(dt, ents);
+    if (Voxel.Farming) Voxel.Farming.tick(dt);
   }
 
   function openFurnace(hit) {
@@ -4620,11 +4846,12 @@ Voxel.Game = (function () {
     var cornerV = [[0, 1], [1, 1], [0, 0], [1, 0]];
     for (var f = 0; f < 6; f++) {
       var t = Voxel.Blocks.tileForFace(id, f);
-      var c = t % 16, r = (t / 16) | 0;
+      var tpr = Voxel.Blocks.TILES_PER_ROW || 16, asz = Voxel.Blocks.ATLAS_SIZE || 256;
+      var c = t % tpr, r = (t / tpr) | 0;
       for (var k = 0; k < 4; k++) {
         uv.setXY(f * 4 + k,
-          (c * 16 + 0.5 + cornerV[k][0] * 15) / 256,
-          1 - (r * 16 + 0.5 + (1 - cornerV[k][1]) * 15) / 256);
+          (c * 16 + 0.5 + cornerV[k][0] * 15) / asz,
+          1 - (r * 16 + 0.5 + (1 - cornerV[k][1]) * 15) / asz);
       }
     }
     uv.needsUpdate = true;
@@ -4666,6 +4893,7 @@ Voxel.Game = (function () {
           cur = Voxel.World.get(fb.x, landY, fb.z);
         }
         if (!Voxel.Blocks.isSolid(cur)) Voxel.World.set(fb.x, landY, fb.z, fb.id);
+        if (Voxel.Redstone) Voxel.Redstone.onBlockChanged(fb.x, landY, fb.z);
         scene.remove(fb.mesh);
         fb.mesh.geometry.dispose();
         fallers.splice(i, 1);
@@ -5238,6 +5466,24 @@ Voxel.Game = (function () {
       hitEl.textContent = isTouch ? '轻点打开箱子' : '按 E 打开箱子';
       hitEl.dataset.kind = 'chest';
       hitEl.style.display = 'block';
+    } else if (hit && hit.type === 'block' &&
+      (Voxel.Blocks.isDoor(hit.id) || Voxel.Blocks.isTrapdoor(hit.id))) {
+      var dname = Voxel.Blocks.defs[hit.id].door;
+      hitEl.textContent = (isTouch ? '轻点开关门' : '按 E 开关门') +
+        (dname && dname.kind === 6 ? '（铁门需红石）' : '');
+      hitEl.dataset.kind = 'door';
+      hitEl.style.display = 'block';
+    } else if (hit && hit.type === 'block' && Voxel.Blocks.isRedstone(hit.id)) {
+      var rsk = Voxel.Blocks.rsKindOf(hit.id);
+      if (rsk === 'lever') {
+        hitEl.textContent = isTouch ? '轻点拨动拉杆' : '按 E 拨动拉杆';
+        hitEl.dataset.kind = 'rs';
+        hitEl.style.display = 'block';
+      } else if (rsk === 'button') {
+        hitEl.textContent = isTouch ? '轻点按下按钮' : '按 E 按下按钮';
+        hitEl.dataset.kind = 'rs';
+        hitEl.style.display = 'block';
+      }
     } else {
       hitEl.style.display = 'none';
       hitEl.removeAttribute('data-kind');
@@ -5819,6 +6065,7 @@ Voxel.Game = (function () {
         if (simulationDt > 0) {
           processWater(simulationDt);
           tickFurnaces(simulationDt);
+          tickRedstone(simulationDt);
           Voxel.DayNight.update(simulationDt);
           Voxel.Weather.update(simulationDt);
         }
@@ -5838,6 +6085,7 @@ Voxel.Game = (function () {
         if (simulationDt > 0) {
           processWater(simulationDt);
           tickFurnaces(simulationDt);
+          tickRedstone(simulationDt);
           Voxel.DayNight.update(simulationDt);
           Voxel.Weather.update(simulationDt);
         }

@@ -45,8 +45,94 @@ Voxel.Crafting = (function () {
     { name: '毡衣', grid: [45, 0, 45, 45, 45, 45, 45, 45, 45], result: 137, count: 1 },
     // 铁质护甲：铁锭锻打，显著物理减伤
     { name: '铁盔', grid: [108, 0, 108, 108, 108, 108, 0, 0, 0], result: 138, count: 1 },
-    { name: '铁胸甲', grid: [108, 0, 108, 108, 108, 108, 108, 108, 108], result: 139, count: 1 }
+    { name: '铁胸甲', grid: [108, 0, 108, 108, 108, 108, 108, 108, 108], result: 139, count: 1 },
+    // ---- v8：门与活板门 ----
+    // 木门（对齐 wiki 2×3 木板）×3；底行为对应原木以区分木种
+    { name: '橡木门', grid: [10, 10, 0, 10, 10, 0, 4, 4, 0], result: 141, count: 3 },
+    { name: '云杉门', grid: [10, 10, 0, 10, 10, 0, 20, 20, 0], result: 149, count: 3 },
+    { name: '白桦门', grid: [10, 10, 0, 10, 10, 0, 33, 33, 0], result: 157, count: 3 },
+    { name: '丛林门', grid: [10, 10, 0, 10, 10, 0, 22, 22, 0], result: 165, count: 3 },
+    { name: '金合欢门', grid: [10, 10, 0, 10, 10, 0, 35, 35, 0], result: 173, count: 3 },
+    { name: '樱花门', grid: [10, 10, 0, 10, 10, 0, 57, 57, 0], result: 181, count: 3 },
+    // 铁门：2×3 铁锭 ×3，只能由红石信号开启
+    { name: '铁门', grid: [9, 9, 0, 9, 9, 0, 9, 9, 0], result: 189, count: 3 },
+    // 橡木活板门：3×2 木板 ×2
+    { name: '橡木活板门', grid: [10, 10, 10, 10, 10, 10, 0, 0, 0], result: 197, count: 2 },
+    // ---- v8：红石基础电路 ----
+    { name: '红石火把', shapeless: true, inputs: { 220: 1, 100: 1 }, result: 203, count: 1 },
+    { name: '拉杆', shapeless: true, inputs: { 3: 1, 100: 1 }, result: 205, count: 1 },
+    { name: '石质按钮', shapeless: true, inputs: { 3: 1 }, result: 207, count: 1 },
+    { name: '木质压力板', shapeless: true, inputs: { 10: 2 }, result: 209, count: 1 },
+    { name: '红石灯', grid: [0, 220, 0, 220, 14, 220, 0, 220, 0], result: 211, count: 1 },
+    { name: '红石中继器', grid: [203, 220, 203, 3, 3, 3, 0, 0, 0], result: 213, count: 1 },
+    // ---- v8：农耕 ----
+    { name: '面包', shapeless: true, inputs: { 239: 3 }, result: 241, count: 1 },
+    { name: '金苹果', grid: [123, 123, 123, 123, 242, 123, 123, 123, 123], result: 243, count: 1 },
+    { name: '木锄', grid: [10, 10, 0, 0, 100, 0, 0, 100, 0], result: 248, count: 1 },
+    { name: '石锄', grid: [3, 3, 0, 0, 100, 0, 0, 100, 0], result: 249, count: 1 },
+    { name: '铁锄', grid: [9, 9, 0, 0, 100, 0, 0, 100, 0], result: 250, count: 1 }
   ];
+
+  // ---- v8：染色配方（程序化生成）----
+  // 主色来自花朵掉落 / 仙人掌烧炼(绿)；二次色两两调和；对羊毛/陶瓦/玻璃染色。
+  (function buildDyeRecipes() {
+    var pal = Voxel.Blocks && Voxel.Blocks.DYE_PALETTE;
+    if (!pal || !pal.length || !Voxel.Blocks.glassOfDye) return;
+    // 二次色混合表：[色A索引, 色B索引] -> 结果色索引
+    var MIX = [
+      [0, 2, 1],   // 白+灰 → 淡灰
+      [0, 3, 2],   // 白+黑 → 灰
+      [5, 0, 15],  // 红+白 → 粉
+      [5, 7, 6],   // 红+黄 → 橙
+      [9, 0, 8],   // 绿+白 → 黄绿
+      [12, 0, 11], // 蓝+白 → 淡蓝
+      [9, 12, 10], // 绿+蓝 → 青
+      [12, 5, 13], // 蓝+红 → 紫
+      [13, 15, 14] // 紫+粉 → 品红
+    ];
+    function dyeInputs(baseId, dyeIdx) {
+      var o = {};
+      o[baseId] = 1;
+      o[260 + dyeIdx] = 1;
+      return o;
+    }
+    for (var j = 1; j < pal.length; j++) {
+      RECIPES.push({ name: '染' + pal[j][1] + '色羊毛', shapeless: true,
+        inputs: dyeInputs(16, j), result: Voxel.Blocks.woolOfDye(j), count: 1 });
+    }
+    for (var t = 1; t < pal.length; t++) {
+      RECIPES.push({ name: '染' + pal[t][1] + '色陶瓦', shapeless: true,
+        inputs: dyeInputs(27, t), result: Voxel.Blocks.terraOfDye(t), count: 1 });
+    }
+    for (var g = 1; g < pal.length; g++) {
+      var gid = Voxel.Blocks.glassOfDye(g);
+      if (!gid) continue;
+      RECIPES.push({ name: '染' + pal[g][1] + '彩玻璃', shapeless: true,
+        inputs: dyeInputs(14, g), result: gid, count: 1 });
+    }
+    for (var m = 0; m < MIX.length; m++) {
+      var mx = MIX[m];
+      var inputs = {};
+      inputs[260 + mx[0]] = 1;
+      inputs[260 + mx[1]] = 1;
+      RECIPES.push({ name: pal[mx[2]][1] + '色染料', shapeless: true, inputs: inputs, result: 260 + mx[2], count: 1 });
+    }
+    // ---- v8：建造全家桶 ----
+    // 台阶 ×6（3 材料 → 单个下台阶）
+    RECIPES.push({ name: '木板台阶', shapeless: true, inputs: { 10: 3 }, result: 340, count: 6 });
+    RECIPES.push({ name: '石头台阶', shapeless: true, inputs: { 3: 3 }, result: 341, count: 6 });
+    RECIPES.push({ name: '圆石台阶', shapeless: true, inputs: { 12: 3 }, result: 342, count: 6 });
+    // 楼梯 ×4（角形阶梯摆放）
+    function stairRecipe(matId, resultId, matName) {
+      return { name: matName + '楼梯', grid: [matId, 0, 0, matId, matId, 0, matId, matId, matId], result: resultId, count: 4 };
+    }
+    RECIPES.push(stairRecipe(10, 350, '木板'));
+    RECIPES.push(stairRecipe(3, 354, '石头'));
+    RECIPES.push(stairRecipe(12, 358, '圆石'));
+    // 栅栏（木板×4+木棍×2）/ 玻璃板（玻璃×6）
+    RECIPES.push({ name: '木栅栏', shapeless: true, inputs: { 10: 4, 100: 2 }, result: 362, count: 3 });
+    RECIPES.push({ name: '玻璃板', shapeless: true, inputs: { 14: 6 }, result: 363, count: 8 });
+  })();
 
   // 有方向配方：把配方最小包围盒平移到 size×size 内，其余格子必须为空
   function shapedMatch(grid, pattern, size) {

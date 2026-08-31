@@ -208,6 +208,7 @@ Voxel.PlanetRules = (function () {
     if (blockId === 9) return { blockId: 9, itemId: 9, key: 'iron', exclusive: false };
     if (blockId === 72) return { blockId: 72, itemId: 72, key: 'gold', exclusive: false };
     if (blockId === 73) return { blockId: 73, itemId: 124, key: 'diamond', exclusive: false };
+    if (blockId === 200) return { blockId: 200, itemId: 220, key: 'redstone', exclusive: false };
     var key = knownType(typeKey) ? typeKey : 'lush';
     var special = (RESOURCE[key] || RESOURCE.lush).exclusive;
     if (special && blockId === special.blockId)
@@ -233,9 +234,12 @@ Voxel.PlanetRules = (function () {
   var SPECIAL_SALT_X = 0x6d2b79, SPECIAL_SALT_Y = 0x4cf5ad, SPECIAL_SALT_Z = 0x3c6ef3;
   var GOLD_SALT_X = 0x27d4eb, GOLD_SALT_Y = 0x165667, GOLD_SALT_Z = 0x09e2fc;
   var DIAMOND_SALT_X = 0x31f168, DIAMOND_SALT_Y = 0x0b42d3, DIAMOND_SALT_Z = 0x2e8ba1;
+  // v8：红石矿石（y<24，介于铁/金之间的稀有度），独立盐不干扰既有通道
+  var RSORE_SALT_X = 0x4c1af3, RSORE_SALT_Y = 0x8b17e2, RSORE_SALT_Z = 0x5d93b7;
+  var RSORE_CHANCE = 0.0045;
 
   function oreBlockTrusted(version, typeKey, x, y, z, noise) {
-    var coalRoll, ironRoll, exclusiveRoll, goldRoll, diamondRoll;
+    var coalRoll, ironRoll, exclusiveRoll, goldRoll, diamondRoll, rsoreRoll;
     if (version !== V2) {
       coalRoll = noise.hash3(x, y, z);
       if (typeof coalRoll !== 'number' || coalRoll < 0 || coalRoll >= 1) return 0;
@@ -260,6 +264,10 @@ Voxel.PlanetRules = (function () {
     ironRoll = noise.hash3(x + IRON_SALT_X, y + IRON_SALT_Y, z + IRON_SALT_Z);
     if (typeof ironRoll === 'number' && ironRoll >= 0 &&
       ironRoll < 0.006 * source.ironMultiplier && y < 34) return 9;
+    // 红石（y<24，v8 新增）
+    rsoreRoll = noise.hash3(x + RSORE_SALT_X, y + RSORE_SALT_Y, z + RSORE_SALT_Z);
+    if (typeof rsoreRoll === 'number' && rsoreRoll >= 0 &&
+      rsoreRoll < RSORE_CHANCE && y < 24) return 200;
     // 金（y<28，约铁的一半稀有度）/ 钻石（y<16，最深最稀），各用独立盐。
     if (y >= 28) return 0;
     goldRoll = noise.hash3(x + GOLD_SALT_X, y + GOLD_SALT_Y, z + GOLD_SALT_Z);

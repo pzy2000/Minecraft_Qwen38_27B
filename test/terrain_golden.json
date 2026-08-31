@@ -4,104 +4,104 @@
     "cx": -1,
     "cz": 0,
     "heightsH": 1295173392,
-    "blocksTop80H": 1489184964
+    "blocksTop80H": 1100069776
   },
   {
     "case": "origin_v2",
     "cx": 0,
     "cz": 0,
     "heightsH": 883147976,
-    "blocksTop80H": 2088885852
+    "blocksTop80H": 817247856
   },
   {
     "case": "origin_v2",
     "cx": -1,
     "cz": 1,
     "heightsH": 2681091400,
-    "blocksTop80H": 1170134772
+    "blocksTop80H": 52457892
   },
   {
     "case": "origin_v2_b",
     "cx": -3,
     "cz": -2,
     "heightsH": 494808211,
-    "blocksTop80H": 4286911112
+    "blocksTop80H": 4254427888
   },
   {
     "case": "origin_v2_b",
     "cx": -2,
     "cz": -2,
     "heightsH": 3289387208,
-    "blocksTop80H": 3460934356
+    "blocksTop80H": 2390468952
   },
   {
     "case": "origin_v2_b",
     "cx": -3,
     "cz": -1,
     "heightsH": 3142630212,
-    "blocksTop80H": 1308326192
+    "blocksTop80H": 665887316
   },
   {
     "case": "arid_v2",
     "cx": 2,
     "cz": 1,
     "heightsH": 806601740,
-    "blocksTop80H": 4250125104
+    "blocksTop80H": 3157796420
   },
   {
     "case": "arid_v2",
     "cx": 3,
     "cz": 1,
     "heightsH": 3939302904,
-    "blocksTop80H": 3449269372
+    "blocksTop80H": 2149734496
   },
   {
     "case": "arid_v2",
     "cx": 2,
     "cz": 2,
     "heightsH": 3503545016,
-    "blocksTop80H": 868909292
+    "blocksTop80H": 2781224384
   },
   {
     "case": "frozen_v2",
     "cx": -2,
     "cz": 3,
     "heightsH": 1953068000,
-    "blocksTop80H": 3800360500
+    "blocksTop80H": 2016060624
   },
   {
     "case": "frozen_v2",
     "cx": -1,
     "cz": 3,
     "heightsH": 1422313580,
-    "blocksTop80H": 985132480
+    "blocksTop80H": 3694041100
   },
   {
     "case": "frozen_v2",
     "cx": -2,
     "cz": 4,
     "heightsH": 254836408,
-    "blocksTop80H": 980585416
+    "blocksTop80H": 3539415960
   },
   {
     "case": "volcanic_v2",
     "cx": 1,
     "cz": -4,
     "heightsH": 1122576556,
-    "blocksTop80H": 4282514464
+    "blocksTop80H": 491535116
   },
   {
     "case": "volcanic_v2",
     "cx": 2,
     "cz": -4,
     "heightsH": 1318008884,
-    "blocksTop80H": 2346513036
+    "blocksTop80H": 1709661420
   },
   {
     "case": "volcanic_v2",
     "cx": 1,
     "cz": -3,
     "heightsH": 4034432440,
-    "blocksTop80H": 2145874448
+    "blocksTop80H": 3991935264
   }
 ]

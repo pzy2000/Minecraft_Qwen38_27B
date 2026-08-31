@@ -79,7 +79,7 @@ window.Voxel = window.Voxel || {};
   function newChunk(cx, cz) {
     return {
       cx: cx, cz: cz,
-      blocks: new Uint8Array(CS * H * CS),
+      blocks: new Uint16Array(CS * H * CS), // v8：方块 ID 空间 65535（与 world.js/gen_core 一致）
       heights: new Int16Array(CS * CS),
       biomes: new Uint8Array(CS * CS),
       sky: new Uint8Array(CS * H * CS),
@@ -303,7 +303,7 @@ window.Voxel = window.Voxel || {};
       if (coreBlkOverlay) { coreBlkOverlay = null; markCoreEdgeMeshes(); }
       return;
     }
-    if (!coreBlkOverlay) coreBlkOverlay = new Uint8Array(W * H * D);
+    if (!coreBlkOverlay) coreBlkOverlay = new Uint16Array(W * H * D);
     else coreBlkOverlay.fill(0);
     var buckets = [];
     for (var cz = 0; cz < CORE_CZ; cz++) {
@@ -541,7 +541,7 @@ window.Voxel = window.Voxel || {};
     var k = key(cx, cz);
     var ch = extra[k];
     if (!ch) { ch = newChunk(cx, cz); extra[k] = ch; }
-    ch.blocks = new Uint8Array(blocksBuf);
+    ch.blocks = new Uint16Array(blocksBuf);
     ch.heights = new Int16Array(heightsBuf);
     ch.biomes = new Uint8Array(biomesBuf);
     ch.baseReady = true;

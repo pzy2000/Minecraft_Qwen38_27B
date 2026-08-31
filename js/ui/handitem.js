@@ -9,8 +9,10 @@ Voxel.HandItem = (function () {
   var BX = 0.42, BY = -0.43, BZ = -0.8;
 
   function tileUV(t, u, v) { // u,v ∈ {0,1}
-    var c = t % 16, r = (t / 16) | 0;
-    return [(c * 16 + 0.5 + u * 15) / 256, 1 - (r * 16 + 0.5 + (1 - v) * 15) / 256];
+    var tpr = Voxel.Blocks.TILES_PER_ROW || 16;
+    var asz = Voxel.Blocks.ATLAS_SIZE || 256;
+    var c = t % tpr, r = (t / tpr) | 0;
+    return [(c * 16 + 0.5 + u * 15) / asz, 1 - (r * 16 + 0.5 + (1 - v) * 15) / asz];
   }
 
   function buildCube(id) {

@@ -537,7 +537,8 @@ Voxel.HUD = (function () {
     ctx.imageSmoothingEnabled = false;
     var t = Voxel.Blocks.iconTile(id);
     if (t < 0) return;
-    var ox = (t % 16) * 16, oy = ((t / 16) | 0) * 16;
+    var tpr = Voxel.Blocks.TILES_PER_ROW || 16;
+    var ox = (t % tpr) * 16, oy = ((t / tpr) | 0) * 16;
     var s = canvas.width - 8;
     ctx.drawImage(atlas, ox, oy, 16, 16, 4, 4, s, s);
     if (count > 1) {

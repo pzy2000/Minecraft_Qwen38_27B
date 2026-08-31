@@ -787,7 +787,7 @@ Voxel.World = (function () {
     noise = Voxel.Noise.create(seed);
     climateAt = Voxel.Biomes.makeClimate(noise);
     shaper = Voxel.Shaper.create(noise);
-    data = new Uint8Array(W * H * D);
+    data = new Uint16Array(W * H * D); // v8 起方块 ID 空间扩至 65535（染色变体/门/红石）
     heights = new Int16Array(W * D);
     biomes = new Uint8Array(W * D);
     if (!colTop || colTop.length !== W * D) colTop = new Int16Array(W * D);

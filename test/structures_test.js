@@ -212,7 +212,7 @@ console.log('发光方块光照表');
 ok(Voxel.Blocks.lightOf(19) === 14, '火把亮度 14');
 ok(Voxel.Blocks.lightOf(47) === 13, '荧光菌伞亮度 13');
 ok(Voxel.Blocks.lightOf(3) === 0, '石头不发光');
-ok(Voxel.Blocks.LIGHT.length === 256, 'LIGHT 表覆盖全部 ID');
+ok(Voxel.Blocks.LIGHT.length >= 1024, 'LIGHT 表覆盖全部 ID');
 
 console.log('新方块冻结契约（46..52）');
 var expectedNames = {

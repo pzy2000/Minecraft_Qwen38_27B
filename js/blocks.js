@@ -51,7 +51,28 @@ Voxel.Blocks = (function () {
     GLASS_RED: 134, GLASS_CYAN: 135, GLASS_GOLD: 136,
     // 战斗装备瓦片（稳定序号 137..142，只追加不移动）
     BOW: 137, ARROW: 138, CAP_FELT: 139, TUNIC_FELT: 140,
-    HELM_IRON: 141, CHESTPLATE_IRON: 142
+    HELM_IRON: 141, CHESTPLATE_IRON: 142,
+    // v8 扩容瓦片（稳定序号 143..，只追加不移动）
+    DOOR_OAK: 143, DOOR_SPRUCE: 144, DOOR_BIRCH: 145, DOOR_JUNGLE: 146,
+    DOOR_ACACIA: 147, DOOR_CHERRY: 148, DOOR_IRON: 149, TRAPDOOR_TOP: 150,
+    RS_WIRE_OFF: 151, RS_WIRE_ON: 152, RS_TORCH: 153, RS_LEVER_BASE: 154,
+    RS_BTN: 155, RS_PLATE_WOOD: 156, RS_PLATE_STONE: 157,
+    RS_LAMP_OFF: 158, RS_LAMP_ON: 159, RS_REPEATER: 160, RS_ORE: 161, RS_DUST: 162,
+    // 农耕瓦片
+    FARM_TOP: 163, FARM_WET_TOP: 164,
+    TUFT: 165, WHEAT0: 166, WHEAT1: 167, WHEAT2: 168, WHEAT_MATURE: 169,
+    CARROT0: 170, CARROT2: 171, CARROT_MATURE: 172,
+    POTATO0: 173, POTATO2: 174, POTATO_MATURE: 175,
+    // 农耕物品图标
+    I_WHEAT: 176, I_SEEDS: 177, I_BREAD: 178, I_APPLE: 179, I_GAPPLE: 180,
+    I_CARROT: 181, I_POTATO: 182, I_POTATO_BAKED: 183,
+    HOE_WOOD: 184, HOE_STONE: 185, HOE_IRON: 186,
+    // 染色体系瓦片
+    FLOWER0: 187,   // 花×8 连续
+    WOOL_C0: 195,   // 彩色羊毛×15 连续（白色用原羊毛）
+    TERRA_C0: 210,  // 彩色陶瓦×16 连续
+    GLASS_C0: 225,  // 彩色玻璃×13 连续
+    I_DYE0: 238     // 染料图标×16 连续
   };
 
   // hard: 徒手挖掘秒数（Infinity=不可破坏）；pick: 镐可加速；tier: 需要的最低镐等级(1木2石3铁)
@@ -407,7 +428,389 @@ Voxel.Blocks = (function () {
       tiles: [T.CHESTPLATE_IRON, T.CHESTPLATE_IRON, T.CHESTPLATE_IRON], sound: 'stone',
       color: 0xd8d8d8, gearSlot: 'body', armor: 0.26, maxDur: 520, maxStack: 1, icon: T.CHESTPLATE_IRON };
 
+  // ============ v8 扩容：门与活板门（方块 ID 141.. 起追加，仅追加不移动）============
+  // 编码（每木种 8 个连续 ID）：idx = base + (upper?4:0) + (axis?2:0) + (open?1:0)
+  //   axis 0=门板沿 Z 展开（沿 X 方向进出），axis 1=门板沿 X 展开
+  // 关闭态整格固体（拦人），开启态非固体（薄板只贴边）。上半/下半各自占一格。
+  var DOOR_KINDS = [
+    { key: 'oak',    name: '橡木',   tile: T.DOOR_OAK,    color: 0xa2824e, dropSound: 'wood' },
+    { key: 'spruce', name: '云杉',   tile: T.DOOR_SPRUCE, color: 0x6b5230, dropSound: 'wood' },
+    { key: 'birch',  name: '白桦',   tile: T.DOOR_BIRCH,  color: 0xcfc39b, dropSound: 'wood' },
+    { key: 'jungle', name: '丛林',   tile: T.DOOR_JUNGLE, color: 0x9a7448, dropSound: 'wood' },
+    { key: 'acacia', name: '金合欢', tile: T.DOOR_ACACIA, color: 0xa85c34, dropSound: 'wood' },
+    { key: 'cherry', name: '樱花',   tile: T.DOOR_CHERRY, color: 0xd8a8b0, dropSound: 'wood' },
+    { key: 'iron',   name: '铁',     tile: T.DOOR_IRON,   color: 0xc8c8cc, dropSound: 'stone' }
+  ];
+  var DOOR_BASE = 141;          // 每种 8 ID：141..196
+  var TRAPDOOR_BASE = DOOR_BASE + DOOR_KINDS.length * 8; // 197..199 橡木活板门
+
+  function doorBox(upper, open, axis) {
+    if (!open) {
+      // 关闭：中央薄板横跨门洞；axis0 → 板沿 Z 跨全宽薄在 X；axis1 → 反之
+      return axis === 0 ? [0.40625, 0, 0, 0.59375, 1, 1] : [0, 0, 0.40625, 1, 1, 0.59375];
+    }
+    // 开启：转 90° 贴边（铰链取负端）
+    return axis === 0 ? [0, 0, 0, 1, 1, 0.1875] : [0, 0, 0, 0.1875, 1, 1];
+  }
+
+  for (var dk = 0; dk < DOOR_KINDS.length; dk++) {
+    (function (kindIdx) {
+      var kind = DOOR_KINDS[kindIdx];
+      var base = DOOR_BASE + kindIdx * 8;
+      for (var st = 0; st < 8; st++) {
+        var upper = (st & 4) !== 0;
+        var open = (st & 1) !== 0;
+        var axis = ((st & 3) >> 1);
+        defs[base + st] = {
+          name: kind.name + '门',
+          solid: !open,
+          opaque: false,
+          tiles: [kind.tile, kind.tile, kind.tile],
+          sound: kind.key === 'iron' ? 'stone' : 'wood',
+          color: kind.color,
+          icon: kind.tile,
+          hard: kind.key === 'iron' ? 9 : 1.5,
+          pick: kind.key === 'iron' ? true : undefined,
+          box: doorBox(upper, open, axis),
+          door: { kind: kindIdx, upper: upper, open: open, axis: axis },
+          drop: DOOR_BASE + kindIdx * 8  // 破坏任意半块掉「下半关闭」可重放
+        };
+      }
+    })(dk);
+  }
+
+  // 橡木活板门：197 关（平铺底面）/ 198 开·X / 199 开·Z；关=半高固体、开=非固体
+  defs[TRAPDOOR_BASE + 0] = {
+    name: '橡木活板门', solid: true, opaque: false, half: true,
+    tiles: [T.TRAPDOOR_TOP, T.TRAPDOOR_TOP, T.TRAPDOOR_TOP], sound: 'wood',
+    color: 0xa2824e, icon: T.TRAPDOOR_TOP, box: [0, 0, 0, 1, 0.1875, 1],
+    trapdoor: { open: false }, drop: TRAPDOOR_BASE
+  };
+  defs[TRAPDOOR_BASE + 1] = {
+    name: '橡木活板门', solid: false, opaque: false,
+    tiles: [T.TRAPDOOR_TOP, T.TRAPDOOR_TOP, T.TRAPDOOR_TOP], sound: 'wood',
+    color: 0xa2824e, icon: T.TRAPDOOR_TOP, box: [0, 0, 0, 0.1875, 1, 1],
+    trapdoor: { open: true }, drop: TRAPDOOR_BASE
+  };
+  defs[TRAPDOOR_BASE + 2] = {
+    name: '橡木活板门', solid: false, opaque: false,
+    tiles: [T.TRAPDOOR_TOP, T.TRAPDOOR_TOP, T.TRAPDOOR_TOP], sound: 'wood',
+    color: 0xa2824e, icon: T.TRAPDOOR_TOP, box: [0, 0, 0, 1, 1, 0.1875],
+    trapdoor: { open: true }, drop: TRAPDOOR_BASE
+  };
+
+  // ============ v8 扩容：红石基础电路（方块 ID 200..214，物品 220）============
+  // 信号模型：二值（点亮/熄灭）。电源=拉杆开/按钮按下/压力板压下/红石火把亮。
+  // 导线相邻连通传播；中继器=延时二极管；受体=红石灯/铁门/木门。
+  var RS = {
+    ORE: 200,
+    WIRE_OFF: 201, WIRE_ON: 202,
+    TORCH_ON: 203, TORCH_OFF: 204,
+    LEVER_OFF: 205, LEVER_ON: 206,
+    BTN_UP: 207, BTN_DOWN: 208,
+    PLATE_UP: 209, PLATE_DOWN: 210,
+    LAMP_OFF: 211, LAMP_ON: 212,
+    REP_OFF: 213, REP_ON: 214
+  };
+
+  defs[RS.ORE] = { name: '红石矿石', solid: true, opaque: true,
+    tiles: [T.RS_ORE, T.RS_ORE, T.RS_ORE], sound: 'stone',
+    color: 0x9a2020, hard: 5, pick: true, tier: 2, drop: 220 }; // 石镐可挖 → 红石粉
+
+  // 导线：贴地薄条，非固体，可穿行
+  defs[RS.WIRE_OFF] = { name: '红石导线', solid: false, opaque: false, rs: 'wire', powered: false,
+    tiles: [T.RS_WIRE_OFF, T.RS_WIRE_OFF, T.RS_WIRE_OFF], sound: 'wool',
+    color: 0x6e1414, hard: 0.05, box: [0, 0, 0, 1, 0.0625, 1], drop: 220 };
+  defs[RS.WIRE_ON] = { name: '红石导线', solid: false, opaque: false, rs: 'wire', powered: true,
+    tiles: [T.RS_WIRE_ON, T.RS_WIRE_ON, T.RS_WIRE_ON], sound: 'wool',
+    color: 0xe23c1c, hard: 0.05, box: [0, 0, 0, 1, 0.0625, 1], drop: 220 };
+
+  // 红石火把：十字面片（同火把），常亮态发光 14；反相电源
+  defs[RS.TORCH_ON] = { name: '红石火把', solid: false, opaque: false, cross: true, light: 14, rs: 'rtorch', powered: true,
+    tiles: [T.RS_TORCH, T.RS_TORCH, T.RS_TORCH], sound: 'wood',
+    color: 0xff4a24, hard: 0.05, drop: RS.TORCH_ON };
+  defs[RS.TORCH_OFF] = { name: '红石火把', solid: false, opaque: false, cross: true, rs: 'rtorch', powered: false,
+    tiles: [T.RS_TORCH, T.RS_TORCH, T.RS_TORCH], sound: 'wood',
+    color: 0x7a2013, hard: 0.05, drop: RS.TORCH_ON };
+
+  // 拉杆 / 按钮 / 压力板：小盒非固体
+  defs[RS.LEVER_OFF] = { name: '拉杆', solid: false, opaque: false, rs: 'lever', powered: false,
+    tiles: [T.RS_LEVER_BASE, T.RS_LEVER_BASE, T.RS_LEVER_BASE], sound: 'stone',
+    color: 0x8a8a8c, hard: 0.6, box: [0.3125, 0, 0.3125, 0.6875, 0.375, 0.6875],
+    icon: T.RS_LEVER_BASE, drop: RS.LEVER_OFF };
+  defs[RS.LEVER_ON] = { name: '拉杆', solid: false, opaque: false, rs: 'lever', powered: true,
+    tiles: [T.RS_LEVER_BASE, T.RS_LEVER_BASE, T.RS_LEVER_BASE], sound: 'stone',
+    color: 0xc86a2a, hard: 0.6, box: [0.3125, 0, 0.3125, 0.6875, 0.375, 0.6875],
+    icon: T.RS_LEVER_BASE, drop: RS.LEVER_OFF };
+  defs[RS.BTN_UP] = { name: '石质按钮', solid: false, opaque: false, rs: 'button', powered: false,
+    tiles: [T.RS_BTN, T.RS_BTN, T.RS_BTN], sound: 'stone',
+    color: 0x7f7f7f, hard: 0.6, box: [0.3125, 0, 0.3125, 0.6875, 0.125, 0.6875],
+    icon: T.RS_BTN, drop: RS.BTN_UP };
+  defs[RS.BTN_DOWN] = { name: '石质按钮', solid: false, opaque: false, rs: 'button', powered: true,
+    tiles: [T.RS_BTN, T.RS_BTN, T.RS_BTN], sound: 'stone',
+    color: 0x7f7f7f, hard: 0.6, box: [0.3125, 0, 0.3125, 0.6875, 0.0625, 0.6875],
+    icon: T.RS_BTN, drop: RS.BTN_UP };
+  defs[RS.PLATE_UP] = { name: '木质压力板', solid: false, opaque: false, rs: 'plate', powered: false,
+    tiles: [T.PLANKS, T.PLANKS, T.PLANKS], sound: 'wood',
+    color: 0xa2824e, hard: 0.5, box: [0, 0, 0, 1, 0.09375, 1],
+    icon: T.PLANKS, drop: RS.PLATE_UP };
+  defs[RS.PLATE_DOWN] = { name: '木质压力板', solid: false, opaque: false, rs: 'plate', powered: true,
+    tiles: [T.PLANKS, T.PLANKS, T.PLANKS], sound: 'wood',
+    color: 0xb89258, hard: 0.5, box: [0, 0, 0, 1, 0.03125, 1],
+    icon: T.PLANKS, drop: RS.PLATE_UP };
+
+  // 红石灯：整块固体；亮态发光 15（World.set 自动重光照）
+  defs[RS.LAMP_OFF] = { name: '红石灯', solid: true, opaque: true, rs: 'lamp', powered: false,
+    tiles: [T.RS_LAMP_OFF, T.RS_LAMP_OFF, T.RS_LAMP_OFF], sound: 'glass',
+    color: 0x6b4326, hard: 1.2, drop: RS.LAMP_OFF };
+  defs[RS.LAMP_ON] = { name: '红石灯', solid: true, opaque: true, rs: 'lamp', powered: true, light: 15,
+    tiles: [T.RS_LAMP_ON, T.RS_LAMP_ON, T.RS_LAMP_ON], sound: 'glass',
+    color: 0xf0b45c, hard: 1.2, drop: RS.LAMP_OFF };
+
+  // 中继器：延时二极管薄台（输出到除输入侧外的邻居）
+  defs[RS.REP_OFF] = { name: '红石中继器', solid: false, opaque: false, rs: 'repeater', powered: false,
+    tiles: [T.RS_REPEATER, T.RS_REPEATER, T.RS_REPEATER], sound: 'stone',
+    color: 0x8d8d90, hard: 0.8, box: [0, 0, 0, 1, 0.1875, 1],
+    icon: T.RS_REPEATER, drop: RS.REP_OFF };
+  defs[RS.REP_ON] = { name: '红石中继器', solid: false, opaque: false, rs: 'repeater', powered: true,
+    tiles: [T.RS_REPEATER, T.RS_REPEATER, T.RS_REPEATER], sound: 'stone',
+    color: 0xd07138, hard: 0.8, box: [0, 0, 0, 1, 0.1875, 1],
+    icon: T.RS_REPEATER, drop: RS.REP_OFF };
+
+  // 红石粉物品：矿石直掉，是所有红石元件的合成基底
+  defs[220] = { name: '红石粉', item: true, solid: false, opaque: false,
+    tiles: [T.RS_DUST, T.RS_DUST, T.RS_DUST], sound: 'wool',
+    color: 0xd8331e, icon: T.RS_DUST };
+
+  // ============ v8 扩容：农耕系统（方块 ID 221..238，物品 239..247）============
+  var FARM = {
+    FARMLAND_DRY: 221, FARMLAND_WET: 222, TUFT: 223,
+    WHEAT_A: 224, WHEAT_MATURE: 228,
+    CARROT_A: 229, CARROT_MATURE: 233,
+    POTATO_A: 234, POTATO_MATURE: 238
+  };
+  // 耕地：整格固体，顶面纹理区分干/湿
+  defs[FARM.FARMLAND_DRY] = { name: '耕地', solid: true, opaque: true, farmland: 'dry',
+    tiles: [T.FARM_TOP, T.DIRT, T.DIRT], sound: 'dirt', color: 0x7d5a3c, hard: 0.6, drop: 2 };
+  defs[FARM.FARMLAND_WET] = { name: '耕地', solid: true, opaque: true, farmland: 'wet',
+    tiles: [T.FARM_WET_TOP, T.DIRT, T.DIRT], sound: 'dirt', color: 0x5f452c, hard: 0.6, drop: 2 };
+  // 草丛：十字矮草，破坏掉小麦种子
+  defs[FARM.TUFT] = { name: '草丛', solid: false, opaque: false, cross: true, crossHeight: 0.55,
+    tiles: [T.TUFT, T.TUFT, T.TUFT], sound: 'leaves', color: 0x6fa844, hard: 0.05,
+    drop: 240 };
+
+  function cropDef(name, tile, mature, seedDrop) {
+    return { name: name, solid: false, opaque: false, cross: true, crossHeight: 0.65,
+      tiles: [tile, tile, tile], sound: 'leaves', color: 0x86b049, hard: 0.02,
+      crop: { kind: name }, drop: seedDrop };
+  }
+  // 小麦：4 阶段生长；未成熟掉种子，成熟特殊收割（麦子+种子）
+  defs[224] = cropDef('小麦作物', T.WHEAT0, false, 240);
+  defs[225] = cropDef('小麦作物', T.WHEAT0, false, 240);
+  defs[226] = cropDef('小麦作物', T.WHEAT1, false, 240);
+  defs[227] = cropDef('小麦作物', T.WHEAT2, false, 240);
+  defs[228] = cropDef('小麦作物', T.WHEAT_MATURE, true, 240);
+  // 胡萝卜/马铃薯：块茎即种即食
+  for (var ci2 = 229; ci2 <= 232; ci2++) defs[ci2] = cropDef('胡萝卜作物', T.CARROT0, false, 245);
+  defs[233] = cropDef('胡萝卜作物', T.CARROT_MATURE, true, 245);
+  for (var pi2 = 234; pi2 <= 237; pi2++) defs[pi2] = cropDef('马铃薯作物', T.POTATO0, false, 246);
+  defs[238] = cropDef('马铃薯作物', T.POTATO_MATURE, true, 246);
+
+  // ---- 农耕物品 ----
+  function foodItem(id, name, tile, color, foodVal) {
+    defs[id] = { name: name, item: true, solid: false, opaque: false,
+      tiles: [tile, tile, tile], sound: 'wool', color: color,
+      icon: tile, food: foodVal };
+  }
+  defs[239] = { name: '小麦', item: true, solid: false, opaque: false,
+    tiles: [T.I_WHEAT, T.I_WHEAT, T.I_WHEAT], sound: 'wool',
+    color: 0xd9b13b, icon: T.I_WHEAT };
+  defs[240] = { name: '小麦种子', item: true, solid: false, opaque: false, plantable: true,
+    tiles: [T.I_SEEDS, T.I_SEEDS, T.I_SEEDS], sound: 'wool',
+    color: 0x9db054, icon: T.I_SEEDS };
+  foodItem(241, '面包', T.I_BREAD, 0xc08b46, 5);
+  foodItem(242, '苹果', T.I_APPLE, 0xd83a30, 4);
+  foodItem(243, '金苹果', T.I_GAPPLE, 0xf3c860, 12);
+  foodItem(245, '生胡萝卜', T.I_CARROT, 0xe07828, 3); defs[245].plantable = true;
+  foodItem(246, '生马铃薯', T.I_POTATO, 0xc9a86a, 1); defs[246].plantable = true;
+  foodItem(247, '烤马铃薯', T.I_POTATO_BAKED, 0xd09248, 5);
+
+  // 锄头：翻土成耕地（工具，不堆叠带耐久）
+  defs[248] = { name: '木锄', item: true, solid: false, opaque: false,
+    tiles: [T.HOE_WOOD, T.HOE_WOOD, T.HOE_WOOD], sound: 'wood',
+    color: 0xa2824e, icon: T.HOE_WOOD, hoeTool: true, maxDur: 60, maxStack: 1 };
+  defs[249] = { name: '石锄', item: true, solid: false, opaque: false,
+    tiles: [T.HOE_STONE, T.HOE_STONE, T.HOE_STONE], sound: 'stone',
+    color: 0x8a8a8a, icon: T.HOE_STONE, hoeTool: true, maxDur: 132, maxStack: 1 };
+  defs[250] = { name: '铁锄', item: true, solid: false, opaque: false,
+    tiles: [T.HOE_IRON, T.HOE_IRON, T.HOE_IRON], sound: 'stone',
+    color: 0xd8d8d8, icon: T.HOE_IRON, hoeTool: true, maxDur: 251, maxStack: 1 };
+
+  // ============ v8 扩容：染色体系（花 251..258，染料物品 260..275，变体方块 281+）============
+  // 16 色调色板（对齐 wiki 染料顺序；白色复用原羊毛/陶瓦/玻璃）
+  var DYE_PALETTE = [
+    ['white', '白', [244, 244, 240], [236, 240, 241], [219, 235, 240]],
+    ['light_gray', '淡灰', [157, 157, 161], [142, 142, 145], [166, 175, 176]],
+    ['gray', '灰', [66, 67, 69], [62, 63, 64], [140, 141, 142]],
+    ['black', '黑', [30, 27, 33], [21, 22, 25], [96, 98, 102]],
+    ['brown', '棕', [131, 84, 50], [114, 71, 40], [132, 91, 43]],
+    ['red', '红', [176, 46, 38], [160, 42, 36], [196, 60, 54]],
+    ['orange', '橙', [240, 118, 19], [216, 106, 22], [232, 104, 22]],
+    ['yellow', '黄', [248, 198, 39], [222, 178, 34], [240, 192, 42]],
+    ['lime', '黄绿', [112, 185, 25], [100, 168, 26], [128, 199, 39]],
+    ['green', '绿', [84, 109, 27], [76, 99, 24], [116, 167, 87]],
+    ['cyan', '青', [21, 137, 145], [20, 125, 133], [79, 163, 168]],
+    ['light_blue', '淡蓝', [58, 179, 218], [52, 165, 202], [180, 214, 225]],
+    ['blue', '蓝', [53, 57, 157], [48, 51, 143], [105, 117, 195]],
+    ['purple', '紫', [121, 42, 172], [110, 38, 158], [154, 92, 198]],
+    ['magenta', '品红', [189, 68, 179], [173, 62, 164], [213, 123, 208]],
+    ['pink', '粉', [237, 141, 172], [219, 129, 159], [243, 171, 190]]
+  ];
+
+  // 花：十字面片小植物，天然生成于草地
+  var FLOWER_KINDS = [
+    { dye: 5 /*red*/,   name: '玫瑰' },
+    { dye: 7 /*yellow*/, name: '蒲公英' },
+    { dye: 12 /*blue*/, name: '矢车菊' },
+    { dye: 0 /*white*/, name: '滨菊' },
+    { dye: 15 /*pink*/, name: '粉郁金香' },
+    { dye: 6 /*orange*/, name: '橙郁金香' },
+    { dye: 11 /*lt_blue*/, name: '蓝铃花' },
+    { dye: 13 /*purple*/, name: '绒球葱' }
+  ];
+  for (var fk = 0; fk < FLOWER_KINDS.length; fk++) {
+    (function (i) {
+      var fl = FLOWER_KINDS[i];
+      defs[251 + i] = {
+        name: fl.name, solid: false, opaque: false, cross: true, crossHeight: 0.65,
+        flower: { dyeIndex: fl.dye },
+        tiles: [T.FLOWER0 + i, T.FLOWER0 + i, T.FLOWER0 + i],
+        sound: 'leaves', color: 0x88b04a, hard: 0.03, drop: 260 + fl.dye
+      };
+    })(fk);
+  }
+
+  // 染料物品 ×16
+  for (var di = 0; di < DYE_PALETTE.length; di++) {
+    (function (i) {
+      var pal = DYE_PALETTE[i];
+      defs[260 + i] = {
+        name: pal[1] + '色染料', item: true, solid: false, opaque: false,
+        tiles: [T.I_DYE0 + i, T.I_DYE0 + i, T.I_DYE0 + i],
+        sound: 'wool', color: (pal[2][0] << 16) | (pal[2][1] << 8) | pal[2][2],
+        icon: T.I_DYE0 + i, dyeIndex: i
+      };
+    })(di);
+  }
+  // 反查：染料物品 ID → 色号
+  function dyeIndexOf(id) {
+    var d = id >= 260 && id <= 275 ? defs[id] : null;
+    return d ? d.dyeIndex : -1;
+  }
+
+  // ============ v8 扩容：建造全家桶（台阶 340，楼梯 350..361，栅栏 362，玻璃板 363）============
+  // 台阶：下半薄块（half 物理语义）
+  var SLAB_DEFS = [
+    { name: '木板台阶', tile: T.PLANKS, sound: 'wood', color: 0xa2824e },
+    { name: '石头台阶', tile: T.STONE, sound: 'stone', color: 0x7f7f7f },
+    { name: '圆石台阶', tile: T.COBBLE, sound: 'stone', color: 0x6f6f6f }
+  ];
+  for (var sdi = 0; sdi < SLAB_DEFS.length; sdi++) {
+    defs[340 + sdi] = {
+      name: SLAB_DEFS[sdi].name, solid: true, opaque: false, half: true,
+      tiles: [SLAB_DEFS[sdi].tile, SLAB_DEFS[sdi].tile, SLAB_DEFS[sdi].tile],
+      sound: SLAB_DEFS[sdi].sound, color: SLAB_DEFS[sdi].color,
+      hard: 2, pick: SLAB_DEFS[sdi].sound === 'stone', drop: 340 + sdi,
+      boxes: [[0, 0, 0, 1, 0.5, 1]]
+    };
+  }
+  // 楼梯：底部整层 + 后半高台；dir 编码上楼方向（0:+x 1:-x 2:+z 3:-z）
+  var STAIR_MATS = [
+    { name: '木板楼梯', tile: T.PLANKS, sound: 'wood', color: 0xa2824e, pick: false },
+    { name: '石头楼梯', tile: T.STONE, sound: 'stone', color: 0x7f7f7f, pick: true },
+    { name: '圆石楼梯', tile: T.COBBLE, sound: 'stone', color: 0x6f6f6f, pick: true }
+  ];
+  function stairBoxes(dir) {
+    var back;   // 高台位于背对行进方向的一侧
+    if (dir === 0) back = [0, 0.5, 0, 0.5, 1, 1];
+    else if (dir === 1) back = [0.5, 0.5, 0, 1, 1, 1];
+    else if (dir === 2) back = [0, 0.5, 0, 1, 1, 0.5];
+    else back = [0, 0.5, 0, 1, 1, 1];
+    return [[0, 0, 0, 1, 0.5, 1], back];
+  }
+  for (var smi = 0; smi < STAIR_MATS.length; smi++) {
+    for (var sd = 0; sd < 4; sd++) {
+      defs[350 + smi * 4 + sd] = {
+        name: STAIR_MATS[smi].name, solid: true, opaque: false, stairDir: sd,
+        tiles: [STAIR_MATS[smi].tile, STAIR_MATS[smi].tile, STAIR_MATS[smi].tile],
+        sound: STAIR_MATS[smi].sound, color: STAIR_MATS[smi].color,
+        hard: 2, pick: STAIR_MATS[smi].pick,
+        drop: 350 + smi * 4,        // 四个方向统一掉基础朝向
+        icon: undefined,
+        boxes: stairBoxes(sd)
+      };
+    }
+  }
+  defs[362] = {
+    name: '木栅栏', solid: true, opaque: false,
+    tiles: [T.PLANKS, T.PLANKS, T.PLANKS], sound: 'wood',
+    color: 0xa2824e, hard: 1.5, drop: 362,
+    connector: { kind: 'fence' }
+  };
+  defs[363] = {
+    name: '玻璃板', solid: false, opaque: false,
+    tiles: [T.GLASS, T.GLASS, T.GLASS], sound: 'glass',
+    color: 0xbfe3ee, hard: 0.45, drop: 363,
+    connector: { kind: 'pane' }
+  };
+
+  // 彩色羊毛 ×15（跳过白色，白色即原羊毛 id16）
+  for (var wvi = 0; wvi < DYE_PALETTE.length; wvi++) {
+    if (wvi === 0) continue;
+    (function (i) {
+      var pal = DYE_PALETTE[i];
+      defs[280 + i] = {
+        name: pal[1] + '色羊毛', solid: true, opaque: true,
+        tiles: [T.WOOL_C0 + i - 1, T.WOOL_C0 + i - 1, T.WOOL_C0 + i - 1],
+        sound: 'wool', color: (pal[3][0] << 16) | (pal[3][1] << 8) | pal[3][2],
+        hard: 0.7, drop: 280 + i
+      };
+    })(wvi);
+  }
+  // 彩色陶瓦 ×16（除 27 号素陶瓦外的全部颜色）
+  for (var tvi = 0; tvi < DYE_PALETTE.length; tvi++) {
+    if (tvi === 0) continue;
+    (function (i) {
+      var pal = DYE_PALETTE[i];
+      defs[300 + i] = {
+        name: pal[1] + '色陶瓦', solid: true, opaque: true,
+        tiles: [T.TERRA_C0 + i - 1, T.TERRA_C0 + i - 1, T.TERRA_C0 + i - 1],
+        sound: 'stone', color: (pal[4][0] << 16) | (pal[4][1] << 8) | pal[4][2],
+        hard: 3, pick: true, drop: 300 + i
+      };
+    })(tvi);
+  }
+  // 彩色玻璃 ×16 中未存在的 13 色（红88/青89/金90 已存在 → 跳过其 palette 索引近似值）
+  var EXISTING_GLASS = { 5: 88, 10: 89, 7: 90 }; // 近似映射：red→GLASS_RED, cyan→GLASS_CYAN, yellow→GLASS_GOLD
+  for (var gvi = 0; gvi < DYE_PALETTE.length; gvi++) {
+    // 跳过白色（=原玻璃）以及与旧三彩玻璃近似的 红/黄/青 和 黑/棕/绿/紫/品红
+    if ({0:1,3:1,4:1,9:1,13:1,14:1,5:1,10:1,7:1}[gvi]) continue;
+    (function (i) {
+      var pal = DYE_PALETTE[i];
+      defs[320 + i] = {
+        name: pal[1] + '彩玻璃', solid: true, opaque: false, stained: true,
+        tiles: [T.GLASS_C0 + i - 1, T.GLASS_C0 + i - 1, T.GLASS_C0 + i - 1],
+        sound: 'glass',
+        color: (pal[3][0] << 16) | (pal[3][1] << 8) | pal[3][2],
+        hard: 0.45, drop: 320 + i
+      };
+    })(gvi);
+  }
+
   var atlasCanvas = null, atlasTexture = null;
+  // v8 图集升格：512×512（32×32=1024 个 16px tile），彩色变体批量绘制需要余量
+  var ATLAS_SIZE = 512;
+  var TILES_PER_ROW = 32;
   function rng(seed) {
     var s = seed >>> 0;
     return function () {
@@ -420,19 +823,19 @@ Voxel.Blocks = (function () {
 
   function buildAtlas() {
     atlasCanvas = document.createElement('canvas');
-    atlasCanvas.width = 256;
-    atlasCanvas.height = 256;
+    atlasCanvas.width = ATLAS_SIZE;
+    atlasCanvas.height = ATLAS_SIZE;
     var ctx = atlasCanvas.getContext('2d');
-    var img = ctx.createImageData(256, 256);
+    var img = ctx.createImageData(ATLAS_SIZE, ATLAS_SIZE);
     var d = img.data;
 
     function px(x, y, r, g, b, a) {
-      var i = (y * 256 + x) * 4;
+      var i = (y * ATLAS_SIZE + x) * 4;
       d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = (a === undefined ? 255 : a);
     }
 
     function drawTile(idx, fn) {
-      var ox = (idx % 16) * 16, oy = ((idx / 16) | 0) * 16;
+      var ox = (idx % TILES_PER_ROW) * 16, oy = ((idx / TILES_PER_ROW) | 0) * 16;
       var r = rng(idx * 1013 + 7);
       for (var y = 0; y < 16; y++)
         for (var x = 0; x < 16; x++) {
@@ -1605,6 +2008,324 @@ Voxel.Blocks = (function () {
     drawTile(T.HELM_IRON, armorTilePaint([208, 208, 212], [148, 148, 154]));
     drawTile(T.CHESTPLATE_IRON, armorTilePaint([200, 200, 206], [142, 142, 150]));
 
+    // ---- v8：门 / 活板门瓦片 ----
+    // 门板：竖条镶板 + 四角金属扣 + 右上把手（axis 无关，正反同贴图）
+    function doorTilePaint(base, dark, rail, iron) {
+      return function (x, y, r) {
+        if (x === 0 || x === 15 || y === 0 || y === 15) return rail;
+        // 竖向分栏：中缝 x=7..8
+        var seam = (x === 7 || x === 8);
+        // 上半窗格（木门挖空浅色玻璃感；铁门为实心铆面）
+        var paneTop = (y >= 2 && y <= 6 && (x >= 2 && x <= 6));
+        var paneTopR = (y >= 2 && y <= 6 && (x >= 9 && x <= 13));
+        if ((paneTop || paneTopR) && !iron) {
+          var pv = n(r, 0, 14);
+          return [176 + pv * 0.4, 214 + pv, 226 + pv, 150];
+        }
+        // 镶板凹槽边线
+        var inPanel = !seam && ((x >= 2 && x <= 13) && !(y < 8 ? (y < 1) : false));
+        var edge = seam || x === 1 || x === 14 ||
+          (y === 7 && x > 1 && x < 14) ||
+          ((y === 1 || y === 6 || y === 9 || y === 14) && x > 1 && x < 14);
+        if (edge && !iron) {
+          var ev = n(r, 0, 10);
+          return [dark[0] + ev, dark[1] + ev, dark[2] + ev];
+        }
+        if (edge && iron) return [rail[0] - 18, rail[1] - 18, rail[2] - 18];
+        // 把手：右上凸点（x=11,y=5）
+        if (x === 11 && y === 5) return iron ? [230, 232, 238] : [250, 214, 96];
+        // 铁门铆钉
+        if (iron && (x % 5 === 1) && (y % 5 === 3)) return [235, 238, 244];
+        var v = n(r, iron ? 0 : 12, iron ? 10 : 14);
+        return [base[0] + v, base[1] + v, base[2] + v];
+      };
+    }
+    drawTile(T.DOOR_OAK, doorTilePaint([168, 136, 84], [128, 102, 60], [104, 82, 48], false));
+    drawTile(T.DOOR_SPRUCE, doorTilePaint([112, 86, 52], [80, 60, 36], [62, 46, 28], false));
+    drawTile(T.DOOR_BIRCH, doorTilePaint([204, 190, 150], [160, 146, 108], [120, 106, 76], false));
+    drawTile(T.DOOR_JUNGLE, doorTilePaint([148, 112, 70], [108, 80, 50], [86, 64, 40], false));
+    drawTile(T.DOOR_ACACIA, doorTilePaint([164, 92, 54], [122, 66, 38], [98, 52, 30], false));
+    drawTile(T.DOOR_CHERRY, doorTilePaint([206, 158, 166], [162, 116, 126], [130, 90, 100], false));
+    drawTile(T.DOOR_IRON, doorTilePaint([188, 192, 200], [150, 154, 162], [226, 229, 235], true));
+    // 活板门：横条格栅（顶视/侧视通用）
+    drawTile(T.TRAPDOOR_TOP, function (x, y, r) {
+      if (y % 4 === 0) return [110, 88, 52];
+      if (x === 0 || x === 15) return [118, 94, 56];
+      if ((y % 8 === 2 && x > 2 && x < 13) || (Math.abs(x - y) % 7 === 0 && y > 1)) return [132, 105, 63];
+      var v = n(r, 0, 16);
+      return [166 + v, 134 + v, 82 + v * 0.8];
+    });
+
+    // ---- v8：红石瓦片 ----
+    function rsWirePaint(lit) {
+      return function (x, y, r) {
+        // 深色石板底 + 十字导线（中心线亮红）
+        var onLine = (y >= 6 && y <= 9) || (x >= 6 && x <= 9);
+        if (!onLine) {
+          var g0 = n(r, 0, 18);
+          return [96 + g0 * 0.6, 88 + g0 * 0.5, 84 + g0 * 0.5];
+        }
+        var dot = ((x + y) % 3 === 0);
+        if (lit) {
+          var hv = dot ? 30 : 0;
+          return [236 + hv, 66 + (dot ? 40 : 0), 24];
+        }
+        var dv = n(r, 0, 10);
+        return [104 + dv * 0.4, 22, 18];
+      };
+    }
+    drawTile(T.RS_WIRE_OFF, rsWirePaint(false));
+    drawTile(T.RS_WIRE_ON, rsWirePaint(true));
+    // 红石火把：木杆 + 顶端发光头（icon 与 cross 渲染共用）
+    drawTile(T.RS_TORCH, function (x, y, r) {
+      if (x >= 6 && x <= 9 && y >= 1 && y <= 5) {
+        var core = (x >= 7 && x <= 8 && y >= 2 && y <= 4);
+        return core ? [255, 120, 60] : [216, 54, 26];
+      }
+      if (x >= 7 && x <= 8 && y >= 5) {
+        var wv = n(r, 0, 12);
+        return [104 + wv, 82 + wv, 50 + wv];
+      }
+      return null;
+    });
+    // 拉杆基座：圆石窝 + 斜杆
+    drawTile(T.RS_LEVER_BASE, function (x, y, r) {
+      var dx = x - 8, dy = y - 11;
+      if (dx * dx + dy * dy < 14) return [70 + r() * 12, 68 + r() * 12, 66 + r() * 12];
+      if (Math.abs((x - 3) - (y - 15) * 0.82) < 1.4 && y > 3 && y < 13)
+        return Math.abs(x - 7.4) < 0.9 ? [188, 108, 48] : [142, 80, 36];
+      var cv = n(r, 0, 26);
+      return [126 + cv, 124 + cv, 122 + cv];
+    });
+    // 按钮 / 压力板顶面（石头/木头）
+    drawTile(T.RS_BTN, function (x, y, r) {
+      if (x < 3 || x > 12 || y < 3 || y > 12) {
+        var bv0 = n(r, 0, 20); return [100 + bv0, 98 + bv0, 100 + bv0];
+      }
+      var bv = n(r, 0, 18);
+      var rim = (x === 3 || x === 12 || y === 3 || y === 12);
+      return rim ? [112 + bv, 110 + bv, 114 + bv] : [138 + bv, 136 + bv, 140 + bv];
+    });
+    drawTile(T.RS_LAMP_OFF, function (x, y, r) {
+      var cx2 = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5));
+      if (cx2 > 6) { var rv = n(r, 0, 14); return [92 + rv, 62 + rv, 38 + rv]; }
+      var gv = n(r, 0, 10);
+      return [58 + gv, 38 + gv, 26 + gv];
+    });
+    drawTile(T.RS_LAMP_ON, function (x, y, r) {
+      var cxx = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5));
+      if (cxx > 6) { var rv2 = n(r, 0, 14); return [132 + rv2, 86 + rv2, 44 + rv2]; }
+      var lv = n(r, 0, 24);
+      return [252 - lv * 0.2, 208 + lv * 0.6, 116 + lv * 0.9];
+    });
+    drawTile(T.RS_REPEATER, function (x, y, r) {
+      if (y < 3 || y > 12) { var sv0 = n(r, 0, 18); return [122 + sv0, 120 + sv0, 124 + sv0]; }
+      // 两枚火把点 + 滑轨
+      var tick = (x >= 3 && x <= 4) || (x >= 11 && x <= 12);
+      if (tick && y >= 5 && y <= 8) return [222, 70, 30];
+      if (x >= 6 && x <= 9) { var mv = n(r, 0, 10); return [86 + mv, 84 + mv, 88 + mv]; }
+      var sv = n(r, 0, 14);
+      return [150 + sv, 148 + sv, 152 + sv];
+    });
+    drawTile(T.RS_ORE, oreTile([228, 60, 46]));
+    // 红石粉（物品图标）：小堆粉末
+    drawTile(T.RS_DUST, function (x, y, r) {
+      var dx = x - 8, dy = y - 10;
+      var d2 = dx * dx * 0.5 + dy * dy;
+      if (d2 < 34 && y > 4) {
+        var hv = n(r, 0, 30);
+        return ((x + y) % 2 ? [214 + hv, 52 + hv * 0.4, 28] : [176 + hv, 38 + hv * 0.3, 20]);
+      }
+      return null;
+    });
+
+    // ---- v8：农耕瓦片 ----
+    drawTile(T.FARM_TOP, function (x, y, r) {
+      if ((x % 4 === 0) && r() < 0.85) { var dv0 = n(r, 0, 12); return [64 + dv0, 48 + dv0, 30 + dv0]; }
+      var dv1 = n(r, 0, 20); return [128 + dv1, 92 + dv1, 60 + dv1];
+    });
+    drawTile(T.FARM_WET_TOP, function (x, y, r) {
+      if ((x % 4 === 0) && r() < 0.85) { var wv0 = n(r, 0, 10); return [42 + wv0, 32 + wv0, 22 + wv0]; }
+      var wv1 = n(r, 0, 18); return [88 + wv1, 62 + wv1, 38 + wv1];
+    });
+    drawTile(T.TUFT, function (x, y, r) {
+      // 竖直细草叶（cross 渲染透明底）
+      var blade = (x % 3 === (y < 8 ? 0 : 1));
+      if (!blade || y > 13) return null;
+      var gv = n(r, 0, 26);
+      return [96 + gv, 158 + gv, 58 + gv];
+    });
+    function cropPaint(stage, kindCol, withGrain) {
+      return function (x, y, r) {
+        var h = 4 + stage * 3;         // 生长越高越密
+        if (y > 15 - h && x % 2 === (withGrain ? (y % 4 < 2 ? 0 : 1) : 0)) {
+          var cv = n(r, 0, 18);
+          var matureTip = withGrain && stage >= 3 && y <= 15 - h + 4;
+          return matureTip ? kindCol :
+            [104 + cv, 150 + cv, 56 + cv];
+        }
+        return null;
+      };
+    }
+    drawTile(T.WHEAT0, cropPaint(0, null, false));
+    drawTile(T.WHEAT1, cropPaint(1, null, false));
+    drawTile(T.WHEAT2, cropPaint(2, null, false));
+    drawTile(T.WHEAT_MATURE, function (x, y, r) {
+      if (x % 2 === 0 && y > 5) {
+        return y < 9 ? [222, 178, 84] : [176 + n(r, 0, 16), 148, 70];
+      }
+      return null;
+    });
+    drawTile(T.CARROT0, cropPaint(0, null, false));
+    drawTile(T.CARROT2, cropPaint(2, null, false));
+    drawTile(T.CARROT_MATURE, function (x, y, r) {
+      if (x % 2 === 0 && y > 6) return (y < 9) ? [96, 150, 66] : [212 + n(r, 0, 14), 120, 40];
+      return null;
+    });
+    drawTile(T.POTATO0, cropPaint(0, null, false));
+    drawTile(T.POTATO2, cropPaint(2, null, false));
+    drawTile(T.POTATO_MATURE, function (x, y, r) {
+      if (x % 2 === 0 && y > 7) return y < 9 ? [110, 160, 80] : [130 + n(r, 0, 14), 168, 78];
+      return null;
+    });
+    // 食物图标（小物件 painter）
+    drawTile(T.I_WHEAT, function (x, y, r) {
+      if (Math.abs((x - 8) * 0.35 - (y - 3)) < 1.6 && y > 2)
+        return y < 6 ? [232, 196, 100] : [204, 164, 76];
+      return null;
+    });
+    drawTile(T.I_SEEDS, function (x, y, r) {
+      var pts = [[5, 8], [9, 6], [11, 11], [7, 12], [10, 9], [6, 10]];
+      for (var i = 0; i < pts.length; i++) {
+        if (x === pts[i][0] && y === pts[i][1]) return [150 + r() * 24, 140 + r() * 20, 70];
+      }
+      return null;
+    });
+    drawTile(T.I_BREAD, function (x, y, r) {
+      var dx = x - 8, dy = (y - 9) * 1.7;
+      var d2 = dx * dx + dy * dy;
+      if (d2 < 40) {
+        var crust = d2 > 28;
+        var bv = n(r, 0, 14);
+        return crust ? [166 + bv, 112 + bv, 54 + bv] : [214 + bv, 168 + bv, 98 + bv];
+      }
+      return null;
+    });
+    drawTile(T.I_APPLE, function (x, y, r) {
+      var dx = x - 8, dy = y - 9;
+      if (dx * dx + dy * dy < 34) return [(206 + n(r, 0, 16)) | 0, 44, 36];
+      if (dx * dx + (dy + 1) * (dy + 1) < 34 && x >= 8 && x <= 9 && y >= 3) return [104, 72, 40];
+      if (x >= 9 && x <= 11 && y === 4) return [96, 148, 60];
+      return null;
+    });
+    drawTile(T.I_GAPPLE, function (x, y, r) {
+      var dx = x - 8, dy = y - 9;
+      if (dx * dx + dy * dy < 34) {
+        var shine = ((x + y) % 4 === 0);
+        return shine ? [255, 238, 170] : [236, 182, 62];
+      }
+      if (dx * dx + (dy + 1) * (dy + 1) < 34 && x >= 8 && x <= 9 && y >= 3) return [104, 72, 40];
+      return null;
+    });
+    drawTile(T.I_CARROT, function (x, y, r) {
+      var vx = (x - 8), vy = (y - 8) * 0.55;
+      var along = Math.abs(vx - vy * 0.6) < 2.2 && y > 5 && y < 14;
+      if (along) return [224 + n(r, 0, 12), 132, 44];
+      if (y >= 3 && y <= 5 && ((x >= 6 && x <= 9))) return [90, 152, 62];
+      return null;
+    });
+    drawTile(T.I_POTATO, function (x, y, r) {
+      var dx = x - 8, dy = y - 9;
+      if (dx * dx * 0.8 + dy * dy < 26) {
+        var pv = n(r, 0, 14);
+        return ((x * 7 + y * 3) % 11 === 0) ? [122, 92, 52] : [198 + pv, 172 + pv, 118 + pv];
+      }
+      return null;
+    });
+    drawTile(T.I_POTATO_BAKED, function (x, y, r) {
+      var dx = x - 8, dy = y - 9;
+      if (dx * dx * 0.8 + dy * dy < 26) {
+        var pv2 = n(r, 0, 14);
+        return ((x * 7 + y * 3) % 9 === 0) ? [156, 96, 44] : [222 + pv2, 162 + pv2, 96 + pv2];
+      }
+      return null;
+    });
+    // 锄头图标：柄斜置 + 横刃
+    function hoePaint(headCol) {
+      return function (x, y, r) {
+        var onHandle = Math.abs(x - (y - 2)) < 1.3 && y > 3;
+        if (onHandle) return [138 + n(r, 0, 10), 108, 62];
+        var headX = x >= 8 && x <= 14, headY = y >= 3 && y <= 4;
+        if (headX && headY && !(x > 12 && y > 3)) return headCol;
+        return null;
+      };
+    }
+    drawTile(T.HOE_WOOD, hoePaint([166, 134, 82]));
+    drawTile(T.HOE_STONE, hoePaint([142, 142, 146]));
+    drawTile(T.HOE_IRON, hoePaint([216, 216, 220]));
+
+    // ---- v8：染色体系瓦片（调色板循环批量绘制）----
+    // 花×8：茎 + 双瓣花头（色调随 palette）
+    var FLOWER_HUES = [5, 7, 12, 0, 15, 6, 11, 13];
+    for (var fpi = 0; fpi < 8; fpi++) {
+      (function (fi) {
+        var pal = DYE_PALETTE[FLOWER_HUES[fi]];
+        var c = pal[3];
+        drawTile(T.FLOWER0 + fi, function (x, y, r) {
+          if (x === 8 && y >= 8 && y <= 14) return [86 + n(r, 0, 10), 140, 54];
+          if (x >= 6 && x <= 10 && y <= 9 && ((x - 8) * (x - 8) + (y - 5) * (y - 5)) < 13)
+            return fi === 1 || fi === 4 ? [c[0] + n(r, 0, 20), c[1], Math.min(255, c[2] + n(r, 0, 20))]
+              : [Math.min(255, c[0] + n(r, 0, 24)), c[1] + n(r, 0, 10), c[2] + n(r, 0, 10)];
+          return null;
+        });
+      })(fpi);
+    }
+    // 羊毛×15：微噪纤维
+    function woolC(pal) {
+      var base = pal[3];
+      return function (x, y, r) {
+        var v = n(r, 0, 14);
+        var tuft = ((x * 5 + y * 3) % 7 === 0);
+        return [base[0] * 0.92 + v + (tuft ? 10 : 0), base[1] * 0.92 + v + (tuft ? 8 : 0), base[2] * 0.92 + v];
+      };
+    }
+    for (var wti = 1; wti < DYE_PALETTE.length; wti++) drawTile(T.WOOL_C0 + wti - 1, woolC(DYE_PALETTE[wti]));
+    // 陶瓦×15：细砂纹
+    function terraC(pal) {
+      var base = pal[4];
+      return function (x, y, r) {
+        var v = n(r, 0, 12);
+        var grit = r() < 0.06 ? -10 : 0;
+        return [base[0] + v + grit, base[1] + v + grit, base[2] + v + grit];
+      };
+    }
+    for (var tti = 1; tti < DYE_PALETTE.length; tti++) drawTile(T.TERRA_C0 + tti - 1, terraC(DYE_PALETTE[tti]));
+    // 彩玻璃×13：玻璃质感（高透）
+    function glassC(pal) {
+      var tint = pal[3];
+      return function (x, y, r) {
+        if (x === 0 || y === 0 || x === 15 || y === 15) return [tint[0], tint[1], tint[2], 255];
+        if (((x - y) % 8 + 8) % 8 < 2) return [255, 255, 255, 110];
+        return [tint[0], tint[1], tint[2], 36];
+      };
+    }
+    for (var gti = 1; gti < DYE_PALETTE.length; gti++) {
+      if ({0:1,3:1,4:1,9:1,13:1,14:1,5:1,10:1,7:1}[gti]) continue;
+      drawTile(T.GLASS_C0 + gti - 1, glassC(DYE_PALETTE[gti]));
+    }
+    // 染料袋图标 ×16
+    for (var ddi = 0; ddi < DYE_PALETTE.length; ddi++) {
+      (function (i) {
+        var c = DYE_PALETTE[i][2];
+        drawTile(T.I_DYE0 + i, function (x, y, r) {
+          var dx = x - 8, dy = y - 9;
+          if (dx * dx * 0.85 + dy * dy < 30 && y > 5) return [c[0] + n(r, 0, 18), c[1] + n(r, 0, 18), c[2] + n(r, 0, 18)];
+          if (y >= 4 && y <= 6 && x >= 6 && x <= 10) return [196, 186, 160];  // 袋口
+          return null;
+        });
+      })(ddi);
+    }
+
     ctx.putImageData(img, 0, 0);
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
@@ -1628,7 +2349,7 @@ Voxel.Blocks = (function () {
     scannableResourceSet[SCANNABLE_RESOURCES[sri]] = true;
 
   // 发光方块查找表（火把 14、荧光菌伞 13…）：光照热路径用数组下标替代逐个 defs 查询。
-  var LIGHT = new Uint8Array(256);
+  var LIGHT = new Uint8Array(1024);
   for (var li = 0; li < defs.length; li++) {
     var ld = defs[li];
     if (ld && typeof ld.light === 'number' && ld.light > 0 && ld.light <= 15) LIGHT[li] = ld.light;
@@ -1640,11 +2361,13 @@ Voxel.Blocks = (function () {
   return {
     defs: defs,
     T: T,
+    ATLAS_SIZE: ATLAS_SIZE,
+    TILES_PER_ROW: TILES_PER_ROW,
     MAX_STACK: 64,
     ITEM_BASE: 100,
     LIGHT: LIGHT,
     lightOf: function (id) {
-      return (id >= 0 && id < 256) ? LIGHT[id] : 0;
+      return (id >= 0 && id < 1024) ? LIGHT[id] : 0;
     },
     SCANNABLE_RESOURCES: SCANNABLE_RESOURCES.slice(),
     isScannableResource: function (id) {
@@ -1663,6 +2386,75 @@ Voxel.Blocks = (function () {
       if (dx > 0) return 69;
       if (dz < 0) return 70;
       return 71;
+    },
+    // ---- 门与活板门（v8）----
+    DOOR_BASE: DOOR_BASE,
+    TRAPDOOR_BASE: TRAPDOOR_BASE,
+    DOOR_KIND_COUNT: DOOR_KINDS.length,
+    isDoor: function (id) {
+      return id >= DOOR_BASE && id < DOOR_BASE + DOOR_KINDS.length * 8 && !!defs[id];
+    },
+    isTrapdoor: function (id) {
+      return id >= TRAPDOOR_BASE && id <= TRAPDOOR_BASE + 2;
+    },
+    // 某木种的「下半·关闭·axis」基准 ID（物品/掉落形态）
+    doorItemId: function (kindIdx) { return DOOR_BASE + kindIdx * 8; },
+    doorKindOf: function (id) {
+      if (!this.isDoor(id)) return -1;
+      return (id - DOOR_BASE >> 3);
+    },
+    // 配对的另一半：同木种/轴/开合，上下互换；无配对返回 0
+    doorPartnerId: function (id) {
+      var d = defs[id];
+      if (!d || !d.door) return 0;
+      var st = (id - DOOR_BASE) & 7;
+      var other = d.door.upper ? (st & ~4) : (st | 4);
+      return DOOR_BASE + ((id - DOOR_BASE) & ~7) + other;
+    },
+    // 同一半块的开/关翻转 ID
+    doorToggleId: function (id) {
+      var d = defs[id];
+      if (!d || !d.door) return 0;
+      return d.door.open ? (id - 1) : (id + 1);   // bit0=open
+    },
+    trapdoorToggleId: function (id) {
+      var d = defs[id];
+      if (!d || !d.trapdoor) return 0;
+      if (!d.trapdoor.open) return TRAPDOOR_BASE + 1; // 关→开默认贴 X 边
+      var st = id - TRAPDOOR_BASE;
+      return st === 1 ? TRAPDOOR_BASE + 2 : TRAPDOOR_BASE + 1; // 开态 X↔Z 往复
+    },
+    // ---- 红石基础电路（v8）----
+    RS: RS,
+    isRedstone: function (id) {
+      var d = id > 0 && defs[id];
+      return !!(d && d.rs);
+    },
+    rsKindOf: function (id) {
+      var d = id > 0 && defs[id];
+      return (d && d.rs) || null;
+    },
+    rsPowered: function (id) {
+      var d = id > 0 && defs[id];
+      return !!(d && d.powered);
+    },
+    // 组件通/断两个形态的 ID（导线/火把/拉杆/按钮/压力板/灯/中继器）
+    rsSwapId: function (id) {
+      if (id >= RS.WIRE_OFF && id <= RS.REP_ON && ((id - RS.WIRE_OFF) & 1) === 0) return id + 1;
+      if (id >= RS.WIRE_ON && id <= RS.REP_ON) return id - 1;
+      return 0;
+    },
+    // ---- 染色体系（v8）----
+    DYE_PALETTE: DYE_PALETTE,
+    dyeIndexOf: function (id) { return (typeof id === 'number' && id >= 260 && id <= 275 && defs[id]) ? defs[id].dyeIndex : -1; },
+    // 色号 → 对应变体方块（白色走原版本体；玻璃无对应色返回 0）
+    woolOfDye: function (i) { return i === 0 ? 16 : (i > 0 && i < 16 ? 280 + i : 0); },
+    terraOfDye: function (i) { return i === 0 ? 27 : (i > 0 && i < 16 ? 300 + i : 0); },
+    glassOfDye: function (i) {
+      if (i === 5) return 88;
+      if (i === 10) return 89;
+      if (i === 7) return 90;
+      return ({1:321,2:322,6:326,8:328,11:331,12:332,15:335})[i] || 0;
     },
     name: function (id) { return defs[id] ? defs[id].name : '?'; },
     tileForFace: function (id, face) {

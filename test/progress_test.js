@@ -229,18 +229,31 @@ check('图鉴生物档案 7 种且 type 与游戏生物一致', (function () {
 check('图鉴物品条目覆盖注册表并排除无效项', (function () {
   var defs = sandbox.Voxel.Blocks.defs;
   var ORE = { 8: 1, 9: 1, 39: 1, 40: 1, 41: 1, 42: 1, 43: 1, 44: 1,
-    115: 1, 116: 1, 117: 1, 118: 1, 119: 1, 120: 1 };
+    115: 1, 116: 1, 117: 1, 118: 1, 119: 1, 120: 1, 200: 1 };
+  var FUNC = { 15: 1, 17: 1, 19: 1, 37: 1, 38: 1, 67: 1, 68: 1, 69: 1, 70: 1, 71: 1,
+    141: 1, 149: 1, 157: 1, 165: 1, 173: 1, 181: 1, 189: 1,
+    197: 1, 198: 1, 199: 1, 221: 1, 222: 1,
+    201: 1, 202: 1, 203: 1, 204: 1, 205: 1, 206: 1, 207: 1, 208: 1,
+    209: 1, 210: 1, 211: 1, 212: 1, 213: 1, 214: 1 };
+  var MAT = [100, 107, 108, 121, 122, 123, 124, 125, 132, 133, 135,
+    220, 239, 240];
+  var LOGS = [4, 20, 22, 33, 35, 46, 52, 57];
+  var LEAVES = [5, 21, 23, 34, 36, 58, 59];
+  var PLANTS = [26, 47, 55, 56, 54, 223];
   var manualCount = 0;
   for (var i = 1; i < defs.length; i++) {
     var d = defs[i];
     if (!d) continue;
-    // 与 Codex.classify 同口径：仅 pick/sword 计入工具；bow 等其它 item 属"无归属物品"
-    if ((d.tool === 'pick' || d.tool === 'sword') || d.food || ORE[i] ||
-      [100, 107, 108, 121, 122].indexOf(i) >= 0 ||
-      [15, 17, 19, 37, 38].indexOf(i) >= 0 ||
-      [4, 20, 22, 33, 35, 46, 52, 57].indexOf(i) >= 0 ||
-      [5, 21, 23, 34, 36, 58, 59].indexOf(i) >= 0 ||
-      [26, 47, 55, 56, 54].indexOf(i) >= 0 || d.solid || i === 7) manualCount++;
+    // 与 Codex.classify 同口径（v8：锄头计工具、染料计材料、作物/花计植物、
+    // 染色变体与建造方块计入自然方块组）
+    var isMat = MAT.indexOf(i) >= 0 || (i >= 260 && i <= 275);
+    var isPlant = LEAVES.indexOf(i) >= 0 || PLANTS.indexOf(i) >= 0 ||
+      (i >= 224 && i <= 238) || (i >= 251 && i <= 258);
+    var isBuild = (i >= 280 && i <= 295) || (i >= 300 && i <= 315) ||
+      (i >= 320 && i <= 335) || (i >= 340 && i <= 363);
+    if ((d.tool === 'pick' || d.tool === 'sword' || d.hoeTool) || d.food || ORE[i] ||
+      isMat || FUNC[i] || LOGS.indexOf(i) >= 0 || isPlant ||
+      isBuild || d.solid || i === 7) manualCount++;
   }
   return Codex.countItems() === manualCount && manualCount > 60;
 })());

@@ -202,9 +202,11 @@ Voxel.MeshBuilder = (function () {
   }
 
   function tileUV(tile, ux, uy) {
-    var c = tile % 16, r = (tile / 16) | 0;
-    tmpUV[0] = (c * 16 + 0.5 + ux * 15) / 256;
-    tmpUV[1] = 1 - (r * 16 + 0.5 + (1 - uy) * 15) / 256;
+    var tpr = Voxel.Blocks.TILES_PER_ROW || 16;
+    var asz = Voxel.Blocks.ATLAS_SIZE || 256;
+    var c = tile % tpr, r = (tile / tpr) | 0;
+    tmpUV[0] = (c * 16 + 0.5 + ux * 15) / asz;
+    tmpUV[1] = 1 - (r * 16 + 0.5 + (1 - uy) * 15) / asz;
   }
 
   // 单顶点平滑光照：对面朝格 N 及其两个侧邻、角邻共 4 格采样（不透明格不参与平均，
@@ -242,7 +244,7 @@ Voxel.MeshBuilder = (function () {
     var w = CS + 2, h = H + 2;
     if (bPad && bPad.length === w * h * w) return;
     PW = w; PH = h;
-    bPad = new Uint8Array(PW * PH * PW);
+    bPad = new Uint16Array(PW * PH * PW);
     sPad = new Uint8Array(PW * PH * PW);
     pPad = new Uint8Array(PW * PH * PW);
   }
@@ -369,10 +371,99 @@ Voxel.MeshBuilder = (function () {
     }
   }
 
+  // 子盒发射器（门/活板门/台阶/楼梯等薄板形状）：box=[x0,y0,z0,x1,y1,z1] 格内局部坐标。
+  // 面剔除：面恰好贴格边界且邻格不透明 → 跳过；其余 6 面照常发射（含 AO/平滑光照）。
+  function emitBoxInner(t, def, id, x, y, z, b) {
+    var bx0 = b[0], by0 = b[1], bz0 = b[2], bx1 = b[3], by1 = b[4], bz1 = b[5];
+    for (var f = 0; f < 6; f++) {
+      var F = FACES[f];
+      var nx = x + F.n[0], ny = y + F.n[1], nz = z + F.n[2];
+      // 面位置：沿法线轴的盒边界
+      var ext;
+      if (F.n[0]) ext = F.n[0] > 0 ? bx1 : bx0;
+      else if (F.n[1]) ext = F.n[1] > 0 ? by1 : by0;
+      else ext = F.n[2] > 0 ? bz1 : bz0;
+      var bound = (F.n[0] || F.n[1] || F.n[2]) > 0 ? 1 : 0;
+      if (Math.abs(ext - bound) < 1e-6 && B.isOpaque(G(nx, ny, nz))) continue;
+
+      var tile = B.tileForFace(id, f);
+      var ls = GSky(nx, ny, nz) / 15;
+      var lb = GBlk(nx, ny, nz) / 15;
+      var base = t.pos.length / 3;
+      var aoArr = [0, 0, 0, 0];
+      for (var k = 0; k < 4; k++) {
+        var c = F.c[k];
+        t.pos.push(
+          x + (c[0] ? bx1 : bx0),
+          y + (c[1] ? by1 : by0),
+          z + (c[2] ? bz1 : bz0));
+        t.nrm.push(F.n[0], F.n[1], F.n[2]);
+
+        var uvx = UVK[k][0], uvy = UVK[k][1];
+        tileUV(tile, uvx, uvy);
+        t.uv.push(tmpUV[0], tmpUV[1]);
+
+        var au = (uvx ? F.u[0] : -F.u[0]);
+        var av = (uvx ? F.u[1] : -F.u[1]);
+        var aw = (uvx ? F.u[2] : -F.u[2]);
+        var bu = (uvy ? F.v[0] : -F.v[0]);
+        var bv = (uvy ? F.v[1] : -F.v[1]);
+        var bw = (uvy ? F.v[2] : -F.v[2]);
+        var vl = vertexLight(x, y, z, F, au, av, aw, bu, bv, bw);
+        aoArr[k] = vl.ao;
+        var shade = F.b * AO[vl.ao];
+        t.col.push(shade, shade, shade);
+        t.lgt.push(vl.ls, vl.lb);
+      }
+      if (aoArr[0] + aoArr[2] > aoArr[1] + aoArr[3]) {
+        t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      } else {
+        t.idx.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+      }
+    }
+  }
+
+  // 连接型形状（栅栏/玻璃板）：中心柱 + 按邻居延伸的横臂/面板。
+  // 连接判定：同类型相邻（fence↔fence / pane↔pane）或不透明实体。
+  function connectorConn(kind) {
+    return function (nbId) {
+      var nd = B.defs[nbId];
+      if (!nd) return false;
+      if (B.isOpaque(nbId)) return true;
+      return !!nd.connector && nd.connector.kind === kind;
+    };
+  }
+  function emitConnector(t, def, id, x, y, z) {
+    var conn = connectorConn(def.connector.kind);
+    var isFence = def.connector.kind === 'fence';
+    var hw = isFence ? 0.125 : 0.03125;         // 半厚度：栅栏柱粗，玻璃板薄
+    var c0 = 0.5 - hw, c1 = 0.5 + hw;
+    var conns = [
+      conn(G(x + 1, y, z)), conn(G(x - 1, y, z)),
+      conn(G(x, y, z + 1)), conn(G(x, y, z - 1))
+    ];
+    var anyConn = conns[0] || conns[1] || conns[2] || conns[3];
+    // 中心柱
+    emitBoxInner(t, def, id, x, y, z,
+      isFence ? [c0, 0, c0, c1, 1, c1] : [c0, 0, c0, c1, 1, c1]);
+    // X 向臂
+    var armY0 = isFence ? 0.4375 : 0, armY1 = isFence ? 0.8125 : 1;
+    if (conns[0] || (!isFence && !anyConn)) {
+      emitBoxInner(t, def, id, x, y, z, [c1, armY0, c0, 1, armY1, c1]);
+    }
+    if (conns[1]) emitBoxInner(t, def, id, x, y, z, [0, armY0, c0, c0, armY1, c1]);
+    // Z 向臂
+    if (conns[2] || (!isFence && !anyConn)) {
+      emitBoxInner(t, def, id, x, y, z, [c0, armY0, c1, c1, armY1, 1]);
+    }
+    if (conns[3]) emitBoxInner(t, def, id, x, y, z, [c0, armY0, 0, c1, armY1, c0]);
+  }
+
   // 火把等十字面片：两条对角竖 quad × 正反两面
-  function emitCross(t, tile, x, y, z) {
+  function emitCross(t, tile, x, y, z, crossH) {
     var ls = GSky(x, y, z) / 15, lb = 1; // 自身全亮
-    var h = 0.7, m = 0.15, M = 0.85;
+    var h = (typeof crossH === 'number') ? crossH : 0.7;
+    var m = 0.15, M = 0.85;
     var quads = [
       [[m, m], [M, M]],
       [[M, m], [m, M]]
@@ -448,7 +539,22 @@ Voxel.MeshBuilder = (function () {
 
           // 火把等十字面片：不参与面剔除
           if (def.cross) {
-            emitCross(target, def.tiles[1], x, y, z);
+            emitCross(target, def.tiles[1], x, y, z, def.crossHeight);
+            continue;
+          }
+
+          // 薄板/子盒形状（门/活板门/台阶/楼梯等 v8 扩展）：跳过整块面剔除循环
+          // （须在 isBed 判定之前——活板门关闭态借 half 标记半高物理）
+          if (def.box || def.boxes || def.connector) {
+            if (def.connector) {
+              emitConnector(target, def, id, x, y, z);
+            } else if (def.box) {
+              emitBoxInner(target, def, id, x, y, z, def.box);
+            } else {
+              var bi2;
+              for (bi2 = 0; bi2 < def.boxes.length; bi2++)
+                emitBoxInner(target, def, id, x, y, z, def.boxes[bi2]);
+            }
             continue;
           }
 

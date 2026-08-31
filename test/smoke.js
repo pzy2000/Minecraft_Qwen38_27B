@@ -17,6 +17,7 @@ var sandbox = {
   Math: Math,
   BigInt: BigInt,
   Uint8Array: Uint8Array,
+  Uint16Array: Uint16Array,
   Uint32Array: Uint32Array,
   Int16Array: Int16Array,
   Float32Array: Float32Array,
@@ -1742,7 +1743,7 @@ check('石头不是燃料', !FS.isFuel(3));
 console.log('合成配方测试');
 var Craft = V.Crafting;
 function g9() { return [0, 0, 0, 0, 0, 0, 0, 0, 0]; }
-check('配方数量=27', Craft.recipes.length === 27);
+check('配方数量=103', Craft.recipes.length === 103);
 
 // 猫毛毡：无序配方 2×猫毛(121) → 猫毛毡方块(45)
 g = g9(); g[0] = 121; g[4] = 121;

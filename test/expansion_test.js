@@ -233,6 +233,57 @@ check('isLoadable 不受 gear 字段影响',
 check('缺 gear 字段的旧档对象可解析（loadableRaw 语义）',
   Save.isLoadable(JSON.parse(JSON.stringify({ v: 6, seed: 'abc', galaxy: { rootSeed: '42' } }))));
 
+// ---------- 7. 门与活板门（v8）----------
+console.log('门与活板门');
+(() => {
+  const B = V.Blocks;
+  const oakBase = B.DOOR_BASE;                       // 141
+  const ironBase = B.doorItemId(6);                  // 189
+  const trapBase = B.TRAPDOOR_BASE;                  // 197
+  // 编码往返：上下半配对 & 开合翻转自反
+  const lowerClosed = oakBase + 0, upperClosed = B.doorPartnerId(lowerClosed);
+  check('门编码：下半关闭 → 上半关闭 +4', upperClosed === lowerClosed + 4);
+  check('门编码：partner 自反', B.doorPartnerId(upperClosed) === lowerClosed);
+  check('门编码：toggle 只翻 bit0 且自反',
+    B.doorToggleId(lowerClosed) === lowerClosed + 1 &&
+    B.doorToggleId(B.doorToggleId(lowerClosed)) === lowerClosed);
+  check('门编码：开放态固体翻转（关=实体/开=可穿）',
+    B.defs[lowerClosed].solid === true && B.defs[lowerClosed + 1].solid === false &&
+    B.defs[upperClosed + 1].solid === false);
+  check('门是薄板形状且掉落归一到下半关闭形态',
+    Array.isArray(B.defs[lowerClosed].box) && B.defs[lowerClosed].box.length === 6 &&
+    B.defs[upperClosed + 2].drop === oakBase && B.dropOf(ironBase + 7) === ironBase);
+  check('铁门编号在六木门之后', ironBase === oakBase + 48);
+  check('isDoor 边界不越界到活板门',
+    !B.isDoor(oakBase - 1) && B.isDoor(oakBase + 55) && !B.isDoor(trapBase) &&
+    B.isTrapdoor(trapBase) && B.isTrapdoor(trapBase + 2) && !B.isTrapdoor(trapBase + 3));
+  check('活板门关闭=半高实体、开启=非实体，开合往复',
+    B.defs[trapBase].half === true && B.defs[trapBase].solid === true &&
+    B.defs[trapBase + 1].solid === false &&
+    B.trapdoorToggleId(B.trapdoorToggleId(trapBase + 1)) === trapBase + 1);
+  // 合成：木门 2×3 木板+底行原木；2×2 网格放不下
+  const g9 = () => [0,0,0,0,0,0,0,0,0];
+  let g = g9(); g[0]=10; g[1]=10; g[3]=10; g[4]=10; g[6]=4; g[7]=4;
+  const mOak = Crafting.matchIn(g, 3);
+  check('橡木门配方（顶两行木板+底行橡木）→×3',
+    mOak && mOak.result === oakBase && mOak.count === 3);
+  let gBad = g9(); gBad[0]=10; gBad[1]=10; gBad[3]=10; gBad[4]=10;
+  check('底行缺少对应原木 → 只匹配工作台，不出门',
+    Crafting.matchIn(gBad, 3).result === 15);
+  let gSpruce = g9(); gSpruce[0]=10; gSpruce[1]=10; gSpruce[3]=10; gSpruce[4]=10; gSpruce[6]=20; gSpruce[7]=20;
+  check('云杉原木行 → 云杉门而非橡木门',
+    Crafting.matchIn(gSpruce, 3).result === B.doorItemId(1));
+  let gIron = g9(); for (let r2 = 0; r2 < 3; r2++) { gIron[r2*3]=9; gIron[r2*3+1]=9; }
+  check('铁门配方 2×3 铁锭 ×3', Crafting.matchIn(gIron, 3).result === ironBase &&
+    Crafting.matchIn(gIron, 3).count === 3);
+  const g4 = [10,10,10,10];
+  check('2×2 网格匹配不到任何门配方',
+    (() => { const m = Crafting.matchIn(g4, 2); return !m || m.result < oakBase || m.result > trapBase + 2; })());
+  let gt = g9(); gt[0]=10;gt[1]=10;gt[2]=10;gt[3]=10;gt[4]=10;gt[5]=10;
+  const mt = Crafting.matchIn(gt, 3);
+  check('活板门配方 3×2 木板 ×2', mt && mt.result === trapBase && mt.count === 2);
+})();
+
 if (failures) {
   console.error('\nEXPANSION-FAIL ' + failures);
   process.exit(1);

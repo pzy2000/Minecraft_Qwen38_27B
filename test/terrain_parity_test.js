@@ -16,7 +16,7 @@ function load(rel) {
 
 var sandbox = {
   console: console, Math: Math, BigInt: BigInt,
-  Uint8Array: Uint8Array, Uint32Array: Uint32Array,
+  Uint8Array: Uint8Array, Uint16Array: Uint16Array, Uint32Array: Uint32Array,
   Int16Array: Int16Array, Float32Array: Float32Array
 };
 sandbox.window = sandbox;

@@ -50,7 +50,7 @@ Voxel.GenCore = (function () {
     function newShell(cx, cz) {
       return {
         cx: cx, cz: cz,
-        blocks: new Uint8Array(CS * H * CS),
+        blocks: new Uint16Array(CS * H * CS),
         heights: new Int16Array(CS * CS),
         biomes: new Uint8Array(CS * CS),
         baseReady: false, decorated: false
@@ -581,6 +581,13 @@ Voxel.GenCore = (function () {
               var rm = noise.hash2(x * 11 + 71, z * 13 + 33);
               if (rm < mg.chance && Voxel.Structures.buildMega(mg, megaPen, x, h, z, rm)) continue;
             }
+          }
+          // v8：草丛/野花散布（仅 v2 地形行星，与巨植/遗迹同契约——旧 v1 外围逐位不变）
+          if (terrainVersion === 2 && surface === 1) {
+            if (noise.hash2(x * 23 + 17, z * 29 + 3) < 0.05)
+              decorSet(s, x, h + 1, z, 223, true);
+            else if (noise.hash2(x * 37 + 5, z * 41 + 9) < 0.012)
+              decorSet(s, x, h + 1, z, 251 + ((noise.hash2(x * 13 + 91, z * 17 + 61) * 8) | 0), true);
           }
           if (bd.boulders && noise.hash2(x * 7 + 61, z * 7 + 83) < 0.0025) {
             boulder(s, x, h, z); continue;
