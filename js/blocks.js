@@ -2396,13 +2396,12 @@ Voxel.Blocks = (function () {
 
     atlasTexture = new THREE.CanvasTexture(atlasCanvas);
     atlasTexture.magFilter = THREE.NearestFilter;
-    // 近处保持 Nearest 的像素锐度；mipmap 链在斜视/远距时平滑掉摩尔纹闪烁。
-    // 图集是 16px tile × UV 半像素内缩，前几级 mip 不越界；更深的 mip 有轻微
-    // 跨 tile 混色，但相比高光噪声可以忽略。anisotropy=8 由 three 在首次上传
-    // 时钳制到设备 getMaxAnisotropy()，低端设备自动降级。
-    atlasTexture.minFilter = THREE.NearestMipmapLinearFilter;
-    atlasTexture.generateMipmaps = true;
-    atlasTexture.anisotropy = 8;
+    // greedy 合面用 fract(vLocal) 平铺。mip + 各向异性都按隐式导数选足迹，
+    // fract 在整数缝跳变会把足迹拉到整张图集，每个方块接缝就描出一圈黑框。
+    // 体素图集用纯 Nearest、不开 mip / AF。远景摩尔纹好过满图网格描边。
+    atlasTexture.minFilter = THREE.NearestFilter;
+    atlasTexture.generateMipmaps = false;
+    atlasTexture.anisotropy = 1;
   }
 
   if (typeof document !== 'undefined' && typeof THREE !== 'undefined') buildAtlas();

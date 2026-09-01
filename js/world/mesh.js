@@ -202,9 +202,17 @@ Voxel.MeshBuilder = (function () {
       'void main(){',
       // 平铺采样：fract 取 tile 内局部坐标后走与 legacy 完全相同的
       // 「半纹素内缩 15px 窗口」映射（uUvScale = 15/图集尺寸）。
-      // mipmap 导数在合并接缝处的轻微扰动是本方案已知代价，像素风 + 高各向异性下不可感知。
+      // 导数必须取自连续的 vLocal：fract 在整数缝处跳变，隐式 dFdx 会把
+      // mip 选到图集最低一级，合并面的每个方块接缝就会描出一圈黑框
+      //（北欧片麻岩等匀色地表尤其明显）。
       '#ifdef GREEDY_OPAQUE',
-      '  vec4 tex = texture2D(map, vUvO + fract(vLocal) * uUvScale);',
+      '  vec2 tiled = fract(vLocal);',
+      '  vec2 uvG = vUvO + tiled * uUvScale;',
+      '#ifdef TEX_GRAD',
+      '  vec4 tex = texture2DGradEXT(map, uvG, dFdx(vLocal) * uUvScale, dFdy(vLocal) * uUvScale);',
+      '#else',
+      '  vec4 tex = texture2D(map, uvG);',
+      '#endif',
       '#else',
       '  vec4 tex = texture2D(map, vUv);',
       '#endif',
@@ -228,10 +236,24 @@ Voxel.MeshBuilder = (function () {
     ].join('\n');
   }
 
+  function detectTextureGrad() {
+    if (typeof document === 'undefined') return false;
+    try {
+      var c = document.createElement('canvas');
+      var gl = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl');
+      return !!(gl && gl.getExtension('EXT_shader_texture_lod'));
+    } catch (e) { return false; }
+  }
+
+  var useTexGrad = false;
+
   function mkMat(alpha, cut, opts) {
     opts = opts || {};
     var defines = opts.sway ? { SWAY: '' } : {};
-    if (opts.greedy) defines.GREEDY_OPAQUE = '';
+    if (opts.greedy) {
+      defines.GREEDY_OPAQUE = '';
+      if (useTexGrad) defines.TEX_GRAD = '';
+    }
     var m = new THREE.ShaderMaterial({
       uniforms: {
         map: { value: texture },
@@ -266,7 +288,10 @@ Voxel.MeshBuilder = (function () {
       transparent: !!opts.transparent,
       depthWrite: !opts.transparent,
       side: THREE.FrontSide,
-      defines: defines
+      defines: defines,
+      extensions: opts.greedy && useTexGrad
+        ? { derivatives: true, shaderTextureLod: true }
+        : undefined
     });
     mats.push(m);
     return m;
@@ -431,6 +456,15 @@ Voxel.MeshBuilder = (function () {
     GBlk = Voxel.World.getBlk;
     texture = B.getTexture();
     whiteTex = makeWhiteTex();
+    useTexGrad = detectTextureGrad();
+    // 与图集创建侧一致：合面 fract 平铺不能开 mip / AF，否则接缝描边。
+    if (texture) {
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.NearestFilter;
+      texture.magFilter = THREE.NearestFilter;
+      texture.anisotropy = 1;
+      texture.needsUpdate = true;
+    }
     opaqueMat = mkMat(1, '0.5', { greedy: true });
     waterMat = mkWaterMat();
     foliageMat = mkMat(1, '0.5', { sway: true });
@@ -957,6 +991,7 @@ Voxel.MeshBuilder = (function () {
   // quad 顶点坐标按 FACES.c 原始偏移做轴跨度缩放（1→w/h），绕序 /
   // AO 对角剖分与逐面路径一致。
   // 纹理平铺由着色器端 fract(vLocal) 完成（仅 GREEDY_OPAQUE 材质）；
+  // mip 导数取连续 vLocal（texture2DGradEXT），避免整数缝描边。
   // 合并面不写 uv 属性（legacy vUv 未被该材质采样分支使用）。
   // ============================================================
 

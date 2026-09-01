@@ -98,6 +98,15 @@ check('金饰块与白漆栏杆不参与自发光',
 check('白灰泥墙/绯红瓦/黑沙/片麻岩均不发光',
   !LIGHT[218] && !LIGHT[217] && !LIGHT[215] && !LIGHT[216]);
 
+const meshSrc = fs.readFileSync(path.join(ROOT, 'js/world/mesh.js'), 'utf8');
+check('greedy 合面用连续 UV 梯度采样，避免 fract 接缝描边',
+  meshSrc.includes('texture2DGradEXT') && meshSrc.includes('dFdx(vLocal)'));
+const blocksSrc = fs.readFileSync(path.join(ROOT, 'js/blocks.js'), 'utf8');
+check('图集关闭 mip 与各向异性，避免合面接缝抹出黑框',
+  blocksSrc.includes('generateMipmaps = false') &&
+  blocksSrc.includes('anisotropy = 1') &&
+  /minFilter = THREE\.NearestFilter/.test(blocksSrc));
+
 console.log('画质档位与降质链');
 const presets = CFG.PERF_PRESETS;
 ['smooth', 'balanced', 'high'].forEach(function (k) {
