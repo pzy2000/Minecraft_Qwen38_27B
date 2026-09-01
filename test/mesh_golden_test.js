@@ -59,6 +59,7 @@ load('js/blocks.js');
 load('js/systems/discovery.js');
 load('js/crafting.js');
 load('js/world/world.js');
+load('js/world/light.js');
 load('js/world/infinite.js');
 load('js/world/mesh.js');
 
@@ -118,6 +119,7 @@ if (golden.length !== CASES.length) {
     for (var dx = -1; dx <= 1; dx++) for (var dz = -1; dz <= 1; dz++)
       V.World.ensureChunk(c.cx + dx, c.cz + dz);
     for (var s = 0; s < 30; s++) V.World.stream(16, null);
+    if (V.World._test.flushLight) V.World._test.flushLight();
     var r = V.MeshBuilder._test.buildArrays(c.cx, c.cz);
     var groups = { o: hashGroup(r.o), w: hashGroup(r.w), fl: hashGroup(r.fl) };
     ['o', 'w', 'fl'].forEach(function (key) {

@@ -43,7 +43,7 @@ vm.createContext(sandbox);
  'js/systems/atmosphere_profiles.js', 'js/world/noise.js', 'js/world/biomes.js',
  'js/world/planet_rules.js', 'js/world/shaper.js', 'js/world/structures.js',
  'js/world/sections.js', 'js/world/gen_core.js', 'js/blocks.js', 'js/systems/discovery.js', 'js/crafting.js',
- 'js/world/world.js', 'js/world/infinite.js'].forEach(load);
+ 'js/world/world.js', 'js/world/light.js', 'js/world/infinite.js'].forEach(load);
 
 var V = sandbox.window.Voxel;
 
@@ -72,11 +72,21 @@ function FakeWorker(url) {
           var CS = V.Config.CHUNK, H = V.Config.WORLD_H;
           var flat = V.Sections && V.Sections.asFlat
             ? V.Sections.asFlat(sh.blocks, CS, H, CS) : sh.blocks;
+          var top = Math.min(H - 1, V.Config.CONTENT_NATURAL_TOP || H - 1);
+          var skyStore = V.Sections.create(CS, H, CS, 1);
+          var blkStore = V.Sections.create(CS, H, CS, 1);
+          var lit = V.Light.scanColumnSky(sh.blocks, skyStore, blkStore, top);
+          V.Light.floodIntra(sh.blocks, blkStore, lit.buckets);
+          if (skyStore.compact) skyStore.compact();
+          if (blkStore.compact) blkStore.compact();
           deliver({
             type: 'chunk', epoch: m.epoch, jobId: m.jobId, cx: m.cx, cz: m.cz,
             blocks: flat.slice().buffer,
             heights: sh.heights.slice().buffer,
-            biomes: sh.biomes.slice().buffer
+            biomes: sh.biomes.slice().buffer,
+            sky: V.Sections.asFlat(skyStore, CS, H, CS).slice().buffer,
+            blk: V.Sections.asFlat(blkStore, CS, H, CS).slice().buffer,
+            emit: new Int32Array(lit.emit).buffer
           });
         }
       } catch (e) { if (self2.onerror) self2.onerror({ message: String(e) }); }

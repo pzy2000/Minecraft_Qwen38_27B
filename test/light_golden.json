@@ -1,0 +1,34 @@
+[
+  {
+    "name": "plains",
+    "cx": 9,
+    "cz": 2,
+    "skyH": 4019401518,
+    "blkH": 1543482821,
+    "emitN": 0
+  },
+  {
+    "name": "mountain",
+    "cx": -5,
+    "cz": 6,
+    "skyH": 3664745969,
+    "blkH": 1543482821,
+    "emitN": 0
+  },
+  {
+    "name": "forest",
+    "cx": 15,
+    "cz": -11,
+    "skyH": 1809475798,
+    "blkH": 1543482821,
+    "emitN": 0
+  },
+  {
+    "name": "torch-seam",
+    "cx": 12,
+    "cz": 4,
+    "skyH": 2199167137,
+    "blkH": 1043400487,
+    "emitN": 1
+  }
+]

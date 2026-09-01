@@ -35,9 +35,13 @@ Voxel.Config = {
   CHUNK: 32,           // 区块边长（越大区块越少、draw call 越少，对 ANGLE/Edge 更友好）
   SECTION_H: 16,       // 5.2 Y 分段高度；空段不分配，均质段 palette 压缩
   // 无限行星的流式区块工作集（单位：区块）。空间站仍保持有限真空平台。
-  STREAM_RENDER_RADIUS: 5, // 11×11 网格工作集：视野与桌面/移动性能的平衡点
+  STREAM_RENDER_RADIUS: 5, // 11×11 全精度网格
   STREAM_DATA_RADIUS: 6,   // 多保留一圈数据，供跨区块光照/AO/结构采样
   STREAM_KEEP_RADIUS: 8,   // 卸载滞回半径，避免在边缘往返时反复生成
+  LOD_NEAR_RADIUS: 6,      // 全精度（plan 5.4）
+  LOD_MID_RADIUS: 12,      // 2× 高度图
+  LOD_FAR_RADIUS: 16,      // 预测高度图，视距 512 格；不生成体素
+  MESH_WORKER_POOL: 3,     // 网格 Worker 实例数
   STREAM_GENERATE_PER_FRAME: 1, // 游戏中每渲染帧最多生成的外围区块
   WATER_LEVEL: 27,     // 水位线
   SNOW_LEVEL: 49,      // 雪线：地表高度 ≥ 此值覆雪
@@ -180,8 +184,8 @@ Voxel.Config = {
   },
 
   SAVE_KEY: 'starbound_voxel_save_v6', // v6：无限宇宙（银河→恒星系）、跨系曲速电池
-  GEN_WORKER_V: '20260901c',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
-  MESH_WORKER_V: '20260901b',          // mesh_worker.js 缓存版本号（与 mesh.js 版本联动递增）
+  GEN_WORKER_V: '20260901d',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
+  MESH_WORKER_V: '20260901c',          // mesh_worker.js 缓存版本号（与 mesh.js 版本联动递增）
   AUTOSAVE_INTERVAL: 30,
 
   // 无限宇宙（Universe 层）：恒星系档案缓存与跨系跃迁成本

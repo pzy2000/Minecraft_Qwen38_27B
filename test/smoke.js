@@ -64,6 +64,7 @@ load('js/world/structures.js');
 load('js/systems/discovery.js');
 load('js/crafting.js');
 load('js/world/world.js');
+load('js/world/light.js');
 load('js/world/infinite.js');
 load('js/systems/save.js');
 load('js/systems/furnace.js');

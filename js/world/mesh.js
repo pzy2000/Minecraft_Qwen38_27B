@@ -903,6 +903,11 @@ Voxel.MeshBuilder = (function () {
     var gPrev = G, gsPrev = GSky, gbPrev = GBlk;
     G = padG; GSky = padSky; GBlk = padBlk;
     try {
+      var lod = opts && opts.lod ? opts.lod | 0 : 0;
+      if (lod > 0) {
+        emitLodTerrain(o, x0, z0, yTop, lod === 1 ? 2 : 4);
+        return { o: toViews(o), w: toViews(w), fl: toViews(fl) };
+      }
       for (var lx = 0; lx < CS; lx++) {
         var x = x0 + lx;
         for (var lz = 0; lz < CS; lz++) {
@@ -1222,11 +1227,119 @@ Voxel.MeshBuilder = (function () {
     for (var f = 0; f < 6; f++) greedySweepDir(f, o, yTop);
   }
 
+  // ---- Chunk LOD（plan 5.4）----
+  // lod=1：2×2 列主导方块 + 2 高体素；lod=2：高度图（只保留轮廓）。
+  function emitLodQuad(t, ax, ay, az, bx, by, bz, cxp, cyp, czp, dx, dy, dz, nx, ny, nz, tile, shade, ls) {
+    var base = t.pos.length / 3;
+    t.pos.push(ax, ay, az, bx, by, bz, cxp, cyp, czp, dx, dy, dz);
+    t.nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
+    setGreedyTile(tile);
+    tileUV(tile, 0, 0); t.uv.push(tmpUV[0], tmpUV[1]);
+    tileUV(tile, 1, 0); t.uv.push(tmpUV[0], tmpUV[1]);
+    tileUV(tile, 1, 1); t.uv.push(tmpUV[0], tmpUV[1]);
+    tileUV(tile, 0, 1); t.uv.push(tmpUV[0], tmpUV[1]);
+    for (var k = 0; k < 4; k++) {
+      t.col.push(shade, shade, shade);
+      t.lgt.push(ls, 0);
+      t.flg.push(0, 0);
+      t.lcl.push(k === 1 || k === 2 ? 1 : 0, k >= 2 ? 1 : 0);
+      t.uvo.push(curUvo[0], curUvo[1]);
+    }
+    t.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+
+  function lodColumnTop(x0, z0, lx, lz, step, yTop) {
+    var bestY = -1, bestId = 0;
+    for (var dx = 0; dx < step; dx++) for (var dz = 0; dz < step; dz++) {
+      var x = x0 + lx + dx, z = z0 + lz + dz;
+      for (var y = yTop; y >= 0; y--) {
+        var id = G(x, y, z);
+        if (id && B.isSolid(id)) {
+          if (y > bestY) { bestY = y; bestId = id; }
+          break;
+        }
+      }
+    }
+    return { y: bestY, id: bestId };
+  }
+
+  function emitLodTerrain(o, x0, z0, yTop, step) {
+    var CS = Voxel.Config.CHUNK;
+    var cols = [];
+    var n = (CS / step) | 0;
+    for (var iz = 0; iz < n; iz++) {
+      cols[iz] = [];
+      for (var ix = 0; ix < n; ix++)
+        cols[iz][ix] = lodColumnTop(x0, z0, ix * step, iz * step, step, yTop);
+    }
+    for (var iz2 = 0; iz2 < n; iz2++) for (var ix2 = 0; ix2 < n; ix2++) {
+      var c = cols[iz2][ix2];
+      if (c.y < 0 || !c.id) continue;
+      var x = x0 + ix2 * step, z = z0 + iz2 * step;
+      var y = c.y, s = step;
+      var def = B.defs[c.id];
+      var tile = def ? B.tileForFace(c.id, 2) : 0;
+      var ls = GSky(x, y + 1, z) / 15;
+      emitLodQuad(o, x, y + 1, z, x + s, y + 1, z, x + s, y + 1, z + s, x, y + 1, z + s, 0, 1, 0, tile, 1, ls);
+      var nb, sideTile = def ? B.tileForFace(c.id, 0) : tile;
+      nb = iz2 + 1 < n ? cols[iz2 + 1][ix2].y : -1;
+      if (nb < y) emitLodQuad(o, x, nb + 1, z + s, x + s, nb + 1, z + s, x + s, y + 1, z + s, x, y + 1, z + s, 0, 0, 1, sideTile, 0.85, ls);
+      nb = iz2 - 1 >= 0 ? cols[iz2 - 1][ix2].y : -1;
+      if (nb < y) emitLodQuad(o, x + s, nb + 1, z, x, nb + 1, z, x, y + 1, z, x + s, y + 1, z, 0, 0, -1, sideTile, 0.85, ls);
+      nb = ix2 + 1 < n ? cols[iz2][ix2 + 1].y : -1;
+      if (nb < y) emitLodQuad(o, x + s, nb + 1, z + s, x + s, nb + 1, z, x + s, y + 1, z, x + s, y + 1, z + s, 1, 0, 0, sideTile, 0.7, ls);
+      nb = ix2 - 1 >= 0 ? cols[iz2][ix2 - 1].y : -1;
+      if (nb < y) emitLodQuad(o, x, nb + 1, z, x, nb + 1, z + s, x, y + 1, z + s, x, y + 1, z, -1, 0, 0, sideTile, 0.7, ls);
+    }
+  }
+
+  function emitHeightmap(o, cx, cz, step, heightAt, idAt) {
+    var CS = Voxel.Config.CHUNK;
+    var x0 = cx * CS, z0 = cz * CS;
+    var n = (CS / step) | 0;
+    var cols = [];
+    for (var iz = 0; iz < n; iz++) {
+      cols[iz] = [];
+      for (var ix = 0; ix < n; ix++) {
+        var wx = x0 + ix * step + (step >> 1), wz = z0 + iz * step + (step >> 1);
+        var hy = heightAt(wx, wz);
+        var id = idAt ? idAt(wx, wz) : 1;
+        cols[iz][ix] = { y: hy | 0, id: id | 0 };
+      }
+    }
+    B = B || Voxel.Blocks;
+    for (var iz2 = 0; iz2 < n; iz2++) for (var ix2 = 0; ix2 < n; ix2++) {
+      var c = cols[iz2][ix2];
+      if (c.y < 0) continue;
+      var x = x0 + ix2 * step, z = z0 + iz2 * step, y = c.y, s = step;
+      var def = B.defs[c.id];
+      var tile = def ? B.tileForFace(c.id, 2) : 0;
+      var sideTile = def ? B.tileForFace(c.id, 0) : tile;
+      emitLodQuad(o, x, y + 1, z, x + s, y + 1, z, x + s, y + 1, z + s, x, y + 1, z + s, 0, 1, 0, tile, 1, 1);
+      var nb;
+      nb = iz2 + 1 < n ? cols[iz2 + 1][ix2].y : y;
+      if (nb < y) emitLodQuad(o, x, nb + 1, z + s, x + s, nb + 1, z + s, x + s, y + 1, z + s, x, y + 1, z + s, 0, 0, 1, sideTile, 0.85, 1);
+      nb = iz2 - 1 >= 0 ? cols[iz2 - 1][ix2].y : y;
+      if (nb < y) emitLodQuad(o, x + s, nb + 1, z, x, nb + 1, z, x, y + 1, z, x + s, y + 1, z, 0, 0, -1, sideTile, 0.85, 1);
+      nb = ix2 + 1 < n ? cols[iz2][ix2 + 1].y : y;
+      if (nb < y) emitLodQuad(o, x + s, nb + 1, z + s, x + s, nb + 1, z, x + s, y + 1, z, x + s, y + 1, z + s, 1, 0, 0, sideTile, 0.7, 1);
+      nb = ix2 - 1 >= 0 ? cols[iz2][ix2 - 1].y : y;
+      if (nb < y) emitLodQuad(o, x, nb + 1, z, x, nb + 1, z + s, x, y + 1, z + s, x, y + 1, z, -1, 0, 0, sideTile, 0.7, 1);
+    }
+  }
 
 
-  function build(cx, cz) {
-    var r = buildArrays(cx, cz);
+
+  function build(cx, cz, lod) {
+    var r = buildArrays(cx, cz, lod ? { lod: lod } : null);
     return { opaque: makeGeo(r.o), water: makeGeo(r.w), foliage: makeGeo(r.fl) };
+  }
+
+  function buildFarHeightmap(cx, cz, heightAt, idAt) {
+    var o = mkStage();
+    B = Voxel.Blocks;
+    emitHeightmap(o, cx, cz, 4, heightAt, idAt);
+    return { opaque: makeGeo(toViews(o)), water: null, foliage: null };
   }
 
   function aboveWaterOf(x, y, z) {
@@ -1243,6 +1356,7 @@ Voxel.MeshBuilder = (function () {
   return {
     init: init,
     build: build,
+    buildFarHeightmap: buildFarHeightmap,
     opaqueMat: function () { return opaqueMat; },
     waterMat: function () { return waterMat; },
     foliageMat: function () { return foliageMat; },
@@ -1354,8 +1468,11 @@ Voxel.MeshBuilder = (function () {
         padX0 = snap.x0 | 0; padZ0 = snap.z0 | 0;
       },
       // Worker 侧发射循环入口：pad 就绪前提下的纯数组构建
-      buildFromPad: function (cx, cz, yTop) {
-        return buildArrays(cx | 0, cz | 0, { padReady: true, yTop: yTop });
+      buildFromPad: function (cx, cz, yTop, lod) {
+        return buildArrays(cx | 0, cz | 0, { padReady: true, yTop: yTop, lod: lod | 0 });
+      },
+      buildLodArrays: function (cx, cz, lod) {
+        return buildArrays(cx, cz, { lod: lod | 0 });
       },
       fillPad: fillPad,
       buildArrays: buildArrays,

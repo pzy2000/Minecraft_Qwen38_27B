@@ -23,6 +23,8 @@ window.Voxel = window.Voxel || {};
   var RENDER_RADIUS = BASE_RENDER_RADIUS;
   var DATA_RADIUS = Math.max(RENDER_RADIUS + 1, (CFG.STREAM_DATA_RADIUS || (RENDER_RADIUS + 1)) | 0);
   var KEEP_RADIUS = Math.max(DATA_RADIUS + 1, (CFG.STREAM_KEEP_RADIUS || (DATA_RADIUS + 2)) | 0);
+  var LOD_MID_RADIUS = Math.max(DATA_RADIUS, (CFG.LOD_MID_RADIUS || 12) | 0);
+  var LOD_FAR_RADIUS = Math.max(LOD_MID_RADIUS, (CFG.LOD_FAR_RADIUS || 16) | 0);
 
   // 远景主题（北欧峡湾的雾中礁岛群在 140+ 格外）需要更大的工作集，否则远景
   // 永远落在雾尾之外。半径是运行时可调的：切换天体/画质档位时重新下发，
@@ -50,39 +52,46 @@ window.Voxel = window.Voxel || {};
   var coreBlkOverlay = null;             // 外围火把跨入 legacy core 的附加块光
   var genQueue = [], genQueued = Object.create(null);
   var meshQueue = [], meshQueued = Object.create(null);
-  // 网格 Worker（plan 5.1 · Step C）：发射循环移出主线程。单实例无状态、
-  // 输出与同步路径逐位一致；失败整体回退同步路径（file:// / CSP 自动降级）。
-  var MW_MAX_INFLIGHT = 3;
-  var mwc = null, mwFailed = false, mwNextId = 1, mwInflight = 0;
+  // 网格 Worker 池（plan 5.4）：2–4 个无状态实例，失败整体回退同步路径。
+  var MW_POOL = Math.max(1, Math.min(4, (CFG.MESH_WORKER_POOL || 3) | 0));
+  var MW_MAX_INFLIGHT = MW_POOL * 3;
+  var mwPool = [], mwCursor = 0, mwFailed = false, mwNextId = 1, mwInflight = 0;
   var mwPending = Object.create(null);   // jobId -> job
 
   function ensureMeshWorker() {
-    if (mwc || mwFailed || !planetMode || typeof Worker === 'undefined') return;
-    try {
-      mwc = new Worker('js/world/mesh_worker.js?v=' +
-        (Voxel.Config.MESH_WORKER_V || Voxel.Config.GEN_WORKER_V || 1));
-      mwc.onmessage = function (e) {
-        var m = e.data;
-        if (!m) return;
-        if (m.type === 'error') { failMeshWorker(m.message || '未知'); return; }
-        if (m.type !== 'mesh') return;
-        // 无条件释放槽位：世界切换后清理了 mwPending，迟到回包不能漏减，
-        // 否则在途计数永久虚高 → 派发通道饿死
-        var job = mwPending[m.jobId];
-        delete mwPending[m.jobId];
-        if (mwInflight > 0) mwInflight--;
-        finishMeshJob(job, m);
-      };
-      mwc.onerror = function () {
-        failMeshWorker('运行异常');
-      };
-    } catch (e) {
-      failMeshWorker('创建失败');
+    if (mwFailed || !planetMode || typeof Worker === 'undefined') return;
+    while (mwPool.length < MW_POOL) {
+      try {
+        var w = new Worker('js/world/mesh_worker.js?v=' +
+          (Voxel.Config.MESH_WORKER_V || Voxel.Config.GEN_WORKER_V || 1));
+        w.onmessage = function (e) {
+          var m = e.data;
+          if (!m) return;
+          if (m.type === 'error') { failMeshWorker(m.message || '未知'); return; }
+          if (m.type !== 'mesh') return;
+          var job = mwPending[m.jobId];
+          delete mwPending[m.jobId];
+          if (mwInflight > 0) mwInflight--;
+          finishMeshJob(job, m);
+        };
+        w.onerror = function () { failMeshWorker('运行异常'); };
+        mwPool.push(w);
+      } catch (e) {
+        failMeshWorker('创建失败');
+        break;
+      }
     }
   }
 
+  function pickMeshWorker() {
+    if (!mwPool.length) return null;
+    var w = mwPool[mwCursor % mwPool.length];
+    mwCursor++;
+    return w;
+  }
+
   function failMeshWorker(why) {
-    if (mwFailed && !mwc) return;
+    if (mwFailed && !mwPool.length) return;
     mwFailed = true;
     if (why && window.console && console.warn) console.warn('[World] 网格线程停用：' + why);
     for (var id in mwPending) if (Object.prototype.hasOwnProperty.call(mwPending, id)) {
@@ -93,13 +102,16 @@ window.Voxel = window.Voxel || {};
     }
     mwPending = Object.create(null);
     mwInflight = 0;
-    try { if (mwc) mwc.terminate(); } catch (e2) { }
-    mwc = null;
+    for (var ti = 0; ti < mwPool.length; ti++) {
+      try { mwPool[ti].terminate(); } catch (e2) { }
+    }
+    mwPool = [];
   }
 
   function dispatchMeshJob(ch) {
     ensureMeshWorker();
-    if (!mwc) return false;
+    var worker = pickMeshWorker();
+    if (!worker) return false;
     // fillPad 后立即拷贝三组 pad 快照（约 1.3MB/chunk，Transferable 移交）
     try {
       var snap = Voxel.MeshBuilder._test.snapshotPadForWorker(ch.cx, ch.cz);
@@ -107,8 +119,10 @@ window.Voxel = window.Voxel || {};
       snap.jobId = mwNextId++;
       mwPending[snap.jobId] = job;
       mwInflight++;
-      mwc.postMessage({ type: 'build', cx: snap.cx, cz: snap.cz, yTop: snap.yTop, snap: snap, jobId: snap.jobId },
-        [snap.b.buffer, snap.s.buffer, snap.p.buffer]);
+      worker.postMessage({
+        type: 'build', cx: snap.cx, cz: snap.cz, yTop: snap.yTop, snap: snap,
+        jobId: snap.jobId, lod: ch.lod || 0
+      }, [snap.b.buffer, snap.s.buffer, snap.p.buffer]);
       return true;
     } catch (e) {
       failMeshWorker('派发失败');
@@ -155,12 +169,12 @@ window.Voxel = window.Voxel || {};
       ch.mesh = new THREE.Mesh(res.opaque, Voxel.MeshBuilder.opaqueMat());
       extraGroup.add(ch.mesh);
     }
-    if (res.water) {
+    if (res.water && !ch.lod) {
       ch.wmesh = new THREE.Mesh(res.water, Voxel.MeshBuilder.waterMat());
       ch.wmesh.renderOrder = 2;
       extraGroup.add(ch.wmesh);
     }
-    if (res.foliage) {
+    if (res.foliage && !ch.lod) {
       ch.fmesh = new THREE.Mesh(res.foliage, Voxel.MeshBuilder.foliageMat());
       extraGroup.add(ch.fmesh);
       if (Voxel.Shadow) Voxel.Shadow.addCaster(ch.fmesh);
@@ -169,8 +183,10 @@ window.Voxel = window.Voxel || {};
     ch.dirty = false;
   }
 
-  var pendingRelight = [];               // 卸载触发的跨区块重光，延迟到 stream() 预算内消化
+  var pendingRelight = [];               // 卸载/生成触发的跨区块重光，延迟到 stream() 预算内消化
+  var pendingRelightSet = Object.create(null);
   var extraGroup = null, extraScene = null;
+  var farGroup = null, farMeshes = Object.create(null), farQueue = [];
   var focus = { x: W / 2, z: D / 2, cx: null, cz: null };
 
   function perfNow() {
@@ -244,8 +260,10 @@ window.Voxel = window.Voxel || {};
       // 与 world.js 的 FiniteWorld colTop 同一契约值。
       contentTop: NATURAL_TOP,
       emit: null,
+      skyReady: false,
       shell: null, decorated: false,
-      mesh: null, wmesh: null, fmesh: null
+      mesh: null, wmesh: null, fmesh: null,
+      lod: 0
     };
   }
 
@@ -269,92 +287,43 @@ window.Voxel = window.Voxel || {};
   }
 
   function lightCost(id) {
-    if (Voxel.Blocks.isOpaque(id)) return -1;
-    return id === 7 ? 2 : 1;
+    return Voxel.Light ? Voxel.Light.lightCost(id)
+      : (Voxel.Blocks.isOpaque(id) ? -1 : (id === 7 ? 2 : 1));
   }
 
-  function spreadLight(ch, arr, buckets, lx, y, lz, level) {
-    if (lx < 0 || lx >= CS || lz < 0 || lz >= CS || y < 0 || y >= H || level <= 0) return;
-    var i = chunkIndex(lx, y, lz);
-    var cost = lightCost(volGet(ch.blocks, lx, y, lz));
-    if (cost < 0) return;
-    var next = level - (cost - 1);
-    if (next <= volGetI(arr, i)) return;
-    volSetI(arr, i, next);
-    if (!buckets[next]) buckets[next] = [];
-    buckets[next].push(i);
+  function clearLightVol(arr) {
+    if (!arr) return;
+    if (arr.clear) arr.clear();
+    else arr.fill(0);
   }
 
-  function flood(ch, arr, buckets) {
-    for (var level = 15; level >= 1; level--) {
-      var q = buckets[level];
-      if (!q) continue;
-      for (var qi = 0; qi < q.length; qi++) {
-        var i = q[qi];
-        if (volGetI(arr, i) !== level) continue;
-        var lz = (i / (CS * H)) | 0;
-        var rem = i - lz * CS * H;
-        var y = (rem / CS) | 0;
-        var lx = rem - y * CS;
-        var next = level - 1;
-        spreadLight(ch, arr, buckets, lx + 1, y, lz, next);
-        spreadLight(ch, arr, buckets, lx - 1, y, lz, next);
-        spreadLight(ch, arr, buckets, lx, y + 1, lz, next);
-        spreadLight(ch, arr, buckets, lx, y - 1, lz, next);
-        spreadLight(ch, arr, buckets, lx, y, lz + 1, next);
-        spreadLight(ch, arr, buckets, lx, y, lz - 1, next);
-      }
-    }
-  }
-
-  function relight(ch) {
-    if (ch.sky.clear) ch.sky.clear();
-    else ch.sky.fill(0);
-    if (ch.blk.clear) ch.blk.clear();
-    else ch.blk.fill(0);
-    var blkQ = [];
-    var emitList = [];
-    var LIGHT = Voxel.Blocks.LIGHT;
-    var top = ch.contentTop;
-    var nSec = (H / SEC_H) | 0;
-    var topSec = (top / SEC_H) | 0;
-    // 内容顶以上不落盘：getSky 对 y>contentTop 直接回 15。
-    // 空方块段（全空气）按列一次性写 sky=当前 light，跳过逐格扫描。
-    for (var lx = 0; lx < CS; lx++) for (var lz = 0; lz < CS; lz++) {
-      var light = 15;
-      for (var si = topSec; si >= 0; si--) {
-        var yHi = Math.min(top, si * SEC_H + SEC_H - 1);
-        var yLo = si * SEC_H;
-        var empty = ch.blocks.sectionEmpty && ch.blocks.sectionEmpty(si);
-        if (empty) {
-          for (var ye = yHi; ye >= yLo; ye--) volSet(ch.sky, lx, ye, lz, light);
-          continue;
-        }
-        for (var y = yHi; y >= yLo; y--) {
-          var id = volGet(ch.blocks, lx, y, lz);
-          if (Voxel.Blocks.isOpaque(id)) light = 0;
-          else if (id === 7 && light > 0) light = Math.max(0, light - 2);
-          volSet(ch.sky, lx, y, lz, light);
-          var emit = LIGHT[id];
-          if (emit) {
-            volSet(ch.blk, lx, y, lz, emit);
-            var i = chunkIndex(lx, y, lz);
-            emitList.push(i);
-            if (!blkQ[emit]) blkQ[emit] = [];
-            blkQ[emit].push(i);
-          }
-        }
-      }
-    }
-    // 发光方块索引随 relight 全量重建（relight 本就扫描全区块，零额外成本）；
-    // 之后跨区块批量重光直接取列表做种子，省去对每个区块 65k 体素的全扫描。
-    ch.emit = emitList;
-    // 流式区块采用列天光：露天/水下保持正确，洞穴仍为黑暗。避免把每个露天空气格
-    // 都塞进 BFS（外围生成发生在游玩帧内）；火把仍走完整的 15 格泛光。
-    flood(ch, ch.blk, blkQ);
+  function compactChunkLight(ch) {
     if (ch.sky.compact) ch.sky.compact();
     if (ch.blk.compact) ch.blk.compact();
     if (ch.blocks.compact) ch.blocks.compact();
+  }
+
+  // 只扫列天光 + 收集 emit，不跑块光 BFS。生成路径用这个，3×3 跨区块
+  // flood 推迟到 drainPendingRelight，避免 ensureChunk 独占几十毫秒。
+  function relightSky(ch) {
+    clearLightVol(ch.sky);
+    clearLightVol(ch.blk);
+    var r = Voxel.Light.scanColumnSky(ch.blocks, ch.sky, ch.blk, ch.contentTop);
+    ch.emit = r.emit;
+    if (ch.sky.compact) ch.sky.compact();
+    if (ch.blocks.compact) ch.blocks.compact();
+    ch.skyReady = true;
+    ch.lit = true;
+  }
+
+  function relight(ch) {
+    clearLightVol(ch.sky);
+    clearLightVol(ch.blk);
+    var r = Voxel.Light.scanColumnSky(ch.blocks, ch.sky, ch.blk, ch.contentTop);
+    ch.emit = r.emit;
+    Voxel.Light.floodIntra(ch.blocks, ch.blk, r.buckets);
+    compactChunkLight(ch);
+    ch.skyReady = true;
     ch.lit = true;
   }
 
@@ -380,13 +349,49 @@ window.Voxel = window.Voxel || {};
     buckets[value].push({ ch: dest, i: i });
   }
 
+  function lightYMax(ch, other) {
+    var top = ch && ch.contentTop != null ? ch.contentTop : 0;
+    if (other && other.contentTop != null && other.contentTop > top) top = other.contentTop;
+    return Math.min(H - 1, top + BLOCK_LIGHT_RANGE);
+  }
+
+  // 核心→外围导光不能只用 NATURAL_TOP：玩家在接缝带加高（含测试把火把放在 H-1）
+  // 会抬升 colTop，面光可能出现在该高度。只扫接缝内 15 格带的列顶，自然地形仍走快路径。
+  function coreImportYMax(outsideCx, outsideCz, dx, dz) {
+    var maxT = NATURAL_TOP;
+    var ca = FiniteWorld.coreArrays && FiniteWorld.coreArrays();
+    var tops = ca && ca.colTop;
+    if (tops) {
+      var x0, x1, z0, z1;
+      if (dx !== 0) {
+        var fx = dx < 0 ? W - 1 : 0;
+        x0 = Math.max(0, dx < 0 ? fx - BLOCK_LIGHT_RANGE : fx);
+        x1 = Math.min(W - 1, dx < 0 ? fx : fx + BLOCK_LIGHT_RANGE);
+        z0 = Math.max(0, outsideCz * CS);
+        z1 = Math.min(D - 1, outsideCz * CS + CS - 1);
+      } else {
+        var fz = dz < 0 ? D - 1 : 0;
+        z0 = Math.max(0, dz < 0 ? fz - BLOCK_LIGHT_RANGE : fz);
+        z1 = Math.min(D - 1, dz < 0 ? fz : fz + BLOCK_LIGHT_RANGE);
+        x0 = Math.max(0, outsideCx * CS);
+        x1 = Math.min(W - 1, outsideCx * CS + CS - 1);
+      }
+      for (var z = z0; z <= z1; z++) for (var x = x0; x <= x1; x++) {
+        var t = tops[x + W * z];
+        if (t > maxT) maxT = t;
+      }
+    }
+    return Math.min(H - 1, maxT + BLOCK_LIGHT_RANGE);
+  }
+
   function importBlockBorder(region, buckets, ch, dx, dz) {
     var outsideCx = ch.cx + dx, outsideCz = ch.cz + dz;
     var fromCore = coreChunk(outsideCx, outsideCz);
     var outside = fromCore ? null : extra[key(outsideCx, outsideCz)];
     if (!fromCore && (!outside || !outside.ready)) return;
     if (outside && region[key(outside.cx, outside.cz)]) return;
-    for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
+    var yHi = fromCore ? coreImportYMax(outsideCx, outsideCz, dx, dz) : lightYMax(ch, outside);
+    for (var a = 0; a < CS; a++) for (var y = 0; y <= yHi; y++) {
       var inLx = dx < 0 ? 0 : (dx > 0 ? CS - 1 : a);
       var inLz = dz < 0 ? 0 : (dz > 0 ? CS - 1 : a);
       var outLx = dx < 0 ? CS - 1 : (dx > 0 ? 0 : a);
@@ -416,7 +421,8 @@ window.Voxel = window.Voxel || {};
 
   function seedCoreFromExtra(buckets, ch, side) {
     if (!ch || !ch.ready) return;
-    for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
+    var yHi = lightYMax(ch, null);
+    for (var a = 0; a < CS; a++) for (var y = 0; y <= yHi; y++) {
       var outsideLevel, x, z;
       if (side === 'left') {
         outsideLevel = volGet(ch.blk, CS - 1, y, a); x = 0; z = ch.cz * CS + a;
@@ -433,7 +439,8 @@ window.Voxel = window.Voxel || {};
 
   function coreFacingLight(ch, side) {
     if (!ch || !ch.ready) return false;
-    for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
+    var yHi = lightYMax(ch, null);
+    for (var a = 0; a < CS; a++) for (var y = 0; y <= yHi; y++) {
       var lv = side === 'left' ? volGet(ch.blk, CS - 1, y, a) :
         side === 'right' ? volGet(ch.blk, 0, y, a) :
           side === 'front' ? volGet(ch.blk, a, y, CS - 1) : volGet(ch.blk, a, y, 0);
@@ -515,6 +522,22 @@ window.Voxel = window.Voxel || {};
     if (!targets[k]) targets[k] = [cx, cz];
   }
 
+  function chunkHasEmit(ch) {
+    return !!(ch && ch.emit && ch.emit.length);
+  }
+
+  function needsCrossLight(cx, cz) {
+    var self = extra[key(cx, cz)];
+    if (chunkHasEmit(self)) return true;
+    if (adjacentToCore(cx, cz)) return true;
+    for (var dx = -1; dx <= 1; dx++) for (var dz = -1; dz <= 1; dz++) {
+      if (!dx && !dz) continue;
+      var n = extra[key(cx + dx, cz + dz)];
+      if (chunkHasEmit(n)) return true;
+    }
+    return false;
+  }
+
   // 多个 edit/核心边带变化共用一次 union BFS，避免逐 edit 重复清空、扫描同一 3×3 区域。
   function recomputeBlockLightBatch(targets, forceCoreOverlay) {
     var region = Object.create(null), chunks = [];
@@ -535,6 +558,11 @@ window.Voxel = window.Voxel || {};
       if (touchesCore) recomputeCoreOverlay();
       return;
     }
+    var anyEmit = false;
+    for (var ce = 0; ce < chunks.length; ce++) {
+      if (chunkHasEmit(chunks[ce])) { anyEmit = true; break; }
+    }
+    if (!anyEmit && !touchesCore) return;
     var buckets = [];
     for (var c = 0; c < chunks.length; c++) {
       if (chunks[c].blk.clear) chunks[c].blk.clear();
@@ -608,17 +636,31 @@ window.Voxel = window.Voxel || {};
     recomputeBlockLightBatch(targets, adjacentToCore(cx0, cz0));
   }
 
-  // 卸载区块触发的重光不急于一帧内全部完成（玩家看不见远处接缝），
-  // 在 stream() 的预算内逐个消化，避免移动时集中爆发 BFS 卡顿。
+  function queueCrossLight(cx, cz) {
+    var k = key(cx, cz);
+    if (pendingRelightSet[k]) return;
+    pendingRelightSet[k] = true;
+    pendingRelight.push([cx, cz]);
+  }
+
+  // 卸载/生成触发的 3×3 块光不急于一帧内全部完成。
+  // 单次 BFS 仍可能数毫秒，但不再卡在 ensureChunk 同步路径上。
   function drainPendingRelight(maxMs) {
-    if (!pendingRelight.length) return;
-    var t0 = perfNow();
+    if (!pendingRelight.length) return 0;
+    var t0 = perfNow(), n = 0;
     while (pendingRelight.length) {
       var it = pendingRelight.shift();
+      delete pendingRelightSet[key(it[0], it[1])];
       // 目标区块可能已被再次卸载/重载覆盖，重光以当前 3×3 就绪集为准，幂等安全。
       recomputeBlockLightAround(it[0], it[1]);
+      n++;
       if (perfNow() - t0 >= maxMs) break;
     }
+    return n;
+  }
+
+  function flushPendingLight() {
+    while (pendingRelight.length) drainPendingRelight(1e9);
   }
 
   // ---- 地形生成 Worker 客户端（P2）----
@@ -677,7 +719,7 @@ window.Voxel = window.Voxel || {};
         delete wcPending[m.jobId];
         wcInflight--;
         if (wcInflight <= 0) wcOldestAt = 0;
-        installWorkerChunk(job.cx, job.cz, m.blocks, m.heights, m.biomes);
+        installWorkerChunk(job.cx, job.cz, m.blocks, m.heights, m.biomes, m.sky, m.blk, m.emit);
       };
       wc.onerror = function () {
         failWorker('加载失败');
@@ -712,14 +754,26 @@ window.Voxel = window.Voxel || {};
     }
   }
 
-  // Worker 产出安装：blocks/heights/biomes 已含装饰结果；光照与编辑仍由主线程处理。
-  function installWorkerChunk(cx, cz, blocksBuf, heightsBuf, biomesBuf) {
+  function packLight(arr) {
+    if (!Voxel.Sections || !arr || arr.__sections) return arr;
+    return Voxel.Sections.fromFlat(arr, CS, H, CS);
+  }
+
+  // Worker 产出安装：blocks/heights/biomes 已含装饰；天光/块光/emit 若随包到达则跳过主线程列扫。
+  function installWorkerChunk(cx, cz, blocksBuf, heightsBuf, biomesBuf, skyBuf, blkBuf, emitBuf) {
     var k = key(cx, cz);
     var ch = extra[k];
     if (!ch) { ch = newChunk(cx, cz); extra[k] = ch; }
     ch.blocks = packBlocks(new Uint16Array(blocksBuf));
     ch.heights = new Int16Array(heightsBuf);
     ch.biomes = new Uint8Array(biomesBuf);
+    if (skyBuf) {
+      ch.sky = packLight(new Uint8Array(skyBuf));
+      ch.skyReady = true;
+      ch.lit = true;
+    }
+    if (blkBuf) ch.blk = packLight(new Uint8Array(blkBuf));
+    if (emitBuf) ch.emit = Array.prototype.slice.call(new Int32Array(emitBuf));
     ch.baseReady = true;
     ch.decorated = true;
     if (gen) gen.absorbShell(cx, cz, ch.blocks, ch.heights, ch.biomes);
@@ -740,17 +794,28 @@ window.Voxel = window.Voxel || {};
 
   function applyChunkEdits(ch) {
     var list = editsByChunk[key(ch.cx, ch.cz)];
-    if (!list) return;
+    if (!list) return 0;
+    var n = 0;
     for (var k in list) {
       if (!own(list, k)) continue;
       var p = k.split(',');
       setInChunk(ch, +p[0], +p[1], +p[2], +list[k]);
+      n++;
     }
+    return n;
+  }
+
+  function chunkLod(cx, cz) {
+    var d = Math.max(Math.abs(cx - floorDiv(focus.x, CS)), Math.abs(cz - floorDiv(focus.z, CS)));
+    if (d <= RENDER_RADIUS) return 0;
+    return 1;
   }
 
   function queueMesh(cx, cz) {
     var k = key(cx, cz), ch = extra[k];
     if (!ch || !ch.ready || meshQueued[k]) return;
+    var nextLod = chunkLod(cx, cz);
+    if (ch.lod !== nextLod) { ch.lod = nextLod; ch.meshed = false; }
     ch.dirty = true;
     // 版本号随每次入队递增：在途的旧网格产物落地时据此丢弃
     ch.meshRev = (ch.meshRev || 0) + 1;
@@ -782,10 +847,13 @@ window.Voxel = window.Voxel || {};
         ch.blocks = ch.shell.blocks;
         ch.decorated = true;
       }
-      applyChunkEdits(ch);
-      relight(ch);
+      var nEdits = applyChunkEdits(ch);
+      if (!ch.skyReady || nEdits) relightSky(ch);
+      else compactChunkLight(ch);
       ch.ready = true;
-      recomputeBlockLightAround(cx, cz);
+      ch.lit = true;
+      // 跨区块块光推迟到 stream() 切片。无光源且不靠核心时完全跳过 BFS。
+      if (needsCrossLight(cx, cz)) queueCrossLight(cx, cz);
       ch.dirty = true;
       markNeighborhood(cx, cz);
     }
@@ -836,9 +904,10 @@ window.Voxel = window.Voxel || {};
     wcQueue = wq;
     for (var k in extra) {
       var ch = extra[k];
-      if (Math.abs(ch.cx - cx0) <= RENDER_RADIUS && Math.abs(ch.cz - cz0) <= RENDER_RADIUS)
+      if (Math.abs(ch.cx - cx0) <= DATA_RADIUS && Math.abs(ch.cz - cz0) <= DATA_RADIUS)
         queueMesh(ch.cx, ch.cz);
     }
+    enqueueFarRing(cx0, cz0);
     unloadOutside(cx0, cz0, KEEP_RADIUS);
   }
 
@@ -916,7 +985,8 @@ window.Voxel = window.Voxel || {};
   }
 
   function hasBoundaryBlockLight(ch) {
-    for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
+    var yHi = lightYMax(ch, null);
+    for (var a = 0; a < CS; a++) for (var y = 0; y <= yHi; y++) {
       if (volGet(ch.blk, 0, y, a) > 1 || volGet(ch.blk, CS - 1, y, a) > 1 ||
         volGet(ch.blk, a, y, 0) > 1 || volGet(ch.blk, a, y, CS - 1) > 1) return true;
     }
@@ -934,7 +1004,7 @@ window.Voxel = window.Voxel || {};
     // 残留的 genQueued 会永久阻止重新入队，造成等待其 halo 的邻块死锁。
     delete genQueued[k];
     if (memoCh === ch || (ch.cx === memoCx && ch.cz === memoCz)) invalidateChunkMemo();
-    if (sharedLight) pendingRelight.push([ch.cx, ch.cz]);
+    if (sharedLight) queueCrossLight(ch.cx, ch.cz);
     markNeighborhood(ch.cx, ch.cz);
   }
 
@@ -955,7 +1025,67 @@ window.Voxel = window.Voxel || {};
   function ensureMeshGroup(scene) {
     if (!extraGroup) extraGroup = new THREE.Group();
     if (extraGroup.parent !== scene) scene.add(extraGroup);
+    if (!farGroup) farGroup = new THREE.Group();
+    if (farGroup.parent !== scene) scene.add(farGroup);
     extraScene = scene;
+  }
+
+  function disposeFarMesh(k) {
+    var m = farMeshes[k];
+    if (!m) return;
+    if (farGroup) farGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+    delete farMeshes[k];
+  }
+
+  function enqueueFarRing(cx0, cz0) {
+    var wanted = Object.create(null);
+    var nq = [];
+    for (var dx = -LOD_FAR_RADIUS; dx <= LOD_FAR_RADIUS; dx++)
+      for (var dz = -LOD_FAR_RADIUS; dz <= LOD_FAR_RADIUS; dz++) {
+        var d = Math.max(Math.abs(dx), Math.abs(dz));
+        if (d <= DATA_RADIUS || d > LOD_FAR_RADIUS) continue;
+        var cx = cx0 + dx, cz = cz0 + dz;
+        if (coreChunk(cx, cz)) continue;
+        var k = key(cx, cz);
+        wanted[k] = true;
+        if (!farMeshes[k]) nq.push({ k: k, cx: cx, cz: cz, d: d });
+      }
+    for (var fk in farMeshes) if (!wanted[fk]) disposeFarMesh(fk);
+    nq.sort(function (a, b) { return a.d - b.d; });
+    farQueue = nq;
+  }
+
+  function farHeightAt(wx, wz) {
+    if (FiniteWorld.predictedHeightAt) return FiniteWorld.predictedHeightAt(wx, wz);
+    return WATER;
+  }
+
+  function farIdAt(wx, wz) {
+    var y = farHeightAt(wx, wz);
+    if (y < WATER) return 7;
+    if (y >= SNOW_LEVEL) return 13;
+    return 2;
+  }
+
+  function buildFarMeshes(n, scene) {
+    if (!planetMode || !Voxel.MeshBuilder || !Voxel.MeshBuilder.buildFarHeightmap || !scene) return 0;
+    if (typeof THREE === 'undefined') return 0;
+    ensureMeshGroup(scene);
+    var built = 0;
+    n = Math.max(1, n | 0) * 4;
+    while (n-- > 0 && farQueue.length) {
+      var job = farQueue.shift();
+      if (farMeshes[job.k] || extra[job.k]) continue;
+      var res = Voxel.MeshBuilder.buildFarHeightmap(job.cx, job.cz, farHeightAt, farIdAt);
+      if (res && res.opaque) {
+        var mesh = new THREE.Mesh(res.opaque, Voxel.MeshBuilder.opaqueMat());
+        farGroup.add(mesh);
+        farMeshes[job.k] = mesh;
+        built++;
+      }
+    }
+    return built;
   }
 
   function buildExtraMeshes(n, scene) {
@@ -966,7 +1096,7 @@ window.Voxel = window.Voxel || {};
       var best = -1, bestD = Infinity;
       for (var i = 0; i < meshQueue.length; i++) {
         var c = extra[meshQueue[i]];
-        if (!c || Math.abs(c.cx - cx0) > RENDER_RADIUS || Math.abs(c.cz - cz0) > RENDER_RADIUS) continue;
+        if (!c || Math.abs(c.cx - cx0) > DATA_RADIUS || Math.abs(c.cz - cz0) > DATA_RADIUS) continue;
         var d = (c.cx - cx0) * (c.cx - cx0) + (c.cz - cz0) * (c.cz - cz0);
         if (d < bestD) { bestD = d; best = i; }
       }
@@ -983,7 +1113,7 @@ window.Voxel = window.Voxel || {};
       // 留给下一轮队列自然消化（此时 rev 已被 bump，旧产物不会被误装）
       if (meshQueued[k]) { built--; continue; }
       disposeChunkMesh(ch);
-      applyChunkGeometry(ch, Voxel.MeshBuilder.build(ch.cx, ch.cz));
+      applyChunkGeometry(ch, Voxel.MeshBuilder.build(ch.cx, ch.cz, ch.lod || 0));
     }
     return built;
   }
@@ -1022,7 +1152,9 @@ window.Voxel = window.Voxel || {};
     extra = Object.create(null);
     invalidateChunkMemo();
     pendingRelight.length = 0;
+    pendingRelightSet = Object.create(null);
     // Worker 会话重置：新世界 → 新纪元，旧纪元的在途产物一律丢弃
+    wcFailed = false;
     wcEpoch++;
     wcQueue.length = 0;
     wcPending = Object.create(null);
@@ -1043,7 +1175,8 @@ window.Voxel = window.Voxel || {};
     coreBlkOverlay = null;
     genQueue = []; genQueued = Object.create(null);
     meshQueue = []; meshQueued = Object.create(null);
-    extraGroup = null; extraScene = null;
+    extraGroup = null; farGroup = null; extraScene = null;
+    farQueue = []; farMeshes = Object.create(null);
     focus.x = W / 2; focus.z = D / 2; focus.cx = null; focus.cz = null;
   }
 
@@ -1300,7 +1433,7 @@ window.Voxel = window.Voxel || {};
   // = 预算 + 单个最大步骤，不再出现固定 2~6 步叠加的长尾卡顿。
   function stream(budgetMs, scene) {
     budgetMs = Math.max(1, +budgetMs || 4);
-    drainPendingRelight(Math.min(2, budgetMs * 0.25));
+    drainPendingRelight(Math.min(4, Math.max(1, budgetMs * 0.35)));
     pumpWorkerResults();
     if (!FiniteWorld.isReady()) {
       var t00 = perfNow();
@@ -1317,19 +1450,24 @@ window.Voxel = window.Voxel || {};
       (!Voxel.MeshBuilder._test || Voxel.MeshBuilder._test.ready === undefined || Voxel.MeshBuilder._test.ready());
     // 轮转调度：生成 / 核心网格 / 外围网格交替执行。若固定先做某类步骤，
     // 当其开销吃满预算时其余管线会被无限饿死（如核心重网格积压时永不生成）。
-    var phase = 0, m1 = 0, m2 = 0, g1 = 0, emptyRounds = 0;
+    var phase = 0, m1 = 0, m2 = 0, g1 = 0, l1 = 0, emptyRounds = 0;
     for (;;) {
       var elapsed = perfNow() - t0;
       if (elapsed >= budgetMs) break;
       var step = 0;
-      switch (phase % 3) {
+      switch (phase % 4) {
         case 0: g1 = pumpGeneration(1) || 0; step = g1; break;
-        case 1: m1 = canMesh ? (FiniteWorld.buildMeshes(1, scene) || 0) : 0; step = m1; break;
-        default: m2 = canMesh ? (buildExtraMeshes(1, scene) || 0) : 0; step = m2; break;
+        case 1: l1 = drainPendingRelight(Math.min(2, budgetMs - elapsed)) || 0; step = l1; break;
+        case 2: m1 = canMesh ? (FiniteWorld.buildMeshes(1, scene) || 0) : 0; step = m1; break;
+        default:
+          m2 = canMesh ? (buildExtraMeshes(1, scene) || 0) : 0;
+          if (!m2 && canMesh) m2 = buildFarMeshes(1, scene) || 0;
+          step = m2;
+          break;
       }
       phase++;
-      if (!step) {   // 该类队列为空：立即轮转到下一类；三类全空则结束
-        if (++emptyRounds >= 3) break;
+      if (!step) {   // 该类队列为空：立即轮转到下一类；四类全空则结束
+        if (++emptyRounds >= 4) break;
         continue;
       }
       emptyRounds = 0;
@@ -1341,8 +1479,11 @@ window.Voxel = window.Voxel || {};
   function clearMeshes(scene) {
     FiniteWorld.clearMeshes(scene);
     for (var k in extra) disposeChunkMesh(extra[k]);
+    for (var fk in farMeshes) disposeFarMesh(fk);
     if (extraGroup && extraGroup.parent) extraGroup.parent.remove(extraGroup);
-    extraGroup = null; extraScene = null;
+    if (farGroup && farGroup.parent) farGroup.parent.remove(farGroup);
+    extraGroup = null; farGroup = null; extraScene = null;
+    farQueue = []; farMeshes = Object.create(null);
   }
 
   function isChunkLoaded(cx, cz) {
@@ -1368,6 +1509,7 @@ window.Voxel = window.Voxel || {};
     return {
       loaded: loaded, queued: genQueue.length, meshed: meshed,
       renderRadius: RENDER_RADIUS, dataRadius: DATA_RADIUS, keepRadius: KEEP_RADIUS,
+      lodFarRadius: LOD_FAR_RADIUS, farQueued: farQueue.length, farMeshed: Object.keys(farMeshes).length,
       // loaded/meshed 只统计外围稀疏区块；legacy core 的 64 个固定区块不计入。
       coreChunks: CORE_CX * CORE_CZ, planet: planetMode
     };
@@ -1395,6 +1537,8 @@ window.Voxel = window.Voxel || {};
     setFocus: setFocus,
     setRenderRadius: setRenderRadius,
     renderRadius: function () { return RENDER_RADIUS; },
+    lodFarRadius: function () { return LOD_FAR_RADIUS; },
+    fogHorizon: function () { return LOD_FAR_RADIUS * CS; },
     focusMeshed: focusMeshed,
     meshCount: function () { return FiniteWorld.meshCount() + (extraGroup ? extraGroup.children.length : 0); },
     buildMeshes: buildMeshes,
@@ -1467,7 +1611,9 @@ window.Voxel = window.Voxel || {};
           inflight: wcInflight, queued: wcQueue.length,
           epoch: wcEpoch
         };
-      }
+      },
+      flushLight: flushPendingLight,
+      pendingRelight: function () { return pendingRelight.length; }
     }
   };
 

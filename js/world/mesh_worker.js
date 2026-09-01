@@ -37,7 +37,7 @@ self.onmessage = function (e) {
   if (!m || m.type !== 'build') return;
   try {
     Voxel.MeshBuilder._test.installPad(m.snap);
-    var r = Voxel.MeshBuilder._test.buildFromPad(m.cx, m.cz, m.yTop);
+    var r = Voxel.MeshBuilder._test.buildFromPad(m.cx, m.cz, m.yTop, m.lod);
     var out = { type: 'mesh', jobId: m.jobId, o: packGroup(r.o), w: packGroup(r.w), fl: packGroup(r.fl) };
     var transfers = [];
     ['o', 'w', 'fl'].forEach(function (k2) {

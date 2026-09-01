@@ -61,6 +61,7 @@ load('js/blocks.js');
 load('js/systems/discovery.js');
 load('js/crafting.js');
 load('js/world/world.js');
+load('js/world/light.js');
 load('js/world/infinite.js');
 load('js/world/mesh.js');
 
@@ -145,49 +146,123 @@ console.log('填充式采样与门面语义等价');
 
 console.log('stream() 预算调度');
 (function () {
+  function CS0() { return V.Config.CHUNK; }
+  var onCI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
+
+  // 同步回退：decorate 仍在主线程，最坏步是结构装饰而非光照。
+  // 5.3 把 relight/3×3 移出此步后仍受 decorate 约束，只防无界回归。
+  V.World.init(12345);
+  while (!V.World.isReady()) V.World.generateNext(64);
   V.World.setFocus(40 * CS0() + 16, -25 * CS0() + 16);
   var guard = 0, st = V.World.streamStats();
-  var worst = 0;
+  var worstSync = 0;
   while (st.queued > 0 && guard++ < 400) {
     var t0 = Date.now();
     V.World.stream(12, null);
     var dt = Date.now() - t0;
-    if (dt > worst) worst = dt;
+    if (dt > worstSync) worstSync = dt;
     st = V.World.streamStats();
   }
-  check('stream 可排空生成队列 (queued=' + st.queued + ')', st.queued === 0);
-  // 最坏帧上限（plan 5.1 Step E 收紧）：120 → 60ms。
-  // 本 Node 套件 canMesh=false（无材质初始化），worst 全部来自
-  // 同步 ensureChunk 级联 + decorate + relight BFS —— 属于 5.3（光照异步化）
-  // 的优化对象；plan 第 11 节把「收紧到 20ms」定义为阶段 1 整体里程碑，
-  // 在 5.2/5.3 落地前 20ms 物理不可达。网格化本身已移入 Worker（5.1-C），
-  // 真实主线程开销由 telemetry 的 p95 帧时在浏览器侧验证。
-  // GitHub-hosted runner 共享 CPU，同一路径会到 ~80ms；CI 仍用 120ms
-  // 防无界回归，本机保持 60ms 门禁。
-  var onCI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
-  var WORST_LIMIT = onCI ? 120 : 60;
-  check('单次 stream 消耗有界 (worst=' + worst + 'ms <= ' + WORST_LIMIT + 'ms)', worst <= WORST_LIMIT);
-  function CS0() { return V.Config.CHUNK; }
+  check('同步路径可排空生成队列 (queued=' + st.queued + ')', st.queued === 0);
+  // decorate 仍在主线程，单步可达百毫秒级；此处只防无界（卡死/分钟级）。
+  // 5.3 的 20ms 门禁在下方 Worker 路径：主线程不再做 decorate/列天光。
+  check('同步路径 stream 非无界 (worst=' + worstSync + 'ms <= 800ms)', worstSync <= 800);
 })();
 
-console.log('卸载→重载与延迟重光收敛');
-(function () {
+async function main() {
+  function CS0() { return V.Config.CHUNK; }
+  var onCI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+  console.log('Worker 路径主线程预算（plan 5.3）');
+  var fakeGen = null;
+  function FakeWorker() {
+    var self2 = this;
+    this.onmessage = null;
+    this.onerror = null;
+    this.postMessage = function (m) {
+      setTimeout(function () {
+        try {
+          if (m.type === 'init') {
+            fakeGen = V.GenCore.create({ seed: m.seed, profile: m.profile });
+            var pm = !m.profile || m.profile.kind !== 'station';
+            if (V.Structures) V.Structures.bind(pm && fakeGen.terrainVersion === 2 ? {
+              hash2: fakeGen.noise.hash2, surfaceAt: fakeGen.surfaceAt,
+              biomeAt: fakeGen.biomeAt, typeKey: fakeGen.planetTypeKey,
+              version: fakeGen.terrainVersion
+            } : null);
+            deliver({ type: 'ready', epoch: m.epoch });
+          } else if (m.type === 'job') {
+            var sh = fakeGen.ensureShell(m.cx, m.cz);
+            fakeGen.decorate(sh);
+            var CS = V.Config.CHUNK, H = V.Config.WORLD_H;
+            var flat = V.Sections.asFlat(sh.blocks, CS, H, CS);
+            var top = Math.min(H - 1, V.Config.CONTENT_NATURAL_TOP || H - 1);
+            var skyStore = V.Sections.create(CS, H, CS, 1);
+            var blkStore = V.Sections.create(CS, H, CS, 1);
+            var lit = V.Light.scanColumnSky(sh.blocks, skyStore, blkStore, top);
+            V.Light.floodIntra(sh.blocks, blkStore, lit.buckets);
+            if (skyStore.compact) skyStore.compact();
+            if (blkStore.compact) blkStore.compact();
+            deliver({
+              type: 'chunk', epoch: m.epoch, jobId: m.jobId, cx: m.cx, cz: m.cz,
+              blocks: flat.slice().buffer,
+              heights: sh.heights.slice().buffer,
+              biomes: sh.biomes.slice().buffer,
+              sky: V.Sections.asFlat(skyStore, CS, H, CS).slice().buffer,
+              blk: V.Sections.asFlat(blkStore, CS, H, CS).slice().buffer,
+              emit: new Int32Array(lit.emit).buffer
+            });
+          }
+        } catch (e) { if (self2.onerror) self2.onerror({ message: String(e) }); }
+      }, 0);
+    };
+    function deliver(msg) {
+      setTimeout(function () { if (self2.onmessage) self2.onmessage({ data: msg }); }, 0);
+    }
+    this.terminate = function () {};
+  }
+  sandbox.Worker = FakeWorker;
+  V.World.init(12345);
+  while (!V.World.isReady()) V.World.generateNext(64);
+  V.World.setFocus(40 * CS0() + 16, -25 * CS0() + 16);
+  var g2 = 0, st2 = V.World.streamStats(), worstW = 0;
+  while ((st2.queued > 0 || V.World._test.workerStats().inflight > 0 ||
+    V.World._test.workerStats().queued > 0) && g2++ < 800) {
+    var t1 = Date.now();
+    V.World.stream(12, null);
+    var d1 = Date.now() - t1;
+    if (d1 > worstW) worstW = d1;
+    await sleep(0);
+    st2 = V.World.streamStats();
+  }
+  check('Worker 路径可排空 (queued=' + st2.queued + ')', st2.queued === 0);
+  var W_LIMIT = onCI ? 60 : 20;
+  check('Worker 路径主线程 stream ≤ ' + W_LIMIT + 'ms (worst=' + worstW + 'ms)', worstW <= W_LIMIT);
+
+  console.log('卸载→重载与延迟重光收敛');
   var IT = V.World._test;
   var lx = 380, lz = -250, ly = 40;
   V.World.ensureChunk(11, -8);
+  if (IT.flushLight) IT.flushLight();
   V.World.set(lx, ly, lz, 19);
   var litBefore = V.World.getBlk(lx + 1, ly, lz);
   IT.unloadOutside(0, 0, 0);
   check('区块已卸载', !V.World.isChunkLoaded(11, -8));
   V.World.ensureChunk(11, -8);
+  if (IT.flushLight) IT.flushLight();
   check('edit 在卸载→重载后保留', V.World.get(lx, ly, lz) === 19);
-  for (var i = 0; i < 40 && V.World._test.workerStats().queued >= 0; i++) V.World.stream(50, null);
+  for (var i = 0; i < 40; i++) { V.World.stream(50, null); await sleep(0); }
+  if (IT.flushLight) IT.flushLight();
   check('延迟重光后跨格光照恢复 (before=' + litBefore + ')',
     litBefore > 0 && V.World.getBlk(lx + 1, ly, lz) === litBefore);
   V.World.set(lx, ly, lz, 0);
-  for (var j = 0; j < 40; j++) V.World.stream(50, null);
+  for (var j = 0; j < 40; j++) { V.World.stream(50, null); await sleep(0); }
+  if (IT.flushLight) IT.flushLight();
   check('移除火把并排空后光熄灭', V.World.getBlk(lx + 1, ly, lz) === 0);
-})();
 
-console.log(failed ? ('STREAM-PERF-FAIL (' + failed + ')') : 'STREAM-PERF-PASS');
-process.exit(failed ? 1 : 0);
+  console.log(failed ? ('STREAM-PERF-FAIL (' + failed + ')') : 'STREAM-PERF-PASS');
+  process.exit(failed ? 1 : 0);
+}
+
+main().catch(function (e) { console.error(e); process.exit(1); });

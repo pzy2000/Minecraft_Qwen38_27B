@@ -48,6 +48,8 @@ const nodeFiles = [
   'test/voxel_memory_test.js',
   'test/terrain_parity_test.js',
   'test/mesh_golden_test.js',
+  'test/light_golden_test.js',
+  'test/lod_test.js',
   'test/ship_flight_test.js',
   'test/flight_sequence_test.js',
   'test/audio_asset_budget_test.js',

@@ -6394,7 +6394,11 @@ Voxel.Game = (function () {
     if (currentWorld && currentWorld.kind === 'planet') {
       var renderR = Voxel.World.renderRadius ? Voxel.World.renderRadius()
         : Math.max(2, CFG.STREAM_RENDER_RADIUS || 6);
-      var streamFogFar = Math.max(CFG.CHUNK * 2, (renderR - 1) * CFG.CHUNK);
+      var streamFogFar = Voxel.World.fogHorizon
+        ? Voxel.World.fogHorizon()
+        : Math.max(CFG.CHUNK * 2, (renderR - 1) * CFG.CHUNK);
+      if (currentWorld && currentWorld.kind === 'planet' && Voxel.World.fogHorizon)
+        fogFar = Math.max(fogFar, streamFogFar);
       fogFar = Math.min(fogFar, streamFogFar);
       fogNear = Math.min(fogNear, fogFar * 0.6);
     }

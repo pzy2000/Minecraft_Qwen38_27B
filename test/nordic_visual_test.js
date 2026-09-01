@@ -43,6 +43,7 @@ load('js/world/sections.js');
 load('js/world/gen_core.js');
 load('js/blocks.js');
 load('js/world/world.js');
+load('js/world/light.js');
 load('js/world/infinite.js');
 load('js/systems/settings.js');
 

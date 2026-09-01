@@ -2,7 +2,7 @@
 //
 // 与主线程共用 js/world/gen_core.js 的同一实现，保证逐位一致的世界；
 // 传输采用结构化克隆副本（不 transfer 原缓冲，Worker 内 shell 仍被后续
-// halo 查询复用）。光照/编辑/网格仍由主线程统一处理。
+// halo 查询复用）。列天光 + intra 块光随区块一起交出；跨区块 3×3 仍由主线程切片。
 // Worker 全局没有 window：游戏脚本以 `window.Voxel = ...` 挂载，
 // 先把 window 指向 WorkerGlobalScope（self），后续 importScripts 即可照常工作。
 var window = self;
@@ -18,6 +18,7 @@ importScripts(
   'shaper.js',
   'sections.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   '../blocks.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
+  'light.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   'structures.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   'gen_core.js'
 );
@@ -58,12 +59,26 @@ self.onmessage = function (e) {
     var blocks = flat.slice();
     var heights = shell.heights.slice();
     var biomes = shell.biomes.slice();
+    var CS = Voxel.Config.CHUNK, H = Voxel.Config.WORLD_H;
+    var top = Math.min(H - 1, Voxel.Config.CONTENT_NATURAL_TOP || H - 1);
+    var skyStore = Voxel.Sections.create(CS, H, CS, 1);
+    var blkStore = Voxel.Sections.create(CS, H, CS, 1);
+    var lit = Voxel.Light.scanColumnSky(shell.blocks, skyStore, blkStore, top);
+    Voxel.Light.floodIntra(shell.blocks, blkStore, lit.buckets);
+    if (skyStore.compact) skyStore.compact();
+    if (blkStore.compact) blkStore.compact();
+    var sky = Voxel.Sections.asFlat(skyStore, CS, H, CS).slice();
+    var blk = Voxel.Sections.asFlat(blkStore, CS, H, CS).slice();
+    var emit = new Int32Array(lit.emit);
     self.postMessage({
       type: 'chunk', epoch: m.epoch, jobId: m.jobId,
       cx: m.cx, cz: m.cz,
       blocks: blocks.buffer,
       heights: heights.buffer,
-      biomes: biomes.buffer
-    }, [blocks.buffer, heights.buffer, biomes.buffer]);
+      biomes: biomes.buffer,
+      sky: sky.buffer,
+      blk: blk.buffer,
+      emit: emit.buffer
+    }, [blocks.buffer, heights.buffer, biomes.buffer, sky.buffer, blk.buffer, emit.buffer]);
   }
 };
