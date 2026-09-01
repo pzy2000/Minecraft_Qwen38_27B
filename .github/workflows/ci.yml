@@ -16,7 +16,8 @@ jobs:
   node-test:
     name: Node 测试与构建检查
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # test:node 在 runner 上约 8–9min，test:sim 再占 1–2min；10min 会在仿真中途被掐。
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
