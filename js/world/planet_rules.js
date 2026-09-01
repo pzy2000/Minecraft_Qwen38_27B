@@ -296,6 +296,181 @@ Voxel.PlanetRules = (function () {
     return oreDescriptor(oreBlockForPosition(version, typeKey, x, y, z, noise), typeKey);
   }
 
+  // 行星生物生成表（plan 7.1）。零渲染依赖；未知类型回退 lush，station 显式空表。
+  // role: wander | chase | kite | explode | pack | npc
+  function F(type, role, targetKey, flags) {
+    var e = { type: type, role: role, targetKey: targetKey, nightOnly: false, hostile: false, densitySpawn: true };
+    if (flags) {
+      if (flags.nightOnly) e.nightOnly = true;
+      if (flags.hostile) e.hostile = true;
+      if (flags.densitySpawn === false) e.densitySpawn = false;
+    }
+    return e;
+  }
+  var NIGHT_HOSTILE = { nightOnly: true, hostile: true };
+  var FAUNA = {
+    lush: [
+      F('sheep', 'wander', 'SHEEP_TARGET'),
+      F('pig', 'wander', 'PIG_TARGET'),
+      F('chicken', 'wander', 'CHICKEN_TARGET'),
+      F('rabbit', 'wander', 'RABBIT_TARGET'),
+      F('cat', 'wander', 'CAT_TARGET'),
+      F('zombie', 'chase', 'ZOMBIE_TARGET', NIGHT_HOSTILE),
+      F('archer', 'kite', 'ARCHER_TARGET', NIGHT_HOSTILE),
+      F('boomer', 'explode', 'BOOMER_TARGET', NIGHT_HOSTILE),
+      F('wolf', 'pack', 'WOLF_TARGET'),
+      F('villager', 'npc', 'VILLAGER_TARGET', { densitySpawn: false })
+    ],
+    arid: [
+      F('rabbit', 'wander', 'RABBIT_TARGET'),
+      F('sand_stalker', 'kite', 'SAND_STALKER_TARGET', NIGHT_HOSTILE),
+      F('dune_scorpion', 'chase', 'DUNE_SCORPION_TARGET', NIGHT_HOSTILE)
+    ],
+    frozen: [
+      F('frost_wolf', 'pack', 'FROST_WOLF_TARGET'),
+      F('yeti', 'chase', 'YETI_TARGET', NIGHT_HOSTILE)
+    ],
+    toxic: [
+      F('spore_beast', 'chase', 'SPORE_BEAST_TARGET', NIGHT_HOSTILE),
+      F('acid_mite', 'explode', 'ACID_MITE_TARGET', NIGHT_HOSTILE)
+    ],
+    volcanic: [
+      F('magma_crawler', 'chase', 'MAGMA_CRAWLER_TARGET', NIGHT_HOSTILE),
+      F('ash_mite', 'kite', 'ASH_MITE_TARGET', NIGHT_HOSTILE)
+    ],
+    oceanic: [
+      F('glow_jelly', 'wander', 'GLOW_JELLY_TARGET'),
+      F('drowned', 'chase', 'DROWNED_TARGET', NIGHT_HOSTILE)
+    ],
+    nordic: [
+      F('sheep', 'wander', 'SHEEP_TARGET'),
+      F('rabbit', 'wander', 'RABBIT_TARGET'),
+      F('fjord_wolf', 'pack', 'FJORD_WOLF_TARGET')
+    ],
+    station: []
+  };
+
+  var FAUNA_META = {
+    sheep: { name: '羊', habitat: '繁茂星 · 平原 / 森林 / 北欧峡湾', drops: '羊毛',
+      behavior: '温和的食草动物。受惊后会逃跑；羊毛可以制作床。' },
+    pig: { name: '猪', habitat: '繁茂星 · 平原 / 森林', drops: '生猪排',
+      behavior: '好奇心旺盛。击杀掉落生猪排，烧炼后是可靠的食物。' },
+    chicken: { name: '鸡', habitat: '繁茂星 · 平原 / 丛林边缘', drops: '生鸡肉',
+      behavior: '成群结队的小型鸟类。掉落生鸡肉，熟鸡肉恢复更多饥饿值。' },
+    rabbit: { name: '兔', habitat: '繁茂 / 荒漠 / 北欧 · 沙漠、海滩、草原', drops: '生兔肉',
+      behavior: '警觉的跳跃者。荒漠与峡湾也能见到它们。' },
+    cat: { name: '猫', habitat: '繁茂星 · 森林 / 村落附近', drops: '猫毛',
+      behavior: '优雅独立的旅伴。靠近可以撸猫，也能收获猫毛毡原料。' },
+    zombie: { name: '僵尸', habitat: '繁茂星 · 夜晚地表', drops: '无',
+      behavior: '夜间主动袭击。保持距离或筑起围墙。日出在露天处燃烧。' },
+    archer: { name: '骷髅弓手', habitat: '繁茂星 · 夜晚地表', drops: '煤炭',
+      behavior: '保持中距离射箭。贴脸会后撤风筝，白天露天燃烧。' },
+    boomer: { name: '自爆虫', habitat: '繁茂星 · 夜晚地表', drops: '无（引爆）',
+      behavior: '贴近后点燃引信。拉开距离可拆除，引爆破坏方块。' },
+    wolf: { name: '狼', habitat: '繁茂星 · 森林 / 针叶林 / 黑森林', drops: '箭',
+      behavior: '中立掠食者。生肉喂两次即可驯服，会跟随并保护你。' },
+    villager: { name: '村民', habitat: '繁茂星 · 村庄', drops: '无',
+      behavior: '村落旅人。可靠近交谈，委托任务换票券。' },
+    sand_stalker: { name: '沙行者', habitat: '荒漠星 · 沙丘夜色', drops: '箭',
+      behavior: '细长风筝射手，专属荒漠。保持距离放冷箭。' },
+    dune_scorpion: { name: '沙蝎', habitat: '荒漠星 · 红沙与沙地', drops: '煤炭',
+      behavior: '夜间追击的钳足猎手。比僵尸更快贴身。' },
+    frost_wolf: { name: '霜狼', habitat: '冰原星 · 雪原与针叶林', drops: '箭',
+      behavior: '冰原中立猎手。可驯服，狩猎兔与落单旅人。' },
+    yeti: { name: '雪怪', habitat: '冰原星 · 雪峰长夜', drops: '羊毛',
+      behavior: '厚皮坦克。移动慢，近战更重。' },
+    spore_beast: { name: '孢子兽', habitat: '剧毒星 · 丛林夜雾', drops: '树叶',
+      behavior: '剧毒星近战种。发现玩家后直扑，不再是普通僵尸。' },
+    acid_mite: { name: '酸液虫', habitat: '剧毒星 · 菌毯与密林', drops: '无（引爆）',
+      behavior: '剧毒星自爆种。贴近点燃，酸雾色闪光。' },
+    magma_crawler: { name: '熔岩爬行者', habitat: '火山星 · 岩脉与红沙', drops: '煤炭',
+      behavior: '贴地追击。火山夜里替代僵尸。' },
+    ash_mite: { name: '灰烬虫', habitat: '火山星 · 灰原夜色', drops: '箭',
+      behavior: '火山风筝种。中距离骚扰，不靠近就不缠斗。' },
+    glow_jelly: { name: '发光水母', habitat: '深海星 · 浅滩与水柱', drops: '生兔肉',
+      behavior: '温和漂浮者。偏爱水体，受惊仍会逃。' },
+    drowned: { name: '溺尸', habitat: '深海星 · 海滩与夜岸', drops: '煤炭',
+      behavior: '深海夜间追击者。露天白昼会燃烧。' },
+    fjord_wolf: { name: '峡湾狼', habitat: '北欧峡湾 · 黑沙海岸', drops: '箭',
+      behavior: '峡湾中立猎手。复用狼的驯服与护卫逻辑。' }
+  };
+
+  function faunaKey(typeKey) {
+    if (typeof typeKey === 'string' && Object.prototype.hasOwnProperty.call(FAUNA, typeKey))
+      return typeKey;
+    return 'lush';
+  }
+
+  function cloneFaunaEntry(e) {
+    return {
+      type: e.type,
+      role: e.role,
+      targetKey: e.targetKey,
+      nightOnly: !!e.nightOnly,
+      hostile: !!e.hostile,
+      densitySpawn: e.densitySpawn !== false
+    };
+  }
+
+  function fauna(typeKey) {
+    var src = FAUNA[faunaKey(typeKey)];
+    var out = [];
+    for (var i = 0; i < src.length; i++) out.push(cloneFaunaEntry(src[i]));
+    return out;
+  }
+
+  function faunaAllows(typeKey, mobType) {
+    var src = FAUNA[faunaKey(typeKey)];
+    for (var i = 0; i < src.length; i++)
+      if (src[i].type === mobType) return true;
+    return false;
+  }
+
+  function faunaTypes(typeKey) {
+    var src = FAUNA[faunaKey(typeKey)];
+    var out = [];
+    for (var i = 0; i < src.length; i++) out.push(src[i].type);
+    return out;
+  }
+
+  function faunaSpawnPlan(typeKey, night, difficulty) {
+    var diff = (typeof difficulty === 'number' && isFinite(difficulty)) ? difficulty : 2;
+    var src = FAUNA[faunaKey(typeKey)];
+    var out = [];
+    for (var i = 0; i < src.length; i++) {
+      var e = src[i];
+      if (e.densitySpawn === false) continue;
+      if (e.nightOnly && !night) continue;
+      if ((e.hostile || e.role === 'pack') && !(diff > 0)) continue;
+      out.push(cloneFaunaEntry(e));
+    }
+    return out;
+  }
+
+  function faunaCatalog() {
+    var seen = Object.create(null);
+    var out = [];
+    var keys = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'nordic'];
+    for (var k = 0; k < keys.length; k++) {
+      var src = FAUNA[keys[k]];
+      for (var i = 0; i < src.length; i++) {
+        var t = src[i].type;
+        if (seen[t]) continue;
+        seen[t] = true;
+        var meta = FAUNA_META[t] || { name: t, habitat: '', drops: '', behavior: '' };
+        out.push({
+          type: t,
+          role: src[i].role,
+          name: meta.name,
+          habitat: meta.habitat,
+          drops: meta.drops,
+          behavior: meta.behavior
+        });
+      }
+    }
+    return out;
+  }
+
   function hazard(typeKey) {
     // 未知/损坏类型必须回退无伤害，而不能凭错误字段伤害旧存档玩家。
     var source = Object.prototype.hasOwnProperty.call(HAZARDS, typeKey) ? HAZARDS[typeKey] : HAZARDS.lush;
@@ -328,6 +503,11 @@ Voxel.PlanetRules = (function () {
     oreBlockForPosition: oreBlockForPosition,
     oreForPosition: oreForPosition,
     hazard: hazard,
-    knownType: knownType
+    knownType: knownType,
+    fauna: fauna,
+    faunaAllows: faunaAllows,
+    faunaTypes: faunaTypes,
+    faunaSpawnPlan: faunaSpawnPlan,
+    faunaCatalog: faunaCatalog
   };
 })();

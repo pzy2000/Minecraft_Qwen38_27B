@@ -18,14 +18,17 @@ Voxel.Discovery = (function () {
   var OBJECTIVE_POINTS = 10;
   var OBJECTIVE_FUEL = 5;
 
-  var FAUNA = {
-    sheep: '羊',
-    pig: '猪',
-    chicken: '鸡',
-    rabbit: '兔子',
-    cat: '猫',
-    zombie: '僵尸'
-  };
+  var FAUNA = (function () {
+    var out = Object.create(null);
+    if (Voxel.PlanetRules && typeof Voxel.PlanetRules.faunaCatalog === 'function') {
+      var cat = Voxel.PlanetRules.faunaCatalog();
+      for (var i = 0; i < cat.length; i++) out[cat[i].type] = cat[i].name;
+      if (Object.keys(out).length) return out;
+    }
+    out.sheep = '羊'; out.pig = '猪'; out.chicken = '鸡';
+    out.rabbit = '兔子'; out.cat = '猫'; out.zombie = '僵尸';
+    return out;
+  })();
   var LANDMARKS = {
     ship: '行星飞船',
     'station-terminal': '空间站航行终端',

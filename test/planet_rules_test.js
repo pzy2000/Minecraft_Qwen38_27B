@@ -414,9 +414,82 @@ try {
   P.biomeFor(1, 'arid', B.PLAINS, null, 12, -34, legacyNoise);
   P.oreAt(2, 'volcanic', 12, 0.5, 0.5, 0.5);
   P.hazard('frozen');
+  P.fauna('toxic');
+  P.faunaSpawnPlan('arid', true, 2);
+  P.faunaCatalog();
 } catch (e) { noGlobalRandom = false; }
 finally { Math.random = oldRandom; }
 check('PlanetRules全部路径不依赖Math.random', noGlobalRandom);
+
+// ---------- 7.1 行星生物表 ----------
+const LUSH_10 = ['sheep', 'pig', 'chicken', 'rabbit', 'cat', 'zombie', 'archer', 'boomer', 'wolf', 'villager'];
+function typeSet(list) {
+  const s = {};
+  for (let i = 0; i < list.length; i++) s[list[i]] = true;
+  return s;
+}
+const lushTypes = P.faunaTypes('lush');
+check('lush 含现有 10 种', LUSH_10.every(t => lushTypes.indexOf(t) >= 0) && lushTypes.length === 10);
+check('station 生成表为空', P.fauna('station').length === 0 && P.faunaSpawnPlan('station', true, 2).length === 0);
+check('未知类型回退 lush', P.faunaTypes('__nope__').join(',') === lushTypes.join(','));
+check('fauna 返回副本', (function () {
+  const a = P.fauna('toxic');
+  a.push({ type: 'zombie' });
+  return P.faunaTypes('toxic').indexOf('zombie') < 0;
+})());
+
+const toxicNight = P.faunaSpawnPlan('toxic', true, 2).map(e => e.type);
+const toxicDay = P.faunaSpawnPlan('toxic', false, 2).map(e => e.type);
+check('toxic 夜间不含 lush 僵尸组', toxicNight.indexOf('zombie') < 0 &&
+  toxicNight.indexOf('archer') < 0 && toxicNight.indexOf('boomer') < 0);
+check('toxic 夜间含孢子兽与酸液虫', toxicNight.indexOf('spore_beast') >= 0 &&
+  toxicNight.indexOf('acid_mite') >= 0);
+check('toxic 白昼不刷敌对专属种', toxicDay.indexOf('spore_beast') < 0 && toxicDay.indexOf('acid_mite') < 0);
+
+const exclusive = {
+  arid: ['sand_stalker', 'dune_scorpion'],
+  frozen: ['frost_wolf', 'yeti'],
+  volcanic: ['magma_crawler', 'ash_mite'],
+  oceanic: ['glow_jelly', 'drowned'],
+  nordic: ['fjord_wolf']
+};
+let exclusiveOk = true;
+for (const key in exclusive) {
+  const types = typeSet(P.faunaTypes(key));
+  for (let i = 0; i < exclusive[key].length; i++)
+    if (!types[exclusive[key][i]]) exclusiveOk = false;
+  if (types.zombie) exclusiveOk = false;
+}
+check('非 lush 行星含专属种且不含僵尸', exclusiveOk);
+
+const planets = ['lush', 'arid', 'frozen', 'toxic', 'volcanic', 'oceanic', 'nordic', 'station'];
+let planSubset = true;
+for (let i = 0; i < planets.length; i++) {
+  const allowed = typeSet(P.faunaTypes(planets[i]));
+  const plan = P.faunaSpawnPlan(planets[i], true, 2);
+  for (let j = 0; j < plan.length; j++)
+    if (!allowed[plan[j].type]) planSubset = false;
+}
+check('faunaSpawnPlan 不得请求表外种类', planSubset);
+check('和平难度不刷敌对与狼族', P.faunaSpawnPlan('lush', true, 0).every(e =>
+  e.role === 'wander' && !e.hostile));
+check('lush 白昼计划含被动与狼、不含夜间敌对', (function () {
+  const day = P.faunaSpawnPlan('lush', false, 2).map(e => e.type);
+  return day.indexOf('sheep') >= 0 && day.indexOf('wolf') >= 0 &&
+    day.indexOf('zombie') < 0 && day.indexOf('villager') < 0;
+})());
+
+const catalog = P.faunaCatalog();
+const catalogTypes = catalog.map(e => e.type);
+check('图鉴目录覆盖 lush 10 种与全部专属种', LUSH_10.every(t => catalogTypes.indexOf(t) >= 0) &&
+  ['sand_stalker', 'dune_scorpion', 'frost_wolf', 'yeti', 'spore_beast', 'acid_mite',
+    'magma_crawler', 'ash_mite', 'glow_jelly', 'drowned', 'fjord_wolf']
+    .every(t => catalogTypes.indexOf(t) >= 0));
+check('图鉴目录无重复且不含 station 空槽', catalogTypes.length === new Set(catalogTypes).size);
+
+check('faunaAllows 门控', P.faunaAllows('toxic', 'spore_beast') &&
+  !P.faunaAllows('toxic', 'zombie') && P.faunaAllows('lush', 'zombie') &&
+  !P.faunaAllows('station', 'sheep'));
 
 if (failed) {
   console.error('\nPLANET-RULES-FAIL: ' + failed + ' 项失败');

@@ -105,8 +105,8 @@ Voxel.Achievements = (function () {
       prog: codexItemsProg(20) },
     { id: 'codex40', cat: 'collect', name: '图鉴·半程', desc: '图鉴中解锁 40 种物品条目', glyph: '▥',
       prog: codexItemsProg(40) },
-    { id: 'zoo', cat: 'collect', name: '动物朋友圈', desc: '近距离记录全部 6 种生物', icon: 78,
-      test: zooTest },
+    { id: 'zoo', cat: 'collect', name: '动物朋友圈', desc: '近距离记录图鉴目录内全部生物', icon: 78,
+      test: zooTest, prog: zooProg },
 
     // ---- 挑战 (7) ----
     { id: 'dig250', cat: 'challenge', name: '开采专家', desc: '累计挖掘 250 个方块', icon: 2,
@@ -195,9 +195,19 @@ Voxel.Achievements = (function () {
     if (t !== 'gain' && t !== 'eat') return false;
     return P().first(110) && P().first(112) && P().first(114);
   }
+  function zooCatalogSize() {
+    if (Voxel.PlanetRules && Voxel.PlanetRules.faunaCatalog)
+      return Voxel.PlanetRules.faunaCatalog().length;
+    return 0;
+  }
+  function zooProg() {
+    var n = zooCatalogSize();
+    return [Math.min(n, P().faunaSet()), n];
+  }
   function zooTest(t, d) {
     if (t !== 'fauna') return false;
-    return P().faunaSet() >= 6;
+    var n = zooCatalogSize();
+    return n > 0 && P().faunaSet() >= n;
   }
   function ironKitTest() {
     return Voxel.Game &&

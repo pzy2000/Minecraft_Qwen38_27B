@@ -109,7 +109,20 @@ Voxel.Config = {
     WOOL_DROP: 1,             // 击杀羊掉落的羊毛数量
     CAT_FUR_DROP: 2,          // 击杀猫掉落的猫毛数量（2 猫毛合成 1 猫毛毡）
     FLEE_TIME: 3.5,           // 被动生物受击后逃跑持续秒数
-    FLEE_MULT: 1.7            // 逃跑速度倍率
+    FLEE_MULT: 1.7,           // 逃跑速度倍率
+    // 行星专属种（plan 7.1）：复用现有 AI 骨架，只改配额/血量
+    SAND_STALKER_TARGET: 2, DUNE_SCORPION_TARGET: 3,
+    FROST_WOLF_TARGET: 2, YETI_TARGET: 2,
+    SPORE_BEAST_TARGET: 3, ACID_MITE_TARGET: 2,
+    MAGMA_CRAWLER_TARGET: 3, ASH_MITE_TARGET: 2,
+    GLOW_JELLY_TARGET: 4, DROWNED_TARGET: 4,
+    FJORD_WOLF_TARGET: 2,
+    HP_SAND_STALKER: 8, HP_DUNE_SCORPION: 9,
+    HP_FROST_WOLF: 12, HP_YETI: 18,
+    HP_SPORE_BEAST: 10, HP_ACID_MITE: 5,
+    HP_MAGMA_CRAWLER: 11, HP_ASH_MITE: 7,
+    HP_GLOW_JELLY: 4, HP_DROWNED: 10,
+    HP_FJORD_WOLF: 12
   },
 
   // 渲染

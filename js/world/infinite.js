@@ -1577,6 +1577,7 @@ window.Voxel = window.Voxel || {};
     applyMeta: function (md) { FiniteWorld.applyMeta(md); },
     getSeed: function () { return FiniteWorld.getSeed(); },
     getProfile: function () { return FiniteWorld.getProfile(); },
+    planetTypeKey: function () { return planetTypeKey; },
     size: function () {
       var s = FiniteWorld.size();
       s.infiniteXZ = planetMode;

@@ -69,30 +69,46 @@ Voxel.Codex = (function () {
     return n;
   }
 
-  // ---------- 生物档案 ----------
-  var FAUNA = [
-    { type: 'sheep', name: '羊', habitat: '平原 · 森林 · 草地群系', drops: '羊毛',
-      behavior: '温和的食草动物。受惊后会逃跑；剪获的羊毛可以制作床。',
-      body: '#e8e4dc', belly: '#d9cfc2', head: '#e8b8a6', eye: '#3a3a44', extra: '#c98a76' },
-    { type: 'pig', name: '猪', habitat: '平原 · 森林', drops: '生猪排',
-      behavior: '好奇心旺盛的粉红生物。击杀掉落生猪排，烧炼后是可靠的食物。',
-      body: '#eda0a0', belly: '#f0b5ae', head: '#ef9f9f', eye: '#33333b', extra: '#d97d80' },
-    { type: 'chicken', name: '鸡', habitat: '平原 · 丛林边缘', drops: '生鸡肉',
-      behavior: '成群结队的小型鸟类。掉落生鸡肉，熟鸡肉恢复更多饥饿值。',
-      body: '#f2efe6', belly: '#faf8f0', head: '#f2efe6', eye: '#2d2d33', extra: '#d84f40' },
-    { type: 'rabbit', name: '兔', habitat: '沙漠 · 海滩 · 草原', drops: '生兔肉',
-      behavior: '警觉的跳跃者，稍有风吹草动便钻进草丛。生兔肉可以烤成美味。',
-      body: '#c49a72', belly: '#dcc7ad', head: '#caa079', eye: '#2e2a26', extra: '#8f6d4e' },
-    { type: 'cat', name: '猫', habitat: '森林 · 村落遗迹附近', drops: '猫毛',
-      behavior: '优雅独立的旅伴。靠近它可以撸猫（有隐藏惊喜），也能收获猫毛毡原料。',
-      body: '#e0aa6e', belly: '#eeC79a', head: '#e0aa6e', eye: '#4a7d3a', extra: '#b57f43' },
-    { type: 'zombie', name: '僵尸', habitat: '夜晚的地表 · 黑暗角落', drops: '腐坏气息',
-      behavior: '危险的敌对生物，夜间主动袭击。保持距离或筑起围墙——小心它的拥抱。',
-      body: '#5f8f52', belly: '#4c7042', head: '#74a862', eye: '#1e2a1c', extra: '#37502f' },
-    { type: 'wolf', name: '狼', habitat: '森林 · 针叶林 · 黑森林', drops: '箭',
-      behavior: '中立的掠食者，猎捕弱小生物为食。手持生肉喂两次即可驯服——它会跟随并保护你。',
-      body: '#8a8074', belly: '#9a9288', head: '#8a8074', eye: '#f2d84e', extra: '#6b625a' }
-  ];
+  // ---------- 生物档案（种类与文案同源 PlanetRules.faunaCatalog）----------
+  var PORTRAIT = {
+    sheep: { body: '#e8e4dc', belly: '#d9cfc2', head: '#e8b8a6', eye: '#3a3a44', extra: '#c98a76', pose: 'quad' },
+    pig: { body: '#eda0a0', belly: '#f0b5ae', head: '#ef9f9f', eye: '#33333b', extra: '#d97d80', pose: 'quad' },
+    chicken: { body: '#f2efe6', belly: '#faf8f0', head: '#f2efe6', eye: '#2d2d33', extra: '#d84f40', pose: 'quad' },
+    rabbit: { body: '#c49a72', belly: '#dcc7ad', head: '#caa079', eye: '#2e2a26', extra: '#8f6d4e', pose: 'quad' },
+    cat: { body: '#e0aa6e', belly: '#eec79a', head: '#e0aa6e', eye: '#4a7d3a', extra: '#b57f43', pose: 'quad' },
+    zombie: { body: '#5f8f52', belly: '#4c7042', head: '#74a862', eye: '#1e2a1c', extra: '#37502f', pose: 'upright' },
+    archer: { body: '#d8d4c4', belly: '#bdb8a5', head: '#d8d4c4', eye: '#2a2a28', extra: '#6e5636', pose: 'upright' },
+    boomer: { body: '#63a83c', belly: '#8cc763', head: '#63a83c', eye: '#101010', extra: '#3f7d2a', pose: 'blob' },
+    wolf: { body: '#8a8074', belly: '#9a9288', head: '#8a8074', eye: '#f2d84e', extra: '#6b625a', pose: 'quad' },
+    villager: { body: '#7a5c38', belly: '#a8865a', head: '#d8b088', eye: '#30302c', extra: '#4a6e5c', pose: 'upright' },
+    sand_stalker: { body: '#c9b48a', belly: '#8a6a3c', head: '#c9b48a', eye: '#2a2218', extra: '#6e5636', pose: 'upright' },
+    dune_scorpion: { body: '#b86a2a', belly: '#8a4a18', head: '#b86a2a', eye: '#1a1008', extra: '#3a2010', pose: 'blob' },
+    frost_wolf: { body: '#d8e4ee', belly: '#8aa0b0', head: '#d8e4ee', eye: '#7ec8ff', extra: '#8aa0b0', pose: 'quad' },
+    yeti: { body: '#e8eef4', belly: '#c8d0d8', head: '#e8eef4', eye: '#2a3038', extra: '#c8d0d8', pose: 'upright' },
+    spore_beast: { body: '#6b8f3a', belly: '#3d5a22', head: '#a85cb0', eye: '#1a2010', extra: '#a85cb0', pose: 'blob' },
+    acid_mite: { body: '#8ccf3a', belly: '#d4f07a', head: '#8ccf3a', eye: '#101010', extra: '#4a7a18', pose: 'blob' },
+    magma_crawler: { body: '#4a2a22', belly: '#ff6a20', head: '#4a2a22', eye: '#ffaa44', extra: '#ff6a20', pose: 'blob' },
+    ash_mite: { body: '#6a6460', belly: '#e07030', head: '#6a6460', eye: '#e8a050', extra: '#e07030', pose: 'upright' },
+    glow_jelly: { body: '#7ad8e8', belly: '#d8fff4', head: '#7ad8e8', eye: '#e8ffff', extra: '#d8fff4', pose: 'blob' },
+    drowned: { body: '#3a7a72', belly: '#2a4a58', head: '#3a7a72', eye: '#1e2a1c', extra: '#2a5a40', pose: 'upright' },
+    fjord_wolf: { body: '#4a4e52', belly: '#2e3236', head: '#4a4e52', eye: '#e8c84a', extra: '#2e3236', pose: 'quad' }
+  };
+
+  function faunaList() {
+    if (!Voxel.PlanetRules || !Voxel.PlanetRules.faunaCatalog) return [];
+    var cat = Voxel.PlanetRules.faunaCatalog();
+    var out = [];
+    for (var i = 0; i < cat.length; i++) {
+      var e = cat[i];
+      var p = PORTRAIT[e.type] || { body: '#888', belly: '#666', head: '#888', eye: '#111', extra: '#444', pose: 'quad' };
+      out.push({
+        type: e.type, name: e.name, habitat: e.habitat, drops: e.drops, behavior: e.behavior,
+        body: p.body, belly: p.belly, head: p.head, eye: p.eye, extra: p.extra, pose: p.pose
+      });
+    }
+    return out;
+  }
+  var FAUNA = faunaList();
 
   // ---------- 生物像素像 ----------
   function drawMobPortrait(canvas, spec, locked) {
@@ -120,8 +136,8 @@ Voxel.Codex = (function () {
       ctx.fillText('?', S / 2, S / 2);
       return;
     }
-    // 身体 / 头 / 四肢 —— 统一小兽比例，僵尸直立
-    if (spec.type === 'zombie') {
+    // 身体 / 头 / 四肢 —— 统一小兽比例；直立种走人形剪影
+    if (spec.pose === 'upright' || spec.type === 'zombie') {
       r(6, 5, 4, 6, spec.body);        // 躯干
       r(6, 11, 1, 3, spec.extra);      // 左腿
       r(9, 11, 1, 3, spec.extra);      // 右腿

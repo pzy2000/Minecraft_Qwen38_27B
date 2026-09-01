@@ -247,6 +247,140 @@ Voxel.Mobs = (function () {
     return { variant: String(vi), voice: v.voice, w: 0.5 * s, h: 0.75 * s, mainColor: v.fur, parts: parts };
   }
 
+  function sandStalkerBuild() {
+    var bone = 0xc9b48a, wrap = 0x8a6a3c;
+    return { variant: '', w: 0.5, h: 1.7, mainColor: bone, parts: [
+      [0.36, 0.38, 0.36, 0, 1.48, 0, bone],
+      [0.30, 0.56, 0.20, 0, 1.00, 0, wrap],
+      [0.10, 0.50, 0.10, -0.28, 1.02, 0.20, bone],
+      [0.10, 0.08, 0.68, 0.28, 1.12, 0.34, 0x6e5636],
+      [0.13, 0.50, 0.13, -0.09, 0.26, 0, wrap],
+      [0.13, 0.50, 0.13, 0.09, 0.26, 0, wrap]
+    ] };
+  }
+  function duneScorpionBuild() {
+    var car = 0xb86a2a, claw = 0x8a4a18, stinger = 0x3a2010;
+    return { variant: '', w: 0.85, h: 0.85, mainColor: car, parts: [
+      [0.70, 0.28, 0.90, 0, 0.38, -0.04, car],
+      [0.28, 0.22, 0.28, 0, 0.42, 0.52, car],
+      [0.22, 0.10, 0.34, -0.42, 0.36, 0.40, claw],
+      [0.22, 0.10, 0.34, 0.42, 0.36, 0.40, claw],
+      [0.10, 0.10, 0.36, 0, 0.52, -0.52, stinger],
+      [0.12, 0.22, 0.12, -0.22, 0.12, 0.22, claw],
+      [0.12, 0.22, 0.12, 0.22, 0.12, 0.22, claw],
+      [0.12, 0.22, 0.12, -0.22, 0.12, -0.28, claw],
+      [0.12, 0.22, 0.12, 0.22, 0.12, -0.28, claw]
+    ] };
+  }
+  function tintedWolfBuild(collar, fur, dark, eye, collarHex, variant) {
+    var parts = [
+      [0.44, 0.42, 0.72, 0, 0.52, -0.02, fur],
+      [0.32, 0.30, 0.30, 0, 0.62, 0.46, fur],
+      [0.26, 0.20, 0.18, 0, 0.54, 0.64, dark],
+      [0.07, 0.08, 0.04, 0, 0.56, 0.78, 0x181818],
+      [0.09, 0.11, 0.05, -0.10, 0.82, 0.44, dark],
+      [0.09, 0.11, 0.05, 0.10, 0.82, 0.44, dark],
+      [0.10, 0.10, 0.06, -0.11, 0.66, 0.55, eye],
+      [0.10, 0.10, 0.06, 0.11, 0.66, 0.55, eye],
+      [0.12, 0.34, 0.12, -0.15, 0.15, 0.22, dark],
+      [0.12, 0.34, 0.12, 0.15, 0.15, 0.22, dark],
+      [0.12, 0.34, 0.12, -0.15, 0.15, -0.24, dark],
+      [0.12, 0.34, 0.12, 0.15, 0.15, -0.24, dark],
+      [0.10, 0.10, 0.30, 0, 0.58, -0.40, fur],
+      [0.08, 0.08, 0.24, 0, 0.66, -0.60, dark]
+    ];
+    if (collar) parts.push([0.36, 0.09, 0.36, 0, 0.48, 0.38, collarHex]);
+    return { variant: collar ? (variant + '_c') : variant, w: 0.55, h: 0.95, mainColor: fur, parts: parts };
+  }
+  function frostWolfBuild(collar) {
+    return tintedWolfBuild(collar, 0xd8e4ee, 0x8aa0b0, 0x7ec8ff, 0x3a6ea8, '');
+  }
+  function fjordWolfBuild(collar) {
+    return tintedWolfBuild(collar, 0x4a4e52, 0x2e3236, 0xe8c84a, 0xc03a3a, '');
+  }
+  function yetiBuild() {
+    var fur = 0xe8eef4, skin = 0xc8d0d8;
+    return { variant: '', w: 0.9, h: 2.15, mainColor: fur, parts: [
+      [0.70, 0.55, 0.55, 0, 1.72, 0, fur],
+      [0.72, 0.80, 0.42, 0, 1.10, 0, fur],
+      [0.22, 0.70, 0.22, -0.48, 1.15, 0.18, skin],
+      [0.22, 0.70, 0.22, 0.48, 1.15, 0.18, skin],
+      [0.22, 0.62, 0.22, -0.16, 0.32, 0, fur],
+      [0.22, 0.62, 0.22, 0.16, 0.32, 0, fur]
+    ] };
+  }
+  function sporeBeastBuild() {
+    var body = 0x6b8f3a, cap = 0xa85cb0, spot = 0x3d5a22;
+    return { variant: '', w: 0.75, h: 1.35, mainColor: body, parts: [
+      [0.62, 0.48, 0.70, 0, 0.55, 0, body],
+      [0.50, 0.36, 0.50, 0, 1.05, 0.08, cap],
+      [0.16, 0.12, 0.16, -0.16, 0.62, 0.32, spot],
+      [0.16, 0.12, 0.16, 0.16, 0.62, 0.32, spot],
+      [0.14, 0.36, 0.14, -0.20, 0.18, 0.18, body],
+      [0.14, 0.36, 0.14, 0.20, 0.18, 0.18, body],
+      [0.14, 0.36, 0.14, -0.18, 0.18, -0.22, body],
+      [0.14, 0.36, 0.14, 0.18, 0.18, -0.22, body]
+    ] };
+  }
+  function acidMiteBuild() {
+    var body = 0x8ccf3a, blotch = 0x4a7a18, belly = 0xd4f07a;
+    return { variant: '', w: 0.65, h: 0.9, mainColor: body, parts: [
+      [0.60, 0.48, 0.70, 0, 0.42, -0.02, body],
+      [0.18, 0.14, 0.10, -0.12, 0.56, 0.32, 0x101010],
+      [0.18, 0.14, 0.10, 0.12, 0.56, 0.32, 0x101010],
+      [0.28, 0.16, 0.14, 0, 0.34, 0.34, belly],
+      [0.40, 0.08, 0.10, 0, 0.66, -0.04, blotch],
+      [0.12, 0.28, 0.12, -0.20, 0.14, 0.20, blotch],
+      [0.12, 0.28, 0.12, 0.20, 0.14, 0.20, blotch],
+      [0.12, 0.28, 0.12, -0.20, 0.14, -0.24, blotch],
+      [0.12, 0.28, 0.12, 0.20, 0.14, -0.24, blotch]
+    ] };
+  }
+  function magmaCrawlerBuild() {
+    var rock = 0x4a2a22, glow = 0xff6a20;
+    return { variant: '', w: 0.8, h: 0.7, mainColor: rock, parts: [
+      [0.72, 0.28, 0.86, 0, 0.32, 0, rock],
+      [0.20, 0.10, 0.40, 0, 0.42, 0.10, glow],
+      [0.14, 0.22, 0.14, -0.24, 0.12, 0.24, rock],
+      [0.14, 0.22, 0.14, 0.24, 0.12, 0.24, rock],
+      [0.14, 0.22, 0.14, -0.24, 0.12, -0.26, rock],
+      [0.14, 0.22, 0.14, 0.24, 0.12, -0.26, rock]
+    ] };
+  }
+  function ashMiteBuild() {
+    var ash = 0x6a6460, ember = 0xe07030;
+    return { variant: '', w: 0.5, h: 1.15, mainColor: ash, parts: [
+      [0.28, 0.28, 0.28, 0, 0.95, 0, ash],
+      [0.24, 0.40, 0.18, 0, 0.60, 0, ash],
+      [0.08, 0.06, 0.50, 0.18, 0.68, 0.22, ember],
+      [0.10, 0.36, 0.10, -0.08, 0.18, 0, ash],
+      [0.10, 0.36, 0.10, 0.08, 0.18, 0, ash]
+    ] };
+  }
+  function glowJellyBuild() {
+    var bell = 0x7ad8e8, glow = 0xd8fff4;
+    return { variant: '', w: 0.7, h: 0.85, mainColor: bell, parts: [
+      [0.62, 0.28, 0.62, 0, 0.58, 0, bell],
+      [0.36, 0.16, 0.36, 0, 0.42, 0, glow],
+      [0.06, 0.32, 0.06, -0.16, 0.18, 0.10, bell],
+      [0.06, 0.32, 0.06, 0.16, 0.18, 0.10, bell],
+      [0.06, 0.28, 0.06, -0.06, 0.16, -0.12, glow],
+      [0.06, 0.28, 0.06, 0.08, 0.16, 0.14, glow]
+    ] };
+  }
+  function drownedBuild() {
+    var skin = 0x3a7a72, weed = 0x2a5a40, cloth = 0x2a4a58;
+    return { variant: '', w: 0.6, h: 1.8, mainColor: skin, parts: [
+      [0.42, 0.42, 0.42, 0, 1.55, 0, skin],
+      [0.44, 0.62, 0.26, 0, 1.02, 0, cloth],
+      [0.18, 0.10, 0.18, 0, 1.78, 0.08, weed],
+      [0.14, 0.55, 0.14, -0.32, 1.05, 0.30, skin],
+      [0.14, 0.55, 0.14, 0.32, 1.05, 0.30, skin],
+      [0.16, 0.55, 0.16, -0.11, 0.28, 0, cloth],
+      [0.16, 0.55, 0.16, 0.11, 0.28, 0, cloth]
+    ] };
+  }
+
   var BUILDERS = {
     sheep:   { make: sheepBuild,   hp: function () { return C.HP_SHEEP; },   speedMul: 1 },
     pig:     { make: pigBuild,     hp: function () { return C.HP_PIG; },     speedMul: 0.95 },
@@ -257,14 +391,42 @@ Voxel.Mobs = (function () {
     archer:  { make: archerBuild,  hp: function () { return C.HP_ARCHER; },  speedMul: 1 },
     boomer:  { make: boomerBuild,  hp: function () { return C.HP_BOOMER; },  speedMul: 1 },
     wolf:    { make: function () { return wolfBuild(false); }, hp: function () { return C.HP_WOLF; }, speedMul: 1.15 },
-    villager:{ make: function () { return villagerBuild((Math.random() * 2) | 0); }, hp: function () { return C.HP_VILLAGER; }, speedMul: 0.85 }
+    villager:{ make: function () { return villagerBuild((Math.random() * 2) | 0); }, hp: function () { return C.HP_VILLAGER; }, speedMul: 0.85 },
+    sand_stalker:  { make: sandStalkerBuild,  hp: function () { return C.HP_SAND_STALKER; },  speedMul: 1.05 },
+    dune_scorpion: { make: duneScorpionBuild, hp: function () { return C.HP_DUNE_SCORPION; }, speedMul: 1.2 },
+    frost_wolf:    { make: function () { return frostWolfBuild(false); }, hp: function () { return C.HP_FROST_WOLF; }, speedMul: 1.15 },
+    yeti:          { make: yetiBuild,         hp: function () { return C.HP_YETI; },         speedMul: 0.65, meleeMul: 1.6 },
+    spore_beast:   { make: sporeBeastBuild,   hp: function () { return C.HP_SPORE_BEAST; },  speedMul: 1.05 },
+    acid_mite:     { make: acidMiteBuild,     hp: function () { return C.HP_ACID_MITE; },    speedMul: 1.1 },
+    magma_crawler: { make: magmaCrawlerBuild, hp: function () { return C.HP_MAGMA_CRAWLER; }, speedMul: 1.15 },
+    ash_mite:      { make: ashMiteBuild,      hp: function () { return C.HP_ASH_MITE; },     speedMul: 1.1 },
+    glow_jelly:    { make: glowJellyBuild,    hp: function () { return C.HP_GLOW_JELLY; },   speedMul: 0.7 },
+    drowned:       { make: drownedBuild,      hp: function () { return C.HP_DROWNED; },      speedMul: 1 },
+    fjord_wolf:    { make: function () { return fjordWolfBuild(false); }, hp: function () { return C.HP_FJORD_WOLF; }, speedMul: 1.15 }
   };
 
   // 行为表与渲染构建器分离：合批只改变 Mesh 结构，不改变逃跑、声音和掉落语义。
-  var PASSIVE = { sheep: true, pig: true, chicken: true, rabbit: true, cat: true };
-  var HOSTILE = { zombie: true, archer: true, boomer: true };
-  // 狼：中立捕食者（可驯服），村民：服务型 NPC（不可喂食/攻击无掉落）
-  var NEUTRAL = { wolf: true };
+  var ROLE = {
+    sheep: 'wander', pig: 'wander', chicken: 'wander', rabbit: 'wander', cat: 'wander',
+    glow_jelly: 'wander',
+    zombie: 'chase', dune_scorpion: 'chase', yeti: 'chase', spore_beast: 'chase',
+    magma_crawler: 'chase', drowned: 'chase',
+    archer: 'kite', sand_stalker: 'kite', ash_mite: 'kite',
+    boomer: 'explode', acid_mite: 'explode',
+    wolf: 'pack', frost_wolf: 'pack', fjord_wolf: 'pack',
+    villager: 'npc'
+  };
+  var PASSIVE = { sheep: true, pig: true, chicken: true, rabbit: true, cat: true, glow_jelly: true };
+  var HOSTILE = {
+    zombie: true, archer: true, boomer: true,
+    sand_stalker: true, dune_scorpion: true, yeti: true,
+    spore_beast: true, acid_mite: true, magma_crawler: true,
+    ash_mite: true, drowned: true
+  };
+  // 狼族：中立捕食者（可驯服），村民：服务型 NPC（不可喂食/攻击无掉落）
+  var NEUTRAL = { wolf: true, frost_wolf: true, fjord_wolf: true };
+  var BURNS_SUN = { zombie: true, archer: true, drowned: true };
+  var PACK_COLLAR = { wolf: wolfBuild, frost_wolf: frostWolfBuild, fjord_wolf: fjordWolfBuild };
   // 捕食链：狼猎食的物种（排除猫——它可能是玩家的伙伴）
   var PREY_TYPES = ['sheep', 'pig', 'chicken', 'rabbit'];
   // 喂养食物偏好：命中即可进入求爱状态；wolf 为驯服通道
@@ -272,7 +434,9 @@ Voxel.Mobs = (function () {
     sheep: [5],              // 树叶
     pig: [109], chicken: [111], rabbit: [113],
     cat: [110, 112],         // 熟肉
-    wolf: [109, 111, 113]    // 生肉 ×2 次驯服
+    wolf: [109, 111, 113],    // 生肉 ×2 次驯服
+    frost_wolf: [109, 111, 113],
+    fjord_wolf: [109, 111, 113]
   };
   var KILL_DROPS = {
     sheep: [16, C.WOOL_DROP],
@@ -281,7 +445,17 @@ Voxel.Mobs = (function () {
     rabbit: [113, 1],     // 生兔肉
     cat: [121, C.CAT_FUR_DROP], // 猫毛（2 猫毛 → 1 猫毛毡）
     archer: [107, 1],     // 煤炭（白骨燃料，产量与骨架同源）
-    wolf: [135, 1]        // 狼牙可削箭杆 → 掉落箭 ×1
+    wolf: [135, 1],        // 狼牙可削箭杆 → 掉落箭 ×1
+    sand_stalker: [135, 1],
+    dune_scorpion: [107, 1],
+    frost_wolf: [135, 1],
+    yeti: [16, 2],
+    spore_beast: [5, 1],
+    magma_crawler: [107, 1],
+    ash_mite: [135, 1],
+    glow_jelly: [113, 1],
+    drowned: [107, 1],
+    fjord_wolf: [135, 1]
   };
   var VOICE = { sheep: 'sheep', pig: 'pig', chicken: 'chicken', rabbit: 'rabbit', cat: 'cat', zombie: 'zombie' };
   var VOICE_HURT = { sheep: 'sheepHurt', pig: 'pigHurt', chicken: 'chickenHurt', rabbit: 'rabbitHurt', cat: 'catHurt' };
@@ -305,17 +479,39 @@ Voxel.Mobs = (function () {
     archer: 'ARCHER_TARGET',
     boomer: 'BOOMER_TARGET',
     wolf: 'WOLF_TARGET',
-    villager: 'VILLAGER_TARGET'
+    villager: 'VILLAGER_TARGET',
+    sand_stalker: 'SAND_STALKER_TARGET',
+    dune_scorpion: 'DUNE_SCORPION_TARGET',
+    frost_wolf: 'FROST_WOLF_TARGET',
+    yeti: 'YETI_TARGET',
+    spore_beast: 'SPORE_BEAST_TARGET',
+    acid_mite: 'ACID_MITE_TARGET',
+    magma_crawler: 'MAGMA_CRAWLER_TARGET',
+    ash_mite: 'ASH_MITE_TARGET',
+    glow_jelly: 'GLOW_JELLY_TARGET',
+    drowned: 'DROWNED_TARGET',
+    fjord_wolf: 'FJORD_WOLF_TARGET'
   };
 
   // 各被动生物可生成的地表方块 + 是否允许出现在该群系（biomes.js 的 mobs 表）
   var PASSIVE_SURFACES = {
-    sheep: [1, 18, 24],
+    sheep: [1, 18, 24, 215],
     pig: [1, 2, 24],
     chicken: [1, 2, 24],
-    rabbit: [1, 2, 6, 18, 24],
+    rabbit: [1, 2, 6, 18, 24, 28, 215],
     cat: [1],
-    wolf: [1]
+    wolf: [1],
+    frost_wolf: [1, 18, 32],
+    fjord_wolf: [1, 215, 18],
+    glow_jelly: [6, 28, 3],
+    sand_stalker: [6, 28],
+    dune_scorpion: [6, 28, 29],
+    yeti: [18, 32, 3],
+    spore_beast: [1, 2, 53],
+    acid_mite: [1, 2, 53],
+    magma_crawler: [3, 28, 29],
+    ash_mite: [3, 14, 28],
+    drowned: [6, 3, 1]
   };
   // 群系门控类型（trySpawn 检查 biome mobs 表）之外的独立白名单
   var EXTRA_BIOME_GATE = {
@@ -446,8 +642,8 @@ Voxel.Mobs = (function () {
       m.fleeRepath = 0;
       m.moveTime = Math.max(m.moveTime, m.fleeT);
     }
-    // 狼被激怒：追咬攻击者（驯服狼不受此项影响）
-    if (m.type === 'wolf' && !m.tamed) {
+    // 狼族被激怒：追咬攻击者（驯服个体不受此项影响）
+    if (ROLE[m.type] === 'pack' && !m.tamed) {
       m.agroT = C.WOLF_AGGRO_TIME;
       m.path = null;
       var wsp = Voxel.Sound.spatial ? Voxel.Sound.spatial(m.pos.x, m.pos.z) : { vol: 1, pan: 0 };
@@ -472,9 +668,23 @@ Voxel.Mobs = (function () {
     if (i >= 0) removeAt(i);
   }
 
+  function currentPlanetKey() {
+    if (Voxel.World && typeof Voxel.World.planetTypeKey === 'function')
+      return Voxel.World.planetTypeKey() || 'lush';
+    var p = Voxel.World && Voxel.World.getProfile && Voxel.World.getProfile();
+    if (p && typeof p.typeKey === 'string') return p.typeKey;
+    return 'lush';
+  }
+
   function trySpawn(type) {
+    if (!BUILDERS[type]) return null;
+    var planet = currentPlanetKey();
+    if (Voxel.PlanetRules && Voxel.PlanetRules.faunaAllows &&
+      !Voxel.PlanetRules.faunaAllows(planet, type)) return null;
     var Pp = Voxel.Player.pos();
     var surfaces = PASSIVE_SURFACES[type];
+    var lushVanilla = planet === 'lush';
+    var preferWater = type === 'glow_jelly';
     for (var a = 0; a < 12; a++) {
       var ang = Math.random() * Math.PI * 2;
       var dist = C.SPAWN_MIN + Math.random() * (C.SPAWN_MAX - C.SPAWN_MIN);
@@ -482,13 +692,18 @@ Voxel.Mobs = (function () {
       var z = Math.floor(Pp.z + Math.sin(ang) * dist);
       var y = Voxel.World.surfaceAt(x, z);
       if (y < 3 || y >= H - 4) continue;
-      // 地表方块匹配 + 群系允许该生物（敌对生物全域出没，不做群系门控）
       if (surfaces && surfaces.indexOf(Voxel.World.get(x, y, z)) < 0) continue;
-      if (PASSIVE[type]) {
+      // lush 保留原群系门控；其它行星以 PlanetRules 表为准
+      if (lushVanilla && PASSIVE[type]) {
         var bd = Voxel.Biomes.def(Voxel.World.biomeAt(x, z));
         if (!bd.mobs || bd.mobs.indexOf(type) < 0) continue;
-      } else if (type === 'wolf') {
+      } else if (lushVanilla && type === 'wolf') {
         if (!wolfBiomeSet()[Voxel.World.biomeAt(x, z)]) continue;
+      }
+      if (preferWater && Voxel.World.get(x, y + 1, z) === 7) {
+        var wy = y + 1;
+        while (wy < H - 4 && Voxel.World.get(x, wy + 1, z) === 7) wy++;
+        return spawn(type, new THREE.Vector3(x + 0.5, wy + 0.25, z + 0.5));
       }
       if (Voxel.World.get(x, y + 1, z) !== 0 || Voxel.World.get(x, y + 2, z) !== 0) continue;
       return spawn(type, new THREE.Vector3(x + 0.5, y + 1.02, z + 0.5));
@@ -501,23 +716,17 @@ Voxel.Mobs = (function () {
     for (var i = 0; i < list.length; i++) {
       counts[list[i].type] = (counts[list[i].type] || 0) + 1;
     }
-    if ((counts.sheep || 0) < densityTarget('sheep')) trySpawn('sheep');
-    if ((counts.pig || 0) < densityTarget('pig')) trySpawn('pig');
-    if ((counts.chicken || 0) < densityTarget('chicken')) trySpawn('chicken');
-    if ((counts.rabbit || 0) < densityTarget('rabbit')) trySpawn('rabbit');
-    if ((counts.cat || 0) < densityTarget('cat')) trySpawn('cat');
-    // 和平难度不刷怪；噩梦难度怪物目标 ×1.5
     var diff = diffLevel();
-    if (night && diff > 0) {
-      var nightmareMul = diff >= 3 ? 1.5 : 1;
-      var zTarget = Math.round(densityTarget('zombie') * (diff >= 3 ? 1.5 : 1));
-      if ((counts.zombie || 0) < zTarget) trySpawn('zombie');
-      if ((counts.archer || 0) < Math.round(densityTarget('archer') * nightmareMul)) trySpawn('archer');
-      if ((counts.boomer || 0) < Math.round(densityTarget('boomer') * nightmareMul)) trySpawn('boomer');
+    var nightmareMul = diff >= 3 ? 1.5 : 1;
+    var plan = Voxel.PlanetRules && Voxel.PlanetRules.faunaSpawnPlan
+      ? Voxel.PlanetRules.faunaSpawnPlan(currentPlanetKey(), night, diff)
+      : [];
+    for (var p = 0; p < plan.length; p++) {
+      var e = plan[p];
+      var want = densityTarget(e.type);
+      if (e.hostile || e.role === 'pack') want = Math.round(want * nightmareMul);
+      if ((counts[e.type] || 0) < want) trySpawn(e.type);
     }
-    // 狼：昼夜都出没（中立捕食者），和平难度不生成
-    if (diff > 0 && (counts.wolf || 0) < Math.round(densityTarget('wolf') * nightmareMul))
-      trySpawn('wolf');
   }
 
   // ================= 轻量寻路（网格 A*）=================
@@ -721,8 +930,9 @@ Voxel.Mobs = (function () {
 
   // 驯服换项圈几何（variant '_c' 命中同一缓存族）
   function applyCollarMesh(m) {
-    var b = wolfBuild(true);
-    m.group.geometry = getGeo('wolf' + b.variant, b.parts);
+    var make = PACK_COLLAR[m.type] || wolfBuild;
+    var b = make(true);
+    m.group.geometry = getGeo(m.type + b.variant, b.parts);
   }
 
   // 就近找同类求爱对象
@@ -751,7 +961,7 @@ Voxel.Mobs = (function () {
     if (m.loveT > 0 || m.breedCd > 0) return false;   // 吃撑了 / 冷却中不接受
     spawnHeartBurst(m.pos, m.h);
     Voxel.Sound.heart();
-    if (m.type === 'wolf' && !m.tamed) {
+    if (ROLE[m.type] === 'pack' && !m.tamed) {
       m.trust++;
       if (m.trust >= 2) {
         m.tamed = true;
@@ -930,8 +1140,9 @@ Voxel.Mobs = (function () {
       var Pv = Pl.pos();
       var pvV = Pl_velSafe();
       var isWolfHandled = false;
-      if (m.type === 'wolf' && alive && diffLevel() > 0) {
-        // ---- 狼：驯服跟随 / 激怒扑咬 / 狩猎被动生物 ----
+      var role = ROLE[m.type] || 'wander';
+      if (role === 'pack' && alive && diffLevel() > 0) {
+        // ---- 狼族：驯服跟随 / 激怒扑咬 / 狩猎被动生物 ----
         speed = wolfAI(m, dt, Pv, m.speedMul);
         isWolfHandled = true;
       }
@@ -944,8 +1155,8 @@ Voxel.Mobs = (function () {
         var spdMul = (diff <= 1 ? 0.9 : (diff >= 3 ? 1.18 : 1)) * m.speedMul;
         var seesYou = dist < C.ZOMBIE_RANGE && losClear(m);
 
-        // ---- 自爆虫引信：点燃后不因视线中断熄灭；拉开 FUSE_CANCEL 距离则拆除
-        if (m.type === 'boomer') {
+        // ---- 自爆引信：点燃后不因视线中断熄灭；拉开 FUSE_CANCEL 距离则拆除
+        if (role === 'explode') {
           if (m.fuse < 0 && dist < 2.6 && seesYou) { m.fuse = C.FUSE_TIME; m.path = null; }
           if (m.fuse >= 0) {
             m.fuse -= dt;
@@ -955,8 +1166,8 @@ Voxel.Mobs = (function () {
           }
         }
 
-        // ---- 弓手：中距离风筝射击
-        if (m.type === 'archer' && seesYou && dist <= C.ARCHER_RANGE_MAX &&
+        // ---- 风筝：中距离射击
+        if (role === 'kite' && seesYou && dist <= C.ARCHER_RANGE_MAX &&
           dist >= C.ARCHER_RANGE_MIN * 0.6) {
           if (dist < C.ARCHER_RANGE_MIN) {
             // 贴脸就退（背向玩家走位）
@@ -977,18 +1188,20 @@ Voxel.Mobs = (function () {
         }
         // ---- 僧尸/未进入射程的弓手/未点燃的自爆虫：追击
         else if (seesYou || HOSTILE[m.type]) {
-          var chaseSpeed = m.type === 'zombie' ? C.ZOMBIE_SPEED : C[m.type === 'archer' ? 'ARCHER_SPEED' : 'BOOMER_SPEED'];
+          var chaseSpeed = role === 'kite' ? C.ARCHER_SPEED
+            : (role === 'explode' ? C.BOOMER_SPEED : C.ZOMBIE_SPEED);
           if (seesYou && dist < 10) {
             // 近距直扑：视线通畅且够近时不绕路
             m.dir = Math.atan2(-px, -pz);
             m.moveTime = 1;
             m.path = null;
             speed = chaseSpeed * spdMul * (dist < 8 ? 1.35 : 1);
-            // 僵尸近身攻击（命中带方向指示与击退）
-            if (m.type === 'zombie' && dist < 1.6 && Math.abs(Pv.y - m.pos.y) < 2.4 && m.attackCd <= 0) {
+            // 近身攻击（命中带方向指示与击退）
+            if (role === 'chase' && dist < 1.6 && Math.abs(Pv.y - m.pos.y) < 2.4 && m.attackCd <= 0) {
               m.attackCd = 1.2;
               var dmgMul = diff <= 1 ? 0.7 : (diff >= 3 ? 2 : 1);
-              Pl.damage(Math.max(1, Math.round(C.ZOMBIE_DMG * dmgMul)), 'zombie', m.pos.x, m.pos.z);
+              var melee = (BUILDERS[m.type] && BUILDERS[m.type].meleeMul) || 1;
+              Pl.damage(Math.max(1, Math.round(C.ZOMBIE_DMG * dmgMul * melee)), m.type, m.pos.x, m.pos.z);
               if (Pl.knockback) {
                 var klen = Math.sqrt(px * px + pz * pz) || 1;
                 Pl.knockback(px / klen, pz / klen, 8);
@@ -1100,8 +1313,8 @@ Voxel.Mobs = (function () {
       m.bobY = (speed > 0 && m.onGround) ? Math.sin(t * 9 + i) * 0.03 : 0;
       m.group.rotation.y = m.dir + Math.PI;
 
-      // 白天烧僵尸与弓手（需露天：天光 ≥ 12，洞穴里不烧）
-      if ((m.type === 'zombie' || m.type === 'archer') &&
+      // 白天烧亡灵（需露天：天光 ≥ 12，洞穴里不烧）
+      if (BURNS_SUN[m.type] &&
         Voxel.DayNight.sunlight() > 0.55 &&
         Voxel.World.getSky(Math.floor(m.pos.x), Math.floor(m.pos.y + 1.5), Math.floor(m.pos.z)) >= 12) {
         m.hp -= dt * 4;
@@ -1187,7 +1400,10 @@ Voxel.Mobs = (function () {
     },
     _test: {
       densityTarget: densityTarget,
-      diffLevel: diffLevel
+      diffLevel: diffLevel,
+      currentPlanetKey: currentPlanetKey,
+      trySpawn: trySpawn,
+      ROLE: ROLE
     }
   };
 })();

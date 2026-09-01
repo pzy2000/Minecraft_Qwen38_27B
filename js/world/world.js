@@ -1136,6 +1136,7 @@ Voxel.World = (function () {
     applyMeta: function (md) { meta = md || {}; },
     getSeed: function () { return seed; },
     getProfile: function () { return profile; },
+    planetTypeKey: function () { return planetTypeKey; },
     voxelBytes: function () {
       var b = Voxel.Sections ? Voxel.Sections.estimateBytes(data, W, H, D, 2) : (data ? data.byteLength : 0);
       var s = skyL ? (skyL.estimateBytes ? skyL.estimateBytes() : skyL.byteLength) : 0;

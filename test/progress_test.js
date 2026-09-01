@@ -24,6 +24,8 @@ function load(rel) {
 }
 
 load('js/config.js');
+load('js/world/biomes.js');
+load('js/world/planet_rules.js');
 load('js/blocks.js');
 load('js/systems/discovery.js');   // 不被依赖，仅保证 Voxel 命名空间加载顺序贴近真实
 load('js/systems/progress.js');
@@ -214,13 +216,26 @@ check(' totalOf 分类统计与全量一致', (function () {
 })());
 
 // ---------- 图鉴逻辑 ----------
-check('图鉴生物档案 7 种且 type 与游戏生物一致', (function () {
-  var types = ['sheep', 'pig', 'chicken', 'rabbit', 'cat', 'zombie', 'wolf'];
-  if (Codex.FAUNA.length !== 7) return false;
-  for (var i = 0; i < types.length; i++) {
+check('zoo 成就不再在第 6 种提前完成', (function () {
+  P.hydrate(null);
+  P.state().ach = {};
+  Achievements.onEvent('__reset__', {});
+  var kinds = ['sheep', 'pig', 'chicken', 'rabbit', 'cat', 'zombie'];
+  for (var i = 0; i < kinds.length; i++) P.track('fauna', { type: kinds[i] });
+  var zoo = null;
+  for (var j = 0; j < Achievements.defs.length; j++)
+    if (Achievements.defs[j].id === 'zoo') zoo = Achievements.defs[j];
+  var n = sandbox.Voxel.PlanetRules.faunaCatalog().length;
+  return zoo && !Achievements.isUnlocked(zoo) && P.faunaSet() === 6 && n > 6;
+})());
+
+check('图鉴生物档案与 PlanetRules 目录同源', (function () {
+  var cat = sandbox.Voxel.PlanetRules.faunaCatalog();
+  if (Codex.FAUNA.length !== cat.length || cat.length < 21) return false;
+  for (var i = 0; i < cat.length; i++) {
     var hit = false;
     for (var j = 0; j < Codex.FAUNA.length; j++)
-      if (Codex.FAUNA[j].type === types[i]) hit = true;
+      if (Codex.FAUNA[j].type === cat[i].type) hit = true;
     if (!hit) return false;
   }
   return true;
