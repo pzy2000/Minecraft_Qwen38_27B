@@ -7,6 +7,7 @@ Voxel.Player = (function () {
   var vel = new THREE.Vector3();
   var spawn = new THREE.Vector3();
   var onGround = false, flying = false, inWater = false;
+  var waterStepT = 0;              // 刚出水仍允许贴岸上台阶的宽限
   var hp = C.HP;
   var stepTimer = 0;
   var prevInWater = false, bubbleTimer = 0;
@@ -93,6 +94,8 @@ Voxel.Player = (function () {
       Voxel.Sound.splash(0.1);
     }
     prevInWater = inWater;
+    if (inWater) waterStepT = C.WATER_STEP_HOLD;
+    else if (waterStepT > 0) waterStepT -= dt;
 
     var speed;
     if (flying) speed = sprint ? C.FLY_FAST : C.FLY;
@@ -130,6 +133,7 @@ Voxel.Player = (function () {
     ent.pos = pos;
     ent.vel = vel;
     ent.onGround = onGround;
+    ent.stepHeight = (!flying && (inWater || waterStepT > 0)) ? C.WATER_STEP : 0;
     var wasOnGround = onGround, vyBefore = vel.y;
     Voxel.Physics.move(ent, dt);
     onGround = ent.onGround;
@@ -214,6 +218,7 @@ Voxel.Player = (function () {
     onGround = false;
     inWater = false;
     prevInWater = false;
+    waterStepT = 0;
     headInWater = false;
     air = C.AIR_MAX;
     drownT = 0;
@@ -230,6 +235,7 @@ Voxel.Player = (function () {
     flying = false;
     hp = C.HP;
     prevInWater = false;
+    waterStepT = 0;
     air = C.AIR_MAX;
     drownT = 0;
     food = C.FOOD_MAX;
@@ -291,6 +297,7 @@ Voxel.Player = (function () {
     onGround = false;
     inWater = false;
     prevInWater = false;
+    waterStepT = 0;
     headInWater = false;
     hp = C.HP;
     air = C.AIR_MAX;

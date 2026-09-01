@@ -33,23 +33,62 @@ Voxel.Physics = (function () {
     return false;
   }
 
-  // ent: {pos: Vector3(脚底中心), vel: Vector3, w, h, onGround}
+  // 水平撞墙时尝试抬升：目标脚底落在障碍顶面，且抬升量 ≤ stepHeight、头顶留空。
+  // 用于游泳贴 1 格岸墙上岸（视觉 1 格、脚底需抬约 2 格）。stepHeight 未设则不抬。
+  function stepDestY(px, py, pz, w, h, maxStep) {
+    if (!(maxStep > 0)) return null;
+    var x0 = Math.floor(px - w / 2), x1 = Math.floor(px + w / 2);
+    var z0 = Math.floor(pz - w / 2), z1 = Math.floor(pz + w / 2);
+    var y0 = Math.floor(py), y1 = Math.floor(py + maxStep);
+    var bestTop = 0, found = false;
+    for (var x = x0; x <= x1; x++)
+      for (var y = y0; y <= y1; y++)
+        for (var z = z0; z <= z1; z++) {
+          var t = cellTop(x, y, z);
+          if (t <= 0) continue;
+          var top = y + t;
+          if (top > py + EPS && top <= py + maxStep + EPS) {
+            if (!found || top > bestTop) { bestTop = top; found = true; }
+          }
+        }
+    if (!found) return null;
+    var destY = bestTop + EPS;
+    if (aabbCollides(px, destY, pz, w, h)) return null;
+    return destY;
+  }
+
+  function tryStep(ent, nx, y, nz) {
+    var destY = stepDestY(nx, y, nz, ent.w, ent.h, ent.stepHeight);
+    if (destY === null) return false;
+    ent.pos.x = nx;
+    ent.pos.y = destY;
+    ent.pos.z = nz;
+    ent.vel.y = 0;
+    ent.onGround = true;
+    return true;
+  }
+
+  // ent: {pos: Vector3(脚底中心), vel: Vector3, w, h, onGround, stepHeight?}
   function move(ent, dt) {
     var p = ent.pos, v = ent.vel;
     ent.onGround = false;
 
     var nx = p.x + v.x * dt;
     if (aabbCollides(nx, p.y, p.z, ent.w, ent.h)) {
-      if (v.x > 0) p.x = Math.floor(nx + ent.w / 2) - ent.w / 2 - EPS;
-      else if (v.x < 0) p.x = Math.floor(nx - ent.w / 2) + 1 + ent.w / 2 + EPS;
-      v.x = 0;
+      if (!tryStep(ent, nx, p.y, p.z)) {
+        if (v.x > 0) p.x = Math.floor(nx + ent.w / 2) - ent.w / 2 - EPS;
+        else if (v.x < 0) p.x = Math.floor(nx - ent.w / 2) + 1 + ent.w / 2 + EPS;
+        v.x = 0;
+      }
     } else p.x = nx;
 
     var nz = p.z + v.z * dt;
     if (aabbCollides(p.x, p.y, nz, ent.w, ent.h)) {
-      if (v.z > 0) p.z = Math.floor(nz + ent.w / 2) - ent.w / 2 - EPS;
-      else if (v.z < 0) p.z = Math.floor(nz - ent.w / 2) + 1 + ent.w / 2 + EPS;
-      v.z = 0;
+      if (!tryStep(ent, p.x, p.y, nz)) {
+        if (v.z > 0) p.z = Math.floor(nz + ent.w / 2) - ent.w / 2 - EPS;
+        else if (v.z < 0) p.z = Math.floor(nz - ent.w / 2) + 1 + ent.w / 2 + EPS;
+        v.z = 0;
+      }
     } else p.z = nz;
 
     var ny = p.y + v.y * dt;

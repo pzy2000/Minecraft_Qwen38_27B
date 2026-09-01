@@ -54,6 +54,9 @@ Voxel.Config = {
     WALK: 4.3, SPRINT: 5.8, FLY: 11, FLY_FAST: 22,
     JUMP: 8.5, GRAVITY: 28, MAX_FALL: -40,
     SWIM_GRAVITY: 6, SWIM_UP: 4.5,
+    // 水面贴岸：岸墙视觉上只高 1 格，但脚底在水面方块里，要站到岸顶需抬升约 2 格。
+    WATER_STEP: 2.25,
+    WATER_STEP_HOLD: 0.25, // 刚出水仍允许贴岸上台阶的宽限（秒）
     REACH: 6, DIG_CD: 0.22,
     HP: 20,
     FALL_SAFE: 13,      // 落地速度不超过此值不摔伤（约3格）
