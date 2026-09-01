@@ -33,6 +33,7 @@ Voxel.Config = {
   WORLD_H: 256,        // 高度（v7：限高提升到 256，地形由生成包络钉住不变）
   WORLD_D: 256,        // Z 方向方块数
   CHUNK: 32,           // 区块边长（越大区块越少、draw call 越少，对 ANGLE/Edge 更友好）
+  SECTION_H: 16,       // 5.2 Y 分段高度；空段不分配，均质段 palette 压缩
   // 无限行星的流式区块工作集（单位：区块）。空间站仍保持有限真空平台。
   STREAM_RENDER_RADIUS: 5, // 11×11 网格工作集：视野与桌面/移动性能的平衡点
   STREAM_DATA_RADIUS: 6,   // 多保留一圈数据，供跨区块光照/AO/结构采样
@@ -179,7 +180,7 @@ Voxel.Config = {
   },
 
   SAVE_KEY: 'starbound_voxel_save_v6', // v6：无限宇宙（银河→恒星系）、跨系曲速电池
-  GEN_WORKER_V: '20260830b',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
+  GEN_WORKER_V: '20260901c',           // gen_worker.js 缓存版本号（结构/贴图更新时递增）
   MESH_WORKER_V: '20260901b',          // mesh_worker.js 缓存版本号（与 mesh.js 版本联动递增）
   AUTOSAVE_INTERVAL: 30,
 

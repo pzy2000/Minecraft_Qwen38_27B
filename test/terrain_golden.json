@@ -4,104 +4,215 @@
     "cx": -1,
     "cz": 0,
     "heightsH": 1295173392,
-    "blocksTop80H": 1911528768
+    "blocksTop80H": 1911528768,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 208041568
   },
   {
     "case": "origin_v2",
     "cx": 0,
     "cz": 0,
     "heightsH": 883147976,
-    "blocksTop80H": 817247856
+    "blocksTop80H": 817247856,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2752458248
   },
   {
     "case": "origin_v2",
     "cx": -1,
     "cz": 1,
     "heightsH": 2681091400,
-    "blocksTop80H": 52457892
+    "blocksTop80H": 52457892,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 3553241288
   },
   {
     "case": "origin_v2_b",
     "cx": -3,
     "cz": -2,
     "heightsH": 494808211,
-    "blocksTop80H": 4254427888
+    "blocksTop80H": 4254427888,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2106792152
   },
   {
     "case": "origin_v2_b",
     "cx": -2,
     "cz": -2,
     "heightsH": 3289387208,
-    "blocksTop80H": 2390468952
+    "blocksTop80H": 2390468952,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 1113580656
   },
   {
     "case": "origin_v2_b",
     "cx": -3,
     "cz": -1,
     "heightsH": 3142630212,
-    "blocksTop80H": 665887316
+    "blocksTop80H": 665887316,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 3129998632
   },
   {
     "case": "arid_v2",
     "cx": 2,
     "cz": 1,
     "heightsH": 806601740,
-    "blocksTop80H": 3157796420
+    "blocksTop80H": 3157796420,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2338712600
   },
   {
     "case": "arid_v2",
     "cx": 3,
     "cz": 1,
     "heightsH": 3939302904,
-    "blocksTop80H": 2149734496
+    "blocksTop80H": 2149734496,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2706532864
   },
   {
     "case": "arid_v2",
     "cx": 2,
     "cz": 2,
     "heightsH": 3503545016,
-    "blocksTop80H": 2781224384
+    "blocksTop80H": 2781224384,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2544707956
   },
   {
     "case": "frozen_v2",
     "cx": -2,
     "cz": 3,
     "heightsH": 1953068000,
-    "blocksTop80H": 2016060624
+    "blocksTop80H": 2016060624,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 365707568
   },
   {
     "case": "frozen_v2",
     "cx": -1,
     "cz": 3,
     "heightsH": 1422313580,
-    "blocksTop80H": 3694041100
+    "blocksTop80H": 3694041100,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 171783872
   },
   {
     "case": "frozen_v2",
     "cx": -2,
     "cz": 4,
     "heightsH": 254836408,
-    "blocksTop80H": 3539415960
+    "blocksTop80H": 3539415960,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 3245738788
   },
   {
     "case": "volcanic_v2",
     "cx": 1,
     "cz": -4,
     "heightsH": 1122576556,
-    "blocksTop80H": 491535116
+    "blocksTop80H": 491535116,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 1881868528
   },
   {
     "case": "volcanic_v2",
     "cx": 2,
     "cz": -4,
     "heightsH": 1318008884,
-    "blocksTop80H": 1709661420
+    "blocksTop80H": 1709661420,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 165742440
   },
   {
     "case": "volcanic_v2",
     "cx": 1,
     "cz": -3,
     "heightsH": 4034432440,
-    "blocksTop80H": 3991935264
+    "blocksTop80H": 3991935264,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2925111800
+  },
+  {
+    "case": "toxic_v2",
+    "cx": -4,
+    "cz": 2,
+    "heightsH": 2205631424,
+    "blocksTop80H": 6465596,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 3084225492
+  },
+  {
+    "case": "toxic_v2",
+    "cx": -3,
+    "cz": 2,
+    "heightsH": 541868356,
+    "blocksTop80H": 1314414816,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2910900252
+  },
+  {
+    "case": "toxic_v2",
+    "cx": -4,
+    "cz": 3,
+    "heightsH": 3063275220,
+    "blocksTop80H": 3620221780,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2015140912
+  },
+  {
+    "case": "oceanic_v2",
+    "cx": 3,
+    "cz": -1,
+    "heightsH": 4190194248,
+    "blocksTop80H": 2803279060,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 3434578872
+  },
+  {
+    "case": "oceanic_v2",
+    "cx": 4,
+    "cz": -1,
+    "heightsH": 411491856,
+    "blocksTop80H": 2044805072,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2630220472
+  },
+  {
+    "case": "oceanic_v2",
+    "cx": 3,
+    "cz": 0,
+    "heightsH": 987711956,
+    "blocksTop80H": 3251913836,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 4081742256
+  },
+  {
+    "case": "nordic_v2",
+    "cx": 0,
+    "cz": 0,
+    "heightsH": 1572722932,
+    "blocksTop80H": 2146736280,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 772640648
+  },
+  {
+    "case": "nordic_v2",
+    "cx": 1,
+    "cz": 0,
+    "heightsH": 1526179668,
+    "blocksTop80H": 3735564992,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 3269826660
+  },
+  {
+    "case": "nordic_v2",
+    "cx": 0,
+    "cz": 1,
+    "heightsH": 3692150064,
+    "blocksTop80H": 1709946072,
+    "blocksY80H": 1829298784,
+    "blocksAllH": 2940979460
   }
 ]

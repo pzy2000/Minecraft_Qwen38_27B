@@ -16,6 +16,7 @@ importScripts(
   'biomes.js',
   'planet_rules.js',
   'shaper.js',
+  'sections.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   '../blocks.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   'structures.js?v=' + (self.Voxel.Config.GEN_WORKER_V || 1),
   'gen_core.js'
@@ -51,7 +52,10 @@ self.onmessage = function (e) {
     var shell = gen.ensureShell(m.cx, m.cz);
     gen.decorate(shell);
     // 拷贝后传输（transfer 零拷贝移交）：Worker 内的 shell 数组还要服务后续任务的 halo 查询
-    var blocks = shell.blocks.slice();
+    var flat = Voxel.Sections && Voxel.Sections.asFlat
+      ? Voxel.Sections.asFlat(shell.blocks, Voxel.Config.CHUNK, Voxel.Config.WORLD_H, Voxel.Config.CHUNK)
+      : shell.blocks;
+    var blocks = flat.slice();
     var heights = shell.heights.slice();
     var biomes = shell.biomes.slice();
     self.postMessage({

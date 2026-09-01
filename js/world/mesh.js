@@ -615,23 +615,48 @@ Voxel.MeshBuilder = (function () {
           src = n33[(ccz - cz + 1) * 3 + (ccx - cx + 1)];
         var dstCol = (lx + 1) + PW * PH * (lz + 1);
         if (src) {
-          // 外围区块：chunkIndex(lx,y,lz)=lx+CS*(y+H*lz) → 列基址 lx+CS*H*lz，y 步长 CS
           var slx = wx - ccx * CS, slz = wz - ccz * CS;
-          var sBase = slx + CSH * slz;
-          for (var y = 1; y <= H; y++) {
-            var di = dstCol + PW * y, si = sBase + CS * (y - 1);
-            bPad[di] = src.blocks[si]; sPad[di] = src.sky[si]; pPad[di] = src.blk[si];
+          if (src.blocks && src.blocks.__sections) {
+            src.blocks.copyColumn(slx, slz, bPad, dstCol + PW, PW, 0);
+            src.sky.copyColumn(slx, slz, sPad, dstCol + PW, PW, 0);
+            src.blk.copyColumn(slx, slz, pPad, dstCol + PW, PW, 0);
+            var ct = src.contentTop;
+            if (ct !== undefined) {
+              for (var yt = ct + 2; yt <= H; yt++) sPad[dstCol + PW * yt] = 15;
+            }
+          } else {
+            var sBase = slx + CSH * slz;
+            for (var y = 1; y <= H; y++) {
+              var di = dstCol + PW * y, si = sBase + CS * (y - 1);
+              bPad[di] = src.blocks[si]; sPad[di] = src.sky[si]; pPad[di] = src.blk[si];
+            }
           }
         } else if (core && wx >= 0 && wx < CW && wz >= 0 && wz < CD) {
-          // legacy 核心：idx(x,y,z)=x+W*(y+H*z) → 列基址 x+W*H*z，y 步长 W；
-          // 块光需叠加外围火把进入核心的 overlay
-          var cBase = wx + CHW * wz;
           var ov = core.overlay;
-          for (var y2 = 1; y2 <= H; y2++) {
-            var di2 = dstCol + PW * y2, ci = cBase + CW * (y2 - 1);
-            bPad[di2] = core.data[ci]; sPad[di2] = core.sky[ci];
-            var bl = core.blk[ci];
-            pPad[di2] = ov && ov[ci] > bl ? ov[ci] : bl;
+          if (core.data && core.data.__sections) {
+            core.data.copyColumn(wx, wz, bPad, dstCol + PW, PW, 0);
+            core.sky.copyColumn(wx, wz, sPad, dstCol + PW, PW, 0);
+            core.blk.copyColumn(wx, wz, pPad, dstCol + PW, PW, 0);
+            if (core.colTop) {
+              var cct = core.colTop[wx + CW * wz];
+              for (var cyt = cct + 2; cyt <= H; cyt++) sPad[dstCol + PW * cyt] = 15;
+            }
+            if (ov) {
+              for (var y2s = 1; y2s <= H; y2s++) {
+                var ovv = ov.__sections ? ov.get(wx, y2s - 1, wz)
+                  : ov[wx + CHW * wz + CW * (y2s - 1)];
+                var di2s = dstCol + PW * y2s;
+                if (ovv > pPad[di2s]) pPad[di2s] = ovv;
+              }
+            }
+          } else {
+            var cBase = wx + CHW * wz;
+            for (var y2 = 1; y2 <= H; y2++) {
+              var di2 = dstCol + PW * y2, ci = cBase + CW * (y2 - 1);
+              bPad[di2] = core.data[ci]; sPad[di2] = core.sky[ci];
+              var bl = core.blk[ci];
+              pPad[di2] = ov && ov[ci] > bl ? ov[ci] : bl;
+            }
           }
         } else {
           for (var y3 = 1; y3 <= H; y3++) {

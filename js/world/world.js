@@ -53,7 +53,7 @@ Voxel.World = (function () {
       if (!q) continue;
       for (var qi = 0; qi < q.length; qi++) {
         var i = q[qi];
-        if (arr[i] !== l) continue;
+        if (lgetI(arr, i) !== l) continue;
         // idx(x,y,z)=x+W*y+W*H*z：z 步长 W*H，y 步长 W
         var z = (i / (W * H)) | 0;
         var rem = i - z * W * H;
@@ -74,13 +74,13 @@ Voxel.World = (function () {
 
   function spread(arr, queues, x, y, z, nl, x0, x1, z0, z1) {
     if (x < x0 || x > x1 || z < z0 || z > z1 || y < 0 || y >= H) return;
-    var cost = lightCost(data[idx(x, y, z)]);
+    var cost = lightCost(dget(x, y, z));
     if (cost < 0) return;
     var v = nl - (cost - 1);
     if (v <= 0) return;
     var i = idx(x, y, z);
-    if (arr[i] >= v) return;
-    arr[i] = v;
+    if (lgetI(arr, i) >= v) return;
+    lsetI(arr, i, v);
     if (!queues[v]) queues[v] = [];
     queues[v].push(i);
   }
@@ -91,29 +91,36 @@ Voxel.World = (function () {
     rz0 = Math.max(0, rz0); rz1 = Math.min(D - 1, rz1);
     var skyQ = [], blkQ = [];
 
-    // 清空区域（idx(x,y,z)=x+W*y+W*H*z：固定 x,z 后 y 步长为 W）
+    // 清空区域：分段存储走 clear 范围内的 set；扁数组仍按列擦除。
     for (var x = rx0; x <= rx1; x++)
       for (var z = rz0; z <= rz1; z++) {
-        var base = idx(x, 0, z);
         for (var y = 0; y < H; y++) {
-          var i = base + y * W;
-          skyL[i] = 0;
-          blkL[i] = 0;
+          lset(skyL, x, y, z, 0);
+          lset(blkL, x, y, z, 0);
         }
       }
 
-    // 天光：列扫描自顶向下；colTop（内容顶）以上恒为纯空气，整段批量写 15，
-    // 只有内容顶以下做逐格不透明度/水面衰减扫描——限高 256 后的关键加速。
+    // 天光：列扫描自顶向下。内容顶以上不落盘（getSky 直接回 15）。
+    // 空方块段按列一次性写 sky=当前 light，跳过逐格扫描。
     for (var x2 = rx0; x2 <= rx1; x2++)
       for (var z2 = rz0; z2 <= rz1; z2++) {
         var ct = colTop[x2 + W * z2];
-        for (var yT = ct + 1; yT < H; yT++) skyL[idx(x2, yT, z2)] = 15;
         var l = 15;
-        for (var y2 = ct; y2 >= 0; y2--) {
-          var id = data[idx(x2, y2, z2)];
-          if (opq(id)) l = 0;
-          else if (id === 7 && l > 0) l = Math.max(0, l - 2);
-          skyL[idx(x2, y2, z2)] = l;
+        var topSec = (ct / SEC_H) | 0;
+        for (var si = topSec; si >= 0; si--) {
+          var yHi = Math.min(ct, si * SEC_H + SEC_H - 1);
+          var yLo = si * SEC_H;
+          var empty = data && data.sectionEmpty && data.sectionEmpty(si);
+          if (empty) {
+            for (var ye = yHi; ye >= yLo; ye--) lset(skyL, x2, ye, z2, l);
+            continue;
+          }
+          for (var y2 = yHi; y2 >= yLo; y2--) {
+            var id = dget(x2, y2, z2);
+            if (opq(id)) l = 0;
+            else if (id === 7 && l > 0) l = Math.max(0, l - 2);
+            lset(skyL, x2, y2, z2, l);
+          }
         }
       }
     // 天光种子：区域内所有"还能向外传播光"的亮格
@@ -128,9 +135,9 @@ Voxel.World = (function () {
         var ct3 = colTop[x3 + W * z3];
         for (var y3 = 0; y3 <= ct3; y3++) {
           var i3 = idx(x3, y3, z3);
-          var emitL = LIGHT_EMIT ? LIGHT_EMIT[data[i3]] : 0;
+          var emitL = LIGHT_EMIT ? LIGHT_EMIT[dget(x3, y3, z3)] : 0;
           if (emitL) {
-            blkL[i3] = emitL;
+            lsetI(blkL, i3, emitL);
             blkQ.push(i3);
           }
         }
@@ -145,7 +152,7 @@ Voxel.World = (function () {
   function bucket(seeds, arr) {
     var q = [];
     for (var i = 0; i < seeds.length; i++) {
-      var l = arr[seeds[i]];
+      var l = lgetI(arr, seeds[i]);
       if (l > 0) { if (!q[l]) q[l] = []; q[l].push(seeds[i]); }
     }
     return q;
@@ -154,7 +161,7 @@ Voxel.World = (function () {
   function pushSeed(q, arr, x, y, z) {
     if (y < 0 || y >= H) return;
     var i = idx(x, y, z);
-    if (arr[i] > 1) q.push(i);
+    if (lgetI(arr, i) > 1) q.push(i);
   }
 
   // 挑出区域内所有可传播的天光亮格：自身 skyL>1 且存在更暗的可通行邻居。
@@ -165,7 +172,7 @@ Voxel.World = (function () {
         var ct = colTop[x + W * z];
         for (var y = ct; y >= 0; y--) {
           var i = idx(x, y, z);
-          var v = skyL[i];
+          var v = lgetI(skyL, i);
           if (v <= 1) continue;
           if (canSpread(skyL, x, y, z, v, rx0, rx1, rz0, rz1)) q.push(i);
         }
@@ -185,8 +192,8 @@ Voxel.World = (function () {
 
   function darkerNeighbor(arr, x, y, z, v, x0, x1, z0, z1) {
     if (x < x0 || x > x1 || z < z0 || z > z1 || y < 0 || y >= H) return false;
-    if (lightCost(data[idx(x, y, z)]) < 0) return false;
-    return arr[idx(x, y, z)] < v - 1;
+    if (lightCost(dget(x, y, z)) < 0) return false;
+    return lget(arr, x, y, z) < v - 1;
   }
 
   function seedBlk(q, rx0, rx1, rz0, rz1) {
@@ -202,23 +209,57 @@ Voxel.World = (function () {
         if (x >= rx0 && x <= rx1 && zz >= rz0 && zz <= rz1) continue;
         for (var y = 0; y < H; y++) {
           var i = idx(x, y, zz);
-          if (arr[i] > 1) q.push(i);
+          if (lgetI(arr, i) > 1) q.push(i);
         }
       }
     }
   }
 
   function initLight() {
-    if (!skyL) { skyL = new Uint8Array(W * H * D); blkL = new Uint8Array(W * H * D); }
+    packCoreVolumes();
+    if (!skyL) {
+      skyL = Voxel.Sections ? Voxel.Sections.create(W, H, D, 1) : new Uint8Array(W * H * D);
+      blkL = Voxel.Sections ? Voxel.Sections.create(W, H, D, 1) : new Uint8Array(W * H * D);
+    }
     if (!colTop) colTop = new Int16Array(W * D);
     lightReady = true;
     relightRegion(0, W - 1, 0, D - 1);
+    if (skyL.compact) skyL.compact();
+    if (blkL.compact) blkL.compact();
     // 顶点光在建网格时烘焙；任何全核心重光后都必须让全部核心区块重建。
     for (var cx = 0; cx < W / CS; cx++)
       for (var cz = 0; cz < D / CS; cz++) markChunkDirty(cx, cz);
   }
 
   function idx(x, y, z) { return x + W * (y + H * z); }
+  var SEC_H = (Voxel.Sections && Voxel.Sections.HEIGHT) || 16;
+  function dget(x, y, z) {
+    return Voxel.Sections ? Voxel.Sections.read(data, x, y, z, W, H) : data[idx(x, y, z)];
+  }
+  function dset(x, y, z, v) {
+    if (Voxel.Sections) Voxel.Sections.write(data, x, y, z, v, W, H);
+    else data[idx(x, y, z)] = v;
+  }
+  function lget(arr, x, y, z) {
+    return Voxel.Sections ? Voxel.Sections.read(arr, x, y, z, W, H) : arr[idx(x, y, z)];
+  }
+  function lset(arr, x, y, z, v) {
+    if (Voxel.Sections) Voxel.Sections.write(arr, x, y, z, v, W, H);
+    else arr[idx(x, y, z)] = v;
+  }
+  function lgetI(arr, i) {
+    return arr && arr.__sections ? arr.getLinear(i) : arr[i];
+  }
+  function lsetI(arr, i, v) {
+    if (arr && arr.__sections) arr.setLinear(i, v);
+    else arr[i] = v;
+  }
+  function packCoreVolumes() {
+    if (!Voxel.Sections || !data || data.__sections) return;
+    data = Voxel.Sections.fromFlat(data, W, H, D);
+    if (skyL && !skyL.__sections) skyL = Voxel.Sections.fromFlat(skyL, W, H, D);
+    if (blkL && !blkL.__sections) blkL = Voxel.Sections.fromFlat(blkL, W, H, D);
+  }
 
   // ---- 地形生成：3D 密度场（样条塑造 + 插值单元） ----
 
@@ -707,12 +748,12 @@ Voxel.World = (function () {
     if (y < 0) return 12;
     if (y >= H) return 0;
     if (x < 0 || x >= W || z < 0 || z >= D) return 12;
-    return data[idx(x, y, z)];
+    return dget(x, y, z);
   }
 
   function set(x, y, z, id) {
     if (x < 0 || x >= W || y < 0 || y >= H || z < 0 || z >= D) return;
-    data[idx(x, y, z)] = id;
+    dset(x, y, z, id);
     edits[x + ',' + y + ',' + z] = id;
     if (id !== 0 && colTop && y > colTop[x + W * z]) colTop[x + W * z] = Math.min(H - 1, y);
     // 方块被清空时其元数据（熔炉/箱子内容等）一并清除
@@ -751,7 +792,7 @@ Voxel.World = (function () {
     }
     for (var j = 0; j < valid.length; j++) {
       var v = valid[j];
-      data[idx(v.x, v.y, v.z)] = v.id;
+      dset(v.x, v.y, v.z, v.id);
       edits[v.x + ',' + v.y + ',' + v.z] = v.id;
       if (v.id === 0) delete meta[v.x + ',' + v.y + ',' + v.z];
       else if (v.y > colTop[v.x + W * v.z]) colTop[v.x + W * v.z] = Math.min(H - 1, v.y);
@@ -818,6 +859,7 @@ Voxel.World = (function () {
     if (genPhase === 1 && genCount >= genOrder.length) {
       genPhase = 2;
       placeTrees();
+      packCoreVolumes();
       genPhase = 0;
     }
   }
@@ -935,7 +977,7 @@ Voxel.World = (function () {
       if (p.length === 3 && x === Math.floor(x) && y === Math.floor(y) && z === Math.floor(z) &&
         id === Math.floor(id) && id >= 0 && id <= 255 && (id === 0 || !!Voxel.Blocks.defs[id]) &&
         x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D) {
-        data[idx(x, y, z)] = id;
+        dset(x, y, z, id);
         // 回放的修改仍属于当前世界的增量账本；否则下一次保存会把旧建筑忘掉。
         edits[x + ',' + y + ',' + z] = id;
         if (id !== 0 && y > colTop[x + W * z]) colTop[x + W * z] = Math.min(H - 1, y);
@@ -1041,7 +1083,7 @@ Voxel.World = (function () {
     // 光照未初始化时返回 null，调用方回退到全局门面语义。
     coreArrays: function () {
       if (!data || !lightReady) return null;
-      return { data: data, sky: skyL, blk: blkL, W: W, H: H, D: D };
+      return { data: data, sky: skyL, blk: blkL, W: W, H: H, D: D, colTop: colTop };
     },
     get: get,
     set: set,
@@ -1071,11 +1113,12 @@ Voxel.World = (function () {
       if (y >= H) return 15;
       if (y < 0) return 0;
       if (!lightReady || x < 0 || x >= W || z < 0 || z >= D) return 15;
-      return skyL[idx(x, y, z)];
+      if (colTop && y > colTop[x + W * z]) return 15;
+      return lget(skyL, x, y, z);
     },
     getBlk: function (x, y, z) {
       if (!lightReady || y < 0 || y >= H || x < 0 || x >= W || z < 0 || z >= D) return 0;
-      return blkL[idx(x, y, z)];
+      return lget(blkL, x, y, z);
     },
     getEdits: function () { return edits; },
     isEdited: function (x, y, z) {
@@ -1093,6 +1136,12 @@ Voxel.World = (function () {
     applyMeta: function (md) { meta = md || {}; },
     getSeed: function () { return seed; },
     getProfile: function () { return profile; },
+    voxelBytes: function () {
+      var b = Voxel.Sections ? Voxel.Sections.estimateBytes(data, W, H, D, 2) : (data ? data.byteLength : 0);
+      var s = skyL ? (skyL.estimateBytes ? skyL.estimateBytes() : skyL.byteLength) : 0;
+      var k = blkL ? (blkL.estimateBytes ? blkL.estimateBytes() : blkL.byteLength) : 0;
+      return { blocks: b, sky: s, blk: k, total: b + s + k };
+    },
     size: function () { return { w: W, h: H, d: D }; }
   };
 })();

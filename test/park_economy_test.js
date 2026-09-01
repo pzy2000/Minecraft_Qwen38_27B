@@ -17,6 +17,7 @@ require(path.join(ROOT, 'js/world/noise.js'));
 require(path.join(ROOT, 'js/world/biomes.js'));
 require(path.join(ROOT, 'js/world/planet_rules.js'));
 require(path.join(ROOT, 'js/world/shaper.js'));
+require(path.join(ROOT, 'js/world/sections.js'));
 require(path.join(ROOT, 'js/world/gen_core.js'));
 require(path.join(ROOT, 'js/world/structures.js'));
 require(path.join(ROOT, 'js/blocks.js'));

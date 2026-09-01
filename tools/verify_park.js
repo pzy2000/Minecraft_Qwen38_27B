@@ -9,12 +9,12 @@ function load(rel) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), sandbox, { filename: rel });
 }
 var sandbox = { console: console, Math: Math, BigInt: BigInt, Uint8Array: Uint8Array,
-  Uint32Array: Uint32Array, Int16Array: Int16Array, Float32Array: Float32Array };
+  Uint16Array: Uint16Array, Uint32Array: Uint32Array, Int16Array: Int16Array, Float32Array: Float32Array };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
 ['js/config.js', 'js/world/seed.js', 'js/world/noise.js', 'js/world/biomes.js',
  'js/world/planet_rules.js', 'js/world/shaper.js', 'js/world/structures.js',
- 'js/blocks.js', 'js/world/gen_core.js'].forEach(load);
+ 'js/blocks.js', 'js/world/sections.js', 'js/world/gen_core.js'].forEach(load);
 var V = sandbox.Voxel;
 
 var SEED = '12345';

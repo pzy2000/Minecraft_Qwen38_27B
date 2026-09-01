@@ -189,6 +189,28 @@ window.Voxel = window.Voxel || {};
   function coreChunk(cx, cz) { return cx >= 0 && cx < CORE_CX && cz >= 0 && cz < CORE_CZ; }
   function chunkIndex(lx, y, lz) { return lx + CS * (y + H * lz); }
   function columnIndex(lx, lz) { return lx + CS * lz; }
+  var SEC_H = (Voxel.Sections && Voxel.Sections.HEIGHT) || 16;
+  function volGet(arr, lx, y, lz) {
+    return Voxel.Sections ? Voxel.Sections.read(arr, lx, y, lz, CS, H) : arr[chunkIndex(lx, y, lz)];
+  }
+  function volSet(arr, lx, y, lz, v) {
+    if (Voxel.Sections) Voxel.Sections.write(arr, lx, y, lz, v, CS, H);
+    else arr[chunkIndex(lx, y, lz)] = v;
+  }
+  function volGetI(arr, i) {
+    return arr && arr.__sections ? arr.getLinear(i) : arr[i];
+  }
+  function volSetI(arr, i, v) {
+    if (arr && arr.__sections) arr.setLinear(i, v);
+    else arr[i] = v;
+  }
+  function packBlocks(arr) {
+    if (!Voxel.Sections || !arr || arr.__sections) return arr;
+    return Voxel.Sections.fromFlat(arr, CS, H, CS);
+  }
+  function emptyLight() {
+    return Voxel.Sections ? Voxel.Sections.create(CS, H, CS, 1) : new Uint8Array(CS * H * CS);
+  }
   function coreLightIndex(x, y, z) { return x + W * (y + H * z); }
   function validXYZ(x, y, z) {
     return Number.isSafeInteger(x) && Number.isSafeInteger(y) && Number.isSafeInteger(z) &&
@@ -200,11 +222,11 @@ window.Voxel = window.Voxel || {};
   }
 
   function getFromChunk(ch, x, y, z) {
-    return ch.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))];
+    return volGet(ch.blocks, localCoord(x, CS), y, localCoord(z, CS));
   }
 
   function setInChunk(ch, x, y, z, id) {
-    ch.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] = id;
+    volSet(ch.blocks, localCoord(x, CS), y, localCoord(z, CS), id);
     // 内容顶只升不降：光照快路径假设其上为纯空气（自然生成封顶以下）
     if (id !== 0 && y > ch.contentTop) ch.contentTop = Math.min(H - 1, y);
   }
@@ -212,11 +234,11 @@ window.Voxel = window.Voxel || {};
   function newChunk(cx, cz) {
     return {
       cx: cx, cz: cz,
-      blocks: new Uint16Array(CS * H * CS), // v8：方块 ID 空间 65535（与 world.js/gen_core 一致）
+      blocks: Voxel.Sections ? Voxel.Sections.create(CS, H, CS, 2) : new Uint16Array(CS * H * CS),
       heights: new Int16Array(CS * CS),
       biomes: new Uint8Array(CS * CS),
-      sky: new Uint8Array(CS * H * CS),
-      blk: new Uint8Array(CS * H * CS),
+      sky: emptyLight(),
+      blk: emptyLight(),
       baseReady: false, ready: false, lit: false, dirty: true, meshed: false,
       // 自然内容封顶：含巨树树冠峰值 ~92 与余量；玩家建造经 setInChunk 抬升。
       // 与 world.js 的 FiniteWorld colTop 同一契约值。
@@ -241,7 +263,7 @@ window.Voxel = window.Voxel || {};
       ch.decorated = shell.decorated;
     } else if (!ch.shell) {
       var s2 = gen.shellOf(cx, cz);
-      ch.shell = (s2 && s2.baseReady) ? s2 : gen.absorbShell(cx, cz, ch.blocks, ch.heights, ch.biomes);
+      ch.shell = (s2 && s2.baseReady) ? s2 : gen.absorbShell(cx, cz, packBlocks(ch.blocks), ch.heights, ch.biomes);
     }
     return ch;
   }
@@ -254,11 +276,11 @@ window.Voxel = window.Voxel || {};
   function spreadLight(ch, arr, buckets, lx, y, lz, level) {
     if (lx < 0 || lx >= CS || lz < 0 || lz >= CS || y < 0 || y >= H || level <= 0) return;
     var i = chunkIndex(lx, y, lz);
-    var cost = lightCost(ch.blocks[i]);
+    var cost = lightCost(volGet(ch.blocks, lx, y, lz));
     if (cost < 0) return;
     var next = level - (cost - 1);
-    if (next <= arr[i]) return;
-    arr[i] = next;
+    if (next <= volGetI(arr, i)) return;
+    volSetI(arr, i, next);
     if (!buckets[next]) buckets[next] = [];
     buckets[next].push(i);
   }
@@ -269,7 +291,7 @@ window.Voxel = window.Voxel || {};
       if (!q) continue;
       for (var qi = 0; qi < q.length; qi++) {
         var i = q[qi];
-        if (arr[i] !== level) continue;
+        if (volGetI(arr, i) !== level) continue;
         var lz = (i / (CS * H)) | 0;
         var rem = i - lz * CS * H;
         var y = (rem / CS) | 0;
@@ -286,30 +308,41 @@ window.Voxel = window.Voxel || {};
   }
 
   function relight(ch) {
-    ch.sky.fill(0); ch.blk.fill(0);
+    if (ch.sky.clear) ch.sky.clear();
+    else ch.sky.fill(0);
+    if (ch.blk.clear) ch.blk.clear();
+    else ch.blk.fill(0);
     var blkQ = [];
     var emitList = [];
     var LIGHT = Voxel.Blocks.LIGHT;
     var top = ch.contentTop;
-    // 内容顶以上恒为纯空气：按 lz 板块批量写满天光。
-    // 存储布局 idx=lx+CS*(y+H*lz) 下，固定 lz 的 (x,y) 段连续，fill 一次成型。
-    if (top + 1 < H) {
-      for (var lz0 = 0; lz0 < CS; lz0++)
-        ch.sky.fill(15, CS * H * lz0 + CS * (top + 1), CS * H * (lz0 + 1));
-    }
+    var nSec = (H / SEC_H) | 0;
+    var topSec = (top / SEC_H) | 0;
+    // 内容顶以上不落盘：getSky 对 y>contentTop 直接回 15。
+    // 空方块段（全空气）按列一次性写 sky=当前 light，跳过逐格扫描。
     for (var lx = 0; lx < CS; lx++) for (var lz = 0; lz < CS; lz++) {
       var light = 15;
-      for (var y = top; y >= 0; y--) {
-        var i = chunkIndex(lx, y, lz), id = ch.blocks[i];
-        if (Voxel.Blocks.isOpaque(id)) light = 0;
-        else if (id === 7 && light > 0) light = Math.max(0, light - 2);
-        ch.sky[i] = light;
-        var emit = LIGHT[id];
-        if (emit) {
-          ch.blk[i] = emit;
-          emitList.push(i);
-          if (!blkQ[emit]) blkQ[emit] = [];
-          blkQ[emit].push(i);
+      for (var si = topSec; si >= 0; si--) {
+        var yHi = Math.min(top, si * SEC_H + SEC_H - 1);
+        var yLo = si * SEC_H;
+        var empty = ch.blocks.sectionEmpty && ch.blocks.sectionEmpty(si);
+        if (empty) {
+          for (var ye = yHi; ye >= yLo; ye--) volSet(ch.sky, lx, ye, lz, light);
+          continue;
+        }
+        for (var y = yHi; y >= yLo; y--) {
+          var id = volGet(ch.blocks, lx, y, lz);
+          if (Voxel.Blocks.isOpaque(id)) light = 0;
+          else if (id === 7 && light > 0) light = Math.max(0, light - 2);
+          volSet(ch.sky, lx, y, lz, light);
+          var emit = LIGHT[id];
+          if (emit) {
+            volSet(ch.blk, lx, y, lz, emit);
+            var i = chunkIndex(lx, y, lz);
+            emitList.push(i);
+            if (!blkQ[emit]) blkQ[emit] = [];
+            blkQ[emit].push(i);
+          }
         }
       }
     }
@@ -319,6 +352,9 @@ window.Voxel = window.Voxel || {};
     // 流式区块采用列天光：露天/水下保持正确，洞穴仍为黑暗。避免把每个露天空气格
     // 都塞进 BFS（外围生成发生在游玩帧内）；火把仍走完整的 15 格泛光。
     flood(ch, ch.blk, blkQ);
+    if (ch.sky.compact) ch.sky.compact();
+    if (ch.blk.compact) ch.blk.compact();
+    if (ch.blocks.compact) ch.blocks.compact();
     ch.lit = true;
   }
 
@@ -335,11 +371,11 @@ window.Voxel = window.Voxel || {};
     var dest = region[key(cx, cz)];
     if (!dest) return;
     var i = chunkIndex(lx, y, lz);
-    var cost = lightCost(dest.blocks[i]);
+    var cost = lightCost(volGet(dest.blocks, lx, y, lz));
     if (cost < 0) return;
     var value = level - (cost - 1);
-    if (value <= dest.blk[i]) return;
-    dest.blk[i] = value;
+    if (value <= volGetI(dest.blk, i)) return;
+    volSetI(dest.blk, i, value);
     if (!buckets[value]) buckets[value] = [];
     buckets[value].push({ ch: dest, i: i });
   }
@@ -357,7 +393,7 @@ window.Voxel = window.Voxel || {};
       var outLz = dz < 0 ? CS - 1 : (dz > 0 ? 0 : a);
       var outsideLevel = fromCore
         ? FiniteWorld.getBlk(outsideCx * CS + outLx, y, outsideCz * CS + outLz)
-        : outside.blk[chunkIndex(outLx, y, outLz)];
+        : volGet(outside.blk, outLx, y, outLz);
       if (outsideLevel > 1) crossSpread(region, buckets, ch, inLx, y, inLz, outsideLevel - 1);
     }
   }
@@ -372,8 +408,8 @@ window.Voxel = window.Voxel || {};
     var id = FiniteWorld.get(x, y, z), cost = lightCost(id);
     if (cost < 0) return;
     var value = level - (cost - 1), i = coreLightIndex(x, y, z);
-    if (value <= coreBlkOverlay[i]) return;
-    coreBlkOverlay[i] = value;
+    if (value <= volGetI(coreBlkOverlay, i)) return;
+    volSetI(coreBlkOverlay, i, value);
     if (!buckets[value]) buckets[value] = [];
     buckets[value].push(i);
   }
@@ -383,13 +419,13 @@ window.Voxel = window.Voxel || {};
     for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
       var outsideLevel, x, z;
       if (side === 'left') {
-        outsideLevel = ch.blk[chunkIndex(CS - 1, y, a)]; x = 0; z = ch.cz * CS + a;
+        outsideLevel = volGet(ch.blk, CS - 1, y, a); x = 0; z = ch.cz * CS + a;
       } else if (side === 'right') {
-        outsideLevel = ch.blk[chunkIndex(0, y, a)]; x = W - 1; z = ch.cz * CS + a;
+        outsideLevel = volGet(ch.blk, 0, y, a); x = W - 1; z = ch.cz * CS + a;
       } else if (side === 'front') {
-        outsideLevel = ch.blk[chunkIndex(a, y, CS - 1)]; x = ch.cx * CS + a; z = 0;
+        outsideLevel = volGet(ch.blk, a, y, CS - 1); x = ch.cx * CS + a; z = 0;
       } else {
-        outsideLevel = ch.blk[chunkIndex(a, y, 0)]; x = ch.cx * CS + a; z = D - 1;
+        outsideLevel = volGet(ch.blk, a, y, 0); x = ch.cx * CS + a; z = D - 1;
       }
       if (outsideLevel > 1) coreSpread(buckets, x, y, z, outsideLevel - 1);
     }
@@ -398,10 +434,10 @@ window.Voxel = window.Voxel || {};
   function coreFacingLight(ch, side) {
     if (!ch || !ch.ready) return false;
     for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
-      var i = side === 'left' ? chunkIndex(CS - 1, y, a) :
-        side === 'right' ? chunkIndex(0, y, a) :
-          side === 'front' ? chunkIndex(a, y, CS - 1) : chunkIndex(a, y, 0);
-      if (ch.blk[i] > 1) return true;
+      var lv = side === 'left' ? volGet(ch.blk, CS - 1, y, a) :
+        side === 'right' ? volGet(ch.blk, 0, y, a) :
+          side === 'front' ? volGet(ch.blk, a, y, CS - 1) : volGet(ch.blk, a, y, 0);
+      if (lv > 1) return true;
     }
     return false;
   }
@@ -436,7 +472,10 @@ window.Voxel = window.Voxel || {};
       if (coreBlkOverlay) { coreBlkOverlay = null; markCoreEdgeMeshes(); }
       return;
     }
-    if (!coreBlkOverlay) coreBlkOverlay = new Uint16Array(W * H * D);
+    if (!coreBlkOverlay) {
+      coreBlkOverlay = Voxel.Sections ? Voxel.Sections.create(W, H, D, 2)
+        : new Uint16Array(W * H * D);
+    } else if (coreBlkOverlay.clear) coreBlkOverlay.clear();
     else coreBlkOverlay.fill(0);
     var buckets = [];
     for (var cz = 0; cz < CORE_CZ; cz++) {
@@ -452,7 +491,7 @@ window.Voxel = window.Voxel || {};
       if (!q) continue;
       for (var qi = 0; qi < q.length; qi++) {
         var i = q[qi];
-        if (coreBlkOverlay[i] !== level) continue;
+        if (volGetI(coreBlkOverlay, i) !== level) continue;
         var z = (i / (W * H)) | 0;
         var rem = i - z * W * H;
         var y = (rem / W) | 0;
@@ -497,7 +536,10 @@ window.Voxel = window.Voxel || {};
       return;
     }
     var buckets = [];
-    for (var c = 0; c < chunks.length; c++) chunks[c].blk.fill(0);
+    for (var c = 0; c < chunks.length; c++) {
+      if (chunks[c].blk.clear) chunks[c].blk.clear();
+      else chunks[c].blk.fill(0);
+    }
 
     // 区域内所有发光方块都是本轮的权威光源（火把/荧光菌伞等）。
     // 优先取 relight 维护的 emit 索引；绝大多数区块没有光源，
@@ -509,19 +551,20 @@ window.Voxel = window.Voxel || {};
       if (em) {
         for (var q = 0; q < em.length; q++) {
           var ii2 = em[q];
-          var level2 = LIGHT2[src.blocks[ii2]];
+          var level2 = LIGHT2[volGetI(src.blocks, ii2)];
           if (!level2) continue;
-          src.blk[ii2] = level2;
+          volSetI(src.blk, ii2, level2);
           if (!buckets[level2]) buckets[level2] = [];
           buckets[level2].push({ ch: src, i: ii2 });
         }
         continue;
       }
       // 兼容回退：无索引的区块（理论上不应出现）按旧逻辑全扫
-      for (var i = 0; i < src.blocks.length; i++) {
-        var level = LIGHT2[src.blocks[i]];
+      var nBlk = src.blocks.length || (CS * H * CS);
+      for (var i = 0; i < nBlk; i++) {
+        var level = LIGHT2[volGetI(src.blocks, i)];
         if (!level) continue;
-        src.blk[i] = level;
+        volSetI(src.blk, i, level);
         if (!buckets[level]) buckets[level] = [];
         buckets[level].push({ ch: src, i: i });
       }
@@ -541,7 +584,7 @@ window.Voxel = window.Voxel || {};
       if (!q) continue;
       for (var qi = 0; qi < q.length; qi++) {
         var node = q[qi], ch2 = node.ch, ii = node.i;
-        if (ch2.blk[ii] !== l) continue;
+        if (volGetI(ch2.blk, ii) !== l) continue;
         var lz = (ii / (CS * H)) | 0;
         var rem = ii - lz * CS * H;
         var y2 = (rem / CS) | 0;
@@ -674,7 +717,7 @@ window.Voxel = window.Voxel || {};
     var k = key(cx, cz);
     var ch = extra[k];
     if (!ch) { ch = newChunk(cx, cz); extra[k] = ch; }
-    ch.blocks = new Uint16Array(blocksBuf);
+    ch.blocks = packBlocks(new Uint16Array(blocksBuf));
     ch.heights = new Int16Array(heightsBuf);
     ch.biomes = new Uint8Array(biomesBuf);
     ch.baseReady = true;
@@ -736,6 +779,7 @@ window.Voxel = window.Voxel || {};
       // Worker 产出的区块已完成装饰；同步路径在此处装饰。
       if (!ch.decorated) {
         gen.decorate(ch.shell);
+        ch.blocks = ch.shell.blocks;
         ch.decorated = true;
       }
       applyChunkEdits(ch);
@@ -873,8 +917,8 @@ window.Voxel = window.Voxel || {};
 
   function hasBoundaryBlockLight(ch) {
     for (var a = 0; a < CS; a++) for (var y = 0; y < H; y++) {
-      if (ch.blk[chunkIndex(0, y, a)] > 1 || ch.blk[chunkIndex(CS - 1, y, a)] > 1 ||
-        ch.blk[chunkIndex(a, y, 0)] > 1 || ch.blk[chunkIndex(a, y, CS - 1)] > 1) return true;
+      if (volGet(ch.blk, 0, y, a) > 1 || volGet(ch.blk, CS - 1, y, a) > 1 ||
+        volGet(ch.blk, a, y, 0) > 1 || volGet(ch.blk, a, y, CS - 1) > 1) return true;
     }
     return false;
   }
@@ -1046,7 +1090,7 @@ window.Voxel = window.Voxel || {};
     if (y >= H) return 0;
     if (!planetMode || inCore(x, z)) return FiniteWorld.get(x, y, z);
     var ch = chunkFor(x, z);
-    if (ch && ch.ready) return ch.blocks[chunkIndex(x - ch.cx * CS, y, z - ch.cz * CS)];
+    if (ch && ch.ready) return volGet(ch.blocks, x - ch.cx * CS, y, z - ch.cz * CS);
     return 12;
   }
 
@@ -1146,7 +1190,9 @@ window.Voxel = window.Voxel || {};
     if (y < 0) return 0;
     if (!planetMode || inCore(x, z)) return FiniteWorld.getSky(x, y, z);
     var ch = chunkAtBlock(x, z);
-    return ch && ch.ready ? ch.sky[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] : 15;
+    if (!ch || !ch.ready) return 15;
+    if (y > ch.contentTop) return 15;
+    return volGet(ch.sky, localCoord(x, CS), y, localCoord(z, CS));
   }
 
   function getBlk(x, y, z) {
@@ -1155,11 +1201,11 @@ window.Voxel = window.Voxel || {};
     if (!planetMode || inCore(x, z)) {
       var base = FiniteWorld.getBlk(x, y, z);
       if (planetMode && coreBlkOverlay && inCore(x, z))
-        base = Math.max(base, coreBlkOverlay[coreLightIndex(x, y, z)]);
+        base = Math.max(base, volGetI(coreBlkOverlay, coreLightIndex(x, y, z)));
       return base;
     }
     var ch = chunkAtBlock(x, z);
-    return ch && ch.ready ? ch.blk[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] : 0;
+    return ch && ch.ready ? volGet(ch.blk, localCoord(x, CS), y, localCoord(z, CS)) : 0;
   }
 
   function applyEdits(ed) {
@@ -1235,7 +1281,10 @@ window.Voxel = window.Voxel || {};
   function buildChunkArrays(cx, cz) {
     if (!planetMode || coreChunk(cx, cz)) return null;
     var ch = extra[key(cx, cz)];
-    return ch && ch.ready ? { blocks: ch.blocks, sky: ch.sky, blk: ch.blk } : null;
+    return ch && ch.ready ? {
+      blocks: ch.blocks, sky: ch.sky, blk: ch.blk,
+      sectioned: true, contentTop: ch.contentTop
+    } : null;
   }
 
   function buildCoreArrays() {
@@ -1400,6 +1449,18 @@ window.Voxel = window.Voxel || {};
       finiteWorld: FiniteWorld,
       chunk: function (cx, cz) { return extra[key(cx, cz)] || null; },
       gen: function () { return gen; },
+      voxelBytes: function () {
+        var extraB = 0, n = 0;
+        for (var k in extra) {
+          var ch = extra[k];
+          extraB += Voxel.Sections.estimateBytes(ch.blocks, CS, H, CS, 2);
+          extraB += Voxel.Sections.estimateBytes(ch.sky, CS, H, CS, 1);
+          extraB += Voxel.Sections.estimateBytes(ch.blk, CS, H, CS, 1);
+          n++;
+        }
+        var core = FiniteWorld.voxelBytes ? FiniteWorld.voxelBytes() : { total: 0 };
+        return { extraChunks: n, extraBytes: extraB, core: core, total: extraB + (core.total || 0) };
+      },
       workerStats: function () {
         return {
           active: wcActive(), failed: wcFailed,

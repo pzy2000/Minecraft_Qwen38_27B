@@ -42,7 +42,7 @@ vm.createContext(sandbox);
 ['js/config.js', 'js/world/seed.js', 'js/world/universe.js', 'js/world/galaxy.js',
  'js/systems/atmosphere_profiles.js', 'js/world/noise.js', 'js/world/biomes.js',
  'js/world/planet_rules.js', 'js/world/shaper.js', 'js/world/structures.js',
- 'js/world/gen_core.js', 'js/blocks.js', 'js/systems/discovery.js', 'js/crafting.js',
+ 'js/world/sections.js', 'js/world/gen_core.js', 'js/blocks.js', 'js/systems/discovery.js', 'js/crafting.js',
  'js/world/world.js', 'js/world/infinite.js'].forEach(load);
 
 var V = sandbox.window.Voxel;
@@ -69,9 +69,12 @@ function FakeWorker(url) {
         } else if (m.type === 'job') {
           var sh = fakeGen.ensureShell(m.cx, m.cz);
           fakeGen.decorate(sh);
+          var CS = V.Config.CHUNK, H = V.Config.WORLD_H;
+          var flat = V.Sections && V.Sections.asFlat
+            ? V.Sections.asFlat(sh.blocks, CS, H, CS) : sh.blocks;
           deliver({
             type: 'chunk', epoch: m.epoch, jobId: m.jobId, cx: m.cx, cz: m.cz,
-            blocks: sh.blocks.slice().buffer,
+            blocks: flat.slice().buffer,
             heights: sh.heights.slice().buffer,
             biomes: sh.biomes.slice().buffer
           });

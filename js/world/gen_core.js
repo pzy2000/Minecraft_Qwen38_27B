@@ -46,6 +46,18 @@ Voxel.GenCore = (function () {
     }
     function chunkIndex(lx, y, lz) { return lx + CS * (y + H * lz); }
     function columnIndex(lx, lz) { return lx + CS * lz; }
+    function bget(s, lx, y, lz) {
+      return Voxel.Sections ? Voxel.Sections.read(s.blocks, lx, y, lz, CS, H)
+        : s.blocks[chunkIndex(lx, y, lz)];
+    }
+    function bset(s, lx, y, lz, id) {
+      if (Voxel.Sections) Voxel.Sections.write(s.blocks, lx, y, lz, id, CS, H);
+      else s.blocks[chunkIndex(lx, y, lz)] = id;
+    }
+    function packShell(s) {
+      if (!Voxel.Sections || !s.blocks || s.blocks.__sections) return;
+      s.blocks = Voxel.Sections.fromFlat(s.blocks, CS, H, CS);
+    }
 
     function newShell(cx, cz) {
       return {
@@ -65,6 +77,8 @@ Voxel.GenCore = (function () {
     function absorbShell(cx, cz, blocks, heights, biomes) {
       var s = store[key(cx, cz)];
       if (s && s.baseReady) return s;
+      if (Voxel.Sections && blocks && !blocks.__sections)
+        blocks = Voxel.Sections.fromFlat(blocks, CS, H, CS);
       s = {
         cx: cx, cz: cz,
         blocks: blocks, heights: heights, biomes: biomes,
@@ -95,9 +109,8 @@ Voxel.GenCore = (function () {
 
     function setIfStone(s, lx, y, lz, id) {
       if (y < 0 || y >= H) return;
-      var i = chunkIndex(lx, y, lz);
-      var old = s.blocks[i];
-      if (old === 3 || old === 8 || old === 9 || (old >= 39 && old <= 44)) s.blocks[i] = id;
+      var old = bget(s, lx, y, lz);
+      if (old === 3 || old === 8 || old === 9 || (old >= 39 && old <= 44)) bset(s, lx, y, lz, id);
     }
 
     function applySurface(s, lx, lz, x, z, top, biome, bd) {
@@ -108,7 +121,7 @@ Voxel.GenCore = (function () {
       var surf = bd.surface, fill = bd.filler;
       if (top <= WATER) {
         surf = patch < 0.45 ? BL.SAND : (patch < 0.75 ? BL.GRAVEL : BL.DIRT);
-        s.blocks[chunkIndex(lx, top, lz)] = surf;
+        bset(s, lx, top, lz, surf);
         for (var d0 = 1; d0 <= 3 && top - d0 > 1; d0++)
           setIfStone(s, lx, top - d0, lz, surf === BL.DIRT ? BL.DIRT : BL.SAND);
         return;
@@ -119,7 +132,7 @@ Voxel.GenCore = (function () {
         surf = BL.SAND; fill = BL.SAND;
       }
       if (bd.gravelPatches && patch < 0.22) { surf = BL.GRAVEL; fill = BL.STONE; }
-      s.blocks[chunkIndex(lx, top, lz)] = surf;
+      bset(s, lx, top, lz, surf);
       for (var d = 1; d <= 3 && top - d > 1; d++) setIfStone(s, lx, top - d, lz, fill);
       if (biome === BI.DESERT)
         for (var yd = Math.max(2, top - 8); yd <= top - 4; yd++) setIfStone(s, lx, yd, lz, 27);
@@ -134,7 +147,7 @@ Voxel.GenCore = (function () {
       }
       var snowLine = (biome === BI.JAGGED_PEAKS || biome === BI.FROZEN_PEAKS) ? 40 : SNOW_LEVEL;
       if (biome !== BI.DESERT && biome !== BI.BADLANDS && top >= snowLine)
-        s.blocks[chunkIndex(lx, top, lz)] = 18;
+        bset(s, lx, top, lz, 18);
     }
 
     function generateBase(s) {
@@ -209,7 +222,7 @@ Voxel.GenCore = (function () {
       if (y < 0) return 12;
       if (y >= H) return 0;
       var s = ensureShell(floorDiv(x, CS), floorDiv(z, CS));
-      return s.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))];
+      return bget(s, localCoord(x, CS), y, localCoord(z, CS));
     }
 
     function inTarget(s, x, z) {
@@ -218,8 +231,8 @@ Voxel.GenCore = (function () {
 
     function decorSet(s, x, y, z, id, airOnly) {
       if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
-      var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
-      if (!airOnly || s.blocks[i] === 0) s.blocks[i] = id;
+      var lx = localCoord(x, CS), lz = localCoord(z, CS);
+      if (!airOnly || bget(s, lx, y, lz) === 0) bset(s, lx, y, lz, id);
     }
 
     function ring(s, x, y, z, radius, id) {
@@ -397,8 +410,9 @@ Voxel.GenCore = (function () {
         if (dx * dx + dz * dz + dy * dy * 1.6 > 3.4) continue;
         var xx = x + dx, yy = h + dy, zz = z + dz;
         if (!inTarget(s, xx, zz) || yy <= 0 || yy >= H) continue;
-        var old = s.blocks[chunkIndex(localCoord(xx, CS), yy, localCoord(zz, CS))];
-        if (old !== 12 && old !== 7) s.blocks[chunkIndex(localCoord(xx, CS), yy, localCoord(zz, CS))] = 25;
+        var olx = localCoord(xx, CS), olz = localCoord(zz, CS);
+        var old = bget(s, olx, yy, olz);
+        if (old !== 12 && old !== 7) bset(s, olx, yy, olz, 25);
       }
     }
 
@@ -407,14 +421,14 @@ Voxel.GenCore = (function () {
       67: true, 68: true, 69: true, 70: true, 71: true };
     function structSet(s, x, y, z, id, mode) {
       if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
-      var i = chunkIndex(localCoord(x, CS), y, localCoord(z, CS));
-      var old = s.blocks[i];
+      var lx = localCoord(x, CS), lz = localCoord(z, CS);
+      var old = bget(s, lx, y, lz);
       if (old === 12) return;                                  // 基岩永远不覆写
       if (STRUCT_KEEP[old] && mode !== 'overwrite') return;
       if (mode === 'air') { if (old !== 0) return; }
       else if (mode === 'overwrite') { /* 仅基岩豁免 */ }
       else if (STRUCT_KEEP[old]) return;
-      s.blocks[i] = id;
+      bset(s, lx, y, lz, id);
     }
 
     // 遗迹/地窖/村落：以 cell 为单位稀疏放置。每个相交区块独立重算同一座结构并按
@@ -518,8 +532,9 @@ Voxel.GenCore = (function () {
       var x0 = s.cx * CS, z0 = s.cz * CS;
       function vistaWriter(x, y, z, id) {
         if (y <= 0 || y >= H || !inTarget(s, x, z)) return;
-        if (VISTA_KEEP[s.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))]]) return;
-        s.blocks[chunkIndex(localCoord(x, CS), y, localCoord(z, CS))] = id;
+        var lx = localCoord(x, CS), lz = localCoord(z, CS);
+        if (VISTA_KEEP[bget(s, lx, y, lz)]) return;
+        bset(s, lx, y, lz, id);
       }
       var VE2 = S.VISTA_EXTENT, VC2 = S.VISTA_CELL;
       var vx0 = floorDiv(x0 - VE2, VC2), vx1 = floorDiv(x0 + CS + VE2, VC2);
@@ -658,6 +673,7 @@ Voxel.GenCore = (function () {
         }
       }
       s.decorated = true;
+      packShell(s);
     }
 
     return {

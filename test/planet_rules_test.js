@@ -5,7 +5,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const sandbox = {
-  window: {}, console, Math, BigInt, Uint8Array, Uint32Array, Int16Array, Float32Array, Set,
+  window: {}, console, Math, BigInt, Uint8Array, Uint16Array, Uint32Array, Int16Array, Float32Array, Set,
   THREE: {
     Vector3: function (x, y, z) { this.x = x || 0; this.y = y || 0; this.z = z || 0; },
     Group: function () { this.children = []; this.parent = null; }
@@ -32,6 +32,7 @@ load('js/world/noise.js');
 load('js/world/biomes.js');
 load('js/world/planet_rules.js');
 load('js/world/shaper.js');
+load('js/world/sections.js');
 load('js/world/gen_core.js');
 load('js/blocks.js');
 load('js/world/world.js');

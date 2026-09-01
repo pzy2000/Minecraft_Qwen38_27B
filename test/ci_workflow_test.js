@@ -44,6 +44,8 @@ const nodeFiles = [
   'test/portal_network_test.js',
   'test/redstone_test.js',
   'test/park_economy_test.js',
+  'test/sections_test.js',
+  'test/voxel_memory_test.js',
   'test/terrain_parity_test.js',
   'test/mesh_golden_test.js',
   'test/ship_flight_test.js',

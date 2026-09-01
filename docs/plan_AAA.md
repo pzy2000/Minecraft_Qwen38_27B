@@ -1709,6 +1709,24 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 - typed 预分配 staging ✅、几何黄金护栏 ✅、最坏帧断言 120→60ms ✅
 - **遗留到后续批次**：5.2 Y 分段 → 5.3 光照异步化（届时把 stream 最坏帧断言再收紧至 20ms 完成阶段 1 门禁）
 
+**批次 4 · 5.2 执行进度（2026-09-01）**：
+
+| 步 | 任务 | 状态 |
+|---|---|---|
+| A | 护栏：`terrain_parity` 扩 toxic/oceanic/nordic + `blocksTop80H`/`blocksY80H`/`blocksAllH`；新增 `sections_test` / `voxel_memory_test`（7 行星、keep 半径体素 ≤ 扁柱 50%） | ✅ 2026-09-01 |
+| B | 16 高 section + 空段 `null`；`get`/`set`/`chunkIndex` 对外语义不变；生成仍写扁数组，decorate 后 `fromFlat`；黄金逐位一致 | ✅ 2026-09-01 |
+| C | `relight` / `relightRegion` 跳过空段，内容顶以上不落盘（`getSky` 回 15）；mesh pad 用 `copyColumn` + 顶上补 15 | ✅ 2026-09-01 |
+| D | 均质段 `{fill}` palette（纯空气=`null` / 纯石=`{fill}`）；`compact` 在 decorate/relight 后收回炸开段 | ✅ 2026-09-01 |
+| E | FiniteWorld 256³ 核心 `packCoreVolumes()`（生成+种树后切段）；存档仍是 edits 账本，v3–v6 冒烟绿 | ✅ 2026-09-01 |
+
+> 实现要点：`js/world/sections.js` 为唯一存储实现。TypedArray 也有 `.fill` 方法，`isFill` 必须用缺省 `BYTES_PER_ELEMENT` 区分均质对象。不要在 `ensureBaseChunk` 上 pack——decorate 会写扁副本，区块会拿到过期 packed store。天光空段语义：内容顶以下空段写 `sky=light` 再 compact；内容顶以上不分配，pad 在 `contentTop+2` 起补 15。
+
+**批次 4 · 5.2 完成总结（2026-09-01）**：
+- Y 分段 + 空段 + 均质 palette ✅；`terrain_parity` 24 shell 绿；`stream_perf` 采样 0 mismatch，worst 48ms（本机 60ms / CI 120ms）
+- 单壳 blocks 打包均值约 112KB / 扁柱 524KB（≤50%）；256³ 核心同样切段
+- **明确未做**：核心远离卸载（plan 写「做完再谈」）、5.3 天光进 Worker / 可中断块光、5.4 LOD
+- **下一批**：5.3 光照异步化 → 再收紧 stream 最坏帧至 20ms；然后 5.4 Chunk LOD
+
 ---
 
 ## 变更记录
@@ -1717,3 +1735,4 @@ Minecraft RTX 保持了 16px 像素风，照样是 3A 级观感 —— **差距�
 |---|---|
 | 2026-08-31 | 初版：四维度审计 + 23 项改进的优先级排序；多人联机列为待决策分叉 |
 | 2026-09-01 | **多人联机决策为方案 A（专门立项）。** 第 9 节从选项分析改写为工程方案（架构、同步策略、分期、风险登记、非目标）；8.1 拆分轴从「按功能」改为「按客户端/服务端」，工作量上调至 40–60 人日；新增 5.6 渲染插值为第一梯队；8.4 增加存档 v7 世界/玩家切分；8.2 调整 TS 迁移顺序以协议类型优先；第 11 节阶段 2 扩展为核心/表现分层并以 MP-0 为验收门，阶段 4 拆为玩法与联机双轨；新增联机专项验收指标 |
+| 2026-09-01 | **批次 4：5.2 Y 分段落地。** `Voxel.Sections`（16 高、空段 null、均质 `{fill}`）；外围/核心/Worker 读写适配；relight 跳空段；存档仍走 edits，v3–v6 兼容。未做 5.3/5.4/核心远离卸载。 |

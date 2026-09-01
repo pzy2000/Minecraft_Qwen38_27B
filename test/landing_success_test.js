@@ -11,12 +11,12 @@ const ROOT = path.join(__dirname, '..');
 function load(rel) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), sandbox, { filename: rel });
 }
-const sandbox = { window: {}, console, Math, BigInt, Uint8Array, Uint32Array, Int16Array, Float32Array };
+const sandbox = { window: {}, console, Math, BigInt, Uint8Array, Uint16Array, Uint32Array, Int16Array, Float32Array };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
 ['js/config.js', 'js/world/seed.js', 'js/world/universe.js', 'js/world/galaxy.js',
   'js/systems/atmosphere_profiles.js', 'js/world/noise.js', 'js/world/biomes.js',
-  'js/world/planet_rules.js', 'js/world/shaper.js', 'js/world/gen_core.js', 'js/blocks.js',
+  'js/world/planet_rules.js', 'js/world/shaper.js', 'js/world/sections.js', 'js/world/gen_core.js', 'js/blocks.js',
   'js/world/world.js', 'js/world/infinite.js',
   'js/systems/ship_flight.js', 'js/systems/landing_assist.js'
 ].forEach(load);

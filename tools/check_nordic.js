@@ -12,7 +12,7 @@ const FILES = [
   'js/config.js', 'js/world/seed.js', 'js/world/universe.js',
   'js/systems/atmosphere_profiles.js', 'js/world/noise.js', 'js/world/biomes.js',
   'js/world/planet_rules.js', 'js/world/shaper.js', 'js/world/structures.js',
-  'js/world/gen_core.js', 'js/blocks.js', 'js/world/world.js', 'js/world/infinite.js'
+  'js/world/sections.js', 'js/world/gen_core.js', 'js/blocks.js', 'js/world/world.js', 'js/world/infinite.js'
 ];
 
 // 与 test/smoke.js 一致：sandbox 自身即 window，脚本里的裸 Voxel 才能解析
