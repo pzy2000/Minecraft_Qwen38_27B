@@ -1,4 +1,5 @@
-// Chunk LOD 回归（plan 5.4）：中/远景顶点数低于全精度，雾距视界 ≥ 512。
+// Chunk LOD 几何回归（plan 5.4）：中/远景降采样后顶点数低于全精度。
+// 远景 impostor 环与 512 雾距已回退（每格一个 Mesh → 920 draw call），此处不再断言视距。
 'use strict';
 var fs = require('fs');
 var path = require('path');
@@ -46,13 +47,10 @@ function check(name, cond) {
   else { console.log('  FAIL ' + name); failed++; }
 }
 
-console.log('LOD 半径与雾距');
-check('LOD_FAR_RADIUS ≥ 16', (V.Config.LOD_FAR_RADIUS || 0) >= 16);
+console.log('网格 Worker 池');
 check('MESH_WORKER_POOL 在 2–4', V.Config.MESH_WORKER_POOL >= 2 && V.Config.MESH_WORKER_POOL <= 4);
 V.World.init(12345);
 while (!V.World.isReady()) V.World.generateNext(64);
-check('fogHorizon ≥ 512', V.World.fogHorizon() >= 512);
-check('lodFarRadius ≥ 16', V.World.lodFarRadius() >= 16);
 
 console.log('LOD 几何降采样');
 V.MeshBuilder._test.bindForTest();

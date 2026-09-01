@@ -18,12 +18,13 @@ Voxel.Light = (function () {
     return id === 7 ? 2 : 1;
   }
 
+  // 直调分段存储闭包，绕开 Sections.read/write 转发层（见 world.js 同名说明）
   function volGet(arr, lx, y, lz) {
-    return Voxel.Sections ? Voxel.Sections.read(arr, lx, y, lz, CS, H) : arr[chunkIndex(lx, y, lz)];
+    return arr.__sections ? arr.get(lx, y, lz) : arr[chunkIndex(lx, y, lz)];
   }
 
   function volSet(arr, lx, y, lz, v) {
-    if (Voxel.Sections) Voxel.Sections.write(arr, lx, y, lz, v, CS, H);
+    if (arr.__sections) arr.set(lx, y, lz, v);
     else arr[chunkIndex(lx, y, lz)] = v;
   }
 

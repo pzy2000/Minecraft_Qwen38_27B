@@ -1293,53 +1293,10 @@ Voxel.MeshBuilder = (function () {
     }
   }
 
-  function emitHeightmap(o, cx, cz, step, heightAt, idAt) {
-    var CS = Voxel.Config.CHUNK;
-    var x0 = cx * CS, z0 = cz * CS;
-    var n = (CS / step) | 0;
-    var cols = [];
-    for (var iz = 0; iz < n; iz++) {
-      cols[iz] = [];
-      for (var ix = 0; ix < n; ix++) {
-        var wx = x0 + ix * step + (step >> 1), wz = z0 + iz * step + (step >> 1);
-        var hy = heightAt(wx, wz);
-        var id = idAt ? idAt(wx, wz) : 1;
-        cols[iz][ix] = { y: hy | 0, id: id | 0 };
-      }
-    }
-    B = B || Voxel.Blocks;
-    for (var iz2 = 0; iz2 < n; iz2++) for (var ix2 = 0; ix2 < n; ix2++) {
-      var c = cols[iz2][ix2];
-      if (c.y < 0) continue;
-      var x = x0 + ix2 * step, z = z0 + iz2 * step, y = c.y, s = step;
-      var def = B.defs[c.id];
-      var tile = def ? B.tileForFace(c.id, 2) : 0;
-      var sideTile = def ? B.tileForFace(c.id, 0) : tile;
-      emitLodQuad(o, x, y + 1, z, x + s, y + 1, z, x + s, y + 1, z + s, x, y + 1, z + s, 0, 1, 0, tile, 1, 1);
-      var nb;
-      nb = iz2 + 1 < n ? cols[iz2 + 1][ix2].y : y;
-      if (nb < y) emitLodQuad(o, x, nb + 1, z + s, x + s, nb + 1, z + s, x + s, y + 1, z + s, x, y + 1, z + s, 0, 0, 1, sideTile, 0.85, 1);
-      nb = iz2 - 1 >= 0 ? cols[iz2 - 1][ix2].y : y;
-      if (nb < y) emitLodQuad(o, x + s, nb + 1, z, x, nb + 1, z, x, y + 1, z, x + s, y + 1, z, 0, 0, -1, sideTile, 0.85, 1);
-      nb = ix2 + 1 < n ? cols[iz2][ix2 + 1].y : y;
-      if (nb < y) emitLodQuad(o, x + s, nb + 1, z + s, x + s, nb + 1, z, x + s, y + 1, z, x + s, y + 1, z + s, 1, 0, 0, sideTile, 0.7, 1);
-      nb = ix2 - 1 >= 0 ? cols[iz2][ix2 - 1].y : y;
-      if (nb < y) emitLodQuad(o, x, nb + 1, z, x, nb + 1, z + s, x, y + 1, z + s, x, y + 1, z, -1, 0, 0, sideTile, 0.7, 1);
-    }
-  }
-
-
 
   function build(cx, cz, lod) {
     var r = buildArrays(cx, cz, lod ? { lod: lod } : null);
     return { opaque: makeGeo(r.o), water: makeGeo(r.w), foliage: makeGeo(r.fl) };
-  }
-
-  function buildFarHeightmap(cx, cz, heightAt, idAt) {
-    var o = mkStage();
-    B = Voxel.Blocks;
-    emitHeightmap(o, cx, cz, 4, heightAt, idAt);
-    return { opaque: makeGeo(toViews(o)), water: null, foliage: null };
   }
 
   function aboveWaterOf(x, y, z) {
@@ -1356,7 +1313,6 @@ Voxel.MeshBuilder = (function () {
   return {
     init: init,
     build: build,
-    buildFarHeightmap: buildFarHeightmap,
     opaqueMat: function () { return opaqueMat; },
     waterMat: function () { return waterMat; },
     foliageMat: function () { return foliageMat; },

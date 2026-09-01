@@ -23,8 +23,6 @@ window.Voxel = window.Voxel || {};
   var RENDER_RADIUS = BASE_RENDER_RADIUS;
   var DATA_RADIUS = Math.max(RENDER_RADIUS + 1, (CFG.STREAM_DATA_RADIUS || (RENDER_RADIUS + 1)) | 0);
   var KEEP_RADIUS = Math.max(DATA_RADIUS + 1, (CFG.STREAM_KEEP_RADIUS || (DATA_RADIUS + 2)) | 0);
-  var LOD_MID_RADIUS = Math.max(DATA_RADIUS, (CFG.LOD_MID_RADIUS || 12) | 0);
-  var LOD_FAR_RADIUS = Math.max(LOD_MID_RADIUS, (CFG.LOD_FAR_RADIUS || 16) | 0);
 
   // 远景主题（北欧峡湾的雾中礁岛群在 140+ 格外）需要更大的工作集，否则远景
   // 永远落在雾尾之外。半径是运行时可调的：切换天体/画质档位时重新下发，
@@ -121,7 +119,7 @@ window.Voxel = window.Voxel || {};
       mwInflight++;
       worker.postMessage({
         type: 'build', cx: snap.cx, cz: snap.cz, yTop: snap.yTop, snap: snap,
-        jobId: snap.jobId, lod: ch.lod || 0
+        jobId: snap.jobId
       }, [snap.b.buffer, snap.s.buffer, snap.p.buffer]);
       return true;
     } catch (e) {
@@ -169,12 +167,12 @@ window.Voxel = window.Voxel || {};
       ch.mesh = new THREE.Mesh(res.opaque, Voxel.MeshBuilder.opaqueMat());
       extraGroup.add(ch.mesh);
     }
-    if (res.water && !ch.lod) {
+    if (res.water) {
       ch.wmesh = new THREE.Mesh(res.water, Voxel.MeshBuilder.waterMat());
       ch.wmesh.renderOrder = 2;
       extraGroup.add(ch.wmesh);
     }
-    if (res.foliage && !ch.lod) {
+    if (res.foliage) {
       ch.fmesh = new THREE.Mesh(res.foliage, Voxel.MeshBuilder.foliageMat());
       extraGroup.add(ch.fmesh);
       if (Voxel.Shadow) Voxel.Shadow.addCaster(ch.fmesh);
@@ -186,7 +184,6 @@ window.Voxel = window.Voxel || {};
   var pendingRelight = [];               // 卸载/生成触发的跨区块重光，延迟到 stream() 预算内消化
   var pendingRelightSet = Object.create(null);
   var extraGroup = null, extraScene = null;
-  var farGroup = null, farMeshes = Object.create(null), farQueue = [];
   var focus = { x: W / 2, z: D / 2, cx: null, cz: null };
 
   function perfNow() {
@@ -206,11 +203,12 @@ window.Voxel = window.Voxel || {};
   function chunkIndex(lx, y, lz) { return lx + CS * (y + H * lz); }
   function columnIndex(lx, lz) { return lx + CS * lz; }
   var SEC_H = (Voxel.Sections && Voxel.Sections.HEIGHT) || 16;
+  // 直调分段存储闭包，绕开 Sections.read/write 转发层（见 world.js 同名说明）
   function volGet(arr, lx, y, lz) {
-    return Voxel.Sections ? Voxel.Sections.read(arr, lx, y, lz, CS, H) : arr[chunkIndex(lx, y, lz)];
+    return arr.__sections ? arr.get(lx, y, lz) : arr[chunkIndex(lx, y, lz)];
   }
   function volSet(arr, lx, y, lz, v) {
-    if (Voxel.Sections) Voxel.Sections.write(arr, lx, y, lz, v, CS, H);
+    if (arr.__sections) arr.set(lx, y, lz, v);
     else arr[chunkIndex(lx, y, lz)] = v;
   }
   function volGetI(arr, i) {
@@ -805,17 +803,9 @@ window.Voxel = window.Voxel || {};
     return n;
   }
 
-  function chunkLod(cx, cz) {
-    var d = Math.max(Math.abs(cx - floorDiv(focus.x, CS)), Math.abs(cz - floorDiv(focus.z, CS)));
-    if (d <= RENDER_RADIUS) return 0;
-    return 1;
-  }
-
   function queueMesh(cx, cz) {
     var k = key(cx, cz), ch = extra[k];
     if (!ch || !ch.ready || meshQueued[k]) return;
-    var nextLod = chunkLod(cx, cz);
-    if (ch.lod !== nextLod) { ch.lod = nextLod; ch.meshed = false; }
     ch.dirty = true;
     // 版本号随每次入队递增：在途的旧网格产物落地时据此丢弃
     ch.meshRev = (ch.meshRev || 0) + 1;
@@ -904,10 +894,9 @@ window.Voxel = window.Voxel || {};
     wcQueue = wq;
     for (var k in extra) {
       var ch = extra[k];
-      if (Math.abs(ch.cx - cx0) <= DATA_RADIUS && Math.abs(ch.cz - cz0) <= DATA_RADIUS)
+      if (Math.abs(ch.cx - cx0) <= RENDER_RADIUS && Math.abs(ch.cz - cz0) <= RENDER_RADIUS)
         queueMesh(ch.cx, ch.cz);
     }
-    enqueueFarRing(cx0, cz0);
     unloadOutside(cx0, cz0, KEEP_RADIUS);
   }
 
@@ -1025,67 +1014,7 @@ window.Voxel = window.Voxel || {};
   function ensureMeshGroup(scene) {
     if (!extraGroup) extraGroup = new THREE.Group();
     if (extraGroup.parent !== scene) scene.add(extraGroup);
-    if (!farGroup) farGroup = new THREE.Group();
-    if (farGroup.parent !== scene) scene.add(farGroup);
     extraScene = scene;
-  }
-
-  function disposeFarMesh(k) {
-    var m = farMeshes[k];
-    if (!m) return;
-    if (farGroup) farGroup.remove(m);
-    if (m.geometry) m.geometry.dispose();
-    delete farMeshes[k];
-  }
-
-  function enqueueFarRing(cx0, cz0) {
-    var wanted = Object.create(null);
-    var nq = [];
-    for (var dx = -LOD_FAR_RADIUS; dx <= LOD_FAR_RADIUS; dx++)
-      for (var dz = -LOD_FAR_RADIUS; dz <= LOD_FAR_RADIUS; dz++) {
-        var d = Math.max(Math.abs(dx), Math.abs(dz));
-        if (d <= DATA_RADIUS || d > LOD_FAR_RADIUS) continue;
-        var cx = cx0 + dx, cz = cz0 + dz;
-        if (coreChunk(cx, cz)) continue;
-        var k = key(cx, cz);
-        wanted[k] = true;
-        if (!farMeshes[k]) nq.push({ k: k, cx: cx, cz: cz, d: d });
-      }
-    for (var fk in farMeshes) if (!wanted[fk]) disposeFarMesh(fk);
-    nq.sort(function (a, b) { return a.d - b.d; });
-    farQueue = nq;
-  }
-
-  function farHeightAt(wx, wz) {
-    if (FiniteWorld.predictedHeightAt) return FiniteWorld.predictedHeightAt(wx, wz);
-    return WATER;
-  }
-
-  function farIdAt(wx, wz) {
-    var y = farHeightAt(wx, wz);
-    if (y < WATER) return 7;
-    if (y >= SNOW_LEVEL) return 13;
-    return 2;
-  }
-
-  function buildFarMeshes(n, scene) {
-    if (!planetMode || !Voxel.MeshBuilder || !Voxel.MeshBuilder.buildFarHeightmap || !scene) return 0;
-    if (typeof THREE === 'undefined') return 0;
-    ensureMeshGroup(scene);
-    var built = 0;
-    n = Math.max(1, n | 0) * 4;
-    while (n-- > 0 && farQueue.length) {
-      var job = farQueue.shift();
-      if (farMeshes[job.k] || extra[job.k]) continue;
-      var res = Voxel.MeshBuilder.buildFarHeightmap(job.cx, job.cz, farHeightAt, farIdAt);
-      if (res && res.opaque) {
-        var mesh = new THREE.Mesh(res.opaque, Voxel.MeshBuilder.opaqueMat());
-        farGroup.add(mesh);
-        farMeshes[job.k] = mesh;
-        built++;
-      }
-    }
-    return built;
   }
 
   function buildExtraMeshes(n, scene) {
@@ -1096,7 +1025,7 @@ window.Voxel = window.Voxel || {};
       var best = -1, bestD = Infinity;
       for (var i = 0; i < meshQueue.length; i++) {
         var c = extra[meshQueue[i]];
-        if (!c || Math.abs(c.cx - cx0) > DATA_RADIUS || Math.abs(c.cz - cz0) > DATA_RADIUS) continue;
+        if (!c || Math.abs(c.cx - cx0) > RENDER_RADIUS || Math.abs(c.cz - cz0) > RENDER_RADIUS) continue;
         var d = (c.cx - cx0) * (c.cx - cx0) + (c.cz - cz0) * (c.cz - cz0);
         if (d < bestD) { bestD = d; best = i; }
       }
@@ -1113,7 +1042,7 @@ window.Voxel = window.Voxel || {};
       // 留给下一轮队列自然消化（此时 rev 已被 bump，旧产物不会被误装）
       if (meshQueued[k]) { built--; continue; }
       disposeChunkMesh(ch);
-      applyChunkGeometry(ch, Voxel.MeshBuilder.build(ch.cx, ch.cz, ch.lod || 0));
+      applyChunkGeometry(ch, Voxel.MeshBuilder.build(ch.cx, ch.cz));
     }
     return built;
   }
@@ -1175,8 +1104,7 @@ window.Voxel = window.Voxel || {};
     coreBlkOverlay = null;
     genQueue = []; genQueued = Object.create(null);
     meshQueue = []; meshQueued = Object.create(null);
-    extraGroup = null; farGroup = null; extraScene = null;
-    farQueue = []; farMeshes = Object.create(null);
+    extraGroup = null; extraScene = null;
     focus.x = W / 2; focus.z = D / 2; focus.cx = null; focus.cz = null;
   }
 
@@ -1304,7 +1232,9 @@ window.Voxel = window.Voxel || {};
     if (!planetMode || inCore(x, z)) return FiniteWorld.surfaceAt(x, z);
     var ch = chunkAtBlock(x, z);
     if (!ch || !ch.ready) ch = ensureChunk(floorDiv(x, CS), floorDiv(z, CS));
-    for (var y = H - 1; y >= 0; y--)
+    // 自内容封顶起扫：contentTop 与 colTop 同一「只升不降」契约，其上恒为空气。
+    var y0 = ch && ch.contentTop != null ? Math.min(H - 1, ch.contentTop) : H - 1;
+    for (var y = y0; y >= 0; y--)
       if (Voxel.Blocks.isSolid(getFromChunk(ch, x, y, z))) return y;
     return -1;
   }
@@ -1461,7 +1391,6 @@ window.Voxel = window.Voxel || {};
         case 2: m1 = canMesh ? (FiniteWorld.buildMeshes(1, scene) || 0) : 0; step = m1; break;
         default:
           m2 = canMesh ? (buildExtraMeshes(1, scene) || 0) : 0;
-          if (!m2 && canMesh) m2 = buildFarMeshes(1, scene) || 0;
           step = m2;
           break;
       }
@@ -1479,11 +1408,8 @@ window.Voxel = window.Voxel || {};
   function clearMeshes(scene) {
     FiniteWorld.clearMeshes(scene);
     for (var k in extra) disposeChunkMesh(extra[k]);
-    for (var fk in farMeshes) disposeFarMesh(fk);
     if (extraGroup && extraGroup.parent) extraGroup.parent.remove(extraGroup);
-    if (farGroup && farGroup.parent) farGroup.parent.remove(farGroup);
-    extraGroup = null; farGroup = null; extraScene = null;
-    farQueue = []; farMeshes = Object.create(null);
+    extraGroup = null; extraScene = null;
   }
 
   function isChunkLoaded(cx, cz) {
@@ -1509,7 +1435,6 @@ window.Voxel = window.Voxel || {};
     return {
       loaded: loaded, queued: genQueue.length, meshed: meshed,
       renderRadius: RENDER_RADIUS, dataRadius: DATA_RADIUS, keepRadius: KEEP_RADIUS,
-      lodFarRadius: LOD_FAR_RADIUS, farQueued: farQueue.length, farMeshed: Object.keys(farMeshes).length,
       // loaded/meshed 只统计外围稀疏区块；legacy core 的 64 个固定区块不计入。
       coreChunks: CORE_CX * CORE_CZ, planet: planetMode
     };
@@ -1537,8 +1462,6 @@ window.Voxel = window.Voxel || {};
     setFocus: setFocus,
     setRenderRadius: setRenderRadius,
     renderRadius: function () { return RENDER_RADIUS; },
-    lodFarRadius: function () { return LOD_FAR_RADIUS; },
-    fogHorizon: function () { return LOD_FAR_RADIUS * CS; },
     focusMeshed: focusMeshed,
     meshCount: function () { return FiniteWorld.meshCount() + (extraGroup ? extraGroup.children.length : 0); },
     buildMeshes: buildMeshes,

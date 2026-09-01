@@ -17,6 +17,9 @@ Voxel.MiniMap = (function () {
   var lastDrawAt = -1e9;
   var lastPx = NaN, lastPz = NaN, lastYaw = NaN, lastZoom = NaN;
   var infoKey = '';
+  // 地形层离屏缓存：地形采样是每像素一次 surfaceAt（Retina 下近 9 万次），
+  // 只能在玩家真的移动/转向/缩放时重算。标记层（飞船脉冲等）每帧贴图后另画。
+  var terrainCanvas = null, terrainValid = false, terrainAt = -1e9;
 
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
@@ -69,6 +72,9 @@ Voxel.MiniMap = (function () {
     var data = imgData.data;
     var surfGet = Voxel.World.surfaceAt, blkGet = Voxel.World.get;
 
+    // 相邻像素常落在同一方块柱上（zoom 3 + dpr 2 时同一柱要覆盖 36 个像素），
+    // 记住上一柱的结果即可省掉绝大部分 surfaceAt。
+    var memoX = 0x7fffffff, memoZ = 0x7fffffff, memoR = 0, memoG = 0, memoB = 0;
     for (var sy = 0; sy < size; sy++) {
       var b = -(sy - half) / scale;   // forward 分量
       var wxB_x = b * fx, wxB_z = b * fz;
@@ -77,6 +83,11 @@ Voxel.MiniMap = (function () {
         var wx = px + a * rx + wxB_x;
         var wz = pz + a * rz + wxB_z;
         var xi = Math.floor(wx), zi = Math.floor(wz);
+        var o = (sy * size + sx) * 4;
+        if (xi === memoX && zi === memoZ) {
+          data[o] = memoR; data[o + 1] = memoG; data[o + 2] = memoB; data[o + 3] = 255;
+          continue;
+        }
         var col = [26, 30, 36];
         var shade = 0.82;
         try {
@@ -88,11 +99,11 @@ Voxel.MiniMap = (function () {
           shade = 0.78 + rel * 0.009;
           if (!Voxel.Blocks.isSolid(id)) shade *= 0.92; // 水面略压暗
         } catch (e) { /* 未加载区块：保留背景色 */ }
-        var o = (sy * size + sx) * 4;
-        data[o] = Math.min(255, col[0] * shade);
-        data[o + 1] = Math.min(255, col[1] * shade);
-        data[o + 2] = Math.min(255, col[2] * shade);
-        data[o + 3] = 255;
+        memoX = xi; memoZ = zi;
+        memoR = Math.min(255, col[0] * shade);
+        memoG = Math.min(255, col[1] * shade);
+        memoB = Math.min(255, col[2] * shade);
+        data[o] = memoR; data[o + 1] = memoG; data[o + 2] = memoB; data[o + 3] = 255;
       }
     }
     ctx.putImageData(imgData, 0, 0);
@@ -166,7 +177,8 @@ Voxel.MiniMap = (function () {
     };
   }
 
-  function redraw(nowMs) {
+  // refreshTerrain=false 时复用离屏地形层，只重画标记（飞船脉冲等动画走这条路）。
+  function redraw(nowMs, refreshTerrain) {
     if (!canvas) return;
     var p = playerPos();
     if (!p || !Voxel.World || !Voxel.World.surfaceAt || !Voxel.World.get) return;
@@ -178,19 +190,31 @@ Voxel.MiniMap = (function () {
     if (canvas.height !== size) canvas.height = size;
     var scale = ZOOMS[zoomIndex] * dpr;
 
+    if (!terrainCanvas) terrainCanvas = document.createElement('canvas');
+    if (terrainCanvas.width !== size || terrainCanvas.height !== size) {
+      terrainCanvas.width = size; terrainCanvas.height = size;
+      terrainValid = false;
+    }
+    if (refreshTerrain !== false || !terrainValid) {
+      var tctx = terrainCanvas.getContext('2d');
+      var imgData = tctx.getImageData(0, 0, size, size);
+      drawTerrain(tctx, size, scale, p.x, p.z, yaw, imgData);
+      terrainValid = true;
+      terrainAt = nowMs;
+      lastPx = p.x; lastPz = p.z; lastYaw = yaw; lastZoom = zoomIndex;
+    }
+
     ctx.clearRect(0, 0, size, size);
     ctx.save();
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
     ctx.clip();
 
-    var imgData = ctx.getImageData(0, 0, size, size);
-    drawTerrain(ctx, size, scale, p.x, p.z, yaw, imgData);
+    ctx.drawImage(terrainCanvas, 0, 0);
     drawMarkers(size, scale, p.x, p.y, p.z, yaw, nowMs / 1000);
 
     ctx.restore();
     lastDrawAt = nowMs;
-    lastPx = p.x; lastPz = p.z; lastYaw = playerYaw(); lastZoom = zoomIndex;
   }
 
   // ---------- 信息条 ----------
@@ -310,17 +334,20 @@ Voxel.MiniMap = (function () {
     if (rootEl.style.display !== '') rootEl.style.display = '';
     var p = playerPos();
     if (!p) return;
-    if (!isFinite(lastPx)) { redraw(nowMs); refreshInfo(p); return; }
+    if (!isFinite(lastPx)) { redraw(nowMs, true); refreshInfo(p); return; }
     var moved =
       Math.abs(p.x - lastPx) >= MOVE_EPS || Math.abs(p.z - lastPz) >= MOVE_EPS;
     var yawDelta = Math.abs(
       ((playerYaw() - lastYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
     turned = yawDelta > YAW_EPS;
-    // 静止低频重绘；召唤进行中提高脉冲帧率让飞船标记呼吸。
-    var due = zoomIndex !== lastZoom || moved || turned ||
-      nowMs - lastDrawAt >= REDRAW_INTERVAL ||
+    // 地形层：每像素一次 surfaceAt，只在玩家真的移动/转向/缩放时重采样，
+    // 且仍受 REDRAW_INTERVAL 节流——连续走动时不能每帧都重扫一遍地表。
+    var terrainDue = (zoomIndex !== lastZoom) ||
+      ((moved || turned) && nowMs - terrainAt >= REDRAW_INTERVAL);
+    // 标记层：只是贴图 + 几个三角形，召唤进行中按脉冲帧率刷新飞船位置。
+    var markersDue = terrainDue || nowMs - lastDrawAt >= REDRAW_INTERVAL ||
       (summonActive() && nowMs - lastDrawAt > 100);
-    if (due) redraw(nowMs);
+    if (markersDue) redraw(nowMs, terrainDue);
     refreshInfo(p);
   }
 

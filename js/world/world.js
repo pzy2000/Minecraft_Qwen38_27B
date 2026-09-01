@@ -91,23 +91,30 @@ Voxel.World = (function () {
     rz0 = Math.max(0, rz0); rz1 = Math.min(D - 1, rz1);
     var skyQ = [], blkQ = [];
 
-    // 清空区域：分段存储走 clear 范围内的 set；扁数组仍按列擦除。
-    for (var x = rx0; x <= rx1; x++)
-      for (var z = rz0; z <= rz1; z++) {
-        for (var y = 0; y < H; y++) {
-          lset(skyL, x, y, z, 0);
-          lset(blkL, x, y, z, 0);
+    // 清空区域：分段存储按段批量写零（段内 x 连续 → TypedArray.fill）；
+    // 逐格 set 在此处是体积级调用（全图 256³×2 通道 = 3350 万次），必须走批量口。
+    if (skyL && skyL.fillBox) {
+      skyL.fillBox(rx0, rx1, 0, H - 1, rz0, rz1, 0);
+      blkL.fillBox(rx0, rx1, 0, H - 1, rz0, rz1, 0);
+    } else {
+      for (var x = rx0; x <= rx1; x++)
+        for (var z = rz0; z <= rz1; z++) {
+          for (var y = 0; y < H; y++) {
+            lset(skyL, x, y, z, 0);
+            lset(blkL, x, y, z, 0);
+          }
         }
-      }
+    }
 
     // 天光：列扫描自顶向下。内容顶以上不落盘（getSky 直接回 15）。
     // 空方块段按列一次性写 sky=当前 light，跳过逐格扫描。
+    // 区域刚被清零，写 0 是冗余的：l 只减不增，一旦归零整列剩余部分即可收尾。
     for (var x2 = rx0; x2 <= rx1; x2++)
       for (var z2 = rz0; z2 <= rz1; z2++) {
         var ct = colTop[x2 + W * z2];
         var l = 15;
         var topSec = (ct / SEC_H) | 0;
-        for (var si = topSec; si >= 0; si--) {
+        for (var si = topSec; si >= 0 && l > 0; si--) {
           var yHi = Math.min(ct, si * SEC_H + SEC_H - 1);
           var yLo = si * SEC_H;
           var empty = data && data.sectionEmpty && data.sectionEmpty(si);
@@ -117,8 +124,9 @@ Voxel.World = (function () {
           }
           for (var y2 = yHi; y2 >= yLo; y2--) {
             var id = dget(x2, y2, z2);
-            if (opq(id)) l = 0;
-            else if (id === 7 && l > 0) l = Math.max(0, l - 2);
+            if (opq(id)) { l = 0; break; }
+            if (id === 7) l = Math.max(0, l - 2);
+            if (l <= 0) break;
             lset(skyL, x2, y2, z2, l);
           }
         }
@@ -233,18 +241,21 @@ Voxel.World = (function () {
 
   function idx(x, y, z) { return x + W * (y + H * z); }
   var SEC_H = (Voxel.Sections && Voxel.Sections.HEIGHT) || 16;
+  // 体素读写是全局最热的路径（一次重光要跑上千万次）。绕开
+  // Sections.read/write 这层转发，直接调分段存储自己的闭包：
+  // 每格从「三次调用 + 三次属性查找」降到一次单态调用。
   function dget(x, y, z) {
-    return Voxel.Sections ? Voxel.Sections.read(data, x, y, z, W, H) : data[idx(x, y, z)];
+    return data.__sections ? data.get(x, y, z) : data[idx(x, y, z)];
   }
   function dset(x, y, z, v) {
-    if (Voxel.Sections) Voxel.Sections.write(data, x, y, z, v, W, H);
+    if (data.__sections) data.set(x, y, z, v);
     else data[idx(x, y, z)] = v;
   }
   function lget(arr, x, y, z) {
-    return Voxel.Sections ? Voxel.Sections.read(arr, x, y, z, W, H) : arr[idx(x, y, z)];
+    return arr.__sections ? arr.get(x, y, z) : arr[idx(x, y, z)];
   }
   function lset(arr, x, y, z, v) {
-    if (Voxel.Sections) Voxel.Sections.write(arr, x, y, z, v, W, H);
+    if (arr.__sections) arr.set(x, y, z, v);
     else arr[idx(x, y, z)] = v;
   }
   function lgetI(arr, i) {
@@ -906,9 +917,12 @@ Voxel.World = (function () {
     return true;
   }
 
+  // 自内容封顶起扫。colTop 是「只升不降」的每列非空气上界，从 H-1 起扫等于
+  // 白白空转一百多格——而着陆点搜索一帧要调它上万次。
   function surfaceAt(x, z) {
     if (x < 0 || x >= W || z < 0 || z >= D) return -1;
-    for (var y = H - 1; y >= 0; y--)
+    var y0 = colTop ? Math.min(H - 1, colTop[x + W * z]) : H - 1;
+    for (var y = y0; y >= 0; y--)
       if (Voxel.Blocks.isSolid(get(x, y, z))) return y;
     return -1;
   }

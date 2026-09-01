@@ -46,13 +46,15 @@ Voxel.GenCore = (function () {
     }
     function chunkIndex(lx, y, lz) { return lx + CS * (y + H * lz); }
     function columnIndex(lx, lz) { return lx + CS * lz; }
+    // 直调分段存储闭包，绕开 Sections.read/write 转发层（见 world.js 同名说明）
     function bget(s, lx, y, lz) {
-      return Voxel.Sections ? Voxel.Sections.read(s.blocks, lx, y, lz, CS, H)
-        : s.blocks[chunkIndex(lx, y, lz)];
+      var b = s.blocks;
+      return b.__sections ? b.get(lx, y, lz) : b[chunkIndex(lx, y, lz)];
     }
     function bset(s, lx, y, lz, id) {
-      if (Voxel.Sections) Voxel.Sections.write(s.blocks, lx, y, lz, id, CS, H);
-      else s.blocks[chunkIndex(lx, y, lz)] = id;
+      var b = s.blocks;
+      if (b.__sections) b.set(lx, y, lz, id);
+      else b[chunkIndex(lx, y, lz)] = id;
     }
     function packShell(s) {
       if (!Voxel.Sections || !s.blocks || s.blocks.__sections) return;
